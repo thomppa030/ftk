@@ -20,9 +20,7 @@ struct RenderStats {
     uint32_t lod2_draws{0};
     uint32_t distance_culled{0};
 
-    // Ray-traced GI: culled draws kept for the acceleration structure, and
-    // instances in the structures built this frame.
-    uint32_t gi_only_draws{0};
+    // Instances in the ray tracing acceleration structures built this frame.
     uint32_t tlas_instances{0};
 
     // Terrain patches dispatched to the task shader for the camera view, and
@@ -45,7 +43,6 @@ struct RenderStats {
         lod1_draws = 0;
         lod2_draws = 0;
         distance_culled = 0;
-        gi_only_draws = 0;
         tlas_instances = 0;
         terrain_patches_dispatched = 0;
         terrain_triangles_max = 0;

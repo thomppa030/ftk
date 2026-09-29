@@ -20,6 +20,70 @@
 
 namespace fjell {
 
+namespace {
+
+// Whether a material draws see-through: a pass of its own, sorted by depth.
+bool is_transparent(const Material& material) {
+    return material.force_transparent() || material.params().base_color_factor.w < 1.0f;
+}
+
+// A mesh whose submeshes use different materials becomes one command per
+// distinct slot, since pipeline and material id are per command. `seen` is
+// scratch for the de-duplication: slot indices are few, so a linear scan over
+// a vector does it cheaper than a set.
+template <typename Sink>
+void for_each_slot_command(const MeshComponent& mesh, const DrawCommand& dc, uint32_t node_id,
+                           std::vector<uint32_t>& seen, Sink&& sink) {
+    const auto& entry_slots = mesh.model->entry_material_slots();
+    if (mesh.slot_materials.empty() || entry_slots.empty()) {
+        sink(dc);
+        return;
+    }
+    seen.clear();
+    for (uint32_t slot : entry_slots) {
+        if (std::find(seen.begin(), seen.end(), slot) != seen.end()) continue;
+        seen.push_back(slot);
+
+        auto* slot_mat = mesh.material_for_slot(slot);
+        if (!slot_mat) continue;
+
+        DrawCommand sub = dc;
+        sub.material_slot = slot;
+        sub.push.material_id = mesh.resolved_material_id(slot);
+        sub.pipeline_id = slot_mat->pipeline_id();
+        sub.transparent = is_transparent(*slot_mat);
+        sub.sort_key = RenderQueue::make_sort_key(sub.pipeline_id, sub.push.material_id, node_id);
+        sink(sub);
+    }
+}
+
+// A static mesh's command before any per-slot split.
+DrawCommand mesh_command(const Node& obj, const Node3D& spatial, const MeshComponent& mesh) {
+    DrawCommand dc{};
+    dc.world_matrix = spatial.world_matrix_;
+    dc.prev_world_matrix = spatial.prev_world_matrix_;
+    dc.push.model = spatial.world_matrix_;
+    if (mesh.material) {
+        const uint32_t mid = mesh.resolved_material_id();
+        dc.push.material_id = mid;
+        dc.pipeline_id = mesh.material->pipeline_id();
+        dc.sort_key = RenderQueue::make_sort_key(dc.pipeline_id, mid, obj.id);
+        dc.transparent = is_transparent(*mesh.material);
+    }
+    dc.model = mesh.model;
+    dc.node_id = obj.id;
+
+    dc.world_aabb = mesh.model->local_aabb().transform(spatial.world_matrix_);
+    if (mesh.material && mesh.material->aabb_padding() > 0.0f) {
+        float p = mesh.material->aabb_padding();
+        dc.world_aabb.min -= glm::vec3(p);
+        dc.world_aabb.max += glm::vec3(p);
+    }
+    return dc;
+}
+
+} // namespace
+
 void SceneGatherer::init(GpuContext& gpu) {
     gpu::Device& device = gpu.core().gpu_device();
     indirect_batch_ = std::make_unique<IndirectBatch>(device);
@@ -45,16 +109,6 @@ void SceneGatherer::gather(const GatherInput& input) {
         render_queue_.clear();
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
-        // Opaque geometry the camera cannot see still has to be in the GI
-        // acceleration structure when rays can reach it: they leave from
-        // on-screen probes and reflecting surfaces but hit wherever the
-        // geometry is, exactly as off-screen casters still have to be in
-        // the shadow cascades. That covers both what lights the scene from
-        // off screen and what blocks that light.
-        auto in_gi_reach = [&input](const DrawCommand& dc) {
-            return input.gi_reach && input.gi_reach->intersects(dc.world_aabb);
-        };
-
         // Build per-cascade shadow caster frustums from light matrices.
         // Near plane removed so objects behind the cascade (toward the light)
         // are included — they may cast shadows into the visible area.
@@ -64,38 +118,19 @@ void SceneGatherer::gather(const GatherInput& input) {
                 input.shadow_pass->light_matrices()[c]).without_near_plane();
         }
 
-        // The nodes something could draw: those carrying an instance
-        // provider's component, a skeletal mesh or a mesh, each once and
-        // sprites left out. A node with several of them is listed under the
-        // first, which is also the order the loop below tries them in.
+        collect_candidates(*input.scene);
         const auto& providers = InstanceProviderRegistry::instance().providers();
-        drawable_types_.clear();
-        for (const auto& provider : providers) drawable_types_.push_back(provider.component);
-        drawable_types_.push_back(component_type_id<SkeletalMeshComponent>());
-        drawable_types_.push_back(component_type_id<MeshComponent>());
-        candidates_.clear();
-        for (std::size_t k = 0; k < drawable_types_.size(); ++k) {
-            input.scene->each_holder(drawable_types_[k], [&](Node& node) {
-                if (node.components.has<SpriteComponent>()) return;
-                for (std::size_t j = 0; j < k; ++j) {
-                    if (node.components.get_by_id(drawable_types_[j]) != nullptr) return;
-                }
-                candidates_.push_back(&node);
-            });
-        }
         render_queue_.reserve(candidates_.size());
         auto object_count = static_cast<uint32_t>(candidates_.size());
 
         uint32_t num_chunks = input.pool->thread_count() + 1;
         local_commands_.resize(num_chunks);
-        local_gi_commands_.resize(num_chunks);
         local_shadow_commands_.resize(num_chunks);
         local_slot_scratch_.resize(num_chunks);
         local_total_.assign(num_chunks, 0);
         local_culled_.assign(num_chunks, 0);
         for (uint32_t ch = 0; ch < num_chunks; ++ch) {
             local_commands_[ch].clear();
-            local_gi_commands_[ch].clear();
             for (auto& sc : local_shadow_commands_[ch]) sc.clear();
         }
 
@@ -106,7 +141,6 @@ void SceneGatherer::gather(const GatherInput& input) {
         input.pool->parallel_for(0, object_count, CULL_GRAIN,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
                 auto& commands = local_commands_[chunk_id];
-                auto& gi_cmds = local_gi_commands_[chunk_id];
                 auto& cascade_cmds = local_shadow_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
@@ -136,7 +170,6 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 }
                             }
                             if (!camera_frustum.intersects(dc.world_aabb)) {
-                                if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
                                 local_culled_[chunk_id]++;
                                 claimed = true;
                                 break;
@@ -183,7 +216,6 @@ void SceneGatherer::gather(const GatherInput& input) {
                             }
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
-                            if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
                             local_culled_[chunk_id]++;
                             continue;
                         }
@@ -201,27 +233,7 @@ void SceneGatherer::gather(const GatherInput& input) {
 
                     local_total_[chunk_id]++;
 
-                    DrawCommand dc{};
-                    dc.world_matrix = spatial->world_matrix_;
-                    dc.prev_world_matrix = spatial->prev_world_matrix_;
-                    dc.push.model = spatial->world_matrix_;
-                    if (mesh->material) {
-                        const uint32_t mid = mesh->resolved_material_id();
-                        dc.push.material_id = mid;
-                        dc.pipeline_id = mesh->material->pipeline_id();
-                        dc.sort_key = RenderQueue::make_sort_key(dc.pipeline_id, mid, obj->id);
-                        dc.transparent = mesh->material->force_transparent()
-                                        || (mesh->material->params().base_color_factor.w < 1.0f);
-                    }
-                    dc.model = mesh->model;
-                    dc.node_id = obj->id;
-
-                    dc.world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
-                    if (mesh->material && mesh->material->aabb_padding() > 0.0f) {
-                        float p = mesh->material->aabb_padding();
-                        dc.world_aabb.min -= glm::vec3(p);
-                        dc.world_aabb.max += glm::vec3(p);
-                    }
+                    DrawCommand dc = mesh_command(*obj, *spatial, *mesh);
 
                     if (!dc.transparent) {
                         for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
@@ -238,52 +250,16 @@ void SceneGatherer::gather(const GatherInput& input) {
                         dc.camera_distance = glm::dot(diff, diff);
                     }
 
-                    // A mesh whose submeshes use different materials emits one
-                    // command per distinct slot, since pipeline and material id
-                    // are per-command. Shadow cascades keep the single command
-                    // above — the depth pass doesn't read materials. The GI
-                    // list gets the same split, so an off-screen submesh keeps
-                    // its own material in the acceleration structure.
-                    auto for_each_slot_command = [&](auto&& sink) {
-                        const auto& entry_slots = mesh->model->entry_material_slots();
-                        if (mesh->slot_materials.empty() || entry_slots.empty()) {
-                            sink(dc);
-                            return;
-                        }
-                        // Slot indices are few, so a linear scan over a
-                        // scratch vector de-duplicates cheaper than a set.
-                        auto& seen = local_slot_scratch_[chunk_id];
-                        seen.clear();
-                        for (uint32_t slot : entry_slots) {
-                            if (std::find(seen.begin(), seen.end(), slot) != seen.end()) continue;
-                            seen.push_back(slot);
-
-                            auto* slot_mat = mesh->material_for_slot(slot);
-                            if (!slot_mat) continue;
-
-                            DrawCommand sub = dc;
-                            sub.material_slot = slot;
-                            sub.push.material_id = mesh->resolved_material_id(slot);
-                            sub.pipeline_id = slot_mat->pipeline_id();
-                            sub.transparent = slot_mat->force_transparent()
-                                            || (slot_mat->params().base_color_factor.w < 1.0f);
-                            sub.sort_key = RenderQueue::make_sort_key(
-                                sub.pipeline_id, sub.push.material_id, obj->id);
-                            sink(sub);
-                        }
-                    };
-
                     if (!camera_frustum.intersects(dc.world_aabb)) {
-                        if (in_gi_reach(dc)) {
-                            for_each_slot_command([&](const DrawCommand& sub) {
-                                if (!sub.transparent) gi_cmds.push_back(sub);
-                            });
-                        }
                         local_culled_[chunk_id]++;
                         continue;
                     }
 
-                    for_each_slot_command([&](const DrawCommand& sub) { commands.push_back(sub); });
+                    // The camera draws one command per material slot; the
+                    // shadow cascades above keep the single command, since
+                    // the depth pass doesn't read materials.
+                    for_each_slot_command(*mesh, dc, obj->id, local_slot_scratch_[chunk_id],
+                                          [&](const DrawCommand& sub) { commands.push_back(sub); });
                 }
             });
 
@@ -293,10 +269,6 @@ void SceneGatherer::gather(const GatherInput& input) {
             input.stats->objects_culled += local_culled_[i];
             for (const auto& dc : local_commands_[i]) {
                 render_queue_.push(dc);
-            }
-            input.stats->gi_only_draws += static_cast<uint32_t>(local_gi_commands_[i].size());
-            for (const auto& dc : local_gi_commands_[i]) {
-                render_queue_.push_gi_only(dc);
             }
             for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
                 for (const auto& dc : local_shadow_commands_[i][c]) {
@@ -397,6 +369,66 @@ void SceneGatherer::gather(const GatherInput& input) {
         }
     }
 
+}
+
+void SceneGatherer::collect_candidates(Scene& scene) {
+    // The nodes something could draw: those carrying an instance
+    // provider's component, a skeletal mesh or a mesh, each once and
+    // sprites left out. A node with several of them is listed under the
+    // first, which is also the order both gathers try them in.
+    const auto& providers = InstanceProviderRegistry::instance().providers();
+    drawable_types_.clear();
+    for (const auto& provider : providers) drawable_types_.push_back(provider.component);
+    drawable_types_.push_back(component_type_id<SkeletalMeshComponent>());
+    drawable_types_.push_back(component_type_id<MeshComponent>());
+    candidates_.clear();
+    for (std::size_t k = 0; k < drawable_types_.size(); ++k) {
+        scene.each_holder(drawable_types_[k], [&](Node& node) {
+            if (node.components.has<SpriteComponent>()) return;
+            for (std::size_t j = 0; j < k; ++j) {
+                if (node.components.get_by_id(drawable_types_[j]) != nullptr) return;
+            }
+            candidates_.push_back(&node);
+        });
+    }
+}
+
+void SceneGatherer::gather_rt(Scene& scene, const AABB& reach) {
+    FJELL_PROFILE_SCOPE_N("scene_gather_rt");
+    rt_commands_.clear();
+    collect_candidates(scene);
+    const auto& providers = InstanceProviderRegistry::instance().providers();
+
+    for (Node* obj : candidates_) {
+        const auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
+
+        // Instance providers (InstancedMesh, SplineMesh, …): the first to
+        // claim the node gives its draw.
+        bool claimed = false;
+        for (const auto& provider : providers) {
+            auto result = provider.probe(*obj, *spatial);
+            if (!result) continue;
+            if (result->model && reach.intersects(result->world_aabb)) {
+                rt_commands_.push_back(std::move(*result));
+            }
+            claimed = true;
+            break;
+        }
+        if (claimed) continue;
+
+        // Skinned meshes are drawn from bones the BLAS does not follow.
+        if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
+            continue;
+        }
+
+        auto* mesh = obj->components.get<MeshComponent>();
+        if (!mesh || !mesh->model) continue;
+        DrawCommand dc = mesh_command(*obj, *spatial, *mesh);
+        if (!reach.intersects(dc.world_aabb)) continue;
+        for_each_slot_command(*mesh, dc, obj->id, rt_slot_scratch_,
+                              [&](const DrawCommand& sub) { rt_commands_.push_back(sub); });
+    }
 }
 
 } // namespace fjell

@@ -91,6 +91,7 @@
         { "class": "MotionFieldPass",  "name": "motion_field" },
         { "class": "FogDensityFieldPass", "name": "fog_density_field" },
         { "class": "WaterFftPass",     "name": "water_fft" },
+        { "class": "RtScenePass",      "name": "rt_scene" },
         { "class": "DdgiPass",         "name": "ddgi" },
         { "class": "SsGiPass",         "name": "ss_gi" },
         { "class": "SsGiDepthHistoryPass", "name": "ss_gi_depth_history" },

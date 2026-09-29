@@ -15,6 +15,7 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "scene/scene.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
@@ -519,7 +520,13 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (trace_pipeline_ == VK_NULL_HANDLE) return;
     if (imgs.raw_radiance_image == VK_NULL_HANDLE) return;
-    if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return;
+    // This frame's TLAS for the scene, built by the rt_scene pass; none when
+    // no tracer's reach held anything.
+    const VkAccelerationStructureKHR tlas =
+        accel_manager_ != nullptr && ctx.scene != nullptr
+            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            : VK_NULL_HANDLE;
+    if (tlas == VK_NULL_HANDLE) return;
     if (!ctx.target) return;
 
     // All required views must be valid before we can dispatch
@@ -737,7 +744,6 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
         tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
         tlas_write_as.accelerationStructureCount = 1;
-        VkAccelerationStructureKHR tlas = accel_manager_->tlas(ctx.frame_index);
         tlas_write_as.pAccelerationStructures = &tlas;
 
         VkWriteDescriptorSet tlas_write{};
@@ -748,7 +754,8 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         tlas_write.descriptorCount = 1;
         tlas_write.pNext = &tlas_write_as;
 
-        VkDescriptorBufferInfo inst_info{accel_manager_->instance_data_buffer(ctx.frame_index), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo inst_info{
+            accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index), 0, VK_WHOLE_SIZE};
         VkWriteDescriptorSet inst_write{};
         inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         inst_write.dstSet = imgs.trace_set[ctx.frame_index];

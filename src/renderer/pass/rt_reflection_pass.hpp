@@ -163,8 +163,8 @@ public:
     void set_trace_cell_size(float m) { trace_cell_size_ = m; }
     [[nodiscard]] float trace_cell_size() const { return trace_cell_size_; }
 
-    /// The box this pass's rays can reach from `camera`, for
-    /// AccelStructureManager::register_trace_reach. Rays leave the camera in
+    /// The box this pass's rays can reach from `camera`, for the scene's
+    /// acceleration structure (VulkanContext::prepare_ray_tracing). Rays leave the camera in
     /// every direction, so it is a cube around it rather than a frustum:
     /// a reflection bounces backwards as readily as forwards.
     [[nodiscard]] AABB trace_reach_bounds(const glm::vec3& camera) const {

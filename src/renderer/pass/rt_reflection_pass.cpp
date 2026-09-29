@@ -16,6 +16,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/mega_buffer.hpp"
+#include "scene/scene.hpp"
 
 #include <array>
 #include <cstring>
@@ -698,7 +699,13 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     }
 
     // ── Active path: prerequisites ──
-    if (accel_manager_ == nullptr || !accel_manager_->tlas_valid(ctx.frame_index)) return;
+    // This frame's TLAS for the scene, built by the rt_scene pass; none when
+    // no tracer's reach held anything.
+    const VkAccelerationStructureKHR tlas =
+        accel_manager_ != nullptr && ctx.scene != nullptr
+            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            : VK_NULL_HANDLE;
+    if (tlas == VK_NULL_HANDLE) return;
     auto* ddgi_imgs = ctx.pp_resources->ddgi();
     if (ddgi_imgs == nullptr || ddgi_imgs->irradiance_view == VK_NULL_HANDLE) return;
 
@@ -796,10 +803,10 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         VkDescriptorBufferInfo probe_status_info{ddgi_imgs->probe_status_buffer->handle(), 0, VK_WHOLE_SIZE};
 
         // RT instance data SSBO.
-        VkDescriptorBufferInfo inst_info{accel_manager_->instance_data_buffer(ctx.frame_index), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo inst_info{
+            accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index), 0, VK_WHOLE_SIZE};
 
         // TLAS.
-        VkAccelerationStructureKHR tlas = accel_manager_->tlas(ctx.frame_index);
         VkWriteDescriptorSetAccelerationStructureKHR tlas_as{};
         tlas_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
         tlas_as.accelerationStructureCount = 1;

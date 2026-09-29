@@ -132,8 +132,7 @@ void StatsPanel::draw_rendering_section() {
                                             stats.lod2_draws, stats.distance_culled));
         }
         if (stats.tlas_instances > 0) {
-            metric("TLAS", std::format("{} instances, {} off screen",
-                                       stats.tlas_instances, stats.gi_only_draws));
+            metric("TLAS", std::format("{} instances", stats.tlas_instances));
         }
     }
 }

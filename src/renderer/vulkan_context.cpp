@@ -94,6 +94,9 @@ VulkanContext::VulkanContext(Window& window)
             gpu_.command_pool(), gpu_.graphics_queue(),
             gpu_.upload_context(), gpu_device());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
+        if (auto* rt_scene = passes_.try_get<RtScenePass>("rt_scene")) {
+            rt_scene->set_accel_manager(accel_manager_.get());
+        }
         ddgi_pass().set_accel_manager(accel_manager_.get());
         ss_gi_pass().set_accel_manager(accel_manager_.get());
         rt_reflection_pass().set_accel_manager(accel_manager_.get());
@@ -108,7 +111,6 @@ VulkanContext::VulkanContext(Window& window)
     {
         auto ps = std::make_unique<ParticleSystem>();
         particle_system_ = ps.get();
-        ddgi_pass().set_particle_system(particle_system_);
         add_subsystem(std::move(ps));
     }
     {
@@ -444,6 +446,39 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     return ctx;
 }
 
+void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>& viewports,
+                                        Scene* scene) {
+    if (!accel_manager_ || scene == nullptr) return;
+
+    // How far each active tracer's rays go, from every viewport rendering the
+    // scene: the TLAS is built once for all of them, so it covers the union.
+    AABB reach;
+    const auto add = [&reach](const AABB& box) {
+        if (!box.valid()) return;
+        reach.expand(box.min);
+        reach.expand(box.max);
+    };
+    if (default_pp_ && default_pp_->config().ddgi && ddgi_pass().config().enabled
+        && ddgi_pass().backend() == DdgiBackend::ray_traced) {
+        add(ddgi_pass().trace_reach_bounds());
+    }
+    for (const auto& vp : viewports) {
+        if (!vp.target) continue;
+        if (rt_reflection_pass().ray_traced_active()) {
+            add(rt_reflection_pass().trace_reach_bounds(vp.camera_position));
+        }
+        if (ss_gi_pass().config().enabled) {
+            add(ss_gi_pass().trace_reach_bounds(vp.camera_position));
+        }
+    }
+    // Nothing traces this frame, so no TLAS: a tracer asking finds none.
+    if (!reach.valid()) return;
+
+    gatherer_.gather_rt(*scene, reach);
+    accel_manager_->prepare_scene(*scene, gatherer_.rt_commands(), gpu_.pipeline_cache(),
+                                  particle_system_, *gpu_.mega_buffer());
+}
+
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest& view,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp) {
@@ -464,9 +499,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         gi.stats = &gpu_.render_stats();
         gi.animation_system = animation_system_;
         gi.pipelines = gpu_.pipeline_cache();
-        if (ddgi_pass().backend() == DdgiBackend::ray_traced) {
-            gi.gi_reach = ddgi_pass().trace_reach_bounds();
-        }
         gatherer_.gather(gi);
     }
 
@@ -742,6 +774,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
 
     // IBL intensity from the environment (consumed by update_uniform_buffer)
     ibl_intensity_ = environment.sky.ibl_intensity;
+
+    prepare_ray_tracing(viewports, scene);
 
     // --- Render scene once per viewport ---
     for (const auto& vp : viewports) {
@@ -1293,19 +1327,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // lands in a slot the GPU is done with.
     font_library_->poll();
 
-    if (accel_manager_) {
-        // Declare how far each tracer's rays go, before anything builds the
-        // TLAS from the union. Done here rather than inside the passes because
-        // the one that builds the TLAS (DDGI, in the Color phase) records
-        // before the one that traces furthest (reflections, in PostProcess):
-        // a reach registered from the reflection pass's own record() would
-        // arrive a frame late, every frame.
-        accel_manager_->clear_trace_reach();
-        if (rt_reflection_pass().ray_traced_active()) {
-            accel_manager_->register_trace_reach(
-                rt_reflection_pass().trace_reach_bounds(gatherer_.camera_position()));
-        }
-    }
+    if (accel_manager_) accel_manager_->begin_frame(frame_serial_);
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());

@@ -11,7 +11,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace fjell {
@@ -40,11 +39,6 @@ struct GatherInput {
     /// The material pipelines, whose cull modes the camera batch notes per
     /// draw for the meshlet cull.
     const PipelineCache* pipelines{nullptr};
-    /// The volume GI rays can reach. Opaque geometry inside it that the
-    /// camera rejects is kept on the GI-only list so it stays in the
-    /// acceleration structure. Empty when no ray-traced GI runs, and then
-    /// nothing is kept.
-    std::optional<AABB> gi_reach;
 };
 
 /// Extracts renderable data from the scene: frustum culling, draw command
@@ -55,6 +49,14 @@ public:
 
     /// Frustum-cull the scene, build render queue and indirect batches.
     void gather(const GatherInput& input);
+
+    /// Every surface of `scene` a ray could hit within `reach`, whatever any
+    /// camera sees: what the acceleration structure is built over. Static
+    /// meshes give one command per material slot and instance providers
+    /// their draws, transparent ones included; skinned meshes have no BLAS
+    /// and are left out. Read back through rt_commands().
+    void gather_rt(Scene& scene, const AABB& reach);
+    [[nodiscard]] const std::vector<DrawCommand>& rt_commands() const { return rt_commands_; }
 
     [[nodiscard]] const RenderQueue& render_queue() const { return render_queue_; }
     [[nodiscard]] RenderQueue& render_queue() { return render_queue_; }
@@ -93,7 +95,6 @@ private:
     // Reusable per-frame scratch (avoid heap allocs every frame)
     std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES> shadow_commands_;
     std::vector<std::vector<DrawCommand>> local_commands_;
-    std::vector<std::vector<DrawCommand>> local_gi_commands_;
     // Per-chunk, per-cascade shadow command scratch
     std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
     // Per-chunk scratch for de-duplicating a mesh's material slots
@@ -102,6 +103,12 @@ private:
     // carry one.
     std::vector<ComponentTypeId> drawable_types_;
     std::vector<Node*> candidates_;
+    // What gather_rt() found, and its slot de-duplication scratch.
+    std::vector<DrawCommand> rt_commands_;
+    std::vector<uint32_t> rt_slot_scratch_;
+
+    // The nodes something could draw, into candidates_.
+    void collect_candidates(Scene& scene);
     std::vector<uint32_t> local_total_;
     std::vector<uint32_t> local_culled_;
     std::vector<DrawCommand> empty_transparent_;

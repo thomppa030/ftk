@@ -27,6 +27,7 @@
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/rt_reflection_pass.hpp"
+#include "renderer/pass/rt_scene_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/motion_field_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
@@ -226,6 +227,10 @@ public:
   /// grid re-fit. Assumes the caller is at a point where waiting the
   /// device idle is acceptable.
   void rebuild_ddgi_resources();
+  /// Decides what the frame's rays can hit: the reach of every active
+  /// tracer from every viewport, the scene's surfaces within it, and the
+  /// BLASes and TLAS instances over them, before anything is recorded.
+  void prepare_ray_tracing(const std::vector<ViewportRenderRequest>& viewports, Scene* scene);
   [[nodiscard]] PostPass &post_pass() { return passes_.get<PostPass>("post"); }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }

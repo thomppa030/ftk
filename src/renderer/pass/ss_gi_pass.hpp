@@ -2,6 +2,7 @@
 
 #include "gpu/owned.hpp"
 #include "gpu/texture.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 
@@ -159,6 +160,14 @@ public:
     [[nodiscard]] const SsGiConfig& config() const { return config_; }
 
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
+
+    /// The box this pass's rays can reach from `camera`, for the scene's
+    /// acceleration structure: a cube of the trace distance around it, as
+    /// for reflections. Probes sit on visible surfaces and trace from there,
+    /// so rays that start far from the camera can leave the cube.
+    [[nodiscard]] AABB trace_reach_bounds(const glm::vec3& camera) const {
+        return {camera - glm::vec3(config_.max_trace_dist), camera + glm::vec3(config_.max_trace_dist)};
+    }
 
     /// The coarsest cell in the traced geometry, in metres — terrain's ray
     /// mesh spacing. Rays start further out of a sloping surface by this

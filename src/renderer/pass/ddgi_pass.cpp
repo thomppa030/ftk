@@ -1,22 +1,14 @@
 #include "renderer/pass/ddgi_pass.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/components/terrain_component.hpp"
-#include "renderer/resources/terrain_asset.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/accel_structure.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/pipeline_cache.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/render_queue.hpp"
-#include "renderer/render_stats.hpp"
-#include "renderer/resources/model.hpp"
-#include "renderer/systems/particle_system.hpp"
 #include "renderer/gpu/vma_image.hpp"
-#include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/gpu/shader_utils.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
@@ -846,36 +838,7 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo[ctx.frame_index]->mapped(), &constants, sizeof(constants));
 }
 
-void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
-    if (!ctx.scene) return;
-
-    // Terrain's render geometry is generated in a mesh shader and never exists
-    // as triangles, so ray tracing needs the decimated mesh the asset builds
-    // from its height array. Done here rather than in pre_record because this
-    // is the hook that carries the scene.
-    if (backend_ == DdgiBackend::ray_traced && accel_manager_ != nullptr &&
-        ctx.mega_buffer != nullptr) {
-        for (auto [obj, tc] : ctx.scene->view<TerrainComponent>()) {
-            if (tc->terrain == nullptr) continue;
-            tc->terrain->upload_ray_mesh(*ctx.mega_buffer);
-            if (!tc->terrain->ray_mesh_uploaded()) continue;
-            // A sculpt moves the ground the rays trace against. The mesh keeps
-            // its place in the buffer — same grid, new heights — so the BLAS
-            // is still valid memory describing triangles that have moved, and
-            // has to be rebuilt over them.
-            const bool moved = tc->terrain->refresh_ray_mesh(*ctx.mega_buffer);
-            if (moved) {
-                // The new vertices are a batched copy that would not be
-                // submitted until the frame ends, while the build below
-                // submits and waits on its own queue — it would read the
-                // heights the sculpt replaced.
-                gpu.upload_context().wait_all();
-            }
-            accel_manager_->ensure_blas_entry(tc->terrain, tc->terrain->ray_mesh_entry(),
-                                              *ctx.mega_buffer, moved);
-        }
-    }
-
+void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (ctx.environment != nullptr) {
         const auto& sun = ctx.environment->primary;
         light_direction_ = sun.direction;
@@ -884,56 +847,10 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     }
 }
 
-void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!config_.enabled) return;
-    // Only build accel structures when DDGI is enabled for this viewport
-    if (ctx.pp_resources && ctx.pp_resources->ddgi()) {
-        prepare_accel_structures(ctx);
-    }
-}
-
 AABB DdgiPass::trace_reach_bounds() const {
     glm::vec3 grid_min = config_.grid_position;
     glm::vec3 grid_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
     return {grid_min - glm::vec3(MAX_TRACE_DIST), grid_max + glm::vec3(MAX_TRACE_DIST)};
-}
-
-void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
-    if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
-        return;
-
-    // The reach every tracer needs, not just this pass's own. A model inside
-    // reflection range but outside the probe grid's still has to be built, or
-    // the TLAS below adds an instance whose BLAS was never made and the
-    // reflection ray passes through it.
-    accel_manager_->register_trace_reach(trace_reach_bounds());
-    AABB bounds = accel_manager_->required_reach();
-    if (!bounds.valid()) return;
-
-    // Off-screen geometry needs a BLAS as much as visible geometry: the TLAS
-    // build skips any model without one, so an object that has been off
-    // screen since load would otherwise never make it in.
-    auto ensure = [&](const DrawCommand& dc) {
-        if (!dc.model) return;
-        if (!dc.world_aabb.intersects(bounds)) return;
-        accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
-    };
-    for (const auto& dc : ctx.queue->commands()) ensure(dc);
-    for (const auto& dc : ctx.queue->gi_only_commands()) ensure(dc);
-
-    // Cache particle SSBO for compute dispatch + build particle mesh BLASes
-    if (particle_system_) {
-        VkBuffer pbuf = particle_system_->particle_buffer_handle();
-        if (pbuf != VK_NULL_HANDLE) {
-            accel_manager_->set_particle_ssbo(pbuf);
-        }
-
-        for (const auto& em : particle_system_->emitters()) {
-            if (!em.is_mesh || !em.in_scene) continue;
-            auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
-            accel_manager_->ensure_blas_entry(shape_key, em.mesh_entry, *ctx.mega_buffer);
-        }
-    }
 }
 
 void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
@@ -1300,115 +1217,13 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
 
-    // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
-    // Build TLAS if RT backend is active (BLAS building done in prepare_accel_structures)
-    if (backend_ == DdgiBackend::ray_traced && accel_manager_ && ctx.queue && ctx.mega_buffer) {
-        FJELL_PROFILE_SCOPE_N("ddgi_tlas_build");
-        FJELL_GPU_ZONE(ctx, "DDGI TLAS Build");
-        const auto& cmds = ctx.queue->commands();
-        {
-            // Only include objects some tracer can reach. The union of every
-            // pass's declared reach, not this pass's alone: the TLAS is shared
-            // and built once, so anything left out here is missing for
-            // reflections and screen-space GI too, not only for the probes.
-            //
-            // Registered again here rather than relying on the BLAS pass
-            // having done it: that one is skipped for a viewport with DDGI
-            // off, while this still builds the TLAS, and the union would then
-            // be short exactly this pass's own reach. Registering is a union,
-            // so doing it twice costs nothing.
-            accel_manager_->register_trace_reach(trace_reach_bounds());
-            AABB bounds = accel_manager_->required_reach();
-
-            // Everything whose instance count is known on the CPU goes in one
-            // list; build_tlas applies the same transform validation to all of
-            // it and reserves the particle region after.
-            // Visible draws plus the opaque ones the camera culled: those
-            // are off screen but still light, and shadow, what is on it.
-            const auto& gi_only = ctx.queue->gi_only_commands();
-            std::vector<AccelStructureManager::RtInstance> host_instances;
-            host_instances.reserve(cmds.size() + gi_only.size() + 1);
-
-            // One instance per submesh the command draws, each over that
-            // submesh's own BLAS, so a hit reports the triangle against the
-            // material and index range of the geometry it actually struck.
-            auto add_instances = [&](const DrawCommand& dc) {
-                if (!dc.model) return;
-                if (!dc.world_aabb.intersects(bounds)) return;
-                const auto& lods = dc.model->lod_levels();
-                if (lods.empty()) return;
-                auto blases = accel_manager_->model_blases(dc.model);
-                for (uint32_t i = 0; i < blases.size(); ++i) {
-                    if (!dc.model->entry_uses_slot(lods[0].first_mega_entry + i, dc.material_slot)) continue;
-
-                    AccelStructureManager::RtInstance inst{};
-                    inst.transform = dc.push.model;
-                    inst.material_id = dc.push.material_id;
-                    inst.blas = &blases[i];
-                    inst.two_sided = ctx.pipeline_cache != nullptr
-                                  && ctx.pipeline_cache->cull(dc.pipeline_id) != gpu::Cull::back;
-                    host_instances.push_back(inst);
-                }
-            };
-            for (const auto& dc : cmds) add_instances(dc);
-            for (const auto& dc : gi_only) add_instances(dc);
-
-            // Terrain generates its render geometry in a mesh shader, so it has
-            // no draw to ride in on and is collected from the scene directly.
-            if (ctx.scene != nullptr) {
-                for (auto [obj, tc] : ctx.scene->view<TerrainComponent>()) {
-                    if (tc->terrain == nullptr) continue;
-                    const auto* blas = accel_manager_->find_blas(tc->terrain);
-                    if (blas == nullptr) continue;
-
-                    const auto* spatial = obj->as_spatial();
-                    // Translation only, as the raster path and physics place
-                    // it: the terrain's shape is its asset's, sampled along
-                    // world X and Z, and the node only says where. Passing the
-                    // full matrix here would rotate what rays hit away from
-                    // what is drawn.
-                    AccelStructureManager::RtInstance inst{};
-                    inst.transform = glm::translate(
-                        glm::mat4{1.0F},
-                        spatial != nullptr ? glm::vec3{spatial->world_matrix_[3]}
-                                           : glm::vec3{0.0F});
-                    // Rays cannot run the layer blend, so the terrain bounces
-                    // its first layer, which is the ground where nothing has
-                    // been painted or sloped into another.
-                    inst.material_id = tc->terrain->layer_material_id(0);
-                    inst.blas = blas;
-                    host_instances.push_back(inst);
-                }
-            }
-
-            // Collect mesh particle emitters for per-particle TLAS instances
-            std::vector<AccelStructureManager::ParticleEmitterInfo> particle_infos;
-            if (particle_system_) {
-                for (const auto& em : particle_system_->emitters()) {
-                    if (!em.is_mesh || !em.in_scene) continue;
-                    auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
-                    const auto* blas = accel_manager_->find_blas(shape_key);
-                    if (!blas) continue;
-
-                    AccelStructureManager::ParticleEmitterInfo info{};
-                    info.base_offset = em.base_offset;
-                    info.max_particles = em.max_particles;
-                    info.material_id = em.mesh_material_id;
-                    info.avg_particle_size = 1.0f;
-                    info.blas = blas;
-                    particle_infos.push_back(info);
-                }
-            }
-
-            if (!host_instances.empty() || !particle_infos.empty()) {
-                accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, host_instances,
-                                           particle_infos);
-            }
-            if (ctx.render_stats != nullptr) {
-                ctx.render_stats->tlas_instances += static_cast<uint32_t>(host_instances.size());
-            }
-        }
-    }
+    // ── 2. Trace (RT or SDF) ──
+    // The TLAS the RT trace reads was built for this scene by the rt_scene
+    // pass, before any tracer.
+    const VkAccelerationStructureKHR tlas =
+        accel_manager_ != nullptr && ctx.scene != nullptr
+            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            : VK_NULL_HANDLE;
 
     // Keep vertex/index buffer descriptors current (MegaBuffer may
     // reallocate) on this slot's set; a pending frame keeps the retired
@@ -1444,12 +1259,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     bool use_rt = backend_ == DdgiBackend::ray_traced
                   && rt_trace_pipeline_ != VK_NULL_HANDLE
-                  && accel_manager_ && accel_manager_->tlas_valid(ctx.frame_index)
+                  && tlas != VK_NULL_HANDLE
                   && imgs.rt_trace_set[ctx.frame_index] != VK_NULL_HANDLE;
 
     if (!use_rt && backend_ != DdgiBackend::sdf_fallback) {
-        // RT backend but TLAS not ready — skip trace this frame, keep previous
-        // radiance and the previous indirect output. The probe offsets are
+        // RT backend but no TLAS this frame (nothing in reach) — skip the
+        // trace, keep previous radiance and the previous indirect output. The probe offsets are
         // left in the layout the next frame expects to find them in: only a
         // trace that runs moves them.
         frame_counter_++;
@@ -1471,7 +1286,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
         tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
         tlas_write_as.accelerationStructureCount = 1;
-        VkAccelerationStructureKHR tlas = accel_manager_->tlas(ctx.frame_index);
         tlas_write_as.pAccelerationStructures = &tlas;
 
         VkWriteDescriptorSet tlas_write{};
@@ -1484,7 +1298,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         // Per-instance data (material + geometry offsets)
         VkDescriptorBufferInfo inst_data_info{};
-        inst_data_info.buffer = accel_manager_->instance_data_buffer(ctx.frame_index);
+        inst_data_info.buffer = accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index);
         inst_data_info.range = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet inst_write{};
@@ -1647,9 +1461,6 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, gpu::Access::sampled_compute);
     builder.read(normal, gpu::Access::sampled_compute);
-    // The particle TLAS build reads the simulated particles.
-    builder.read(builder.import_named_buffer(ctx, "particle_state"),
-                 gpu::Access::storage_buffer_read_compute);
     // Probe rays that miss read the sky, in either tracer's compute shader.
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
         builder.read(sky, gpu::Access::sampled_compute);

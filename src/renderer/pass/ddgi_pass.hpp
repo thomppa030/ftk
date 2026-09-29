@@ -269,16 +269,11 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
-    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Record into externally-provided images. Where it stops before
     /// sampling into the indirect output, the output holds what it held.
     void record_into(const FrameContext& ctx, Images& imgs);
-
-    /// Build acceleration structures before command buffer recording.
-    /// Must be called outside of command buffer recording (uses synchronous GPU submits).
-    void prepare_accel_structures(const FrameContext& ctx);
 
     /// Move the probe grid and discard everything accumulated in it.
     ///
@@ -307,7 +302,6 @@ public:
     [[nodiscard]] DdgiBackend backend() const { return backend_; }
 
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
-    void set_particle_system(class ParticleSystem* ps) { particle_system_ = ps; }
 
     /// World-space bounds of the scene SDF volume, used by both traces to
     /// test whether a probe is buried and by the SDF trace to march. Kept current by the owner since the
@@ -354,8 +348,8 @@ public:
     static constexpr int MAX_ATLAS_SIDE = 16;
 
     /// Probe grid bounds expanded by max trace distance — objects outside
-    /// this volume can never be hit by DDGI rays, so it is also the volume
-    /// the gather keeps off-screen geometry for.
+    /// this volume can never be hit by DDGI rays, so it is the reach DDGI
+    /// declares for the acceleration structure.
     [[nodiscard]] AABB trace_reach_bounds() const;
 
 private:
@@ -399,7 +393,6 @@ private:
     // RT backend
     DdgiBackend backend_{DdgiBackend::sdf_fallback};
     AccelStructureManager* accel_manager_{nullptr};
-    class ParticleSystem* particle_system_{nullptr};
 
     // The ray-traced tracer: compute, tracing with ray queries.
     VkDescriptorSetLayout rt_trace_set_layout_{VK_NULL_HANDLE};
