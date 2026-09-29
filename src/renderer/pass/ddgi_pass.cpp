@@ -1365,10 +1365,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // ── 1. Pre-trace barriers ──
     barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-    barrier_image(imgs.probe_offset_image,
-                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // Irradiance + visibility must be in GENERAL before the trace reads them (multi-bounce)
     if (imgs.first_frame_) {
@@ -1530,6 +1526,21 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   && accel_manager_ && accel_manager_->tlas_valid(ctx.frame_index)
                   && imgs.rt_trace_set[ctx.frame_index] != VK_NULL_HANDLE;
 
+    if (!use_rt && backend_ != DdgiBackend::sdf_fallback) {
+        // RT backend but TLAS not ready — skip trace this frame, keep previous
+        // radiance and the previous indirect output. The probe offsets are
+        // left in the layout the next frame expects to find them in: only a
+        // trace that runs moves them.
+        frame_counter_++;
+        return;
+    }
+
+    // The trace reads each probe's offset through a sampler.
+    barrier_image(imgs.probe_offset_image,
+                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+
     if (use_rt) {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_rt");
         FJELL_GPU_ZONE(ctx, "DDGI Trace RT");
@@ -1587,7 +1598,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // One invocation per ray: x the ray, y the probe in this frame's batch,
         // in workgroups of 32 rays as the SDF trace dispatches.
         vkCmdDispatch(ctx.cmd, (rays + 31) / 32, probes, 1);
-    } else if (backend_ == DdgiBackend::sdf_fallback) {
+    } else {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_sdf");
         FJELL_GPU_ZONE(ctx, "DDGI Trace SDF");
         // SDF fallback trace (only when explicitly configured for SDF)
@@ -1609,11 +1620,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
         uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
         vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
-    } else {
-        // RT backend but TLAS not ready — skip trace this frame, keep previous
-        // radiance and the previous indirect output.
-        frame_counter_++;
-        return;
     }
 
     // ── 3. Barrier: radiance write → read ──
