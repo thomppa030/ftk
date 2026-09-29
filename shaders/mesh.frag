@@ -176,11 +176,16 @@ void main() {
     vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     float ao = texture(ao_texture, ao_uv).r;
 
-    // IBL diffuse
+    // Ambient diffuse: DDGI where its probe grid covers the pixel, the
+    // sky's IBL where it does not
     vec3 F_ibl = fresnel_schlick_roughness(NdotV, F0, roughness);
     vec3 kD_ibl = (1.0 - F_ibl) * (1.0 - metallic);
-    vec3 irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
-    vec3 diffuse_ibl = kD_ibl * albedo * irradiance;
+    float ibl_intensity = ubo.ambient_color.w;
+    vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
+    vec4 gi_sample = texture(gi_indirect, gi_uv) * ubo.ddgi_weight;
+    vec3 sky_irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
+    vec3 diffuse_ambient = kD_ibl * albedo
+                         * fjell_ambient_irradiance(gi_sample, sky_irradiance, ibl_intensity);
 
     // IBL specular
     vec3 R = reflect(-V, N);
@@ -188,14 +193,7 @@ void main() {
     vec2 env_brdf = texture(brdf_lut, vec2(NdotV, roughness)).rg;
     vec3 specular_ibl = prefiltered * (F_ibl * env_brdf.x + env_brdf.y);
 
-    float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
-    vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
-
-    // DDGI indirect diffuse (sun bounce)
-    vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
-    vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
-    vec3 gi_diffuse = gi_sample * kD * albedo * ubo.gi_intensity;
-    ambient += gi_diffuse * ao;
+    vec3 ambient = (diffuse_ambient + specular_ibl * ibl_intensity) * ao;
 
     // SS-GI emissive indirect (emissive color bleeding — no AO, emissive
     // sources are local lights that shouldn't be dampened by ambient occlusion)
@@ -209,9 +207,11 @@ void main() {
     if (ubo.debug_light_channel != DEBUG_LIGHT_CHANNEL_OFF) {
         switch (ubo.debug_light_channel) {
             case DEBUG_LIGHT_CHANNEL_DIRECT:       color = Lo; break;
-            case DEBUG_LIGHT_CHANNEL_IBL_DIFFUSE:  color = diffuse_ibl * ao * ibl_intensity; break;
+            case DEBUG_LIGHT_CHANNEL_IBL_DIFFUSE:
+                color = kD_ibl * albedo * sky_irradiance * ibl_intensity * (1.0 - gi_sample.a) * ao;
+                break;
             case DEBUG_LIGHT_CHANNEL_IBL_SPECULAR: color = specular_ibl * ao * ibl_intensity; break;
-            case DEBUG_LIGHT_CHANNEL_DDGI:         color = gi_sample; break;
+            case DEBUG_LIGHT_CHANNEL_DDGI:         color = gi_sample.rgb; break;
             case DEBUG_LIGHT_CHANNEL_SSGI:         color = ss_gi_sample; break;
             case DEBUG_LIGHT_CHANNEL_EMISSIVE:     color = emissive; break;
             case DEBUG_LIGHT_CHANNEL_AO_RAW:       color = vec3(ao); break;

@@ -211,4 +211,17 @@ vec3 fjell_secondary_directional(vec3 N, vec3 V, float NdotV,
     return (diffuse + specular) * color.rgb * dir_intensity.w * NdotL;
 }
 
+// ── Ambient diffuse ────────────────────────────────────────────────────
+// The diffuse light reaching a surface from all around it, sky and bounce
+// together, before the surface's albedo: DDGI's probes where their grid
+// covers the pixel, the sky's unshadowed irradiance where it does not.
+// `gi` is gi_indirect at the pixel times ubo.ddgi_weight: the probes'
+// irradiance scaled by how much of the pixel their grid covers, with that
+// cover in alpha. `sky_irradiance` is the sky cubemap's diffuse irradiance
+// around the normal, and `sky_intensity` how brightly the sky lights the
+// world (ubo.ambient_color.w), at which the probes already saw it.
+vec3 fjell_ambient_irradiance(vec4 gi, vec3 sky_irradiance, float sky_intensity) {
+    return gi.rgb + sky_irradiance * (sky_intensity * (1.0 - gi.a));
+}
+
 #endif // FJELL_LIGHTING_GLSL

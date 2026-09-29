@@ -1003,6 +1003,7 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         light_direction_ = sun.direction;
         light_intensity_ = sun.intensity;
         light_color_ = sun.color;
+        sky_intensity_ = ctx.environment->sky_light_intensity();
     }
 }
 
@@ -1505,6 +1506,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.sdf_volume_min = sdf_volume_min_;
         rt_push.random_seed = frame_counter_;
         rt_push.sdf_volume_max = sdf_volume_max_;
+        rt_push.sky_intensity = sky_intensity_;
+        rt_push.gi_intensity = config_.gi_intensity;
         const uint32_t rays = static_cast<uint32_t>(config_.probe_rays);
         const uint32_t probes = static_cast<uint32_t>(constants->probe_update_count);
 
@@ -1537,6 +1540,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.sdf_volume_min = sdf_volume_min_;
         push.random_seed = frame_counter_;
         push.sdf_volume_max = sdf_volume_max_;
+        push.sky_intensity = sky_intensity_;
+        push.gi_intensity = config_.gi_intensity;
 
         vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);

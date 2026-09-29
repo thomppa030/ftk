@@ -122,6 +122,11 @@ struct DdgiConfig {
     // the view term is deliberately the larger of the two.
     float view_bias{0.6f};
     float max_probe_offset{0.5f};
+    // How strong bounced light is: scales what a probe ray brings back from
+    // a hit (the sun, a local light, the bounce off the field), not the sky a
+    // miss brings, which EnvironmentState::sky_light_intensity() sets. It
+    // compounds per bounce: 0.65 gives the first bounce 0.65, the second
+    // about 0.42.
     float gi_intensity{1.0f};
     // Per-bounce energy retained in the multi-bounce feedback loop
     // (ddgi_probe_trace_rt.comp adds sample_ddgi_irradiance() * this back
@@ -331,7 +336,10 @@ public:
         /// each time it is traced.
         uint32_t random_seed;
         glm::vec3 sdf_volume_max;
-        float pad1;
+        /// How brightly the sky lights the world, which a miss ray brings.
+        float sky_intensity;
+        /// How strong bounced light is (gi_intensity), on what a hit brings.
+        float gi_intensity;
     };
 
     /// Push constants for the RT trace shader. Laid out to match the shader's
@@ -347,7 +355,10 @@ public:
         /// each time it is traced.
         uint32_t random_seed;
         glm::vec3 sdf_volume_max;
-        float pad1;
+        /// How brightly the sky lights the world, which a miss ray brings.
+        float sky_intensity;
+        /// How strong bounced light is (gi_intensity), on what a hit brings.
+        float gi_intensity;
     };
 
     /// Max ray distance used in RT trace push constants.
@@ -379,6 +390,8 @@ private:
     glm::vec3 light_direction_{-0.3f, -1.0f, -0.5f};
     float light_intensity_{1.5f};
     glm::vec3 light_color_{1.0f, 1.0f, 0.95f};
+    // EnvironmentState::sky_light_intensity(): the sky the probes see
+    float sky_intensity_{1.0f};
 
     // Scene SDF volume bounds (set by owner; used for the RT burial test)
     glm::vec3 sdf_volume_min_{-10.0f};

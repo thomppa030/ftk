@@ -45,7 +45,8 @@ layout(push_constant) uniform PushConstants {
     vec3 sdf_volume_min;
     uint random_seed;         // changes every frame: which local light a hit takes
     vec3 sdf_volume_max;
-    float pad_pc1;
+    float sky_intensity;      // how brightly the sky lights the world (ambient_intensity x IBL)
+    float gi_intensity;       // how strong bounced light is: scales what a ray brings back from a hit
 };
 
 
@@ -214,11 +215,14 @@ void main() {
         radiance += ddgi_sample_cage(hit_pos, N, ray_origin, false).irradiance
                   * albedo * ddgi.infinite_bounces_mult;
 
+        // Everything a hit brings back is bounced light.
+        radiance *= gi_intensity;
+
         distance = t;
     } else {
         // Miss: the sky, blurred as the RT trace reads it. Mip 0 has extreme
         // HDR peaks (the sun disk) that drown out the bounce light.
-        radiance = textureLod(sky_cubemap, direction, 4.0).rgb;
+        radiance = textureLod(sky_cubemap, direction, 4.0).rgb * sky_intensity;
         distance = MAX_TRACE_DIST;
     }
 

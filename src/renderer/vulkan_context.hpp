@@ -513,7 +513,6 @@ private:
   ResourceManager* resource_manager_{nullptr};
   std::unique_ptr<AccelStructureManager> accel_manager_;
   const Project* project_{nullptr};
-  float ibl_intensity_{1.0f};
   /// The game clock's elapsed time, as the engine last gave it. Shaders read
   /// it as `TIME`. Not advanced here: see set_time().
   float elapsed_time_{0.0f};

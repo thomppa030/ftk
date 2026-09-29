@@ -24,7 +24,7 @@ struct GlobalUbo {
     alignas(16) glm::mat4 prev_unjittered_vp; // previous frame's unjittered view-projection
     alignas(16) glm::mat4 prev_view;        // previous frame's view matrix (for temporal reprojection)
     float time{0.0f};                       // engine elapsed time (seconds)
-    float gi_intensity{0.0f};               // DDGI indirect diffuse multiplier
+    float ddgi_weight{0.0f};                // 1 where this viewport's surfaces take DDGI's output, else 0
     float jitter_x{0.0f};                   // TAA sub-pixel jitter (halton / resolution)
     float jitter_y{0.0f};
     float ss_gi_intensity{0.0f};            // SS-GI emissive indirect multiplier

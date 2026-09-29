@@ -42,7 +42,8 @@ layout(push_constant) uniform PushConstants {
     vec3 sdf_volume_min;
     uint random_seed;         // changes every frame: which local light a hit takes
     vec3 sdf_volume_max;
-    float pad_pc1;
+    float sky_intensity;      // how brightly the sky lights the world (ambient_intensity x IBL)
+    float gi_intensity;       // how strong bounced light is: scales what a ray brings back from a hit
 };
 
 // ── Material access (set 1 = bindless) ──────────────────────────────────
@@ -107,7 +108,7 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax, float 
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
         // Blurred sky for probes — mip 0 has extreme HDR peaks (sun disk)
         // that drown out surface bounce color bleeding in the irradiance update.
-        vec3 sky = textureLod(sky_cubemap, direction, 4.0).rgb;
+        vec3 sky = textureLod(sky_cubemap, direction, 4.0).rgb * sky_intensity;
         return vec4(sky, tmax);
     }
 
@@ -163,7 +164,8 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax, float 
 
     // Emissive GI is handled exclusively by the SS-GI pass.
 
-    return vec4(radiance, hit.t);
+    // Everything a hit brings back is bounced light.
+    return vec4(radiance * gi_intensity, hit.t);
 }
 
 void main() {

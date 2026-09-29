@@ -772,8 +772,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         passes_.prepare_frame_all(prep_ctx, gpu_);
     }
 
-    // IBL intensity from the environment (consumed by update_uniform_buffer)
-    ibl_intensity_ = environment.sky.ibl_intensity;
 
     prepare_ray_tracing(viewports, scene);
 
@@ -909,8 +907,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.light_direction = glm::vec4(sun.direction, sun.intensity);
     ubo.light_color = glm::vec4(sun.color, 0.0f);
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
-    ubo.ambient_color = glm::vec4(environment.ambient_color,
-                                  environment.ambient_intensity * ibl_intensity_);
+    ubo.ambient_color = glm::vec4(environment.ambient_color, environment.sky_light_intensity());
 
     // Forward sun data to the trace passes for closest-hit direct lighting;
     // they take the direction the light travels.
@@ -930,12 +927,9 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         ubo.cascade_vp[i] = matrices[i];
     }
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
-    // DDGI: sun bounce indirect
-    if (pp.config().ddgi) {
-        ubo.gi_intensity = ddgi_pass().config().gi_intensity;
-    } else {
-        ubo.gi_intensity = 0.0f;
-    }
+    // DDGI lights this viewport's surfaces only if it runs DDGI: the image
+    // the frame binds may be another viewport's.
+    ubo.ddgi_weight = pp.config().ddgi ? 1.0f : 0.0f;
     // SS-GI: emissive color bleeding (supplements DDGI)
     if (pp.config().ss_gi && pp.ss_gi() && !pp.ss_gi()->first_frame) {
         ubo.ss_gi_intensity = ss_gi_pass().config().intensity;

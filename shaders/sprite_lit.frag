@@ -110,22 +110,23 @@ void main() {
     vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     float ao = texture(ao_texture, ao_uv).r;
 
+    // Ambient diffuse: DDGI where its probe grid covers the pixel, the
+    // sky's IBL where it does not
     vec3 F_ibl = fresnel_schlick_roughness(NdotV, F0, roughness);
     vec3 kD_ibl = (1.0 - F_ibl) * (1.0 - metallic);
-    vec3 irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
-    vec3 diffuse_ibl = kD_ibl * albedo * irradiance;
+    float ibl_intensity = ubo.ambient_color.w;
+    vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
+    vec4 gi_sample = texture(gi_indirect, gi_uv) * ubo.ddgi_weight;
+    vec3 sky_irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
+    vec3 diffuse_ambient = kD_ibl * albedo
+                         * fjell_ambient_irradiance(gi_sample, sky_irradiance, ibl_intensity);
 
     vec3 R = reflect(-V, N);
     vec3 prefiltered = textureLod(sky_cubemap, R, roughness * 9.0).rgb;
     vec2 env_brdf = texture(brdf_lut, vec2(NdotV, roughness)).rg;
     vec3 specular_ibl = prefiltered * (F_ibl * env_brdf.x + env_brdf.y);
 
-    float ibl_intensity = ubo.ambient_color.w;
-    vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
-
-    vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
-    vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
-    ambient += gi_sample * kD * albedo * ubo.gi_intensity * ao;
+    vec3 ambient = (diffuse_ambient + specular_ibl * ibl_intensity) * ao;
 
     vec3 ss_gi_sample = texture(ss_gi_emissive, gi_uv).rgb;
     ambient += ss_gi_sample * kD * albedo * ubo.ss_gi_intensity;

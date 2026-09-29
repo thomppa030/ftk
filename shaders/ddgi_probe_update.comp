@@ -63,15 +63,10 @@ vec4 update_irradiance_texel(ivec2 atlas_texel, bool has_history) {
         float weight = max(0.0, dot(texel_direction, s_dir[r].xyz));
         if (weight < EPSILON) continue;
 
-        // Clamp radiance to prevent emissive hotspots from causing flicker
+        // Clamp radiance to prevent emissive hotspots from causing flicker.
+        // A miss ray's sky counts like any other ray: the probes are the
+        // only diffuse sky light where they reach.
         vec3 radiance = min(s_ray[r].rgb, vec3(30.0)) * energy_conservation;
-
-        // Down-weight sky miss rays so nearby surface bounces dominate.
-        // Even with blurred sky sampling (mip 4), HDR skies can still
-        // overpower subtle color bleeding from nearby geometry.
-        if (dist >= max_trace_dist - 0.1) {
-            weight *= 0.25;
-        }
 
         result += vec4(radiance * weight, weight);
     }

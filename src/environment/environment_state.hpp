@@ -304,6 +304,12 @@ struct EnvironmentState {
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
     float ambient_intensity{0.4f};
 
+    /// How brightly the sky lights the world: ambient_intensity (which day
+    /// profiles and weather drive) times the environment's IBL intensity. It
+    /// scales the sky the DDGI probes see, the sky's IBL where they do not
+    /// reach, and sky reflections.
+    [[nodiscard]] float sky_light_intensity() const { return ambient_intensity * sky.ibl_intensity; }
+
     /// EV added on top of the project's exposure, from the day profile.
     float exposure_bias{0.0f};
     /// How bright the sky's star field is, 0 by day.

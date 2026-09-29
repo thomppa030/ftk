@@ -19,6 +19,7 @@ struct RenderSettings {
     // ── Global Illumination ──
     struct Ddgi {
         bool enabled{true};
+        // How strong bounced light is; see DdgiConfig::gi_intensity.
         float gi_intensity{1.0f};
         // See DdgiConfig::infinite_bounces_mult in ddgi_pass.hpp for why
         // this default was lowered from 0.8 (steady-state feedback settles

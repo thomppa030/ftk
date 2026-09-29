@@ -296,7 +296,7 @@ void ProjectSettingsWindow::draw_rendering() {
                                          cfg.probe_counts.x * cfg.probe_counts.y * cfg.probe_counts.z,
                                          cfg.probe_spacing.x).c_str());
                 }
-                ui::row("GI intensity", [&] {
+                ui::row("Bounce intensity", [&] {
                     edit |= ui::slider("##gi_intensity", s.ddgi.gi_intensity, 0.0f, 2.0f);
                 });
                 ui::row("Infinite bounces", [&] {

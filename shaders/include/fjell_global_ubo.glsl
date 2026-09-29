@@ -22,7 +22,7 @@ layout(set = SET, binding = BIND) uniform GlobalUbo {                          \
     mat4 prev_unjittered_vp;                                                   \
     mat4 prev_view;                                                            \
     float time;                                                                \
-    float gi_intensity;                                                        \
+    float ddgi_weight;          /* 1 if this viewport takes DDGI's output */   \
     float jitter_x;                                                            \
     float jitter_y;                                                            \
     float ss_gi_intensity;                                                     \

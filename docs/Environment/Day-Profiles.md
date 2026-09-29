@@ -36,7 +36,7 @@ not need a key at both ends.
 | `moon_color` | colour | multiply | The moon's light. |
 | `moon_intensity` | curve | multiply | Its strength, on top of the phase. |
 | `ambient_color` | colour | multiply | The ambient term's colour — the blue of open shade at midday, the warmth of it at sunset. |
-| `ambient_intensity` | curve | multiply | How much ambient there is. This is what keeps night from being pitch black. |
+| `ambient_intensity` | curve | multiply | How brightly the sky lights the world: the sky the GI probes gather (the sky's IBL where they don't reach) and sky reflections. This is what keeps night from being pitch black. Diffuse sky light follows it through the probes, over a couple of seconds. |
 | `sky_top` | colour | override | The built-in gradient sky's zenith. |
 | `sky_bottom` | colour | override | Its horizon. |
 | `fog.<uniform>` | as declared | multiply for density, else override | A uniform of the haze's [fog material](Fog-Shaders.md): `fog.density` is the dawn mist spike, `fog.color` its colour, and anything else the shader declares. `fog_density` and `fog_color` are the older names for those two. |
