@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <thread>
 
@@ -322,6 +323,60 @@ int main() {
         }
         if (!copied) std::fprintf(stderr, "copies and clears failed\n");
         pipelines = pipelines && copied;
+
+        // Uploads: words written into a buffer at an offset, a texture written
+        // whole with its mips filtered from the first, then a box of it
+        // written again; read back once the upload lanes have run. A write
+        // past a buffer's end is refused.
+        bool uploaded = false;
+        auto upload_target = device.create(fjell::gpu::BufferDesc{.size = 32, .name = "link_upload"});
+        auto upload_texture = device.create(fjell::gpu::TextureDesc{
+            .format = fjell::gpu::Format::rgba8_unorm,
+            .width = 4,
+            .height = 4,
+            .mips = 3,
+            .use = fjell::gpu::TextureUse::sampled,
+            .name = "link_upload_texture",
+        });
+        if (upload_target && upload_texture && results) {
+            using fjell::gpu::Access;
+            constexpr uint32_t RED = 0xFF0000FFU;
+            constexpr uint32_t GREEN = 0xFF00FF00U;
+            const size_t reported_before = device.impl().reported.size();
+            fjell::gpu::Upload& upload = device.upload();
+            const std::array<uint32_t, 4> words{1, 2, 3, 4};
+            upload.to_buffer(*upload_target, 16, words);
+            upload.to_buffer(*upload_target, 24, words);
+            std::array<uint32_t, 16> texels{};
+            texels.fill(RED);
+            upload.to_texture(fjell::gpu::mip(*upload_texture, 0), {},
+                              std::as_bytes(std::span(texels)),
+                              {.after = Access::sampled_fragment, .generate_mips = true});
+            const std::array<uint32_t, 2> box{GREEN, GREEN};
+            upload.to_texture(fjell::gpu::mip(*upload_texture, 0),
+                              {.x = 1, .y = 2, .width = 2, .height = 1},
+                              std::as_bytes(std::span(box)),
+                              {.before = Access::sampled_fragment, .after = Access::sampled_fragment});
+            core.upload_context().wait_all();
+            run([&](fjell::gpu::CommandList& cmd) {
+                cmd.copy(fjell::gpu::BufferRange(*upload_target, 16, 16),
+                         fjell::gpu::BufferRange(*results, 0, 16));
+                cmd.barrier(*upload_texture, Access::sampled_fragment, Access::copy_src);
+                cmd.copy(fjell::gpu::mip(*upload_texture, 0), fjell::gpu::BufferRange(*results, 16, 64));
+                cmd.copy(fjell::gpu::mip(*upload_texture, 2), fjell::gpu::BufferRange(*results, 80, 4));
+            });
+            uploaded = device.impl().reported.size() == reported_before + 1;
+            for (uint32_t i = 0; uploaded && i < 4; ++i) uploaded = word(*results, i) == i + 1;
+            for (uint32_t i = 0; uploaded && i < 16; ++i) {
+                const bool in_box = i == 9 || i == 10;
+                uploaded = word(*results, 4 + i) == (in_box ? GREEN : RED);
+            }
+            uploaded = uploaded && word(*results, 20) == RED;
+        }
+        if (!uploaded) std::fprintf(stderr, "uploads failed\n");
+        pipelines = pipelines && uploaded;
+        if (upload_target) upload_target->reset();
+        if (upload_texture) upload_texture->reset();
         // Rendering: a triangle over a 4 × 4 target drawn with vertices and
         // tested against depth, then with a mesh shader where the GPU has one,
         // then into four samples resolved into one; each target read back.

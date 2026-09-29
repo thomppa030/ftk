@@ -38,59 +38,20 @@ std::string described(std::string_view what, std::string_view name) {
     return text;
 }
 
-// Records the texture's initial clear on the upload lane, which the next
-// frame's submission runs first on the same queue. The texture is left where
-// its uses read it; the closing barrier reaches every later command.
-void clear_on_upload_lane(GpuCore& core, VkImage image, const TextureInfo& info,
-                          const Clear& clear) {
-    VkCommandBuffer cmd = core.upload_context().image_cb();
-    const VkImageSubresourceRange range{vulkan::image_aspects(info.format), 0, info.mips, 0,
-                                        info.layers};
+// What a texture made with an initial value is left ready for: to be sampled
+// by any shader, or without that use, read and written as storage, or
+// otherwise drawn to.
+AccessSet initial_rest(const TextureInfo& info, const Caps& caps) {
     const bool depth = kind(info.format) == FormatKind::depth ||
                        kind(info.format) == FormatKind::depth_stencil;
-
-    VkImageLayout rest = VK_IMAGE_LAYOUT_GENERAL;
     if (info.use.has(TextureUse::sampled)) {
-        rest = depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                     : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    } else if (!info.use.has(TextureUse::storage)) {
-        rest = depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                     : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        AccessSet sampled = Access::sampled_fragment | Access::sampled_vertex |
+                            Access::sampled_compute;
+        if (caps.mesh_max_output_vertices > 0) sampled |= Access::sampled_mesh;
+        return sampled;
     }
-
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.image = image;
-    barrier.subresourceRange = range;
-    VkDependencyInfo dependency{};
-    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency.imageMemoryBarrierCount = 1;
-    dependency.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dependency);
-
-    const VkClearValue value = vulkan::to_vk(clear, info.format);
-    if (depth) {
-        vkCmdClearDepthStencilImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                    &value.depthStencil, 1, &range);
-    } else {
-        vkCmdClearColorImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &value.color, 1,
-                             &range);
-    }
-
-    // Whatever reads it first may be any command in any later submission, so
-    // the scope is every command rather than a guess at the stage.
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = rest;
-    vkCmdPipelineBarrier2(cmd, &dependency);
+    if (info.use.has(TextureUse::storage)) return Access::storage_read_write_compute;
+    return depth ? Access::depth_attachment : Access::color_attachment;
 }
 
 void destroy_texture(VkDevice device, VmaAllocator allocator,
@@ -127,6 +88,7 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
 
 Device::Impl::Impl(GpuCore& gpu_core)
     : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()),
+      upload_state{gpu_core.upload_context()},
       transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
                  .alignment = transient_alignment(gpu_core.physical_device()),
                  .chunk_size = TRANSIENT_CHUNK_SIZE},
@@ -393,10 +355,9 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     }
     vulkan::name_object(self.device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(record.image),
                 desc.name);
-    if (desc.initial.has_value()) {
-        clear_on_upload_lane(self.core, record.image, info, *desc.initial);
-    }
-    return Owned<Texture>(*this, self.textures.emplace(std::move(record)));
+    const Texture texture = self.textures.emplace(std::move(record));
+    if (desc.initial.has_value()) upload().clear(texture, *desc.initial, initial_rest(info, self.caps));
+    return Owned<Texture>(*this, texture);
 }
 
 Sampler Device::sampler(const SamplerDesc& desc) {
@@ -483,6 +444,11 @@ void release(Device& device, Texture texture) {
         [dev = self.device, allocator = self.allocator, gone = std::move(*record)] {
             destroy_texture(dev, allocator, gone);
         });
+}
+
+Upload& Device::upload() {
+    if (!impl_->upload) impl_->upload = std::make_unique<Upload>(*this, impl_->upload_state);
+    return *impl_->upload;
 }
 
 namespace vulkan {

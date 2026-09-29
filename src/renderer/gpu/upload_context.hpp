@@ -16,6 +16,10 @@ namespace fjell {
 
 class Device;
 
+namespace gpu {
+class Upload;
+}
+
 /// A mapped slice of upload staging memory, already positioned for a copy
 /// command (`buffer` + `offset` go straight into VkBufferCopy /
 /// VkBufferImageCopy).
@@ -25,7 +29,7 @@ struct StagingSlice {
     void* ptr{nullptr};
 };
 
-/// Batched, non-blocking GPU uploads.
+/// Batched, non-blocking GPU uploads: the lanes behind `gpu::Upload`.
 ///
 /// Replaces the allocate-staging / submit / vkQueueWaitIdle pattern: callers
 /// stage data and record copies, and the batch is submitted once per frame
@@ -66,14 +70,6 @@ public:
     /// a buffer that received data earlier in the batch is safe.
     void copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
 
-    /// Stage pixel data for an image upload. Record the layout transitions,
-    /// vkCmdCopyBufferToImage, and any mip blits into image_cb().
-    [[nodiscard]] StagingSlice stage_for_image(const void* data, VkDeviceSize size);
-
-    /// The image lane's open command buffer (graphics queue). Valid until
-    /// the next flush().
-    [[nodiscard]] VkCommandBuffer image_cb();
-
     /// Submit both lanes' open batches. Non-blocking; called once per frame
     /// before frame submission, which waits on the timelines.
     void flush();
@@ -100,6 +96,18 @@ public:
     }
 
 private:
+    // Texture uploads record through gpu::Upload, which owns the copy, the
+    // mips and the state the texture is left in.
+    friend class gpu::Upload;
+
+    /// Stages pixel data for an image upload, whose commands go into
+    /// image_cb().
+    [[nodiscard]] StagingSlice stage_for_image(const void* data, VkDeviceSize size);
+
+    /// The image lane's open command buffer (graphics queue). Valid until
+    /// the next flush().
+    [[nodiscard]] VkCommandBuffer image_cb();
+
     enum LaneIndex : uint32_t { BUFFER = 0, IMAGE = 1, LANE_COUNT = 2 };
 
     struct Batch {
