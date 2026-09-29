@@ -1,14 +1,14 @@
 #pragma once
 
+#include "environment/environment_state.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <string>
 #include <vector>
-
-#include "environment/environment_state.hpp"
 
 namespace fjell {
 
@@ -57,7 +57,7 @@ public:
 
     // The compiled FJSL sky, for SkyCubemapPass to render the same shader
     // into the lighting cubemap: false / zero while no FJSL sky is active.
-    [[nodiscard]] bool fjsl_active() const { return mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] bool fjsl_active() const { return mode_ == Mode::Fjsl && static_cast<bool>(fjsl_pipeline_); }
     [[nodiscard]] uint32_t fjsl_pipeline_id() const { return fjsl_pipeline_id_; }
     [[nodiscard]] uint32_t fjsl_material_id() const { return fjsl_material_id_; }
     [[nodiscard]] uint32_t fjsl_pipeline_generation() const { return fjsl_pipeline_generation_; }
@@ -71,29 +71,18 @@ public:
     [[nodiscard]] float atmosphere_hdri_floor() const { return atm_hdri_floor_; }
 
 private:
-    /// Open the sky's rendering scope: color + metallic-roughness + normal
-    /// loaded, depth bound read-only. Both the built-in and FJSL paths
-    /// render into it.
-    void begin_rendering(const FrameContext& ctx);
-
     // Build the FJSL pipeline + allocate its material/params row. Called
     // when sky_shader_ changes. Idempotent: safe to call on the same path
     // multiple times — only rebuilds when the path changes or the FJSL is
     // hot-reloaded.
     void ensure_fjsl_pipeline(const PassResources& resources);
-    // Hand the current pipeline and layout to the deferred deleter, for a
-    // rebuild while frames are in flight. Teardown wants destroy_ instead.
-    void retire_fjsl_pipeline(const PassResources& resources);
-    void destroy_fjsl_pipeline();
     // Write the shader's default uniform values into its params slice.
     void write_default_params(const ShaderMetadata& meta, uint32_t param_offset);
     // Lay the environment's named values over the defaults, once per change.
     void apply_uniform_values();
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    /// The built-in skies: gradient, HDRI and atmosphere.
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
     glm::vec3 bottom_color_{0.8f, 0.4f, 0.1f};
@@ -112,8 +101,9 @@ private:
     uint32_t fjsl_material_id_{~0u};
     uint32_t fjsl_param_offset_{0};
     uint32_t fjsl_param_count_{0};
-    VkPipelineLayout fjsl_layout_{VK_NULL_HANDLE};
-    VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};
+    /// The FJSL sky's fragment on the built-in sky's triangle; unset while
+    /// no FJSL sky is built.
+    gpu::Owned<gpu::GraphicsPipeline> fjsl_pipeline_;
     PipelineCache* fjsl_pipeline_cache_{nullptr};
     BindlessTextures* fjsl_bindless_{nullptr};
     // The environment's sky uniform values this frame, and the set the params
