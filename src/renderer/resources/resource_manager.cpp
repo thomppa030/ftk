@@ -92,9 +92,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         // Direct .fjmesh load
         if (ext == ".fjmesh") {
             auto data = Model::load_fjmesh(path);
-            auto model = std::make_unique<Model>(allocator_, gpu_,
-                                                  std::move(data), mega_buffer_,
-                                                  meshlet_buffer_);
+            auto model = std::make_unique<Model>(std::move(data), *mega_buffer_, *meshlet_buffer_);
             return models_.insert(path, std::move(model));
         }
 
@@ -108,9 +106,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
                 if (!ec && cache_time >= src_time) {
                     FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
                     auto data = Model::load_fjmesh(cached.string());
-                    auto model = std::make_unique<Model>(allocator_, gpu_,
-                                                          std::move(data), mega_buffer_,
-                                                          meshlet_buffer_);
+                    auto model = std::make_unique<Model>(std::move(data), *mega_buffer_, *meshlet_buffer_);
                     return models_.insert(path, std::move(model));
                 }
             }
@@ -118,7 +114,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
 
         // Fall back to glTF loading (existing path)
         auto model = std::make_unique<Model>(allocator_, device_, physical_device_, gpu_,
-                                              path, mega_buffer_, meshlet_buffer_);
+                                              path, *mega_buffer_, *meshlet_buffer_);
         return models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
         return make_error("Failed to load model '" + path + "': " + e.what());
@@ -147,7 +143,7 @@ Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
         return make_error("Unknown primitive type: " + type);
     }
 
-    auto model = std::make_unique<Model>(allocator_, gpu_, data, mega_buffer_, meshlet_buffer_);
+    auto model = std::make_unique<Model>(data, *mega_buffer_, *meshlet_buffer_);
     return models_.insert(key, std::move(model));
 }
 

@@ -100,12 +100,8 @@ src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
 src/renderer/resource_registry.hpp
-src/renderer/resources/asset_loader.cpp
-src/renderer/resources/asset_loader.hpp
 src/renderer/resources/mega_buffer.cpp
 src/renderer/resources/mega_buffer.hpp
-src/renderer/resources/mesh.cpp
-src/renderer/resources/mesh.hpp
 src/renderer/resources/meshlet_buffer.cpp
 src/renderer/resources/meshlet_buffer.hpp
 src/renderer/resources/meshlet_descriptor.cpp

@@ -4,7 +4,6 @@
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/mega_buffer.hpp"
-#include "renderer/resources/mesh.hpp"
 #include "renderer/resources/meshlet.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/texture.hpp"
@@ -69,21 +68,20 @@ struct LodLevel {
 
 class Model {
 public:
-    // Load from glTF/GLB file (existing path)
+    // Every constructor adds the model's geometry to `mega` and its
+    // meshlets to `meshlets`, one mega entry per submesh of each LOD.
+
+    // Load from glTF/GLB file (existing path); the device arguments make
+    // the file's own textures.
     Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
           gpu::Device& gpu,
-          const std::string& path, MegaBuffer* mega = nullptr,
-          MeshletBuffer* meshlet_buf = nullptr);
+          const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets);
 
     // Create from primitive mesh data (cube/plane/sphere)
-    Model(VmaAllocator allocator, gpu::Device& gpu,
-          const PrimitiveMeshData& data, MegaBuffer* mega = nullptr,
-          MeshletBuffer* meshlet_buf = nullptr);
+    Model(const PrimitiveMeshData& data, MegaBuffer& mega, MeshletBuffer& meshlets);
 
     // Create from pre-loaded .fjmesh data (no parsing, no meshlet building)
-    Model(VmaAllocator allocator, gpu::Device& gpu,
-          FjMeshData&& data, MegaBuffer* mega = nullptr,
-          MeshletBuffer* meshlet_buf = nullptr);
+    Model(FjMeshData&& data, MegaBuffer& mega, MeshletBuffer& meshlets);
 
     // Load .fjmesh binary file into CPU-side data (no GPU upload)
     [[nodiscard]] static FjMeshData load_fjmesh(const std::string& path);
@@ -92,9 +90,7 @@ public:
     [[nodiscard]] const std::vector<std::unique_ptr<Texture>>& textures() const {
         return textures_;
     }
-    [[nodiscard]] uint32_t mesh_count() const {
-        return static_cast<uint32_t>(meshes_.size());
-    }
+    /// Indices across every mega entry, of every LOD.
     [[nodiscard]] uint32_t total_indices() const;
 
     // Raw collision geometry as stored in the file. Prefer
@@ -223,7 +219,11 @@ public:
     [[nodiscard]] const glm::vec3& sdf_volume_max() const { return sdf_max_; }
 
 private:
-    std::vector<std::unique_ptr<Mesh>> meshes_;
+    /// Adds one submesh: its vertices and indices as a mega entry, with the
+    /// entry's meshlets when it has any.
+    void add_entry(MegaBuffer& mega, MeshletBuffer& meshlets, const std::vector<Vertex>& vertices,
+                   const std::vector<uint32_t>& indices, const MeshletBuildResult& meshlet_result);
+
     std::vector<std::unique_ptr<Texture>> textures_;
     std::vector<glm::vec3> collision_vertices_;
     std::vector<uint32_t> collision_indices_;

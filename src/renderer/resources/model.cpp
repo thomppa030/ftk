@@ -77,8 +77,7 @@ static LoadedImage load_image_from_source(
 
 Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
              gpu::Device& gpu,
-             const std::string& path, MegaBuffer* mega,
-             MeshletBuffer* meshlet_buf) {
+             const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets) {
     auto gltf_path = std::filesystem::path(path);
     auto base_dir = gltf_path.parent_path();
 
@@ -194,22 +193,7 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
                 auto meshlet_result = build_meshlets(
                     vertices.data(), static_cast<uint32_t>(vertices.size()),
                     indices.data(), static_cast<uint32_t>(indices.size()));
-                meshlet_results_.push_back(meshlet_result);
-
-                if (mega) {
-                    auto entry = mega->upload(vertices, indices);
-                    if (meshlet_buf && !meshlet_result.meshlets.empty()) {
-                        auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
-                        entry.meshlet_offset = range.meshlet_offset;
-                        entry.meshlet_count = range.meshlet_count;
-                    }
-                    mega_entries_.push_back(entry);
-                    meshes_.push_back(std::make_unique<Mesh>(entry));
-                } else {
-                    meshes_.push_back(std::make_unique<Mesh>(
-                        allocator, gpu,
-                        vertices, indices));
-                }
+                add_entry(mega, meshlets, vertices, indices, meshlet_result);
             }
         }
     }
@@ -224,12 +208,10 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
     lod_levels_.push_back(lod0);
 
     FJELL_GFX_INFO("Model loaded: {} meshes, {} textures, {} meshlets",
-                   meshes_.size(), textures_.size(), total_meshlet_count());
+                   mega_entries_.size(), textures_.size(), total_meshlet_count());
 }
 
-Model::Model(VmaAllocator allocator, gpu::Device& gpu,
-             const PrimitiveMeshData& data, MegaBuffer* mega,
-             MeshletBuffer* meshlet_buf) {
+Model::Model(const PrimitiveMeshData& data, MegaBuffer& mega, MeshletBuffer& meshlets) {
     for (const auto& v : data.vertices) {
         collision_vertices_.push_back(v.position);
         local_aabb_.expand(v.position);
@@ -248,22 +230,7 @@ Model::Model(VmaAllocator allocator, gpu::Device& gpu,
     auto meshlet_result = build_meshlets(
         data.vertices.data(), static_cast<uint32_t>(data.vertices.size()),
         data.indices.data(), static_cast<uint32_t>(data.indices.size()));
-    meshlet_results_.push_back(meshlet_result);
-
-    if (mega) {
-        auto entry = mega->upload(data.vertices, data.indices);
-        if (meshlet_buf && !meshlet_result.meshlets.empty()) {
-            auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
-            entry.meshlet_offset = range.meshlet_offset;
-            entry.meshlet_count = range.meshlet_count;
-        }
-        mega_entries_.push_back(entry);
-        meshes_.push_back(std::make_unique<Mesh>(entry));
-    } else {
-        meshes_.push_back(std::make_unique<Mesh>(
-            allocator, gpu,
-            data.vertices, data.indices));
-    }
+    add_entry(mega, meshlets, data.vertices, data.indices, meshlet_result);
 
     bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
 
@@ -292,10 +259,22 @@ Model::Model(VmaAllocator allocator, gpu::Device& gpu,
 
 uint32_t Model::total_indices() const {
     uint32_t total = 0;
-    for (auto& mesh : meshes_) {
-        total += mesh->index_count();
+    for (const MegaMeshEntry& entry : mega_entries_) {
+        total += entry.index_count;
     }
     return total;
+}
+
+void Model::add_entry(MegaBuffer& mega, MeshletBuffer& meshlets, const std::vector<Vertex>& vertices,
+                      const std::vector<uint32_t>& indices, const MeshletBuildResult& meshlet_result) {
+    meshlet_results_.push_back(meshlet_result);
+    MegaMeshEntry entry = mega.upload(vertices, indices);
+    if (!meshlet_result.meshlets.empty()) {
+        const MeshletRange range = meshlets.upload(meshlet_result, entry.vertex_offset);
+        entry.meshlet_offset = range.meshlet_offset;
+        entry.meshlet_count = range.meshlet_count;
+    }
+    mega_entries_.push_back(entry);
 }
 
 uint32_t Model::select_lod(float screen_size) const {
@@ -571,9 +550,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     return data;
 }
 
-Model::Model(VmaAllocator allocator, gpu::Device& gpu,
-             FjMeshData&& data, MegaBuffer* mega,
-             MeshletBuffer* meshlet_buf) {
+Model::Model(FjMeshData&& data, MegaBuffer& mega, MeshletBuffer& meshlets) {
     collision_vertices_ = std::move(data.collision_vertices);
     collision_indices_ = std::move(data.collision_indices);
     collision_full_vertices_ = std::move(data.collision_full_vertices);
@@ -661,22 +638,7 @@ Model::Model(VmaAllocator allocator, gpu::Device& gpu,
                 data.meshlet_triangles.begin() + mt_begin * 3,
                 data.meshlet_triangles.begin() + mt_end * 3);
         }
-        meshlet_results_.push_back(meshlet_result);
-
-        if (mega) {
-            auto entry = mega->upload(sub_vertices, sub_indices);
-            if (meshlet_buf && !meshlet_result.meshlets.empty()) {
-                auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
-                entry.meshlet_offset = range.meshlet_offset;
-                entry.meshlet_count = range.meshlet_count;
-            }
-            mega_entries_.push_back(entry);
-            meshes_.push_back(std::make_unique<Mesh>(entry));
-        } else {
-            meshes_.push_back(std::make_unique<Mesh>(
-                allocator, gpu,
-                sub_vertices, sub_indices));
-        }
+        add_entry(mega, meshlets, sub_vertices, sub_indices, meshlet_result);
     }
 
     // Build LOD levels from file data, mapping submesh indices to mega_entries
@@ -698,7 +660,7 @@ Model::Model(VmaAllocator allocator, gpu::Device& gpu,
     }
 
     FJELL_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets, {} LODs",
-                   meshes_.size(), total_meshlet_count(), lod_levels_.size());
+                   mega_entries_.size(), total_meshlet_count(), lod_levels_.size());
 }
 
 } // namespace fjell

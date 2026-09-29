@@ -3,9 +3,6 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-
 #include <mutex>
 #include <string>
 #include <vector>
@@ -19,10 +16,9 @@ class ThreadPool;
 
 class AssetLoader {
 public:
-    AssetLoader(ThreadPool& pool, ResourceManager& resources,
-                VmaAllocator allocator, VkDevice device,
-                gpu::Device& gpu,
-                MegaBuffer* mega, MeshletBuffer* meshlet_buf);
+    /// Loaded models add their geometry to `mega` and `meshlets`.
+    AssetLoader(ThreadPool& pool, ResourceManager& resources, MegaBuffer& mega,
+                MeshletBuffer& meshlets);
 
     // Request async model load. Returns handle immediately (Loading state).
     // If already loaded or in-flight, returns existing handle.
@@ -45,11 +41,8 @@ private:
 
     ThreadPool& pool_;
     ResourceManager& resources_;
-    VmaAllocator allocator_;
-    VkDevice device_;
-    gpu::Device& gpu_;
-    MegaBuffer* mega_;
-    MeshletBuffer* meshlet_buf_;
+    MegaBuffer& mega_;
+    MeshletBuffer& meshlets_;
 
     std::mutex completed_mutex_;
     std::vector<CompletedLoad> completed_;

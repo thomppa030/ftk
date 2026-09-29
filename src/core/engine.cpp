@@ -287,9 +287,7 @@ void Engine::init_resources() {
 
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
-        vulkan_context_->allocator(), vulkan_context_->device(),
-        vulkan_context_->gpu_device(),
-        vulkan_context_->mega_buffer(), vulkan_context_->meshlet_buffer());
+        *vulkan_context_->mega_buffer(), *vulkan_context_->meshlet_buffer());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});

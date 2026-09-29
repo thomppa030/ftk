@@ -189,7 +189,7 @@ public:
         if (!loaded) return false;
         // A skinned .fjmesh loads as an empty model; its picture is the
         // .fjskel's, not a frame of sky.
-        if (loaded->mesh_count() == 0) return false;
+        if (loaded->mega_entry_count() == 0) return false;
 
         uint32_t id = scene.add(*model, default_material(resources), resources, {},
                                 fs::path(path).stem().string(), path, "default");

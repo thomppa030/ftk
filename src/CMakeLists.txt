@@ -68,7 +68,6 @@ add_executable(fjell
     renderer/systems/vfx_expression.cpp
     renderer/systems/vfx_expression_eval.cpp
     renderer/resources/mega_buffer.cpp
-    renderer/resources/mesh.cpp
     renderer/resources/meshlet.cpp
     renderer/resources/sdf_generator.cpp
     renderer/resources/meshlet_buffer.cpp
