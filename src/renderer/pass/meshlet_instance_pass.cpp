@@ -1,232 +1,91 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
-#include "gpu/vulkan/native.hpp"
+
+#include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/pass/hiz_pass.hpp"
-#include "renderer/gpu/device.hpp"
+#include "gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "renderer/gpu/vk_check.hpp"
-#include "core/base_path.hpp"
-#include "core/log.hpp"
-
-#include <vector>
-
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
 
 #include <algorithm>
-#include <array>
-#include <stdexcept>
+#include <vector>
 
 namespace fjell {
 
-Result<> MeshletInstancePass::create(Device& device, const PassResources& resources) {
-    draw_data_set_layout_ = resources.draw_data_layout;
-    gpu_device_ = resources.device;
-    create(device.handle(), resources.allocator,
-           resources.global_set_layout, resources.pipeline_cache);
+namespace {
+
+// The expansion and the cull run one invocation per draw and per meshlet.
+constexpr uint32_t GROUP = 64;
+
+// A mesh-task dispatch as the indirect commands hold it.
+struct TaskDispatch {
+    uint32_t x;
+    uint32_t y;
+    uint32_t z;
+};
+
+struct CullPush {
+    uint32_t segment_size;
+    uint32_t viewport_width;
+    uint32_t viewport_height;
+    uint32_t hiz_mip_count;
+    uint32_t is_second_pass;
+};
+
+// A storage buffer bound whole up to `size`, never empty.
+gpu::BufferRange at_least_one_word(gpu::Buffer buffer, uint64_t size) {
+    return {buffer, 0, std::max<uint64_t>(size, 16)};
+}
+
+} // namespace
+
+Result<> MeshletInstancePass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    FJELL_TRY(expand_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                    .shader = "shaders/meshlet_expand.comp",
+                                    .name = "meshlet_expand",
+                                }));
+    // Set 0 the globals, set 2 the draw data the vertex and mesh shaders
+    // read the instance transforms from.
+    FJELL_TRY(cull_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                  .shader = "shaders/meshlet_cull.comp",
+                                  .shared = {resources.globals, resources.draw_data},
+                                  .name = "meshlet_cull",
+                              }));
+    FJELL_TRY(no_hiz_, device_->create(gpu::TextureDesc{
+                           .format = gpu::Format::r32_float,
+                           .use = gpu::TextureUse::sampled,
+                           .initial = gpu::Clear{0.0f},
+                           .name = "meshlet_cull_no_hiz",
+                       }));
+
+    // Only read with a Hi-Z pass, whose sampler replaces it.
+    hiz_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
+                                     .mip_filter = gpu::Filter::nearest,
+                                     .address = gpu::Address::clamp});
+
+    FJELL_GFX_DEBUG("MeshletInstancePass created (expand + cull pipelines)");
     return {};
 }
 
-void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
-                                  VkDescriptorSetLayout global_set_layout,
-                                  VkPipelineCache pipeline_cache) {
-    device_ = device;
-    vk_pipeline_cache_ = pipeline_cache;
-    allocator_ = allocator;
-
-    // ── Expand pass descriptor layout (set 0) ──
-    // binding 0: DrawData[] (read-only)
-    // binding 1: MeshletInstance[] output (write-only)
-    // binding 2: atomic counter (read-write)
-    {
-        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-        for (uint32_t i = 0; i < 3; ++i) {
-            bindings[i].binding = i;
-            bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            bindings[i].descriptorCount = 1;
-            bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        }
-        expand_set_layout_ = std::make_unique<DescriptorSetLayout>(device_, std::span{bindings});
-
-        VkDescriptorPoolSize pool_size{};
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_size.descriptorCount = 3 * MAX_FRAMES_IN_FLIGHT;
-        expand_pool_ = std::make_unique<DescriptorPool>(
-            device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
-
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            expand_sets_[i] = expand_pool_->allocate(*expand_set_layout_);
-        }
-    }
-
-    // Expand pipeline layout: single set + push constant
-    {
-        VkPushConstantRange push_range{};
-        push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        push_range.offset = 0;
-        push_range.size = sizeof(uint32_t);
-
-        VkDescriptorSetLayout set = expand_set_layout_->handle();
-        VkPipelineLayoutCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        ci.setLayoutCount = 1;
-        ci.pSetLayouts = &set;
-        ci.pushConstantRangeCount = 1;
-        ci.pPushConstantRanges = &push_range;
-
-        vk_check(vkCreatePipelineLayout(device_, &ci, nullptr, &expand_layout_),
-                 "Failed to create meshlet expand pipeline layout");
-    }
-
-    // Expand compute pipeline
-    {
-        auto code = read_spirv(base_path::resolve("shaders/meshlet_expand.comp.spv"));
-        auto module = create_shader_module(device_, code);
-
-        VkPipelineShaderStageCreateInfo stage{};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage.module = module;
-        stage.pName = "main";
-
-        VkComputePipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        ci.stage = stage;
-        ci.layout = expand_layout_;
-
-        vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci,
-                                           nullptr, &expand_pipeline_),
-                 "Failed to create meshlet expand compute pipeline");
-        vkDestroyShaderModule(device_, module, nullptr);
-    }
-
-    // ── Cull pass descriptor layout (set 1) ──
-    // binding 0: DrawData[] (read)
-    // binding 1: MeshletInstance[] input (read)
-    // binding 2: input counter (read)
-    // binding 3: MeshletInstance[] visible output (write)
-    // binding 4: indirect dispatch cmds / per-bin counters (read-write)
-    // binding 5: MeshletBounds[] (read)
-    // binding 6: uint pipeline_bin[] (read) — per-draw bin index
-    // binding 7: Hi-Z pyramid sampler (read) — for occlusion culling
-    // binding 8: MeshletInstance[] culled output (write in pass 1, read in pass 2)
-    // binding 9: culled counter (read-write)
-    {
-        std::array<VkDescriptorSetLayoutBinding, 10> bindings{};
-        for (uint32_t i = 0; i < 10; ++i) {
-            bindings[i].binding = i;
-            bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            bindings[i].descriptorCount = 1;
-            bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        }
-        bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-
-        // Allow binding 7 to be unbound when not accessed (shader checks hiz_mip_count)
-        std::array<VkDescriptorBindingFlags, 10> binding_flags{};
-        binding_flags[7] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-
-        VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
-        flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-        flags_ci.bindingCount = static_cast<uint32_t>(binding_flags.size());
-        flags_ci.pBindingFlags = binding_flags.data();
-
-        cull_set_layout_ = std::make_unique<DescriptorSetLayout>(
-            device_, std::span{bindings}, &flags_ci);
-
-        // 2x sets: separate sets for pass 1 and pass 2 per frame
-        constexpr uint32_t SETS_PER_FRAME = 2;
-        std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME};
-
-        cull_pool_ = std::make_unique<DescriptorPool>(
-            device_, std::span{pool_sizes}, MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME);
-
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            cull_sets_[i] = cull_pool_->allocate(*cull_set_layout_);
-            cull_sets_pass2_[i] = cull_pool_->allocate(*cull_set_layout_);
-        }
-    }
-
-    // Cull pipeline layout: set 0 = global UBO, set 1 = cull buffers,
-    // set 2 = DrawData + InstanceTransforms (shared with vertex/mesh shaders)
-    {
-        std::array set_layouts = {
-            global_set_layout,
-            cull_set_layout_->handle(),
-            draw_data_set_layout_,
-        };
-
-        VkPushConstantRange push_range{};
-        push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        push_range.offset = 0;
-        push_range.size = 5 * sizeof(uint32_t); // segment_size, vp_width, vp_height, hiz_mips, is_second_pass
-
-        VkPipelineLayoutCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-        ci.pSetLayouts = set_layouts.data();
-        ci.pushConstantRangeCount = 1;
-        ci.pPushConstantRanges = &push_range;
-
-        vk_check(vkCreatePipelineLayout(device_, &ci, nullptr, &cull_layout_),
-                 "Failed to create meshlet cull pipeline layout");
-    }
-
-    // Cull compute pipeline
-    {
-        auto code = read_spirv(base_path::resolve("shaders/meshlet_cull.comp.spv"));
-        auto module = create_shader_module(device_, code);
-
-        VkPipelineShaderStageCreateInfo stage{};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage.module = module;
-        stage.pName = "main";
-
-        VkComputePipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        ci.stage = stage;
-        ci.layout = cull_layout_;
-
-        vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci,
-                                           nullptr, &cull_pipeline_),
-                 "Failed to create meshlet cull compute pipeline");
-        vkDestroyShaderModule(device_, module, nullptr);
-    }
-
-    FJELL_GFX_DEBUG("MeshletInstancePass created (expand + cull pipelines)");
+void MeshletInstancePass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    if (auto* hiz = passes.try_get<HizPass>("hiz")) hiz_sampler_ = hiz->sampler();
 }
 
 void MeshletInstancePass::destroy() {
-    if (expand_pipeline_ != VK_NULL_HANDLE)
-        vkDestroyPipeline(device_, expand_pipeline_, nullptr);
-    if (expand_layout_ != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device_, expand_layout_, nullptr);
-    if (cull_pipeline_ != VK_NULL_HANDLE)
-        vkDestroyPipeline(device_, cull_pipeline_, nullptr);
-    if (cull_layout_ != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device_, cull_layout_, nullptr);
-
-    for (auto& buf : instance_buffers_) buf.reset();
-    for (auto& buf : expand_counters_) buf.reset();
-    for (auto& buf : visible_buffers_) buf.reset();
-    for (auto& buf : indirect_buffers_) buf.reset();
-    for (auto& buf : culled_buffers_) buf.reset();
-    for (auto& buf : culled_counters_) buf.reset();
-
-    expand_pool_.reset();
-    expand_set_layout_.reset();
-    cull_pool_.reset();
-    cull_set_layout_.reset();
+    expand_pipeline_.reset();
+    cull_pipeline_.reset();
+    no_hiz_.reset();
+    for (auto* buffers : {&instance_buffers_, &expand_counters_, &visible_buffers_,
+                          &indirect_buffers_, &culled_buffers_, &culled_counters_}) {
+        for (auto& buffer : *buffers) buffer.reset();
+    }
+    capacities_ = {};
 }
 
 void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -243,318 +102,126 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
     uint32_t new_cap = std::max(max_instances, capacities_[frame_index] * 2);
     if (new_cap < 256) new_cap = 256;
 
-    VkDeviceSize instance_size = static_cast<VkDeviceSize>(new_cap) * sizeof(GpuMeshletInstance);
-
-    // Retire (don't inline-free) the outgoing buffers — a pending command
-    // buffer (async cull especially) may still reference the old handles.
-    auto retire = [&](std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT>& bufs) {
-        if (bufs[frame_index]) gpu::vulkan::retire(*gpu_device_, std::move(bufs[frame_index]));
+    const uint64_t instance_size = uint64_t{new_cap} * sizeof(GpuMeshletInstance);
+    bool made_all = true;
+    auto make = [&](uint64_t size, gpu::BufferUses use, std::string_view name) {
+        auto made = device_->create(gpu::BufferDesc{.size = size, .use = use, .name = name});
+        if (!made) {
+            FJELL_GFX_ERROR("{}", made.error());
+            made_all = false;
+            return gpu::Owned<gpu::Buffer>{};
+        }
+        return std::move(*made);
     };
-    retire(instance_buffers_);
-    retire(visible_buffers_);
-    retire(expand_counters_);
-    retire(indirect_buffers_);
-    retire(culled_buffers_);
-    retire(culled_counters_);
+    auto instances = make(instance_size, gpu::BufferUse::storage, "meshlet_instances");
+    // N segments, each able to hold every instance.
+    auto visible = make(instance_size * MAX_PIPELINE_BINS, gpu::BufferUse::storage, "meshlet_visible");
+    auto expand_count = make(sizeof(uint32_t), gpu::BufferUse::storage, "meshlet_expand_count");
+    auto indirect = make(MAX_PIPELINE_BINS * sizeof(TaskDispatch),
+                         gpu::BufferUse::storage | gpu::BufferUse::indirect, "meshlet_indirect");
+    // What the first cull's Hi-Z test rejected, for the second to test again.
+    auto culled = make(instance_size, gpu::BufferUse::storage, "meshlet_culled");
+    auto culled_count = make(sizeof(uint32_t), gpu::BufferUse::storage, "meshlet_culled_count");
+    if (!made_all) return;
 
-    instance_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_, instance_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Visible buffer: N segments, each capable of holding all instances
-    VkDeviceSize visible_size = instance_size * MAX_PIPELINE_BINS;
-    visible_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_, visible_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Atomic counter for expand pass
-    expand_counters_[frame_index] = std::make_unique<Buffer>(
-        allocator_, sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Indirect dispatch commands: one VkDrawMeshTasksIndirectCommandEXT per bin
-    VkDeviceSize indirect_size = MAX_PIPELINE_BINS * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-    indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_, indirect_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Culled instances buffer (for two-pass occlusion: stores Hi-Z rejected from first pass)
-    culled_buffers_[frame_index] = std::make_unique<Buffer>(
-        allocator_, instance_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Culled counter
-    culled_counters_[frame_index] = std::make_unique<Buffer>(
-        allocator_, sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // The frame graph tracks every one of them.
-    for (auto* buffers : {&instance_buffers_, &visible_buffers_, &expand_counters_,
-                          &indirect_buffers_, &culled_buffers_, &culled_counters_}) {
-        (*buffers)[frame_index]->share(*gpu_device_);
-    }
-
+    // The frames still reading the old buffers keep them until they are done.
+    instance_buffers_[frame_index] = std::move(instances);
+    visible_buffers_[frame_index] = std::move(visible);
+    expand_counters_[frame_index] = std::move(expand_count);
+    indirect_buffers_[frame_index] = std::move(indirect);
+    culled_buffers_[frame_index] = std::move(culled);
+    culled_counters_[frame_index] = std::move(culled_count);
     capacities_[frame_index] = new_cap;
 }
 
-void MeshletInstancePass::dispatch_expand(VkCommandBuffer cmd,
-                                           VkBuffer draw_data_buffer,
-                                           VkDeviceSize draw_data_size,
-                                           uint32_t total_draws,
-                                           uint32_t frame_index) {
-    if (total_draws == 0) return;
+void MeshletInstancePass::record_expand(const FrameContext& ctx, uint32_t total_draws) {
+    const uint32_t frame = ctx.frame_index;
+    const gpu::BufferRange instances(instance_buffers_[frame]);
+    const gpu::BufferRange count(expand_counters_[frame], 0, sizeof(uint32_t));
+    auto& cmd = ctx.commands();
 
-    // Zero the atomic counter
-    vkCmdFillBuffer(cmd, expand_counters_[frame_index]->handle(),
-                    0, sizeof(uint32_t), 0);
+    cmd.fill(count, 0);
+    cmd.barrier(count, gpu::Access::copy_dst, gpu::Access::storage_buffer_read_write_compute);
 
-    // Barrier: transfer write → compute read/write
-    VkMemoryBarrier2 fill_barrier{};
-    fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    fill_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    fill_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    fill_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    fill_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &fill_barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    cmd.set_pipeline(expand_pipeline_);
+    cmd.bind({{"DrawDataBuffer",
+               gpu::storage(at_least_one_word(ctx.indirect_batch->shared_draw_data_buffer(frame),
+                                              ctx.indirect_batch->draw_data_size(frame)))},
+              {"InstanceBuffer", gpu::storage(instances)},
+              {"CounterBuffer", gpu::storage(count)}});
+    cmd.push(total_draws);
+    cmd.dispatch((total_draws + GROUP - 1) / GROUP, 1, 1);
 
-    // Update expand descriptors
-    std::array<VkDescriptorBufferInfo, 3> buffer_infos{};
-    buffer_infos[0] = {draw_data_buffer, 0, std::max(draw_data_size, VkDeviceSize{16})};
-    buffer_infos[1] = {instance_buffers_[frame_index]->handle(), 0,
-                        instance_buffers_[frame_index]->size()};
-    buffer_infos[2] = {expand_counters_[frame_index]->handle(), 0, sizeof(uint32_t)};
-
-    std::array<VkWriteDescriptorSet, 3> writes{};
-    for (uint32_t i = 0; i < 3; ++i) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = expand_sets_[frame_index];
-        writes[i].dstBinding = i;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[i].descriptorCount = 1;
-        writes[i].pBufferInfo = &buffer_infos[i];
-    }
-    vkUpdateDescriptorSets(device_, 3, writes.data(), 0, nullptr);
-
-    // Bind and dispatch
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, expand_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, expand_layout_,
-                            0, 1, &expand_sets_[frame_index], 0, nullptr);
-    vkCmdPushConstants(cmd, expand_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &total_draws);
-
-    uint32_t groups = (total_draws + 63) / 64;
-    vkCmdDispatch(cmd, groups, 1, 1);
+    // The cull reads what the expansion wrote, and how much.
+    cmd.barrier(instances, gpu::Access::storage_buffer_read_write_compute,
+                gpu::Access::storage_buffer_read_compute);
+    cmd.barrier(count, gpu::Access::storage_buffer_read_write_compute,
+                gpu::Access::storage_buffer_read_compute);
 }
 
-void MeshletInstancePass::insert_expand_barrier(VkCommandBuffer cmd) {
-    VkMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
+    if (ctx.indirect_batch == nullptr || ctx.target == nullptr || ctx.registry == nullptr) return;
+    const uint32_t frame = ctx.frame_index;
+    const IndirectBatch& batch = *ctx.indirect_batch;
+    if (!visible_buffers_[frame]) return;
 
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
+    const auto* bounds = ctx.registry->find_buffer("meshlet_bounds");
+    if (bounds == nullptr || !bounds->buffer.valid()) return;
 
-void MeshletInstancePass::dispatch_cull_first(VkCommandBuffer cmd,
-                                               VkDescriptorSet global_set,
-                                               VkDescriptorSet draw_data_set,
-                                               VkBuffer draw_data_buffer,
-                                               VkDeviceSize draw_data_size,
-                                               VkBuffer bounds_buffer,
-                                               VkDeviceSize bounds_size,
-                                               VkBuffer pipeline_bin_buffer,
-                                               VkDeviceSize pipeline_bin_size,
-                                               uint32_t num_bins,
-                                               uint32_t frame_index,
-                                               VkImageView hiz_view,
-                                               VkSampler hiz_sampler,
-                                               uint32_t viewport_width,
-                                               uint32_t viewport_height,
-                                               uint32_t hiz_mip_count) {
-    // Zero the culled counter for first pass
-    vkCmdFillBuffer(cmd, culled_counters_[frame_index]->handle(),
-                    0, sizeof(uint32_t), 0);
+    auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
+    const bool hiz_ready = hiz_imgs != nullptr && hiz_imgs->ready();
+    if (which == Cull::second && !hiz_ready) return;
+    const gpu::Texture hiz = hiz_ready ? gpu::Texture(hiz_imgs->pyramid) : gpu::Texture(no_hiz_);
+    const uint32_t hiz_mips = hiz_ready ? hiz_imgs->mip_count : 0;
 
-    dispatch_cull_internal(cmd, global_set, draw_data_set, draw_data_buffer, draw_data_size,
-                           bounds_buffer, bounds_size, pipeline_bin_buffer, pipeline_bin_size,
-                           num_bins, frame_index, hiz_view, hiz_sampler,
-                           viewport_width, viewport_height, hiz_mip_count, 0);
-}
-
-void MeshletInstancePass::dispatch_cull_second(VkCommandBuffer cmd,
-                                                VkDescriptorSet global_set,
-                                                VkDescriptorSet draw_data_set,
-                                                VkBuffer draw_data_buffer,
-                                                VkDeviceSize draw_data_size,
-                                                VkBuffer bounds_buffer,
-                                                VkDeviceSize bounds_size,
-                                                VkBuffer pipeline_bin_buffer,
-                                                VkDeviceSize pipeline_bin_size,
-                                                uint32_t num_bins,
-                                                uint32_t frame_index,
-                                                VkImageView hiz_view,
-                                                VkSampler hiz_sampler,
-                                                uint32_t viewport_width,
-                                                uint32_t viewport_height,
-                                                uint32_t hiz_mip_count) {
-    // Second pass: the culled buffer from first pass becomes the input.
-    // Don't re-zero indirect commands — we APPEND to the existing visible buffer.
-    dispatch_cull_internal(cmd, global_set, draw_data_set, draw_data_buffer, draw_data_size,
-                           bounds_buffer, bounds_size, pipeline_bin_buffer, pipeline_bin_size,
-                           num_bins, frame_index, hiz_view, hiz_sampler,
-                           viewport_width, viewport_height, hiz_mip_count, 1);
-}
-
-void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
-                                                  VkDescriptorSet global_set,
-                                                  VkDescriptorSet draw_data_set,
-                                                  VkBuffer draw_data_buffer,
-                                                  VkDeviceSize draw_data_size,
-                                                  VkBuffer bounds_buffer,
-                                                  VkDeviceSize bounds_size,
-                                                  VkBuffer pipeline_bin_buffer,
-                                                  VkDeviceSize pipeline_bin_size,
-                                                  uint32_t num_bins,
-                                                  uint32_t frame_index,
-                                                  VkImageView hiz_view,
-                                                  VkSampler hiz_sampler,
-                                                  uint32_t viewport_width,
-                                                  uint32_t viewport_height,
-                                                  uint32_t hiz_mip_count,
-                                                  uint32_t is_second_pass) {
-    // For first pass: init all N indirect dispatch commands to (X=0, Y=1, Z=1).
-    // For second pass: skip (append to existing results).
-    //
-    // Build the whole command array host-side and upload in ONE vkCmdUpdateBuffer.
-    // The previous fill-then-per-command-update wrote overlapping regions of the
-    // same buffer with two transfer ops and no barrier between them — a
-    // WRITE_AFTER_WRITE hazard (caught by synchronization validation) that let
-    // the driver clobber the Y/Z=1 writes with the zero-fill (or vice versa).
-    if (is_second_pass == 0) {
-        uint32_t cmd_count = std::max(num_bins, 1u);
-        std::vector<VkDrawMeshTasksIndirectCommandEXT> init(cmd_count,
-            VkDrawMeshTasksIndirectCommandEXT{0, 1, 1});
-        vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(), 0,
-                          cmd_count * sizeof(VkDrawMeshTasksIndirectCommandEXT),
-                          init.data());
+    auto& cmd = ctx.commands();
+    const gpu::BufferRange culled_count(culled_counters_[frame], 0, sizeof(uint32_t));
+    if (which == Cull::first) {
+        // Every bin's dispatch starts at no groups; the cull counts into x.
+        const uint32_t bins = std::max<uint32_t>(static_cast<uint32_t>(batch.pipeline_ranges(frame).size()), 1);
+        const std::vector<TaskDispatch> start(bins, TaskDispatch{0, 1, 1});
+        const gpu::BufferRange commands(indirect_buffers_[frame], 0, bins * sizeof(TaskDispatch));
+        cmd.copy(cmd.transient(start), commands);
+        cmd.fill(culled_count, 0);
+        cmd.barrier(commands, gpu::Access::copy_dst, gpu::Access::storage_buffer_read_write_compute);
+        cmd.barrier(culled_count, gpu::Access::copy_dst, gpu::Access::storage_buffer_read_write_compute);
     }
 
-    // Barrier: transfer → compute
-    VkMemoryBarrier2 fill_barrier{};
-    fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    fill_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    fill_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    fill_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    fill_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &fill_barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    // The second cull takes its input from what the first set aside, and
+    // appends to the same visible instances and commands.
+    const bool first = which == Cull::first;
+    const gpu::Buffer input = first ? instance_buffers_[frame] : culled_buffers_[frame];
+    const gpu::Buffer input_count = first ? expand_counters_[frame] : culled_counters_[frame];
+    const uint32_t segment = capacities_[frame];
+    const auto extent = ctx.target->extent();
 
-    // For second pass, the input buffer is the culled buffer from first pass
-    VkBuffer input_buffer = is_second_pass == 0
-        ? instance_buffers_[frame_index]->handle()
-        : culled_buffers_[frame_index]->handle();
-    VkDeviceSize input_size = is_second_pass == 0
-        ? instance_buffers_[frame_index]->size()
-        : culled_buffers_[frame_index]->size();
-    VkBuffer input_counter = is_second_pass == 0
-        ? expand_counters_[frame_index]->handle()
-        : culled_counters_[frame_index]->handle();
+    cmd.set_pipeline(cull_pipeline_);
+    cmd.bind(ctx.globals);
+    cmd.bind(ctx.draw_data);
+    cmd.bind({{"DrawDataBuffer", gpu::storage(at_least_one_word(batch.shared_draw_data_buffer(frame),
+                                                                batch.draw_data_size(frame)))},
+              {"InputInstances", gpu::storage(input)},
+              {"InputCounter", gpu::storage(gpu::BufferRange(input_count, 0, sizeof(uint32_t)))},
+              {"OutputInstances", gpu::storage(visible_buffers_[frame])},
+              {"OutputCmds", gpu::storage(indirect_buffers_[frame])},
+              {"BoundsBuffer", gpu::storage(at_least_one_word(bounds->buffer, bounds->size))},
+              {"PipelineBinBuffer", gpu::storage(at_least_one_word(batch.shared_pipeline_bin_buffer(frame),
+                                                                   batch.pipeline_bin_size(frame)))},
+              {"hiz_pyramid", gpu::sampled(hiz, hiz_sampler_)},
+              {"CulledInstances", gpu::storage(culled_buffers_[frame])},
+              {"CulledCounter", gpu::storage(culled_count)}});
+    cmd.push(CullPush{
+        .segment_size = segment,
+        .viewport_width = extent.width,
+        .viewport_height = extent.height,
+        .hiz_mip_count = hiz_mips,
+        .is_second_pass = static_cast<uint32_t>(which),
+    });
+    cmd.dispatch((segment + GROUP - 1) / GROUP, 1, 1);
 
-    // Update cull descriptors (9 buffer bindings + 1 image binding)
-    std::array<VkDescriptorBufferInfo, 10> buffer_infos{};
-    buffer_infos[0] = {draw_data_buffer, 0, std::max(draw_data_size, VkDeviceSize{16})};
-    buffer_infos[1] = {input_buffer, 0, input_size};
-    buffer_infos[2] = {input_counter, 0, sizeof(uint32_t)};
-    buffer_infos[3] = {visible_buffers_[frame_index]->handle(), 0,
-                        visible_buffers_[frame_index]->size()};
-    buffer_infos[4] = {indirect_buffers_[frame_index]->handle(), 0,
-                        indirect_buffers_[frame_index]->size()};
-    buffer_infos[5] = {bounds_buffer, 0, std::max(bounds_size, VkDeviceSize{16})};
-    buffer_infos[6] = {pipeline_bin_buffer, 0, std::max(pipeline_bin_size, VkDeviceSize{16})};
-    // binding 7 is image, handled below
-    buffer_infos[8] = {culled_buffers_[frame_index]->handle(), 0,
-                        culled_buffers_[frame_index]->size()};
-    buffer_infos[9] = {culled_counters_[frame_index]->handle(), 0, sizeof(uint32_t)};
-
-    VkDescriptorSet active_set = is_second_pass == 0
-        ? cull_sets_[frame_index]
-        : cull_sets_pass2_[frame_index];
-
-    std::array<VkWriteDescriptorSet, 10> writes{};
-    for (uint32_t i = 0; i < 10; ++i) {
-        if (i == 7) continue; // image binding, handled separately
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = active_set;
-        writes[i].dstBinding = i;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[i].descriptorCount = 1;
-        writes[i].pBufferInfo = &buffer_infos[i];
+    if (first && ctx.render_stats != nullptr) {
+        ctx.render_stats->two_pass_occlusion = hiz_ready;
     }
-
-    // Binding 7: Hi-Z pyramid sampler (partially bound — only write when available)
-    VkDescriptorImageInfo hiz_info{};
-    if (hiz_view != VK_NULL_HANDLE) {
-        hiz_info.sampler = hiz_sampler;
-        hiz_info.imageView = hiz_view;
-        hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[7].dstSet = active_set;
-        writes[7].dstBinding = 7;
-        writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[7].descriptorCount = 1;
-        writes[7].pImageInfo = &hiz_info;
-    }
-
-    // Build a contiguous array of valid writes (skip binding 7 if no Hi-Z)
-    std::array<VkWriteDescriptorSet, 10> valid_writes{};
-    uint32_t valid_count = 0;
-    for (uint32_t i = 0; i < 10; ++i) {
-        if (i == 7 && hiz_view == VK_NULL_HANDLE) continue;
-        if (writes[i].sType == VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET) {
-            valid_writes[valid_count++] = writes[i];
-        }
-    }
-
-    vkUpdateDescriptorSets(device_, valid_count, valid_writes.data(), 0, nullptr);
-
-    uint32_t seg_size = capacities_[frame_index];
-    uint32_t max_groups = (seg_size + 63) / 64;
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_pipeline_);
-
-    std::array desc_sets = {global_set, active_set, draw_data_set};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_layout_,
-                            0, static_cast<uint32_t>(desc_sets.size()),
-                            desc_sets.data(), 0, nullptr);
-
-    uint32_t push[5] = {seg_size, viewport_width, viewport_height, hiz_mip_count, is_second_pass};
-    vkCmdPushConstants(cmd, cull_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), push);
-
-    vkCmdDispatch(cmd, max_groups, 1, 1);
 }
 
 PassSetup MeshletInstancePass::setup() const {
@@ -570,9 +237,9 @@ void MeshletInstancePass::collect_exports(DeclareContext& ctx) {
     // draw from the visible instances and the indirect commands; the second
     // cull appends to both, from the instances this one set aside.
     const uint32_t slot = ctx.frame_index;
-    auto add = [&](std::string_view name, const std::unique_ptr<Buffer>& buffer) {
-        if (!buffer) { return; }
-        ctx.buffer_imports.emplace(fg_name_hash(name), BufferImport{.buffer = buffer->shared()});
+    auto add = [&](std::string_view name, gpu::Buffer buffer) {
+        if (!buffer.valid()) { return; }
+        ctx.buffer_imports.emplace(fg_name_hash(name), BufferImport{.buffer = buffer});
     };
     add("meshlet_visible", visible_buffers_[slot]);
     add("meshlet_indirect", indirect_buffers_[slot]);
@@ -591,9 +258,9 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
     // zeroed by a transfer before the dispatch counts into them.
     const uint32_t slot = ctx.frame_index;
     if (instance_buffers_[slot] && expand_counters_[slot]) {
-        auto instances = builder.import("meshlet_instances", instance_buffers_[slot]->shared());
+        auto instances = builder.import("meshlet_instances", instance_buffers_[slot]);
         builder.read_write(instances, gpu::Access::storage_buffer_read_write_compute);
-        auto count = builder.import("meshlet_expand_count", expand_counters_[slot]->shared());
+        auto count = builder.import("meshlet_expand_count", expand_counters_[slot]);
         builder.write(count, gpu::Access::copy_dst);
         builder.read_write(count, gpu::Access::storage_buffer_read_write_compute);
     }
@@ -615,65 +282,16 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
 
 void MeshletInstancePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_meshlet_instance");
-#ifdef FJELL_ENABLE_TRACY
-    TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Meshlet Expand+Cull");
-#endif
     if (ctx.indirect_batch == nullptr) { return; }
 
-    uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-    uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
+    const uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+    const uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
     if (total_draws == 0 || total_mi == 0) { return; }
+    if (!instance_buffers_[ctx.frame_index]) { return; }
 
-    auto cb = ctx.cmd;
-
-    dispatch_expand(
-        cb,
-        ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
-        ctx.indirect_batch->draw_data_size(ctx.frame_index),
-        total_draws, ctx.frame_index);
-    insert_expand_barrier(cb);
-
-    auto& ranges_ref = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-    auto extent = ctx.target->extent();
-
-    VkBuffer bounds_buf = VK_NULL_HANDLE;
-    VkDeviceSize bounds_size = 0;
-    if (ctx.registry != nullptr) {
-        if (auto* bounds = ctx.registry->find_buffer("meshlet_bounds")) {
-            bounds_buf = bounds->buffer;
-            bounds_size = bounds->size;
-        }
-    }
-
-    auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
-    bool hiz_ready = hiz_imgs != nullptr && hiz_imgs->ready();
-
-    VkSampler hiz_sampler = VK_NULL_HANDLE;
-    if (hiz_ready && ctx.passes != nullptr) {
-        if (auto* hiz = ctx.passes->try_get<HizPass>("hiz")) {
-            hiz_sampler = gpu::vulkan::native_sampler(*ctx.device, hiz->sampler());
-        }
-    }
-
-    dispatch_cull_first(
-        cb,
-        ctx.global_descriptor_set,
-        ctx.draw_data_set,
-        ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
-        ctx.indirect_batch->draw_data_size(ctx.frame_index),
-        bounds_buf, bounds_size,
-        ctx.indirect_batch->pipeline_bin_buffer(ctx.frame_index),
-        ctx.indirect_batch->pipeline_bin_size(ctx.frame_index),
-        static_cast<uint32_t>(ranges_ref.size()),
-        ctx.frame_index,
-        hiz_ready ? gpu::vulkan::native_view(*ctx.device, hiz_imgs->pyramid) : VK_NULL_HANDLE,
-        hiz_sampler,
-        extent.width, extent.height,
-        hiz_ready ? hiz_imgs->mip_count : 0);
-
-    if (ctx.render_stats != nullptr) {
-        ctx.render_stats->two_pass_occlusion = hiz_ready;
-    }
+    auto zone = ctx.commands().zone("Meshlet Expand+Cull");
+    record_expand(ctx, total_draws);
+    record_cull(ctx, Cull::first);
 }
 
 } // namespace fjell

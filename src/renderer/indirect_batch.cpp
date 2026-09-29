@@ -49,6 +49,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     draw_data_buffers_[frame_index]->map();
+    draw_data_buffers_[frame_index]->share(gpu_);
 
     // Mesh shader indirect dispatch buffers
     retire(std::move(mesh_indirect_buffers_[frame_index]));
@@ -79,6 +80,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     pipeline_bin_buffers_[frame_index]->map();
+    pipeline_bin_buffers_[frame_index]->share(gpu_);
 
     capacities_[frame_index] = new_cap;
 }

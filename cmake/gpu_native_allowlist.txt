@@ -81,9 +81,6 @@ src/renderer/pass/local_shadow_pass.cpp
 src/renderer/pass/local_shadow_pass.hpp
 src/renderer/pass/mesh_shader_depth_pass.cpp
 src/renderer/pass/mesh_shader_depth_pass.hpp
-src/renderer/pass/meshlet_cull_pass2.cpp
-src/renderer/pass/meshlet_instance_pass.cpp
-src/renderer/pass/meshlet_instance_pass.hpp
 src/renderer/pass/meshlet_viz_pass.cpp
 src/renderer/pass/meshlet_viz_pass.hpp
 src/renderer/pass/motion_field_pass.cpp

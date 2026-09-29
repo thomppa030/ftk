@@ -102,6 +102,9 @@ struct FrameContext {
     VkImage bound_ss_gi_emissive{VK_NULL_HANDLE};
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
     VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
+    /// That set as the GPU interface binds it, for pipelines that name the
+    /// shared draw data layout.
+    gpu::BindGroup draw_data{};
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
     glm::vec3 camera_position{0.0f};

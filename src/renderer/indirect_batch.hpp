@@ -102,6 +102,10 @@ public:
     [[nodiscard]] VkBuffer draw_data_buffer(uint32_t frame_index) const {
         return draw_data_buffers_[frame_index]->handle();
     }
+    /// The draw data as the GPU interface knows it.
+    [[nodiscard]] gpu::Buffer shared_draw_data_buffer(uint32_t frame_index) const {
+        return draw_data_buffers_[frame_index] ? draw_data_buffers_[frame_index]->shared() : gpu::Buffer{};
+    }
     [[nodiscard]] VkDeviceSize draw_data_size(uint32_t frame_index) const {
         return draw_data_counts_[frame_index] * sizeof(GpuDrawData);
     }
@@ -140,6 +144,10 @@ public:
 
     [[nodiscard]] VkBuffer pipeline_bin_buffer(uint32_t frame_index) const {
         return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
+    }
+    /// Each draw's pipeline bin as the GPU interface knows it.
+    [[nodiscard]] gpu::Buffer shared_pipeline_bin_buffer(uint32_t frame_index) const {
+        return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->shared() : gpu::Buffer{};
     }
     [[nodiscard]] VkDeviceSize pipeline_bin_size(uint32_t frame_index) const {
         return opaque_counts_[frame_index] * sizeof(uint32_t);

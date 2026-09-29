@@ -30,6 +30,8 @@ public:
 
     [[nodiscard]] VkBuffer meshlet_buffer() const { return meshlet_buffer_.handle(); }
     [[nodiscard]] VkBuffer bounds_buffer() const { return bounds_buffer_.handle(); }
+    /// The meshlet bounds as the GPU interface knows them.
+    [[nodiscard]] gpu::Buffer shared_bounds_buffer() const { return bounds_buffer_.shared(); }
     [[nodiscard]] VkBuffer vertex_index_buffer() const { return vertex_index_buffer_.handle(); }
     [[nodiscard]] VkBuffer triangle_buffer() const { return triangle_buffer_.handle(); }
 

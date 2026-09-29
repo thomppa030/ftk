@@ -388,6 +388,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.globals = gpu_.global_group(ctx.global_descriptor_set);
     ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
+    ctx.draw_data = gpu_.draw_data_group(ctx.draw_data_set);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
     ctx.environment = current_environment_;
@@ -406,7 +407,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // faults the device rather than drawing nothing.
     if (passes_.has("meshlet_cull") && runs_pass(view.viewport_graph, "meshlet_cull")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
-        ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
+        ctx.gpu_driven_indirect = gpu::vulkan::native_buffer(
+            gpu_device(), meshlet_instance_pass()->indirect_buffer(current_frame_));
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
     }
     ctx.pp_resources = pp;
@@ -508,7 +510,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     bool has_meshlet_passes = passes_.has("meshlet_cull");
     if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
         gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
-                                    meshlet_instance_pass()->visible_buffer(current_frame_),
+                                    gpu::vulkan::native_buffer(gpu_device(),
+                                        meshlet_instance_pass()->visible_buffer(current_frame_)),
                                     meshlet_instance_pass()->visible_buffer_size(current_frame_));
     }
 
@@ -561,7 +564,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     passes_.register_resources_all(resource_registry_);
     if (gpu_.meshlet_buffer()) {
         resource_registry_.register_buffer("meshlet_bounds", {
-            gpu_.meshlet_buffer()->bounds_buffer(),
+            gpu_.meshlet_buffer()->shared_bounds_buffer(),
             gpu_.meshlet_buffer()->bounds_buffer_size()});
     }
 

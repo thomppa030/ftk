@@ -379,6 +379,12 @@ gpu::BindGroup GpuContext::global_group(VkDescriptorSet set) {
     return group;
 }
 
+gpu::BindGroup GpuContext::draw_data_group(VkDescriptorSet set) {
+    auto& group = draw_data_groups_[set];
+    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), shared_layouts_.draw_data, set);
+    return group;
+}
+
 void GpuContext::finalize_descriptors() {
     auto vk_device = core_.vk_device();
 
