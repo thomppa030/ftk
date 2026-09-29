@@ -348,7 +348,7 @@ vec3 ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility,
     if (sum_weight < 1e-6) return vec3(0.0);
 
     // sum_irradiance already holds albedo * incident_light (see the store
-    // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.rchit —
+    // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.comp —
     // no /PI there, matching how the surface composites this result: it
     // multiplies by the RECEIVING surface's albedo directly, no /PI,
     // matching both the Mastering Graphics Programming with Vulkan

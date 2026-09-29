@@ -547,8 +547,7 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
     pre_barrier.image = sdf_image_;
     pre_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     pre_barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     pre_barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     pre_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
@@ -576,8 +575,7 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd) {
     post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     post_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     post_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     post_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
     VkDependencyInfo post_dep{};

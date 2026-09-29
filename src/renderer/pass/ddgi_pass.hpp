@@ -123,7 +123,7 @@ struct DdgiConfig {
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
     // Per-bounce energy retained in the multi-bounce feedback loop
-    // (ddgi_probe_trace_rt.rchit adds sample_ddgi_irradiance() * this back
+    // (ddgi_probe_trace_rt.comp adds sample_ddgi_irradiance() * this back
     // into each ray hit's radiance). The feedback is a geometric series —
     // steady-state total indirect settles at direct_light / (1 - this), so
     // 0.8 converges to 5x the direct term. That's enough to keep pushing a
@@ -488,16 +488,10 @@ private:
     AccelStructureManager* accel_manager_{nullptr};
     class ParticleSystem* particle_system_{nullptr};
 
+    // The ray-traced tracer: compute, tracing with ray queries.
     VkDescriptorSetLayout rt_trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout rt_trace_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline rt_pipeline_{VK_NULL_HANDLE};
-
-    // Shader binding table
-    std::unique_ptr<Buffer> sbt_buffer_;
-    VkStridedDeviceAddressRegionKHR sbt_raygen_{};
-    VkStridedDeviceAddressRegionKHR sbt_miss_{};
-    VkStridedDeviceAddressRegionKHR sbt_hit_{};
-    VkStridedDeviceAddressRegionKHR sbt_callable_{};
+    VkPipeline rt_trace_pipeline_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell
