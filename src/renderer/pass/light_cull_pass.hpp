@@ -1,8 +1,8 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
-
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 
@@ -18,14 +18,10 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
-    void register_resources(ResourceRegistry& registry) override;
     void collect_exports(DeclareContext& ctx) override;
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
 
     /// This frame slot's tile lists, which the GPU context owns.
     const Buffer* output_{nullptr};
