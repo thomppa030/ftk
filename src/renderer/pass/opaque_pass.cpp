@@ -1,29 +1,25 @@
 #include "renderer/pass/opaque_pass.hpp"
+
 #include "core/profiler.hpp"
 #include "renderer/components/mesh_component.hpp"
-#include "renderer/resources/material.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/lit_surface_reads.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/render_stats.hpp"
-#include "renderer/resource_registry.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/mega_buffer.hpp"
-#include "renderer/resources/model.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/systems/render_subsystem.hpp"
-#include "renderer/pass/terrain_pass.hpp"
 #include "scene/scene.hpp"
 
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
-
-#include <array>
 #include <glm/glm.hpp>
+
+#include <algorithm>
 
 namespace fjell {
 
@@ -93,191 +89,94 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 
 void OpaquePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_opaque");
-#ifdef FJELL_ENABLE_TRACY
-    TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Color Opaque");
-#endif
     auto* target = ctx.target;
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Color Opaque");
 
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = target->msaa_color_view();
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
+    // The four scene targets cleared, each resolved into its single-sample
+    // image under MSAA; the prepass's depth tested, and resolved as
+    // rendering ends.
+    const bool msaa = target->samples() != gpu::Samples::x1;
+    const auto scene_target = [&](gpu::Texture drawn, gpu::Texture resolved, gpu::Clear clear) {
+        return gpu::ColorAttachment{.view = drawn,
+                                    .load = gpu::Load::clear,
+                                    .clear = clear,
+                                    .resolve = msaa ? gpu::TextureView(resolved) : gpu::TextureView{}};
+    };
+    const gpu::Clear zero{0.0f, 0.0f, 0.0f, 0.0f};
+    auto pass = cmd.render({
+        .color = {scene_target(target->msaa_color_texture(), target->color_texture(),
+                               gpu::Clear{0.1f, 0.1f, 0.12f, 1.0f}),
+                  scene_target(target->msaa_mr_texture(), target->mr_texture(), zero),
+                  scene_target(target->msaa_normal_texture(), target->normal_texture(), zero),
+                  scene_target(target->msaa_velocity_texture(), target->velocity_texture(), zero)},
+        .depth = gpu::DepthAttachment{.view = target->msaa_depth_texture(),
+                                      .resolve = msaa ? gpu::TextureView(target->depth_texture())
+                                                      : gpu::TextureView{},
+                                      .resolve_mode = gpu::DepthResolve::sample_zero},
+    });
 
-    bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-    if (msaa) {
-        color_attachment.resolveImageView = target->color_view();
-        color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-    }
+    if (ctx.scene && ctx.indirect_batch) {
+        auto opaques = cmd.zone("Opaques");
+        const IndirectBatch& batch = *ctx.indirect_batch;
+        const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
 
-    VkRenderingAttachmentInfo mr_attachment{};
-    mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    mr_attachment.imageView = target->msaa_mr_view();
-    mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    mr_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    if (msaa) {
-        mr_attachment.resolveImageView = target->mr_view();
-        mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-    }
-
-    VkRenderingAttachmentInfo normal_attachment{};
-    normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    normal_attachment.imageView = target->msaa_normal_view();
-    normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    normal_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    if (msaa) {
-        normal_attachment.resolveImageView = target->normal_view();
-        normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-    }
-
-    VkRenderingAttachmentInfo velocity_attachment{};
-    velocity_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    velocity_attachment.imageView = target->msaa_velocity_view();
-    velocity_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    velocity_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    velocity_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    velocity_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    if (msaa) {
-        velocity_attachment.resolveImageView = target->velocity_view();
-        velocity_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        velocity_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-    }
-
-    std::array<VkRenderingAttachmentInfo, 4> color_attachments = {
-        color_attachment, mr_attachment, normal_attachment, velocity_attachment};
-
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->msaa_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-    if (msaa) {
-        depth_attachment.resolveImageView = target->depth_view();
-        depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-    }
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-    ri.pColorAttachments = color_attachments.data();
-    ri.pDepthAttachment = &depth_attachment;
-
-    vkCmdBeginRendering(ctx.cmd, &ri);
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(target->extent().width);
-    vp.height = static_cast<float>(target->extent().height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = target->extent();
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    std::array descriptor_sets = {
-        ctx.global_descriptor_set,
-        ctx.bindless_set,
-        ctx.draw_data_set};
-
-    if (ctx.scene) {
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Opaques");
-#endif
-        std::array mesh_descriptor_sets = {
-            ctx.global_descriptor_set,
-            ctx.bindless_set,
-            ctx.draw_data_set,
-            ctx.meshlet_set};
-
-        const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-        auto indirect_buf = ctx.gpu_driven_indirect;
-
-        if (indirect_buf && !ranges.empty()) {
-            auto draw_indirect = ctx.draw_mesh_tasks_indirect_fn;
-            uint32_t seg_size = ctx.gpu_driven_segment_size;
-
+        // What the meshlet culls found visible, bin by bin, each through its
+        // material's mesh pipeline. The cull adds one task group per visible
+        // meshlet, at most a segment's worth per bin.
+        if (ctx.gpu_driven_commands.valid() && ctx.meshlets.valid()) {
+            const uint32_t segment = ctx.gpu_driven_segment_size;
             for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  ctx.pipeline_cache->gpu_driven_pipeline(ranges[bin].pipeline_id));
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        ctx.pipeline_cache->gpu_driven_layout(),
-                                        0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
-                                        mesh_descriptor_sets.data(), 0, nullptr);
-
-                uint32_t bin_offset = bin * seg_size;
-                vkCmdPushConstants(ctx.cmd, ctx.pipeline_cache->gpu_driven_layout(),
-                                  VK_SHADER_STAGE_TASK_BIT_EXT,
-                                  0, sizeof(uint32_t), &bin_offset);
-
-                VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-                draw_indirect(ctx.cmd, indirect_buf, cmd_offset, 1,
-                              sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                pass.set_pipeline(ctx.pipeline_cache->gpu_driven_pipeline(ranges[bin].pipeline_id));
+                pass.bind(ctx.globals);
+                pass.bind(ctx.bindless);
+                pass.bind(ctx.draw_data);
+                pass.bind(ctx.meshlets);
+                pass.push(bin * segment);
+                pass.draw_mesh_tasks_indirect(
+                    gpu::BufferRange(ctx.gpu_driven_commands, uint64_t{bin} * sizeof(gpu::DrawMeshTasksArgs),
+                                     sizeof(gpu::DrawMeshTasksArgs)),
+                    1, sizeof(gpu::DrawMeshTasksArgs), std::max(segment, 1U));
             }
         }
 
-        ctx.render_stats->meshlets_dispatched +=
-            ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
-        ctx.render_stats->gpu_cull_active = true;
-        ctx.render_stats->draw_calls += ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-        ctx.render_stats->triangle_count += ctx.indirect_batch->total_triangles(ctx.frame_index);
-
-        // Draw skinned meshes (per-model VBO, not in indirect batch)
-        {
-            const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
-            uint32_t skinned_cmd_idx = 0;
-            for (const auto& dc : ctx.queue->commands()) {
-                if (!dc.skinned || !dc.skeletal_model) continue;
-                if (skinned_cmd_idx >= skinned_indices.size()) break;
-
-                auto pipeline = ctx.pipeline_cache->skinned_opaque_pipeline(dc.pipeline_id);
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        ctx.pipeline_cache->layout(),
-                                        0, static_cast<uint32_t>(descriptor_sets.size()),
-                                        descriptor_sets.data(), 0, nullptr);
-
-                dc.skeletal_model->bind(ctx.cmd);
-                uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
-                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                ctx.render_stats->draw_calls++;
-                skinned_cmd_idx++;
-            }
+        if (ctx.render_stats != nullptr) {
+            ctx.render_stats->meshlets_dispatched += batch.total_meshlet_instances(ctx.frame_index);
+            ctx.render_stats->gpu_cull_active = true;
+            ctx.render_stats->draw_calls += batch.opaque_draw_count(ctx.frame_index);
+            ctx.render_stats->triangle_count += batch.total_triangles(ctx.frame_index);
         }
-#ifdef FJELL_ENABLE_TRACY
+
+        // Skinned meshes, each from its own vertices (not in the batch).
+        const auto& skinned_indices = batch.skinned_draw_indices(ctx.frame_index);
+        uint32_t skinned_cmd_idx = 0;
+        for (const auto& dc : ctx.queue->commands()) {
+            if (!dc.skinned || !dc.skeletal_model) continue;
+            if (skinned_cmd_idx >= skinned_indices.size()) break;
+            pass.set_pipeline(ctx.pipeline_cache->skinned_opaque_pipeline(dc.pipeline_id));
+            pass.bind(ctx.globals);
+            pass.bind(ctx.bindless);
+            pass.bind(ctx.draw_data);
+            dc.skeletal_model->bind(pass);
+            pass.draw_indexed(dc.skeletal_model->index_count(), 1, 0, 0, skinned_indices[skinned_cmd_idx]);
+            if (ctx.render_stats != nullptr) ctx.render_stats->draw_calls++;
+            skinned_cmd_idx++;
         }
-#endif
     }
 
+    // The subsystems' opaques, and terrain before the sky (opaque geometry
+    // that writes depth), still record natively into this scope.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_opaque(ctx);
     }
+    if (ctx.passes != nullptr) {
+        if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) terrain->record(ctx);
+    }
 
-    // Before sky: terrain is opaque geometry and writes depth.
-    ctx.passes->get<TerrainPass>("terrain").record(ctx);
-
-    draw_outline(ctx);
-
-    vkCmdEndRendering(ctx.cmd);
+    draw_outline(ctx, pass);
 }
 
-void OpaquePass::draw_outline(const FrameContext& ctx) {
+void OpaquePass::draw_outline(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     if (ctx.selected_id == 0 || !ctx.scene || !ctx.indirect_batch || !ctx.mega_buffer) return;
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
@@ -287,57 +186,34 @@ void OpaquePass::draw_outline(const FrameContext& ctx) {
     const auto* mesh = obj->components.get<MeshComponent>();
     if (!mesh || !mesh->model || !mesh->material) return;
 
-    auto* cache = ctx.pipeline_cache;
-    uint32_t pid = mesh->material->pipeline_id();
-    auto pipeline = cache->outline_pipeline(pid);
-    auto layout = cache->outline_layout();
-
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-    std::array descriptor_sets = {ctx.global_descriptor_set,
-                                   ctx.bindless_set,
-                                   ctx.draw_data_set};
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
-                            0, static_cast<uint32_t>(descriptor_sets.size()),
-                            descriptor_sets.data(), 0, nullptr);
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+    pass.set_pipeline(ctx.pipeline_cache->outline_pipeline(mesh->material->pipeline_id()));
+    pass.bind(ctx.globals);
+    pass.bind(ctx.bindless);
+    pass.bind(ctx.draw_data);
 
     // Push: outline_color vec4 + thickness float
-    struct {
+    struct OutlinePush {
         glm::vec4 color;
         float thickness;
-    } push{};
-    push.color = {1.0f, 0.6f, 0.15f, 0.7f};
-
+    };
     // The shader offsets in NDC, which spans 2 units across the viewport, so a
     // fixed NDC thickness would grow with resolution. Convert from pixels.
     constexpr float outline_px = 2.0f;
     const float width = static_cast<float>(ctx.target->extent().width);
-    push.thickness = width > 0.0f ? (outline_px * 2.0f) / width : 0.003f;
-
-    vkCmdPushConstants(ctx.cmd, layout,
-                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(push), &push);
+    pass.push(OutlinePush{.color = {1.0f, 0.6f, 0.15f, 0.7f},
+                          .thickness = width > 0.0f ? (outline_px * 2.0f) / width : 0.003f});
 
     // The node's own draws from the batch's indirect commands: the entries
     // and LOD it drew the node with, each firstInstance naming its draw data,
     // and the instance counts the instance cull left.
-    ctx.mega_buffer->bind(ctx.cmd);
-    const VkBuffer commands = ctx.indirect_batch->indirect_buffer(ctx.frame_index);
-    constexpr uint32_t stride = sizeof(VkDrawIndexedIndirectCommand);
+    ctx.mega_buffer->bind(pass);
+    const gpu::Buffer commands = ctx.indirect_batch->shared_indirect_buffer(ctx.frame_index);
     for (const auto& draws : ctx.indirect_batch->node_draws(ctx.frame_index)) {
         if (draws.node_id != ctx.selected_id) continue;
-        vkCmdDrawIndexedIndirect(ctx.cmd, commands, VkDeviceSize{draws.first_draw} * stride,
-                                 draws.draw_count, stride);
+        pass.draw_indexed_indirect(
+            gpu::BufferRange(commands, uint64_t{draws.first_draw} * sizeof(gpu::DrawIndexedArgs),
+                             uint64_t{draws.draw_count} * sizeof(gpu::DrawIndexedArgs)),
+            draws.draw_count, sizeof(gpu::DrawIndexedArgs));
     }
 }
 

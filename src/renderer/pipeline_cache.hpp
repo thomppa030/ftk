@@ -1,8 +1,9 @@
 #pragma once
 
+#include "gpu/format.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/resources/fjsl_compiler.hpp"
-
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
@@ -15,22 +16,35 @@ namespace fjell {
 class Device;
 class Project;
 
-// Manages one VkPipeline (opaque + transparent + mesh shader) per unique .fjsl shader.
-// All pipelines share the same VkPipelineLayout — only the fragment module differs.
+// Manages the pipelines (transparent, skinned, mesh shader, outline) of every
+// unique .fjsl shader, built by the GPU interface's device with layouts read
+// from the shaders.
 // Pipeline ID 0 is always standard.fjsl (identical to the old mesh.frag). The
 // FjslCompiler turns each shader into SPIR-V; this picks the template its
 // type is generated into, the variants it is compiled in, and builds the
 // pipelines the spatial ones are drawn with.
 class PipelineCache {
 public:
-    PipelineCache(Device& device,
-                  VkFormat color_format, VkFormat depth_format,
-                  VkDescriptorSetLayout global_layout,
-                  VkDescriptorSetLayout material_layout,
-                  VkDescriptorSetLayout draw_data_layout,
-                  VkSampleCountFlagBits samples,
-                  VkDescriptorSetLayout meshlet_layout = VK_NULL_HANDLE,
-                  VkPipelineCache vk_cache = VK_NULL_HANDLE);
+    /// The scene's targets the pipelines draw to.
+    struct Targets {
+        gpu::Format color{gpu::Format::undefined};
+        gpu::Format mr{gpu::Format::undefined};
+        gpu::Format normal{gpu::Format::undefined};
+        gpu::Format velocity{gpu::Format::undefined};
+        gpu::Format depth{gpu::Format::undefined};
+        gpu::Samples samples{gpu::Samples::x1};
+    };
+    /// The engine's shared layouts the pipelines bind. `meshlets` is unset
+    /// without mesh shaders, and no mesh pipeline is built.
+    struct SharedLayouts {
+        gpu::SharedLayout globals{};
+        gpu::SharedLayout bindless{};
+        gpu::SharedLayout draw_data{};
+        gpu::SharedLayout meshlets{};
+    };
+
+    PipelineCache(Device& device, gpu::Device& gpu, const Targets& targets,
+                  const SharedLayouts& layouts);
     ~PipelineCache();
 
     PipelineCache(const PipelineCache&) = delete;
@@ -45,23 +59,21 @@ public:
     // Reload a shader (hot-reload). Recompiles and recreates pipeline.
     void reload(uint32_t id);
 
-    [[nodiscard]] VkPipeline opaque_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline transparent_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline gpu_driven_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline skinned_gpu_driven_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline skinned_opaque_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline skinned_transparent_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline outline_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipelineLayout outline_layout() const { return outline_layout_; }
+    // Each falls back to the standard shader's while an entry has none.
+    [[nodiscard]] gpu::GraphicsPipeline transparent_pipeline(uint32_t id) const;
+    /// Unset without mesh shaders.
+    [[nodiscard]] gpu::GraphicsPipeline gpu_driven_pipeline(uint32_t id) const;
+    [[nodiscard]] gpu::GraphicsPipeline skinned_opaque_pipeline(uint32_t id) const;
+    [[nodiscard]] gpu::GraphicsPipeline skinned_transparent_pipeline(uint32_t id) const;
+    [[nodiscard]] gpu::GraphicsPipeline outline_pipeline(uint32_t id) const;
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
     [[nodiscard]] bool has_custom_vertex(uint32_t id) const;
     [[nodiscard]] const std::string& depth_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;
     [[nodiscard]] const std::string& shadow_vert_spv(uint32_t id) const;
-    [[nodiscard]] const std::string& outline_vert_spv(uint32_t id) const;
     // Path to the compiled fragment SPV. Used by SkyPass and TerrainPass (and
     // any future owner of a custom pipeline shape) to build their own
-    // VkPipeline from an FJSL-generated fragment.
+    // pipeline from an FJSL-generated fragment.
     [[nodiscard]] const std::string& frag_spv_path(uint32_t id) const;
     // A `shader_type ui;` entry compiles its fragment twice, once per UI
     // pipeline shape: screen-space, and worldspace with the scene pass's
@@ -78,13 +90,10 @@ public:
     [[nodiscard]] const std::string& fog_medium_spv(uint32_t id) const;
     [[nodiscard]] const std::string& fog_light_spv(uint32_t id) const;
     // Counts successful compiles of the entry. An owner that built its own
-    // VkPipeline from the entry's SPV compares this against the value it
+    // pipeline from the entry's SPV compares this against the value it
     // built at and rebuilds when it moved, which is how a hot-reload reaches
     // pipelines the cache does not create itself.
     [[nodiscard]] uint32_t generation(uint32_t id) const { return entries_[id].generation; }
-    [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
-    [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
-    [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
     [[nodiscard]] uint32_t shader_count() const { return static_cast<uint32_t>(entries_.size()); }
     [[nodiscard]] const std::string& compile_error(uint32_t id) const { return entries_[id].compile_error; }
     [[nodiscard]] bool has_compile_error(uint32_t id) const { return !entries_[id].compile_error.empty(); }
@@ -122,13 +131,11 @@ private:
         FjslProgram program;
         std::string generated_frag_path;
         bool has_custom_vertex{false};
-        VkPipeline opaque{VK_NULL_HANDLE};
-        VkPipeline transparent{VK_NULL_HANDLE};
-        VkPipeline gpu_driven{VK_NULL_HANDLE};
-        VkPipeline skinned_gpu_driven{VK_NULL_HANDLE};
-        VkPipeline skinned_opaque{VK_NULL_HANDLE};
-        VkPipeline skinned_transparent{VK_NULL_HANDLE};
-        VkPipeline outline{VK_NULL_HANDLE};
+        gpu::Owned<gpu::GraphicsPipeline> transparent;
+        gpu::Owned<gpu::GraphicsPipeline> gpu_driven;
+        gpu::Owned<gpu::GraphicsPipeline> skinned_opaque;
+        gpu::Owned<gpu::GraphicsPipeline> skinned_transparent;
+        gpu::Owned<gpu::GraphicsPipeline> outline;
         std::string frag_spv;  // path to compiled fragment SPIR-V
         // shader_type ui only: the two UI pipeline shapes
         std::string ui_frag_spv;
@@ -153,27 +160,20 @@ private:
         uint32_t generation{0};
     };
 
-    void create_layout();
     /// Read the templates from shaders/include/. Run at construction and
     /// again by recreate_all(), which is what an edited include leads to:
     /// until they are read again the templates are the old text.
     void load_templates();
     void compile_entry(Entry& entry);
+    /// Builds the entry's pipelines around the fragment SPIR-V at
+    /// `spv_path`; throws with the reason one cannot be built.
     void create_pipelines(Entry& entry, const std::string& spv_path);
-    void destroy_entry_pipelines(Entry& entry);
 
+    /// Waited on before an entry is compiled again.
     Device& device_;
-    VkFormat color_format_;
-    VkFormat depth_format_;
-    VkDescriptorSetLayout global_layout_;
-    VkDescriptorSetLayout material_layout_;
-    VkDescriptorSetLayout draw_data_layout_;
-    VkDescriptorSetLayout meshlet_layout_;
-    VkSampleCountFlagBits samples_;
-
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipelineLayout gpu_driven_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
+    gpu::Device& gpu_;
+    Targets targets_;
+    SharedLayouts layouts_;
     std::vector<Entry> entries_;
     std::unordered_map<std::string, uint32_t> path_to_id_;
     std::string template_source_;
@@ -190,7 +190,6 @@ private:
     std::string shadow_vertex_template_;
     std::string outline_vertex_template_;
     const Project* project_{nullptr};
-    VkPipelineCache vk_cache_{VK_NULL_HANDLE};
     /// Finds a shader in the project first, then the engine: read through
     /// `project_` at each lookup, so set_project() is all it takes.
     FjslCompiler compiler_;

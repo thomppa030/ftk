@@ -153,11 +153,22 @@ void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
         vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
-        core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
-        global_bindings_.layout(), bindless_textures_.layout(),
-        draw_data_layout, msaa_samples_,
-        core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE,
-        vk_pipeline_cache_);
+        core_.device(), core_.gpu_device(),
+        PipelineCache::Targets{
+            .color = gpu::vulkan::from_vk(OffscreenPass::COLOR_FORMAT),
+            .mr = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT),
+            .normal = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT),
+            .velocity = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT),
+            .depth = gpu::vulkan::from_vk(depth_format),
+            .samples = gpu::vulkan::from_vk(msaa_samples_),
+        },
+        PipelineCache::SharedLayouts{
+            .globals = shared_layouts_.globals,
+            .bindless = shared_layouts_.bindless,
+            .draw_data = shared_layouts_.draw_data,
+            .meshlets = core_.device().mesh_shader_supported() ? shared_layouts_.meshlets
+                                                                : gpu::SharedLayout{},
+        });
 }
 
 GpuContext::~GpuContext() {

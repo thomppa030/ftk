@@ -1,14 +1,13 @@
 #pragma once
 
+#include "gpu/render_encoder.hpp"
 #include "renderer/pass/render_pass.hpp"
-
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
-// Renders transparent objects back-to-front with alpha blending.
-// Shares the PBR shader but with blending enabled and no depth write.
-// Renders into the same offscreen target as the opaque pass.
+// Renders transparent objects back-to-front through each material's blended
+// pipeline, with no depth write, into the same offscreen target as the opaque
+// pass.
 class TransparentPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
@@ -19,15 +18,9 @@ public:
 
 private:
     // Inner drawing step: binds pipelines, runs through the transparent
-    // render queue. record() wraps this with begin/end rendering plus
-    // the worldspace UI + particle/subsystem transparent dispatches.
-    void record_draws(const FrameContext& ctx);
-
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
+    // render queue. record() wraps this with the render scope plus the
+    // worldspace UI + particle/subsystem transparent dispatches.
+    void record_draws(const FrameContext& ctx, gpu::RenderEncoder& pass);
 };
 
 } // namespace fjell

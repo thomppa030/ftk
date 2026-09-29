@@ -1,7 +1,7 @@
 #include "renderer/pipeline_cache.hpp"
+#include <gpu/device.hpp>
+#include "gpu/shader.hpp"
 #include "renderer/gpu/device.hpp"
-#include "renderer/offscreen_pass.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
@@ -17,28 +17,15 @@
 
 namespace fjell {
 
-PipelineCache::PipelineCache(Device& device,
-                             VkFormat color_format, VkFormat depth_format,
-                             VkDescriptorSetLayout global_layout,
-                             VkDescriptorSetLayout material_layout,
-                             VkDescriptorSetLayout draw_data_layout,
-                             VkSampleCountFlagBits samples,
-                             VkDescriptorSetLayout meshlet_layout,
-                             VkPipelineCache vk_cache)
+PipelineCache::PipelineCache(Device& device, gpu::Device& gpu, const Targets& targets,
+                             const SharedLayouts& layouts)
     : device_{device}
-    , color_format_{color_format}
-    , depth_format_{depth_format}
-    , global_layout_{global_layout}
-    , material_layout_{material_layout}
-    , draw_data_layout_{draw_data_layout}
-    , meshlet_layout_{meshlet_layout}
-    , samples_{samples}
-    , vk_cache_{vk_cache}
+    , gpu_{gpu}
+    , targets_{targets}
+    , layouts_{layouts}
     , compiler_{base_path::resolve("shaders"), base_path::resolve("shaders/generated"),
                 [this](const std::string& reference) { return base_path::resolve_shared(reference, project_); }} {
     load_templates();
-
-    create_layout();
 
     // Register standard.fjsl as pipeline ID 0
     register_shader("shaders/standard.fjsl");
@@ -70,85 +57,7 @@ void PipelineCache::load_templates() {
     outline_vertex_template_ = load_template("fjell_outline_vertex_template.glsl");
 }
 
-PipelineCache::~PipelineCache() {
-    auto vk = device_.handle();
-    for (auto& e : entries_) {
-        destroy_entry_pipelines(e);
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk, layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
-    if (gpu_driven_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk, gpu_driven_layout_, nullptr);
-        gpu_driven_layout_ = VK_NULL_HANDLE;
-    }
-    if (outline_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk, outline_layout_, nullptr);
-        outline_layout_ = VK_NULL_HANDLE;
-    }
-}
-
-void PipelineCache::create_layout() {
-    // Vertex pipeline layout: set 0/1/2
-    std::array set_layouts = {global_layout_, material_layout_, draw_data_layout_};
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(PbrPushConstants);
-
-    VkPipelineLayoutCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    ci.pSetLayouts = set_layouts.data();
-    ci.pushConstantRangeCount = 1;
-    ci.pPushConstantRanges = &push_range;
-
-    if (vkCreatePipelineLayout(device_.handle(), &ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create pipeline cache layout");
-    }
-
-    // GPU-driven mesh shader layout: set 0/1/2/3 + push constant for bin base offset
-    if (meshlet_layout_ != VK_NULL_HANDLE) {
-        std::array mesh_set_layouts = {global_layout_, material_layout_,
-                                       draw_data_layout_, meshlet_layout_};
-        VkPushConstantRange gpu_push{};
-        gpu_push.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
-        gpu_push.offset = 0;
-        gpu_push.size = sizeof(uint32_t); // bin_base_offset
-
-        VkPipelineLayoutCreateInfo gpu_ci{};
-        gpu_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        gpu_ci.setLayoutCount = static_cast<uint32_t>(mesh_set_layouts.size());
-        gpu_ci.pSetLayouts = mesh_set_layouts.data();
-        gpu_ci.pushConstantRangeCount = 1;
-        gpu_ci.pPushConstantRanges = &gpu_push;
-
-        if (vkCreatePipelineLayout(device_.handle(), &gpu_ci, nullptr, &gpu_driven_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create GPU-driven pipeline layout");
-        }
-    }
-
-    // Outline layout: same sets as vertex pipeline, push constant = vec4 color + float thickness
-    {
-        VkPushConstantRange outline_push{};
-        outline_push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-        outline_push.size = sizeof(glm::vec4) + sizeof(float);
-
-        VkPipelineLayoutCreateInfo outline_ci{};
-        outline_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        outline_ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-        outline_ci.pSetLayouts = set_layouts.data();
-        outline_ci.pushConstantRangeCount = 1;
-        outline_ci.pPushConstantRanges = &outline_push;
-
-        if (vkCreatePipelineLayout(device_.handle(), &outline_ci, nullptr, &outline_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create outline pipeline layout");
-        }
-    }
-
-}
+PipelineCache::~PipelineCache() = default;
 
 uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
     auto it = path_to_id_.find(fjsl_path);
@@ -309,23 +218,19 @@ void PipelineCache::compile_entry(Entry& entry) {
         entry.compile_error = e.what();
         FJELL_GFX_ERROR("Shader compile failed for '{}': {}", entry.program.path, entry.compile_error);
 
-        // Clean up any partially created pipelines in the temp
-        destroy_entry_pipelines(next);
         return;
     }
 
-    // Success — destroy old pipelines and swap in new ones
-    destroy_entry_pipelines(entry);
+    // Success — swap in the new pipelines; the device releases the old ones
+    // once the frames drawing with them are done.
     entry.program = std::move(next.program);
     entry.generated_frag_path = std::move(next.generated_frag_path);
     entry.has_custom_vertex = next.has_custom_vertex;
-    entry.opaque = next.opaque;
-    entry.transparent = next.transparent;
-    entry.gpu_driven = next.gpu_driven;
-    entry.skinned_gpu_driven = next.skinned_gpu_driven;
-    entry.skinned_opaque = next.skinned_opaque;
-    entry.skinned_transparent = next.skinned_transparent;
-    entry.outline = next.outline;
+    entry.transparent = std::move(next.transparent);
+    entry.gpu_driven = std::move(next.gpu_driven);
+    entry.skinned_opaque = std::move(next.skinned_opaque);
+    entry.skinned_transparent = std::move(next.skinned_transparent);
+    entry.outline = std::move(next.outline);
     entry.frag_spv = std::move(next.frag_spv);
     entry.ui_frag_spv = std::move(next.ui_frag_spv);
     entry.ui_world_frag_spv = std::move(next.ui_world_frag_spv);
@@ -342,443 +247,178 @@ void PipelineCache::compile_entry(Entry& entry) {
     ++entry.generation;
 }
 
+namespace {
+
+// A built pipeline, or the reason the entry's compile fails.
+gpu::Owned<gpu::GraphicsPipeline> built(Result<gpu::Owned<gpu::GraphicsPipeline>> made,
+                                        const std::string& what) {
+    if (!made) throw std::runtime_error("Failed to create " + what + ": " + made.error());
+    return std::move(*made);
+}
+
+// Loaded SPIR-V, or the reason the entry's compile fails.
+std::vector<uint32_t> spirv_at(const std::string& path) {
+    auto words = gpu::read_spirv(path);
+    if (!words) throw std::runtime_error(words.error());
+    return std::move(*words);
+}
+
+} // namespace
+
 void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) {
-    auto vk = device_.handle();
-    auto vert_code = read_spirv(entry.has_custom_vertex && !entry.vert_spv.empty()
-        ? entry.vert_spv
-        : base_path::resolve("shaders/mesh.vert.spv"));
-    auto frag_code = read_spirv(spv_path);
-
-    VkShaderModule vert_module = create_shader_module(vk, vert_code);
-    VkShaderModule frag_module = create_shader_module(vk, frag_code);
-
-    // Shared state for all pipeline variants
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
     const auto& rs = entry.program.metadata.render_state;
+    const std::string& path = entry.program.path;
+    const std::vector<uint32_t> fragment = spirv_at(spv_path);
 
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
+    // The material's own vertex stage when it has one; mesh.vert otherwise.
+    std::vector<uint32_t> own_vertex;
+    gpu::ShaderCode vertex = "shaders/mesh.vert";
+    if (entry.has_custom_vertex && !entry.vert_spv.empty()) {
+        own_vertex = spirv_at(entry.vert_spv);
+        vertex = std::span<const uint32_t>(own_vertex);
+    }
+
+    gpu::Raster raster{};
     if (rs.cull_disabled) {
-        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        raster.cull = gpu::Cull::none;
     } else if (rs.cull_front) {
-        rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+        raster.cull = gpu::Cull::front;
     } else {
-        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+        raster.cull = gpu::Cull::back;
     }
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    // The colour pass tests against the prepass's depth and writes none.
+    const gpu::Depth depth{.test = !rs.depth_test_disabled, .write = false,
+                           .compare = gpu::Compare::less_equal};
 
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = samples_;
+    // The four targets the scene draws to: colour, then metallic/roughness,
+    // normal and motion, of which an opaque surface writes two channels and
+    // a blended one nothing.
+    constexpr gpu::ChannelMask TWO_CHANNELS = gpu::Channel::r | gpu::Channel::g;
+    const auto targets = [&](gpu::Blend color_blend, gpu::ChannelMask others) {
+        return std::vector<gpu::ColorTarget>{
+            {.format = targets_.color, .blend = color_blend},
+            {.format = targets_.mr, .write = others},
+            {.format = targets_.normal, .write = others},
+            {.format = targets_.velocity, .write = others},
+        };
+    };
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = rs.depth_test_disabled ? VK_FALSE : VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    std::array<VkFormat, 4> color_formats = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = static_cast<uint32_t>(color_formats.size());
-    rendering_info.pColorAttachmentFormats = color_formats.data();
-    rendering_info.depthAttachmentFormat = depth_format_;
-
-    // ── Vertex pipeline stages ──
-    std::array<VkPipelineShaderStageCreateInfo, 2> vert_stages{};
-    vert_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vert_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vert_stages[0].module = vert_module;
-    vert_stages[0].pName = "main";
-    vert_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vert_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    vert_stages[1].module = frag_module;
-    vert_stages[1].pName = "main";
-
-    auto binding_desc = Vertex::get_binding_description();
-    auto attrib_descs = Vertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding_desc;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrib_descs.size());
-    vertex_input.pVertexAttributeDescriptions = attrib_descs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    // ── Opaque pipeline ──
-    VkPipelineColorBlendAttachmentState opaque_blend{};
-    opaque_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    opaque_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState opaque_mr_blend{};
-    opaque_mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-    opaque_mr_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState opaque_normal_blend{};
-    opaque_normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-    opaque_normal_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState opaque_velocity_blend{};
-    opaque_velocity_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-    opaque_velocity_blend.blendEnable = VK_FALSE;
-
-    std::array<VkPipelineColorBlendAttachmentState, 4> opaque_blend_attachments = {opaque_blend, opaque_mr_blend, opaque_normal_blend, opaque_velocity_blend};
-
-    VkPipelineColorBlendStateCreateInfo opaque_blending{};
-    opaque_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    opaque_blending.attachmentCount = static_cast<uint32_t>(opaque_blend_attachments.size());
-    opaque_blending.pAttachments = opaque_blend_attachments.data();
-
-    VkGraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_ci.pNext = &rendering_info;
-    pipeline_ci.stageCount = static_cast<uint32_t>(vert_stages.size());
-    pipeline_ci.pStages = vert_stages.data();
-    pipeline_ci.pVertexInputState = &vertex_input;
-    pipeline_ci.pInputAssemblyState = &input_assembly;
-    pipeline_ci.pViewportState = &viewport_state;
-    pipeline_ci.pRasterizationState = &rasterizer;
-    pipeline_ci.pMultisampleState = &multisampling;
-    pipeline_ci.pDepthStencilState = &depth_stencil;
-    pipeline_ci.pColorBlendState = &opaque_blending;
-    pipeline_ci.pDynamicState = &dynamic_state;
-    pipeline_ci.layout = layout_;
-    pipeline_ci.renderPass = VK_NULL_HANDLE;
-
-    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.opaque) != VK_SUCCESS) {
-        vkDestroyShaderModule(vk, vert_module, nullptr);
-        vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create opaque pipeline for: " + entry.program.path);
-    }
-
-    // ── Transparent pipeline ──
-    VkPipelineColorBlendAttachmentState trans_blend{};
-    trans_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    trans_blend.blendEnable = VK_TRUE;
-
+    // A blended surface over the colour: by alpha, added by alpha, or
+    // multiplied; the target's alpha keeps what is drawn or accumulates.
+    gpu::Blend blend{};
     switch (rs.blend) {
         case BlendMode::Add:
-            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
-            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            blend = {true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one, gpu::BlendFactor::one,
+                     gpu::BlendFactor::one};
             break;
         case BlendMode::Multiply:
-            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
-            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
-            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_ALPHA;
-            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            blend = gpu::Blend::multiply;
             break;
         default: // Alpha
-            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
-            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            blend = {true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
+                     gpu::BlendFactor::one, gpu::BlendFactor::zero};
             break;
     }
+    const std::vector<gpu::SharedLayout> vertex_layouts{layouts_.globals, layouts_.bindless,
+                                                        layouts_.draw_data};
 
-    VkPipelineColorBlendAttachmentState trans_mr_blend{};
-    trans_mr_blend.colorWriteMask = 0; // Transparent objects don't write MR
-    trans_mr_blend.blendEnable = VK_FALSE;
+    // ── Transparent pipeline ──
+    entry.transparent = built(gpu_.create(gpu::GraphicsPipelineDesc{
+                                  .vertex = vertex,
+                                  .fragment = std::span<const uint32_t>(fragment),
+                                  .vertex_layout = Vertex::layout(),
+                                  .raster = raster,
+                                  .depth = depth,
+                                  .color = targets(blend, gpu::ChannelMask{}),
+                                  .depth_format = targets_.depth,
+                                  .samples = targets_.samples,
+                                  .shared = vertex_layouts,
+                                  .name = path,
+                              }),
+                              "transparent pipeline for: " + path);
 
-    VkPipelineColorBlendAttachmentState trans_normal_blend{};
-    trans_normal_blend.colorWriteMask = 0;
-    trans_normal_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState trans_velocity_blend{};
-    trans_velocity_blend.colorWriteMask = 0;
-    trans_velocity_blend.blendEnable = VK_FALSE;
-
-    std::array<VkPipelineColorBlendAttachmentState, 4> trans_blend_attachments = {trans_blend, trans_mr_blend, trans_normal_blend, trans_velocity_blend};
-
-    VkPipelineColorBlendStateCreateInfo trans_blending{};
-    trans_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    trans_blending.attachmentCount = static_cast<uint32_t>(trans_blend_attachments.size());
-    trans_blending.pAttachments = trans_blend_attachments.data();
-
-    VkPipelineDepthStencilStateCreateInfo trans_depth{};
-    trans_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    trans_depth.depthTestEnable = rs.depth_test_disabled ? VK_FALSE : VK_TRUE;
-    trans_depth.depthWriteEnable = VK_FALSE;
-    trans_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    pipeline_ci.pColorBlendState = &trans_blending;
-    pipeline_ci.pDepthStencilState = &trans_depth;
-
-    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.transparent) != VK_SUCCESS) {
-        vkDestroyShaderModule(vk, vert_module, nullptr);
-        vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create transparent pipeline for: " + entry.program.path);
-    }
-
-    // ── Skinned opaque pipeline ──
-    auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_mesh.vert.spv"));
-    VkShaderModule skinned_vert_module = create_shader_module(vk, skinned_vert_code);
-
-    auto skinned_binding_desc = SkinnedVertex::get_binding_description();
-    auto skinned_attrib_descs = SkinnedVertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo skinned_vertex_input{};
-    skinned_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    skinned_vertex_input.vertexBindingDescriptionCount = 1;
-    skinned_vertex_input.pVertexBindingDescriptions = &skinned_binding_desc;
-    skinned_vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attrib_descs.size());
-    skinned_vertex_input.pVertexAttributeDescriptions = skinned_attrib_descs.data();
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> skinned_stages{};
-    skinned_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    skinned_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    skinned_stages[0].module = skinned_vert_module;
-    skinned_stages[0].pName = "main";
-    skinned_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    skinned_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    skinned_stages[1].module = frag_module;
-    skinned_stages[1].pName = "main";
-
-    pipeline_ci.pColorBlendState = &opaque_blending;
-    pipeline_ci.pDepthStencilState = &depth_stencil;
-    pipeline_ci.stageCount = static_cast<uint32_t>(skinned_stages.size());
-    pipeline_ci.pStages = skinned_stages.data();
-    pipeline_ci.pVertexInputState = &skinned_vertex_input;
-    pipeline_ci.pInputAssemblyState = &input_assembly;
-    pipeline_ci.layout = layout_;
-
+    // ── Skinned pipelines ──
     // Disable backface culling for skinned meshes — bone transforms at
     // joints can flip triangle winding, causing holes in the mesh.
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-
-    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_opaque) != VK_SUCCESS) {
-        vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
-        vkDestroyShaderModule(vk, vert_module, nullptr);
-        vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned opaque pipeline for: " + entry.program.path);
-    }
-
-    // ── Skinned transparent pipeline ──
-    pipeline_ci.pColorBlendState = &trans_blending;
-    pipeline_ci.pDepthStencilState = &trans_depth;
-
-    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_transparent) != VK_SUCCESS) {
-        vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
-        vkDestroyShaderModule(vk, vert_module, nullptr);
-        vkDestroyShaderModule(vk, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned transparent pipeline for: " + entry.program.path);
-    }
-
-    vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
+    gpu::Raster skinned_raster = raster;
+    skinned_raster.cull = gpu::Cull::none;
+    entry.skinned_opaque = built(gpu_.create(gpu::GraphicsPipelineDesc{
+                                     .vertex = "shaders/skinned_mesh.vert",
+                                     .fragment = std::span<const uint32_t>(fragment),
+                                     .vertex_layout = SkinnedVertex::layout(),
+                                     .raster = skinned_raster,
+                                     .depth = depth,
+                                     .color = targets(gpu::Blend::none, TWO_CHANNELS),
+                                     .depth_format = targets_.depth,
+                                     .samples = targets_.samples,
+                                     .shared = vertex_layouts,
+                                     .name = path,
+                                 }),
+                                 "skinned opaque pipeline for: " + path);
+    entry.skinned_transparent = built(gpu_.create(gpu::GraphicsPipelineDesc{
+                                          .vertex = "shaders/skinned_mesh.vert",
+                                          .fragment = std::span<const uint32_t>(fragment),
+                                          .vertex_layout = SkinnedVertex::layout(),
+                                          .raster = skinned_raster,
+                                          .depth = depth,
+                                          .color = targets(blend, gpu::ChannelMask{}),
+                                          .depth_format = targets_.depth,
+                                          .samples = targets_.samples,
+                                          .shared = vertex_layouts,
+                                          .name = path,
+                                      }),
+                                      "skinned transparent pipeline for: " + path);
 
     // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
-    if (gpu_driven_layout_ != VK_NULL_HANDLE) {
-        auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
-        auto gpu_mesh_code = read_spirv(entry.has_custom_vertex && !entry.mesh_spv.empty()
-            ? entry.mesh_spv
-            : base_path::resolve("shaders/mesh_gpu_driven.mesh.spv"));
-
-        VkShaderModule gpu_task_module = create_shader_module(vk, gpu_task_code);
-        VkShaderModule gpu_mesh_module = create_shader_module(vk, gpu_mesh_code);
-
-        std::array<VkPipelineShaderStageCreateInfo, 3> mesh_stages{};
-        mesh_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-        mesh_stages[0].module = gpu_task_module;
-        mesh_stages[0].pName = "main";
-        mesh_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-        mesh_stages[1].module = gpu_mesh_module;
-        mesh_stages[1].pName = "main";
-        mesh_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        mesh_stages[2].module = frag_module;
-        mesh_stages[2].pName = "main";
-
-        pipeline_ci.pColorBlendState = &opaque_blending;
-        pipeline_ci.pDepthStencilState = &depth_stencil;
-        pipeline_ci.stageCount = static_cast<uint32_t>(mesh_stages.size());
-        pipeline_ci.pStages = mesh_stages.data();
-        pipeline_ci.pVertexInputState = nullptr;
-        pipeline_ci.pInputAssemblyState = nullptr;
-        pipeline_ci.layout = gpu_driven_layout_;
-
-        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.gpu_driven) != VK_SUCCESS) {
-            vkDestroyShaderModule(vk, gpu_task_module, nullptr);
-            vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
-            vkDestroyShaderModule(vk, vert_module, nullptr);
-            vkDestroyShaderModule(vk, frag_module, nullptr);
-            throw std::runtime_error("Failed to create GPU-driven pipeline for: " + entry.program.path);
+    // It draws every side, whatever the material's cull says.
+    if (layouts_.meshlets.valid()) {
+        std::vector<uint32_t> own_mesh;
+        gpu::ShaderCode mesh = "shaders/mesh_gpu_driven.mesh";
+        if (entry.has_custom_vertex && !entry.mesh_spv.empty()) {
+            own_mesh = spirv_at(entry.mesh_spv);
+            mesh = std::span<const uint32_t>(own_mesh);
         }
-
-        vkDestroyShaderModule(vk, gpu_task_module, nullptr);
-        vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
-
-        // Skinned variant: same layout, same fragment, swap in the
-        // skinned mesh + task SPV. FJSL vertex hooks aren't supported on
-        // the skinned path yet, so we always use the stock skinned mesh
-        // shader regardless of has_custom_vertex.
-        auto skin_task_code = read_spirv(base_path::resolve("shaders/skinned_mesh_gpu_driven.task.spv"));
-        auto skin_mesh_code = read_spirv(base_path::resolve("shaders/skinned_mesh_gpu_driven.mesh.spv"));
-
-        VkShaderModule skin_task_module = create_shader_module(vk, skin_task_code);
-        VkShaderModule skin_mesh_module = create_shader_module(vk, skin_mesh_code);
-
-        std::array<VkPipelineShaderStageCreateInfo, 3> skin_stages{};
-        skin_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        skin_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-        skin_stages[0].module = skin_task_module;
-        skin_stages[0].pName = "main";
-        skin_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        skin_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-        skin_stages[1].module = skin_mesh_module;
-        skin_stages[1].pName = "main";
-        skin_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        skin_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        skin_stages[2].module = frag_module;
-        skin_stages[2].pName = "main";
-
-        pipeline_ci.stageCount = static_cast<uint32_t>(skin_stages.size());
-        pipeline_ci.pStages = skin_stages.data();
-
-        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_gpu_driven) != VK_SUCCESS) {
-            vkDestroyShaderModule(vk, skin_task_module, nullptr);
-            vkDestroyShaderModule(vk, skin_mesh_module, nullptr);
-            vkDestroyShaderModule(vk, vert_module, nullptr);
-            vkDestroyShaderModule(vk, frag_module, nullptr);
-            throw std::runtime_error("Failed to create skinned GPU-driven pipeline for: " + entry.program.path);
-        }
-
-        vkDestroyShaderModule(vk, skin_task_module, nullptr);
-        vkDestroyShaderModule(vk, skin_mesh_module, nullptr);
+        entry.gpu_driven = built(gpu_.create(gpu::GraphicsPipelineDesc{
+                                     .task = "shaders/mesh_gpu_driven.task",
+                                     .mesh = mesh,
+                                     .fragment = std::span<const uint32_t>(fragment),
+                                     .depth = depth,
+                                     .color = targets(gpu::Blend::none, TWO_CHANNELS),
+                                     .depth_format = targets_.depth,
+                                     .samples = targets_.samples,
+                                     .shared = {layouts_.globals, layouts_.bindless, layouts_.draw_data,
+                                                layouts_.meshlets},
+                                     .name = path,
+                                 }),
+                                 "GPU-driven pipeline for: " + path);
     }
 
     // ── Outline pipeline ──
-    {
-        auto outline_vert_code = read_spirv(entry.has_custom_vertex && !entry.outline_vert_spv.empty()
-            ? entry.outline_vert_spv
-            : base_path::resolve("shaders/outline.vert.spv"));
-
-        VkShaderModule outline_vert_mod = create_shader_module(vk, outline_vert_code);
-        auto outline_frag_code = read_spirv(base_path::resolve("shaders/outline.frag.spv"));
-        VkShaderModule outline_frag_mod = create_shader_module(vk, outline_frag_code);
-
-        std::array<VkPipelineShaderStageCreateInfo, 2> outline_stages{};
-        outline_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        outline_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        outline_stages[0].module = outline_vert_mod;
-        outline_stages[0].pName = "main";
-        outline_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        outline_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        outline_stages[1].module = outline_frag_mod;
-        outline_stages[1].pName = "main";
-
-        // Outline: cull front, alpha blend, no depth write
-        rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-
-        VkPipelineColorBlendAttachmentState outline_blend{};
-        outline_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        outline_blend.blendEnable = VK_TRUE;
-        outline_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        outline_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        outline_blend.colorBlendOp = VK_BLEND_OP_ADD;
-        outline_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        outline_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        outline_blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-        VkPipelineColorBlendAttachmentState outline_mr{};
-        outline_mr.colorWriteMask = 0;
-        outline_mr.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState outline_normal{};
-        outline_normal.colorWriteMask = 0;
-        outline_normal.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState outline_velocity{};
-        outline_velocity.colorWriteMask = 0;
-        outline_velocity.blendEnable = VK_FALSE;
-
-        std::array outline_blend_attachments = {outline_blend, outline_mr, outline_normal, outline_velocity};
-
-        VkPipelineColorBlendStateCreateInfo outline_blending{};
-        outline_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        outline_blending.attachmentCount = static_cast<uint32_t>(outline_blend_attachments.size());
-        outline_blending.pAttachments = outline_blend_attachments.data();
-
-        pipeline_ci.stageCount = static_cast<uint32_t>(outline_stages.size());
-        pipeline_ci.pStages = outline_stages.data();
-        pipeline_ci.pVertexInputState = &vertex_input;
-        pipeline_ci.pInputAssemblyState = &input_assembly;
-        pipeline_ci.pColorBlendState = &outline_blending;
-        pipeline_ci.pDepthStencilState = &depth_stencil;
-        pipeline_ci.layout = outline_layout_;
-
-        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.outline) != VK_SUCCESS) {
-            vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
-            vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
-            throw std::runtime_error("Failed to create outline pipeline for: " + entry.program.path);
-        }
-
-        vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
-        vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
+    // Back faces pushed out along their normals, blended over the colour,
+    // no depth written.
+    std::vector<uint32_t> own_outline;
+    gpu::ShaderCode outline_vertex = "shaders/outline.vert";
+    if (entry.has_custom_vertex && !entry.outline_vert_spv.empty()) {
+        own_outline = spirv_at(entry.outline_vert_spv);
+        outline_vertex = std::span<const uint32_t>(own_outline);
     }
-
-    vkDestroyShaderModule(vk, frag_module, nullptr);
-    vkDestroyShaderModule(vk, vert_module, nullptr);
-}
-
-void PipelineCache::destroy_entry_pipelines(Entry& entry) {
-    auto vk = device_.handle();
-    if (entry.opaque != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.opaque, nullptr);
-        entry.opaque = VK_NULL_HANDLE;
-    }
-    if (entry.transparent != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.transparent, nullptr);
-        entry.transparent = VK_NULL_HANDLE;
-    }
-    if (entry.gpu_driven != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.gpu_driven, nullptr);
-        entry.gpu_driven = VK_NULL_HANDLE;
-    }
-    if (entry.skinned_gpu_driven != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.skinned_gpu_driven, nullptr);
-        entry.skinned_gpu_driven = VK_NULL_HANDLE;
-    }
-    if (entry.skinned_opaque != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.skinned_opaque, nullptr);
-        entry.skinned_opaque = VK_NULL_HANDLE;
-    }
-    if (entry.skinned_transparent != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.skinned_transparent, nullptr);
-        entry.skinned_transparent = VK_NULL_HANDLE;
-    }
-    if (entry.outline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.outline, nullptr);
-        entry.outline = VK_NULL_HANDLE;
-    }
+    gpu::Raster outline_raster = raster;
+    outline_raster.cull = gpu::Cull::front;
+    const gpu::Blend over{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
+                          gpu::BlendFactor::one, gpu::BlendFactor::zero};
+    entry.outline = built(gpu_.create(gpu::GraphicsPipelineDesc{
+                              .vertex = outline_vertex,
+                              .fragment = "shaders/outline.frag",
+                              .vertex_layout = Vertex::layout(),
+                              .raster = outline_raster,
+                              .depth = depth,
+                              .color = targets(over, gpu::ChannelMask{}),
+                              .depth_format = targets_.depth,
+                              .samples = targets_.samples,
+                              .shared = vertex_layouts,
+                              .name = path,
+                          }),
+                          "outline pipeline for: " + path);
 }
 
 void PipelineCache::reload(uint32_t id) {
@@ -833,39 +473,29 @@ void PipelineCache::recreate_all() {
     }
 }
 
-VkPipeline PipelineCache::opaque_pipeline(uint32_t id) const {
-    auto p = entries_[id].opaque;
-    return p != VK_NULL_HANDLE ? p : entries_[0].opaque;
+gpu::GraphicsPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
+    const gpu::GraphicsPipeline p = entries_[id].transparent;
+    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].transparent);
 }
 
-VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
-    auto p = entries_[id].transparent;
-    return p != VK_NULL_HANDLE ? p : entries_[0].transparent;
+gpu::GraphicsPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
+    const gpu::GraphicsPipeline p = entries_[id].gpu_driven;
+    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].gpu_driven);
 }
 
-VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
-    auto p = entries_[id].gpu_driven;
-    return p != VK_NULL_HANDLE ? p : entries_[0].gpu_driven;
+gpu::GraphicsPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
+    const gpu::GraphicsPipeline p = entries_[id].skinned_opaque;
+    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].skinned_opaque);
 }
 
-VkPipeline PipelineCache::skinned_gpu_driven_pipeline(uint32_t id) const {
-    auto p = entries_[id].skinned_gpu_driven;
-    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_gpu_driven;
+gpu::GraphicsPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
+    const gpu::GraphicsPipeline p = entries_[id].skinned_transparent;
+    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].skinned_transparent);
 }
 
-VkPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
-    auto p = entries_[id].skinned_opaque;
-    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_opaque;
-}
-
-VkPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
-    auto p = entries_[id].skinned_transparent;
-    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_transparent;
-}
-
-VkPipeline PipelineCache::outline_pipeline(uint32_t id) const {
-    auto p = entries_[id].outline;
-    return p != VK_NULL_HANDLE ? p : entries_[0].outline;
+gpu::GraphicsPipeline PipelineCache::outline_pipeline(uint32_t id) const {
+    const gpu::GraphicsPipeline p = entries_[id].outline;
+    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].outline);
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {
@@ -886,10 +516,6 @@ const std::string& PipelineCache::depth_mesh_spv(uint32_t id) const {
 
 const std::string& PipelineCache::shadow_vert_spv(uint32_t id) const {
     return entries_[id].shadow_vert_spv;
-}
-
-const std::string& PipelineCache::outline_vert_spv(uint32_t id) const {
-    return entries_[id].outline_vert_spv;
 }
 
 const std::string& PipelineCache::frag_spv_path(uint32_t id) const {
