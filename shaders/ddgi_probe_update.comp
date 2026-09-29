@@ -149,7 +149,8 @@ void update_offset(int probe_index, bool has_history) {
             if (ray_distance < closest_frontface_distance) {
                 closest_frontface_distance = ray_distance;
                 closest_frontface_index = r;
-            } else if (ray_distance > farthest_frontface_distance) {
+            }
+            if (ray_distance > farthest_frontface_distance) {
                 farthest_frontface_distance = ray_distance;
                 farthest_frontface_index = r;
             }
