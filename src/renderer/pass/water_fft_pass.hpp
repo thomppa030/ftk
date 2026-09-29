@@ -1,15 +1,16 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/command_list.hpp"
+#include "gpu/format.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_spectrum.hpp"
-
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -44,11 +45,11 @@ public:
     /// What the transform works in. Two complex numbers a texel; 32-bit
     /// because the sum across a 256-wide grid loses a 16-bit float's precision
     /// long before the last stage.
-    static constexpr VkFormat SPECTRUM_FORMAT = VK_FORMAT_R32G32B32A32_SFLOAT;
+    static constexpr gpu::Format SPECTRUM_FORMAT = gpu::Format::rgba32_float;
     /// What the surface is sampled from. Every device filters it linearly,
     /// which 32-bit float does not promise, and a millimetre at the height of
     /// a storm wave is inside what it holds.
-    static constexpr VkFormat SURFACE_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr gpu::Format SURFACE_FORMAT = gpu::Format::rgba16_float;
     static constexpr std::uint32_t MIN_RESOLUTION = 16;
     static constexpr std::uint32_t MAX_RESOLUTION = 1024;
 
@@ -81,18 +82,18 @@ public:
     /// Always something valid to bind. With no sea running these are a texel
     /// of still water, so a water shader's descriptor set never has a hole in
     /// it for want of a simulation.
-    [[nodiscard]] VkImageView displacement_view() const {
-        return active() ? displacement_[cur_].sampled : still_.sampled;
+    [[nodiscard]] gpu::Texture displacement() const {
+        return active() ? displacement_[cur_].get() : still_.get();
     }
-    [[nodiscard]] VkImageView previous_displacement_view() const {
-        return active() ? displacement_[1 - cur_].sampled : still_.sampled;
+    [[nodiscard]] gpu::Texture previous_displacement() const {
+        return active() ? displacement_[1 - cur_].get() : still_.get();
     }
     /// x dh/dx, y dh/dz, z d(displacement x)/dx, w d(displacement z)/dz.
-    [[nodiscard]] VkImageView derivatives_view() const {
-        return active() ? derivatives_.sampled : still_.sampled;
+    [[nodiscard]] gpu::Texture derivatives() const {
+        return active() ? derivatives_.get() : still_.get();
     }
     /// Linear, repeating, across the whole mip chain.
-    [[nodiscard]] VkSampler sampler() const { return sampler_; }
+    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
 
 private:
     struct EvolvePush {
@@ -112,36 +113,11 @@ private:
         float texel_size;
     };
 
-    struct Image {
-        VkImage image{VK_NULL_HANDLE};
-        VmaAllocation memory{VK_NULL_HANDLE};
-        /// Every mip, for sampling.
-        VkImageView sampled{VK_NULL_HANDLE};
-        /// The top mip alone, which is all a compute shader writes.
-        VkImageView top{VK_NULL_HANDLE};
-    };
-
-    struct Pipeline {
-        VkDescriptorSetLayout set_layout{VK_NULL_HANDLE};
-        VkPipelineLayout layout{VK_NULL_HANDLE};
-        VkPipeline pipeline{VK_NULL_HANDLE};
-    };
-
-    [[nodiscard]] Result<> create_pipeline(Pipeline& out, const char* spirv,
-                                           const std::vector<VkDescriptorType>& bindings,
-                                           std::uint32_t push_size);
-    void destroy_pipeline(Pipeline& pipeline);
-    /// Makes `out`; `texture`, for an image other passes import, is handed it
-    /// as the GPU interface's texture.
-    [[nodiscard]] Result<> create_image(Image& out, VkFormat format, std::uint32_t size,
-                                        std::uint32_t mips, VkImageUsageFlags usage,
-                                        const char* name,
-                                        gpu::Owned<gpu::Texture>* texture = nullptr);
-    void retire_image(Image& image);
+    /// Makes the textures and buffers for `resolution_`. Nothing is made
+    /// and the reason is given when any of them cannot be.
     [[nodiscard]] Result<> build_images();
+    /// Releases them; the frames still reading them keep them until done.
     void retire_images();
-    /// Clear the still texel and leave it readable, once, at creation.
-    [[nodiscard]] Result<> seed_still(const PassResources& resources);
     /// Which of the two displacement images holds this frame's surface once
     /// the step has run: the one it writes next if it has yet to run this
     /// frame, else the one it wrote. What the exports and the views agree on.
@@ -149,25 +125,28 @@ private:
         return active() && !stepped_this_frame_ ? 1 - cur_ : cur_;
     }
 
-    /// Fill a mip chain from its top level, and leave every level readable.
-    void generate_mips(VkCommandBuffer cmd, const Image& image) const;
+    /// A surface's top mip has been written as storage, and after it `from`
+    /// if not storage: fills the rest of the chain from it, leaving it all
+    /// as a copy target.
+    void generate_mips(gpu::CommandList& cmd, gpu::Texture surface, gpu::AccessSet from) const;
 
     /// Asked for through FJELL_VERIFY_WATER_FFT: simulate a fixed sea at a
     /// fixed time, read the surface back, and hold it to the CPU's plain
     /// Fourier sum of the same spectrum.
     void begin_verification();
-    void record_verification_copy(VkCommandBuffer cmd);
+    /// Copies this frame's surface and derivatives, which the assemble step
+    /// has just written, for finish_verification() to read, and leaves both
+    /// as copy sources. False, with nothing recorded, when there is nowhere
+    /// to copy them.
+    [[nodiscard]] bool record_verification_copy(gpu::CommandList& cmd);
     void finish_verification();
 
-    VkDevice device_{VK_NULL_HANDLE};
     gpu::Device* gpu_device_{nullptr};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
 
-    Pipeline evolve_;
-    Pipeline butterfly_;
-    Pipeline assemble_;
-    VkSampler sampler_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> evolve_;
+    gpu::Owned<gpu::ComputePipeline> butterfly_;
+    gpu::Owned<gpu::ComputePipeline> assemble_;
+    gpu::Sampler sampler_{};
 
     /// The sea being animated: its spectrum, the patch it tiles over and how
     /// hard its crests are pinched. Null for none.
@@ -178,8 +157,8 @@ private:
     std::uint32_t mips_{1};
     float k_spacing_{0.0f};
     bool images_ready_{false};
-    /// Set when the images are new, so their first use starts from an
-    /// undefined layout rather than the one they are otherwise left in.
+    /// Set when the images are new, so their first use starts from nothing
+    /// rather than what they are otherwise left as.
     bool images_fresh_{true};
     float time_{0.0f};
     bool stepped_this_frame_{false};
@@ -187,31 +166,26 @@ private:
     /// Which frame slots still hold an older spectrum than `spectrum_`. A
     /// buffer per slot because the GPU may still be reading last frame's while
     /// this frame's is written.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> amplitude_buffers_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> amplitude_buffers_;
     std::array<bool, MAX_FRAMES_IN_FLIGHT> amplitudes_stale_{};
 
     // The transform ping-pongs between two pairs of images: every stage reads
     // two texels of the stage before to write one, so it cannot work in place.
-    std::array<Image, 2> spectra_a_;
-    std::array<Image, 2> spectra_b_;
+    std::array<gpu::Owned<gpu::Texture>, 2> spectra_a_;
+    std::array<gpu::Owned<gpu::Texture>, 2> spectra_b_;
     // This frame's surface and last frame's, swapped each step.
-    std::array<Image, 2> displacement_;
-    Image derivatives_;
-    // The surfaces as the GPU interface's textures, apart from the images so
-    // that those stay copyable into a deferred destruction.
-    std::array<gpu::Owned<gpu::Texture>, 2> displacement_textures_;
-    gpu::Owned<gpu::Texture> derivatives_texture_;
+    std::array<gpu::Owned<gpu::Texture>, 2> displacement_;
+    gpu::Owned<gpu::Texture> derivatives_;
     std::uint32_t cur_{0};
     /// One texel of zeros: what there is to sample when no sea is running.
-    /// Cleared when created, and never written again.
-    Image still_;
-    gpu::Owned<gpu::Texture> still_texture_;
+    /// Cleared when made, and never written again.
+    gpu::Owned<gpu::Texture> still_;
 
     bool verifying_{false};
     /// The fixed sea the verification runs, kept alive for the pass to animate.
     std::optional<FjWaterData::SimulatedSea> verify_sea_;
     int verify_frames_left_{-1};
-    std::unique_ptr<Buffer> verify_readback_;
+    gpu::Owned<gpu::Buffer> verify_readback_;
 };
 
 } // namespace fjell

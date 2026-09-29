@@ -765,11 +765,11 @@ void WaterPass::upload_wakes(const FrameContext& ctx) {
 VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
                                              VkDeviceSize field_offset,
                                              VkImageView medium) const {
-    auto sampled = [this](std::uint32_t binding, VkImageView view) {
+    auto sampled = [this, &ctx](std::uint32_t binding, VkImageView view) {
         FrameCacheBinding b{};
         b.binding = binding;
         b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        b.image.sampler = simulation_->sampler();
+        b.image.sampler = gpu::vulkan::native_sampler(*ctx.device, simulation_->sampler());
         b.image.imageView = view;
         b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return b;
@@ -797,15 +797,15 @@ VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
     volume.binding = 6;
     volume.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     volume.image.sampler = fog_ != nullptr ? gpu::vulkan::native_sampler(*ctx.device, fog_->fog_sampler())
-                                           : simulation_->sampler();
+                                           : gpu::vulkan::native_sampler(*ctx.device, simulation_->sampler());
     volume.image.imageView = medium != VK_NULL_HANDLE ? medium : fallback_volume_;
     volume.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     const FrameCacheBinding bindings[7]{
         uniform(0, field_buffers_[slot]->handle(), field_offset, sizeof(GpuWaterField)),
         uniform(1, clipmap_buffers_[slot]->handle(), 0, sizeof(GpuWaterClipmap)),
-        sampled(2, simulation_->displacement_view()),
-        sampled(3, simulation_->previous_displacement_view()),
-        sampled(4, simulation_->derivatives_view()),
+        sampled(2, gpu::vulkan::native_view(*ctx.device, simulation_->displacement())),
+        sampled(3, gpu::vulkan::native_view(*ctx.device, simulation_->previous_displacement())),
+        sampled(4, gpu::vulkan::native_view(*ctx.device, simulation_->derivatives())),
         storage(5, wake_buffers_[slot]->handle(), WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource)),
         volume,
     };
