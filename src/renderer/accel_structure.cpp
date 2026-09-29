@@ -151,6 +151,7 @@ void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& me
 }
 
 void AccelStructureManager::retire_blas(Blas blas) {
+    ++blas_generation_;
     gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
                               doomed = std::move(blas)]() mutable {
         if (doomed.handle != VK_NULL_HANDLE) {
@@ -484,7 +485,12 @@ uint32_t AccelStructureManager::record_build(gpu::CommandList& commands, uint64_
     SceneTlas& st = it->second;
     if (st.prepared_serial != frame_serial_) return 0;
     FrameTlas& frame = st.frames[frame_index];
-    if (frame.built_serial == frame_serial_) return 0;
+    if (frame.current_serial == frame_serial_) return 0;
+    if (frame.reusable && frame.built_blas_generation == blas_generation_
+        && frame.built_from == st.host_instances && st.particle_emitters.empty()) {
+        frame.current_serial = frame_serial_;
+        return frame.instance_count;
+    }
     return build_tlas(gpu::vulkan::native_command_buffer(commands), st, frame);
 }
 
@@ -493,7 +499,7 @@ VkAccelerationStructureKHR AccelStructureManager::tlas(uint64_t scene_id,
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end()) return VK_NULL_HANDLE;
     const FrameTlas& frame = it->second.frames[frame_index];
-    return frame.built_serial == frame_serial_ ? frame.tlas_handle : VK_NULL_HANDLE;
+    return frame.current_serial == frame_serial_ ? frame.tlas_handle : VK_NULL_HANDLE;
 }
 
 VkBuffer AccelStructureManager::instance_data_buffer(uint64_t scene_id,
@@ -501,7 +507,7 @@ VkBuffer AccelStructureManager::instance_data_buffer(uint64_t scene_id,
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end()) return VK_NULL_HANDLE;
     const FrameTlas& frame = it->second.frames[frame_index];
-    if (frame.built_serial != frame_serial_ || !frame.rt_instance_data) return VK_NULL_HANDLE;
+    if (frame.current_serial != frame_serial_ || !frame.rt_instance_data) return VK_NULL_HANDLE;
     return frame.rt_instance_data->handle();
 }
 
@@ -861,7 +867,11 @@ uint32_t AccelStructureManager::build_tlas(VkCommandBuffer cmd, SceneTlas& scene
     dep.pMemoryBarriers = &barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
 
-    frame.built_serial = frame_serial_;
+    frame.built_from = host_instances;
+    frame.built_blas_generation = blas_generation_;
+    frame.reusable = particle_emitters.empty();
+    frame.instance_count = total_instance_count;
+    frame.current_serial = frame_serial_;
     return total_instance_count;
 }
 

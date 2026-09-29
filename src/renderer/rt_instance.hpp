@@ -58,6 +58,10 @@ struct RtInstance {
     /// The material draws both sides (its shader culls no faces, or the
     /// front ones), so neither side is a back face to a ray.
     bool two_sided{false};
+
+    /// Every field alike: a TLAS built from one list of instances holds for
+    /// an equal list.
+    bool operator==(const RtInstance&) const = default;
 };
 
 } // namespace fjell

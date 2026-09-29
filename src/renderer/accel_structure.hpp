@@ -104,8 +104,9 @@ public:
 
     /// Records the build of what prepare_scene() made ready for `scene_id`,
     /// once per frame: the first viewport to get here builds it and the rest
-    /// trace what it built. Returns how many instances it built, 0 when it
-    /// built nothing.
+    /// trace what it built. A frame slot whose TLAS was built from exactly
+    /// this is not built again. Returns how many instances the TLAS holds,
+    /// 0 when there is none or this frame's was already recorded.
     uint32_t record_build(gpu::CommandList& commands, uint64_t scene_id, uint32_t frame_index);
 
     /// This frame's TLAS for `scene_id`, or VK_NULL_HANDLE when there is none:
@@ -154,6 +155,10 @@ private:
     // Destroys a stale BLAS once the frames that may trace it are done.
     void retire_blas(Blas blas);
 
+    // Bumped whenever a BLAS is retired. Once freed, its address may be
+    // handed to another BLAS, so no TLAS built before may be reused.
+    uint64_t blas_generation_{0};
+
     Device& device_;
     VkDevice vk_device_;
     VmaAllocator allocator_;
@@ -187,8 +192,16 @@ private:
         // binds this slot's buffers to it.
         std::unique_ptr<Buffer> particle_counter;
         VkDescriptorSet particle_set{VK_NULL_HANDLE};
-        // The frame this slot was last built in.
-        uint64_t built_serial{0};
+        // What the TLAS was built from. It still holds while the scene lists
+        // the same instances over the same BLASes; never after a build with
+        // particles, whose instances the GPU writes anew each frame.
+        std::vector<RtInstance> built_from;
+        uint64_t built_blas_generation{0};
+        bool reusable{false};
+        uint32_t instance_count{0};
+        // The last frame this slot's TLAS was built for or found to hold
+        // in; it answers for that frame only.
+        uint64_t current_serial{0};
     };
 
     // What one scene's rays can hit, as prepare_scene() left it for the

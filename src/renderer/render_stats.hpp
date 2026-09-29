@@ -20,7 +20,8 @@ struct RenderStats {
     uint32_t lod2_draws{0};
     uint32_t distance_culled{0};
 
-    // Instances in the ray tracing acceleration structures built this frame.
+    // Instances in the ray tracing acceleration structures traced this frame,
+    // built for it or kept from a frame that listed the same.
     uint32_t tlas_instances{0};
 
     // Terrain patches dispatched to the task shader for the camera view, and

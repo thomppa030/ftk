@@ -45,6 +45,41 @@ TEST_CASE("RT instance: every mask fits the instance's eight bits and is hit by 
     CHECK((fjell::RT_MASK_OPAQUE & fjell::RT_MASK_TRANSPARENT) == 0U);
 }
 
+TEST_CASE("RT instance: a TLAS is reused only for the very same instances", "[rt_instance]") {
+    fjell::RtInstance built{};
+    built.transform[3] = glm::vec4(4.0f, 0.0f, -2.0f, 1.0f);
+    built.blas_address = 0x10000;
+    built.first_index = 30;
+    built.vertex_offset = 12;
+    built.material_id = 7;
+    built.mask = fjell::RT_MASK_OPAQUE;
+
+    fjell::RtInstance now = built;
+    CHECK(now == built);
+
+    // Each field on its own is enough to call for a new build.
+    now.transform[3].x += 0.001f;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.blas_address = 0x20000;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.first_index = 31;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.vertex_offset = 13;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.material_id = 8;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.mask = fjell::RT_MASK_TRANSPARENT;
+    CHECK_FALSE(now == built);
+    now = built;
+    now.two_sided = true;
+    CHECK_FALSE(now == built);
+}
+
 // The engine's values, read here before the shader's macros of the same
 // names take those names over for the rest of the file.
 namespace engine_rt {
