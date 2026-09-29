@@ -95,6 +95,8 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
     };
 
     VkImageUsageFlags storage_sampled = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    // The probe atlases are cleared whenever the probes start over.
+    VkImageUsageFlags probe_atlas = storage_sampled | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     // Radiance: one row per probe traced THIS FRAME, not per probe in the
     // pool. The trace writes to `probe_index - probe_update_offset`, so
@@ -114,7 +116,7 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
     create_image(irradiance_image, irradiance_memory, irradiance_view,
                  static_cast<uint32_t>(irr_width),
                  static_cast<uint32_t>(irr_height),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
 
     // Filter destination. The spatial filter reads every neighbour of a
     // probe, so it cannot write in place — a probe filtered early would
@@ -124,20 +126,20 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
                  irradiance_filtered_view,
                  static_cast<uint32_t>(irr_width),
                  static_cast<uint32_t>(irr_height),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
 
     // Visibility atlas
     create_image(visibility_image, visibility_memory, visibility_view,
                  static_cast<uint32_t>(vis_width),
                  static_cast<uint32_t>(vis_height),
-                 VK_FORMAT_R16G16_SFLOAT, storage_sampled);
+                 VK_FORMAT_R16G16_SFLOAT, probe_atlas);
 
     // Probe offsets: total_probes stored as 2D (probes_xy x probes_z)
     int probes_xy = config.probe_counts.x * config.probe_counts.y;
     create_image(probe_offset_image, probe_offset_memory, probe_offset_view,
                  static_cast<uint32_t>(probes_xy),
                  static_cast<uint32_t>(config.probe_counts.z),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
 
     // Probe status SSBO
     VkDeviceSize status_size = static_cast<VkDeviceSize>(total_probes) * sizeof(uint32_t);
@@ -437,11 +439,11 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create DDGI update set layout");
     }
 
-    // Update pipeline layout: descriptor set + push constants (first_frame + max_trace_dist)
+    // Update pipeline layout: descriptor set + push constants (max_trace_dist)
     VkPushConstantRange update_push{};
     update_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     update_push.offset = 0;
-    update_push.size = sizeof(uint32_t) + sizeof(float);
+    update_push.size = sizeof(float);
 
     VkPipelineLayoutCreateInfo update_pipe_layout_ci{};
     update_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1336,50 +1338,62 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     GpuDdgiConstants* constants =
         static_cast<GpuDdgiConstants*>(imgs.constants_ubo[ctx.frame_index]->mapped());
 
-    // ── 0. Initialize probe status buffer on first use ──
+    // ── 0. A reset: every probe starts over ──
+    // A new grid (a refit, a sky that changed identity) or new images. The
+    // atlases hold probes of another grid, or nothing yet, so they are
+    // cleared, and every probe is marked untraced: until its batch is traced
+    // the update gives it no history and the cage and filter pass over it.
     bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
     if (resetting_atlases) {
-        // Every probe starts without history: the irradiance atlas still
-        // holds whatever the previous grid left there, which belongs to
-        // different world positions. The update pass overwrites rather than
-        // blends while this flag is set, and clears it per probe as the
-        // round-robin sweep reaches each one.
         constexpr uint32_t PROBE_STATUS_UNINITIALIZED = 6;
         VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
         vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size,
                         PROBE_STATUS_UNINITIALIZED);
 
-        VkMemoryBarrier2 fill_barrier{};
-        fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        fill_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        fill_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        fill_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fill_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        VkDependencyInfo fill_dep{};
-        fill_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        fill_dep.memoryBarrierCount = 1;
-        fill_dep.pMemoryBarriers = &fill_barrier;
-        vkCmdPipelineBarrier2(ctx.cmd, &fill_dep);
+        const std::array<VkImage, 4> atlases = {imgs.irradiance_image, imgs.irradiance_filtered_image,
+                                                imgs.visibility_image, imgs.probe_offset_image};
+        std::array<VkImageMemoryBarrier2, 4> to_clear{};
+        for (size_t i = 0; i < atlases.size(); ++i) {
+            VkImageMemoryBarrier2& b = to_clear[i];
+            b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            b.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+            b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            b.oldLayout = imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL;
+            b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+            b.image = atlases[i];
+            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        }
+        VkDependencyInfo clear_dep{};
+        clear_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        clear_dep.imageMemoryBarrierCount = static_cast<uint32_t>(to_clear.size());
+        clear_dep.pImageMemoryBarriers = to_clear.data();
+        vkCmdPipelineBarrier2(ctx.cmd, &clear_dep);
+
+        const VkClearColorValue zero{};
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        for (VkImage atlas : atlases) {
+            vkCmdClearColorImage(ctx.cmd, atlas, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+        }
+
+        VkMemoryBarrier2 reset_barrier{};
+        reset_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        reset_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        reset_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        reset_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        reset_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        VkDependencyInfo reset_dep{};
+        reset_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        reset_dep.memoryBarrierCount = 1;
+        reset_dep.pMemoryBarriers = &reset_barrier;
+        vkCmdPipelineBarrier2(ctx.cmd, &reset_dep);
     }
 
     // ── 1. Pre-trace barriers ──
     barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
-    // Irradiance + visibility must be in GENERAL before the trace reads them (multi-bounce)
-    if (imgs.first_frame_) {
-        barrier_image(imgs.irradiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-                      0, VK_ACCESS_2_SHADER_READ_BIT);
-        barrier_image(imgs.visibility_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-                      0, VK_ACCESS_2_SHADER_READ_BIT);
-        // The sample and RT sets bind the filtered atlas as GENERAL when
-        // they are written at init, but the filter pass — which is what
-        // would otherwise transition it — does not run until later in the
-        // frame. Move it here so the descriptor's promise holds from the
-        // first submit.
-        barrier_image(imgs.irradiance_filtered_image, VK_IMAGE_LAYOUT_UNDEFINED,
-                      VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_2_SHADER_READ_BIT);
-    }
 
     // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
     // Build TLAS if RT backend is active (BLAS building done in prepare_accel_structures)
@@ -1535,10 +1549,11 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         return;
     }
 
-    // The trace reads each probe's offset through a sampler.
+    // The trace reads each probe's offset through a sampler. Every atlas is
+    // in GENERAL here: the reset left it there on a first frame, the last
+    // update on any other.
     barrier_image(imgs.probe_offset_image,
-                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     if (use_rt) {
@@ -1628,13 +1643,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // ── 4. The probe atlases to GENERAL for the update ──
-    barrier_image(imgs.irradiance_image,
-                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                  VK_IMAGE_LAYOUT_GENERAL,
+    barrier_image(imgs.irradiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
-    barrier_image(imgs.visibility_image,
-                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                  VK_IMAGE_LAYOUT_GENERAL,
+    barrier_image(imgs.visibility_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
     // The trace read the offsets through a sampler; the update rewrites them.
     barrier_image(imgs.probe_offset_image,
@@ -1642,9 +1653,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
     struct UpdatePush {
-        uint32_t first_frame;
         float max_trace_dist;
-    } update_push{resetting_atlases ? 1U : 0U, MAX_TRACE_DIST};
+    } update_push{MAX_TRACE_DIST};
 
     // ── 5. Probe update: one workgroup per probe traced this frame ──
     // Irradiance, visibility, both tiles' border rings, offset and status,

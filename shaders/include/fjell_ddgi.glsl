@@ -355,10 +355,12 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibilit
         ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
         int probe_idx = ddgi_grid_to_probe_index(probe_grid);
 
-        // Skip probes the status pass disabled (buried in / behind geometry).
-        // Their irradiance is stale or meaningless, so let the other cage
-        // probes carry the interpolation instead of leaking it in.
-        if (ddgi_cage_probe_status(probe_idx) == PROBE_STATUS_OFF) continue;
+        // Skip probes the update switched off (buried in / behind geometry)
+        // and probes not yet traced since the last reset. Their irradiance is
+        // stale, meaningless or cleared, so let the other cage probes carry
+        // the interpolation instead of leaking it in.
+        uint status = ddgi_cage_probe_status(probe_idx);
+        if (status == PROBE_STATUS_OFF || status == PROBE_STATUS_UNINITIALIZED) continue;
 
         vec3 probe_pos = ddgi_grid_to_world_no_offsets(probe_grid)
                        + ddgi_cage_probe_offset(probe_idx);
@@ -415,7 +417,8 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibilit
 
     trace.sum_weight = sum_weight;
 
-    // All cage probes disabled (e.g. deep inside geometry) — no indirect.
+    // No cage probe to read (deep inside geometry, or none traced yet since
+    // a reset) — no indirect.
     if (sum_weight < 1e-6) return trace;
 
     // sum_irradiance already holds albedo * incident_light (see the store

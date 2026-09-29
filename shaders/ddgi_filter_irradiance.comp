@@ -99,9 +99,10 @@ void main() {
 
     vec4 self = texelFetch(irradiance_src, coords, 0);
 
-    // A probe the status pass disabled carries nothing worth spreading, and
-    // must not pull its neighbours down either.
-    if (probe_status[probe_index] == PROBE_STATUS_OFF) {
+    // A probe switched off, or not traced since the last reset, carries
+    // nothing worth spreading, and must not pull its neighbours down either.
+    uint self_status = probe_status[probe_index];
+    if (self_status == PROBE_STATUS_OFF || self_status == PROBE_STATUS_UNINITIALIZED) {
         imageStore(irradiance_dst, coords, self);
         return;
     }
@@ -130,7 +131,8 @@ void main() {
             || any(greaterThanEqual(n_grid, ddgi.probe_counts))) continue;
 
         int n_index = ddgi_grid_to_probe_index(n_grid);
-        if (probe_status[n_index] == PROBE_STATUS_OFF) continue;
+        uint n_status = probe_status[n_index];
+        if (n_status == PROBE_STATUS_OFF || n_status == PROBE_STATUS_UNINITIALIZED) continue;
 
         vec3 n_pos = ddgi_grid_to_world_no_offsets(n_grid);
         float n_depth = probe_depth(n_index, cone_dir);

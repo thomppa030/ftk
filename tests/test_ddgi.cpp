@@ -281,6 +281,29 @@ TEST_CASE("A probe the status pass switched off does not reach the cage", "[ddgi
             > light.x * DDGI_ENERGY_CONSERVATION + 0.1f);
 }
 
+TEST_CASE("A probe not traced since the last reset does not reach the cage", "[ddgi]") {
+    const vec3 light(0.3f, 0.6f, 0.9f);
+    uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), light, 100.0f);
+    const vec3 p = SAMPLE_POINTS[2];
+    const int corner = ddgi_grid_to_probe_index(ddgi_world_to_grid(p));
+    // What a reset leaves in its atlases: nothing.
+    probe_irradiance[static_cast<size_t>(corner)] = vec3(0.0f);
+    probe_visibility[static_cast<size_t>(corner)] = vec2(0.0f);
+    probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_UNINITIALIZED;
+
+    const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[3], false);
+    REQUIRE(s.cheb_tested == 0.0f);
+    REQUIRE(near(s.irradiance, light * DDGI_ENERGY_CONSERVATION, 1e-4f));
+}
+
+TEST_CASE("With no cage probe traced since the last reset the cage gives no light", "[ddgi]") {
+    uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
+    probe_status.assign(probe_status.size(), PROBE_STATUS_UNINITIALIZED);
+    const DdgiCageSample s = ddgi_sample_cage(SAMPLE_POINTS[3], SAMPLE_NORMALS[1], false);
+    REQUIRE(s.sum_weight == 0.0f);
+    REQUIRE(s.irradiance == vec3(0.0f));
+}
+
 TEST_CASE("With every cage probe switched off the cage gives no light", "[ddgi]") {
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
     probe_status.assign(probe_status.size(), PROBE_STATUS_OFF);
