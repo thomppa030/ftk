@@ -36,7 +36,9 @@ constexpr glm::vec3 DEFAULT_SUN_TRAVEL{-0.3f, -1.0f, -0.5f};
 constexpr glm::vec3 DEFAULT_SUN_COLOR{1.0f, 1.0f, 0.95f};
 constexpr float DEFAULT_SUN_INTENSITY = 1.5f;
 constexpr glm::vec3 DEFAULT_AMBIENT_COLOR{0.1f, 0.1f, 0.12f};
-constexpr float DEFAULT_AMBIENT_INTENSITY = 0.4f;
+// The sky at its own brightness: the probes gather it with its occlusion,
+// so nothing needs damping it.
+constexpr float DEFAULT_AMBIENT_INTENSITY = 1.0f;
 
 DirectionalBody body_from_travel(const glm::vec3& travel, const glm::vec3& color, float intensity) {
     DirectionalBody body;

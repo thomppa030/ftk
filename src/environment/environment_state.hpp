@@ -302,7 +302,7 @@ struct EnvironmentState {
     float primary_lead{1.0f};
 
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
-    float ambient_intensity{0.4f};
+    float ambient_intensity{1.0f};
 
     /// How brightly the sky lights the world: ambient_intensity (which day
     /// profiles and weather drive) times the environment's IBL intensity. It
