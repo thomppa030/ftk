@@ -935,6 +935,44 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     REQUIRE(checked > 0);
 }
 
+TEST_CASE("Every fog .fjsl generates both compute variants glslc accepts", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_fog_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-fog-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    int checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto name = entry.path().stem().string();
+        INFO("shader: " << name);
+
+        auto meta = parse_fjsl(read_text(entry.path()));
+        if (meta.shader_type != ShaderType::Fog) continue;
+
+        // As the pipeline cache compiles it: the medium variant, then the
+        // same source once more as the light variant.
+        auto source = out_dir / (name + ".comp");
+        std::ofstream(source) << generate_fragment_shader(meta, tmpl);
+        for (const std::string variant : {"", "-DFJELL_FOG_LIGHT "}) {
+            INFO("variant: " << (variant.empty() ? "medium" : "light"));
+            auto spv = out_dir / (name + ".spv");
+            auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=compute " + variant
+                                        + "-I " + quoted(shader_dir / "include") + " "
+                                        + quoted(source) + " -o " + quoted(spv));
+            INFO(output);
+            REQUIRE(status == 0);
+        }
+        ++checked;
+    }
+    REQUIRE(checked > 0);
+}
+
 // --- A compiler error names the line the author wrote ---
 //
 // A fragment() body is spliced into a template hundreds of lines long, at an
