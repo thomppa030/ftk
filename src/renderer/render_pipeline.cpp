@@ -21,6 +21,8 @@
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
+#include <gpu/device.hpp>
+
 #include <algorithm>
 #include <queue>
 
@@ -132,7 +134,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.debug_lines     = ctx.debug_draw != nullptr && !ctx.debug_draw->empty();
     // A barrier may name the task and mesh stages only on a device that has
     // them, so passes with a mesh and a vertex path declare by this.
-    decl_ctx.mesh_shader_supported = ctx.draw_mesh_tasks_indirect_fn != nullptr;
+    decl_ctx.mesh_shader_supported = ctx.device != nullptr && ctx.device->caps().mesh_shaders;
     // Whether this run builds the bloom, for the post pass that reads it:
     // bloom is on and this viewport's graph runs the chain to its last
     // upsample. A graph without the chain would otherwise be handed a

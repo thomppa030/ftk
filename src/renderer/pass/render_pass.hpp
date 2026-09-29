@@ -178,9 +178,6 @@ struct FrameContext {
     // Tracy GPU profiling context (void* to avoid header dependency)
     void* tracy_ctx{nullptr};
 
-    // Mesh shader indirect dispatch function pointer (null if unsupported)
-    PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect_fn{nullptr};
-
     // Render subsystems (particles, sprites, tilemaps).
     // Points into VulkanContext's cached raw-pointer vector.
     RenderSubsystem* const* subsystems{nullptr};

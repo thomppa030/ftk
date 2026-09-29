@@ -428,7 +428,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // Extended context for self-registering passes
     ctx.render_stats = &gpu_.render_stats();
     ctx.tracy_ctx = gpu::vulkan::profiler_context(gpu_.core().gpu_device());
-    ctx.draw_mesh_tasks_indirect_fn = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
     ctx.subsystems = subsystem_ptrs_.data();
     ctx.subsystem_count = static_cast<uint32_t>(subsystem_ptrs_.size());
     ctx.active_sources = active_sources_;
