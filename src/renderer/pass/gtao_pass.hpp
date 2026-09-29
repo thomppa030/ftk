@@ -1,10 +1,12 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
-#include <vk_mem_alloc.h>
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -26,12 +28,12 @@ namespace fjell {
 // participates in alias bin-packing — its lifetime is only [blur_h, blur_v].
 //
 // Layering:
-//   • AoPass        — abstract base. Owns shared state (ao_image Images,
-//                     ao_sampler, blur descriptor set layout + pipeline, shared
-//                     parameters). Itself a RenderPass registered as "ao_trace".
-//                     Subclasses implement the trace dispatch.
-//   • GtaoTracePass — concrete AoPass. Owns the GTAO trace pipeline +
-//                     descriptor layout; implements the trace hooks.
+//   • AoPass        — abstract base. Owns shared state (the AO Images,
+//                     ao_sampler, blur pipeline, shared parameters). Itself a
+//                     RenderPass registered as "ao_trace". Subclasses
+//                     implement the trace dispatch.
+//   • GtaoTracePass — concrete AoPass. Owns the GTAO trace pipeline and
+//                     implements the trace hooks.
 //   • AoBlurHPass,
 //     AoBlurVPass   — follower passes. Hold AoPass* set in post_create() via
 //                     passes.get<AoPass>("ao_trace"). Record one blur dispatch
@@ -42,9 +44,9 @@ namespace fjell {
 // RenderPipeline::set_pass_enabled to flip between them.
 //
 // Resource flow:
-//   • ao_image is owned by AoPass::Images, exported via collect_exports() as
-//     "gtao_ao" with persistent=true (global descriptor binding 5 "ao_texture"
-//     plus ImGui thumbnail demand a stable VkImage across frames).
+//   • the AO texture is owned by AoPass::Images, per viewport, and imported
+//     by RenderPipeline::execute() as "gtao_ao", persistent (the global
+//     set's "ao_texture" and the ImGui thumbnail read it across frames).
 //   • gtao_blur is a graph transient declared by AoBlurHPass via create().
 //     Lifetime [blur_h, blur_v], alias-eligible with other half-res R8
 //     transients.
@@ -57,37 +59,23 @@ namespace fjell {
 class AoPass : public RenderPass {
 public:
     struct Images {
-        VkImage ao_image{VK_NULL_HANDLE};
-        VmaAllocation ao_memory{VK_NULL_HANDLE};
-        VkImageView ao_view{VK_NULL_HANDLE};
-        /// The AO image as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> ao_texture;
-
-        VkExtent2D extent{};  // half-res dimensions
+        /// Half the viewport's size. Written on the compute queue when GTAO
+        /// runs there and sampled by every fragment shader on the graphics
+        /// queue, so it is shared by both.
+        gpu::Owned<gpu::Texture> ao;
+        glm::uvec2 extent{0, 0};
+        gpu::Device* device{nullptr};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
-        bool images_need_init{true};
 
-        // `concurrent_families` + `concurrent_family_count` come from
-        // `Device::concurrent_queue_families()`. When non-null the AO
-        // image is created with `VK_SHARING_MODE_CONCURRENT` so the
-        // compute queue can write it while graphics reads through the
-        // global descriptor. Null on hardware without an async compute
-        // queue family; the image falls back to exclusive sharing.
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const uint32_t* concurrent_families,
-                     uint32_t concurrent_family_count,
-                     uint32_t half_w, uint32_t half_h,
-                     VkQueue graphics_queue = VK_NULL_HANDLE,
-                     VkCommandPool graphics_pool = VK_NULL_HANDLE);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const uint32_t* concurrent_families,
-                     uint32_t concurrent_family_count,
-                     uint32_t width, uint32_t height,
-                     VkQueue graphics_queue = VK_NULL_HANDLE,
-                     VkCommandPool graphics_pool = VK_NULL_HANDLE);
+        /// No occlusion until the first trace writes it.
+        void create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h);
+        /// Releases the texture; the frames still reading it keep it until
+        /// they are done.
+        void destroy();
+        /// Made again at half of `width` × `height` when that changes.
+        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
 
-        [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
+        [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
         void invalidate_imgui_texture();
     };
 
@@ -99,9 +87,9 @@ public:
 
     void resize(uint32_t width, uint32_t height);
 
-    [[nodiscard]] VkImageView ao_view() const { return default_images_.ao_view; }
-    [[nodiscard]] VkImage ao_image() const { return default_images_.ao_image; }
-    [[nodiscard]] VkSampler ao_sampler() const { return ao_sampler_; }
+    /// The placeholder AO for views without their own.
+    [[nodiscard]] gpu::Texture ao_texture() const { return default_images_.ao; }
+    [[nodiscard]] gpu::Sampler ao_sampler() const { return ao_sampler_; }
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
@@ -115,22 +103,8 @@ public:
     [[nodiscard]] float thickness() const { return thickness_; }
     [[nodiscard]] bool enabled() const { return enabled_; }
 
-    [[nodiscard]] VkDescriptorSetLayout blur_set_layout() const { return blur_set_layout_; }
-    [[nodiscard]] VkPipelineLayout blur_pipeline_layout() const { return blur_layout_; }
-    [[nodiscard]] VkPipeline blur_pipeline() const { return blur_pipeline_; }
+    [[nodiscard]] gpu::ComputePipeline blur_pipeline() const { return blur_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
-
-    /// Concurrent queue family info forwarded to per-viewport `Images`
-    /// created through `PostProcessResources`. Null on devices without a
-    /// dedicated compute queue.
-    [[nodiscard]] const uint32_t* concurrent_queue_families() const { return concurrent_families_; }
-    [[nodiscard]] uint32_t concurrent_queue_family_count() const { return concurrent_family_count_; }
-
-    /// Graphics queue + command pool for one-shot image transitions during
-    /// PostProcessResources::Images::create. Set via post_create; null for
-    /// headless/test builds where PostProcessResources never calls them.
-    [[nodiscard]] VkQueue init_graphics_queue() const { return init_graphics_queue_; }
-    [[nodiscard]] VkCommandPool init_graphics_pool() const { return init_graphics_pool_; }
 
 protected:
     // Subclass hooks. AoPass::create() sets up shared state then calls
@@ -141,26 +115,11 @@ protected:
     virtual void record_trace(const FrameContext& ctx, Images& images) = 0;
     virtual void destroy_trace() = 0;
 
-    // Shared Vulkan context for subclasses.
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-    // Cached concurrent-sharing info for images GTAO writes on the
-    // compute queue and mesh.frag reads on graphics. Null on devices
-    // without async compute — AO images fall back to exclusive sharing.
-    const uint32_t* concurrent_families_{nullptr};
-    uint32_t concurrent_family_count_{0};
-
-    VkQueue init_graphics_queue_{VK_NULL_HANDLE};
-    VkCommandPool init_graphics_pool_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
 
 private:
-    VkSampler ao_sampler_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout blur_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout blur_layout_{VK_NULL_HANDLE};
-    VkPipeline blur_pipeline_{VK_NULL_HANDLE};
+    gpu::Sampler ao_sampler_;
+    gpu::Owned<gpu::ComputePipeline> blur_pipeline_;
 
     float radius_{1.0F};
     float intensity_{1.5F};
@@ -182,9 +141,7 @@ protected:
     void destroy_trace() override;
 
 private:
-    VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout trace_layout_{VK_NULL_HANDLE};
-    VkPipeline trace_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
 };
 
 // Horizontal blur dispatch. Reads ao_image, writes transient gtao_blur.

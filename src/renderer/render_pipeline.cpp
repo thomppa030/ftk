@@ -209,21 +209,21 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             }
         }
         // AO output image is per-viewport: look up the active pp_resources
-        // ao_image here so declare-time imports match whichever viewport
-        // is being recorded. AoPass::collect_exports() can't see
-        // pp_resources, and default_pp_'s ao_image isn't the one the
+        // AO here so declare-time imports match whichever viewport is
+        // being recorded. AoPass::collect_exports() can't see
+        // pp_resources, and default_pp_'s AO isn't the one the
         // preview viewport writes — importing the wrong one lets the
         // graph tracker's layout drift from actual image state.
         if (auto* gtao = pp_resources->gtao()) {
-            if (gtao->ao_image != VK_NULL_HANDLE && gtao->ao_view != VK_NULL_HANDLE) {
+            if (gtao->ao) {
                 ImportedImage img{};
-                img.view = gtao->ao_texture;
+                img.view = gtao->ao;
                 img.persistent = true;
                 // Sampled by the blur in compute, and by every fragment
                 // shader through the global set's "ao_texture": a GTAO
                 // run on the compute queue reaches those after the
                 // semaphore the graphics queue waits on, so compute is
-                // where it rests. Seeded there when created.
+                // where it rests. Made ready to be sampled when created.
                 img.resting = gpu::Access::sampled_compute;
                 decl_ctx.imports.emplace(fg_name_hash("gtao_ao"), img);
             }

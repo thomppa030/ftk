@@ -555,11 +555,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         target.mark_color_initialized();
     }
 
-    // ao_image's initial layout (UNDEFINED → SHADER_READ) is seeded inside
-    // AoPass::Images::create via a one-shot graphics-queue submit, so by
-    // the time we get here the global ao_texture descriptor's baked layout
-    // already matches the image. No per-frame baseline needed.
-
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.
     resource_registry_.clear();
@@ -615,27 +610,6 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
     auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
 
-    // Ensure AO image is in a valid layout — after resize it may be UNDEFINED.
-    // The preview doesn't run GTAO, but the color pass reads ao_texture from
-    // the global descriptor set. Transition it here so the read is valid.
-    auto* gtao_imgs = default_pp_->gtao();
-    if (gtao_imgs && gtao_imgs->images_need_init) {
-        VkImageMemoryBarrier2 ao_barrier{};
-        ao_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        ao_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ao_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ao_barrier.image = gtao_imgs->ao_image;
-        ao_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        ao_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        ao_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &ao_barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
     // Update the view-dependent global image bindings to point at THIS
     // viewport's targets. A preview with its own global_set writes into that
     // private set (inheriting the per-frame set's static bindings via a copy)
@@ -644,7 +618,10 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     // Without a private set (legacy callers) fall back to the per-frame set.
     {
         auto& gb = gpu_.global_bindings();
-        VkImageView ao_view = gtao_imgs ? gtao_imgs->ao_view : gtao_pass().ao_view();
+        // The preview doesn't run GTAO; its colour pass reads the main
+        // view's AO, which rests where the fragment shaders sample it.
+        const gpu::Texture ao =
+            default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
 
         if (req.global_set != VK_NULL_HANDLE) {
             // Inherit sky/shadow/sdf/ubo/etc. from the (idle) per-frame set,
@@ -654,7 +631,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                 req.target->depth_view(), gpu_.depth_sampler(),
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "ao_texture",
-                ao_view, gtao_pass().ao_sampler(),
+                gpu::vulkan::native_view(gpu_device(), ao),
+                gpu::vulkan::native_sampler(gpu_device(), gtao_pass().ao_sampler()),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             gb.write_image_to(req.global_set, "screen_color",
                 req.target->screen_color_view(), post_pass().output_sampler(),
@@ -673,9 +651,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
             gb.write_image(current_frame_, "depth_texture",
                 req.target->depth_view(), gpu_.depth_sampler(),
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-            gb.write_image(current_frame_, "ao_texture",
-                ao_view, gtao_pass().ao_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
             gb.write_image(current_frame_, "screen_color",
                 req.target->screen_color_view(), post_pass().output_sampler(),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1580,10 +1556,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             viewports[0].target->depth_view(), gpu_.depth_sampler(),
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
-        VkImageView ao_view = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass().ao_view();
-        gb.write_image(current_frame_, "ao_texture",
-            ao_view, gtao_pass().ao_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        const gpu::Texture ao =
+            default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
+        gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
 
         gb.write_image(current_frame_, "screen_color",
             viewports[0].target->screen_color_view(), post_pass().output_sampler(),

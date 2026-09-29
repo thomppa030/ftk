@@ -7,34 +7,25 @@
 // the graph returns it there after each node that writes it.
 
 #include "renderer/pass/gtao_pass.hpp"
+
+#include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
-#include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "gpu/device.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/vma_image.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
-#include "renderer/resource_registry.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "core/base_path.hpp"
-#include "core/log.hpp"
 
 #include <imgui_impl_vulkan.h>
 
 #include <algorithm>
-#include <array>
-#include <stdexcept>
 
 namespace fjell {
 
 namespace {
 
 constexpr uint32_t TILE_SIZE = 8;
-constexpr VkFormat AO_FORMAT = VK_FORMAT_R8_UNORM;
 
 struct GtaoPushConstants {
     float radius;
@@ -54,155 +45,76 @@ struct BlurPushConstants {
     float depth_threshold;
 };
 
-void create_ao_image(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                      const uint32_t* concurrent_families, uint32_t concurrent_family_count,
-                      uint32_t width, uint32_t height,
-                      VkImage& image, VmaAllocation& allocation, VkImageView& view,
-                      gpu::Owned<gpu::Texture>& texture) {
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = AO_FORMAT;
-    ci.extent = {width, height, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-               VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // GTAO writes ao_image on the compute queue; mesh.frag reads it
-    // through the global descriptor on the graphics queue. Concurrent
-    // sharing is the path that avoids explicit ownership transfers.
-    if (concurrent_families != nullptr) {
-        ci.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        ci.queueFamilyIndexCount = concurrent_family_count;
-        ci.pQueueFamilyIndices = concurrent_families;
-    }
-
-    if (create_vma_image(allocator, &ci, &image, &allocation) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create AO image");
-    }
-
-    VkImageViewCreateInfo view_ci{};
-    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image = image;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = AO_FORMAT;
-    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create AO image view");
-    }
-    texture = gpu::vulkan::adopt(gpu, image, view, ci);
-}
-
-void destroy_ao_image(VkDevice device, VmaAllocator allocator,
-                       VkImage& image, VmaAllocation& allocation, VkImageView& view,
-                       gpu::Owned<gpu::Texture>& texture) {
-    texture.reset();
-    if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
-    destroy_vma_image(allocator, image, allocation);
-    image = VK_NULL_HANDLE; allocation = VK_NULL_HANDLE;
+/// One blur dispatch over the half-resolution AO, `source` into `output`.
+void record_blur(const FrameContext& ctx, AoPass& owner, const AoPass::Images& g,
+                 gpu::Texture output, gpu::Texture source, uint32_t direction) {
+    auto& cmd = ctx.commands();
+    const gpu::Sampler sampler = owner.ao_sampler();
+    cmd.set_pipeline(owner.blur_pipeline());
+    cmd.bind(ctx.globals);
+    cmd.bind({{"blur_output", gpu::storage(output)},
+              {"ao_input", gpu::sampled(source, sampler)},
+              {"normal_texture", gpu::sampled(ctx.target->normal_texture(), sampler)}});
+    cmd.push(BlurPushConstants{
+        .viewport_width = g.extent.x,
+        .viewport_height = g.extent.y,
+        .direction = direction,
+        .depth_threshold = 0.1F,
+    });
+    cmd.dispatch((g.extent.x + TILE_SIZE - 1) / TILE_SIZE, (g.extent.y + TILE_SIZE - 1) / TILE_SIZE, 1);
 }
 
 } // namespace
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void AoPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                             const uint32_t* concurrent_families,
-                             uint32_t concurrent_family_count,
-                             uint32_t half_w, uint32_t half_h,
-                             VkQueue graphics_queue,
-                             VkCommandPool graphics_pool) {
-    extent = {half_w, half_h};
-    create_ao_image(gpu, device, allocator, concurrent_families, concurrent_family_count,
-                    half_w, half_h, ao_image, ao_memory, ao_view, ao_texture);
-    images_need_init = true;
-
-    // Seed the image in SHADER_READ so the global ao_texture descriptor
-    // (baked with VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) passes
-    // queue-submit layout validation from frame one — even for viewports
-    // whose GTAO runs async on the compute queue, and for pp_resources
-    // whose owning viewport never runs GTAO at all (camera preview).
-    static int ao_image_counter = 0;
-    set_image_debug_name(device, ao_image,
-        "ao_image#" + std::to_string(ao_image_counter++)
-        + "(" + std::to_string(half_w) + "x" + std::to_string(half_h) + ")");
-    if (graphics_queue != VK_NULL_HANDLE && graphics_pool != VK_NULL_HANDLE) {
-        VkCommandBufferAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.commandPool = graphics_pool;
-        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandBufferCount = 1;
-        VkCommandBuffer cmd{};
-        vkAllocateCommandBuffers(device, &alloc_info, &cmd);
-
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &begin);
-
-        VkImageMemoryBarrier2 bar{};
-        bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        bar.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        bar.srcAccessMask = 0;
-        bar.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        bar.image = ao_image;
-        bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &bar;
-        vkCmdPipelineBarrier2(cmd, &dep);
-
-        vkEndCommandBuffer(cmd);
-
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
-        vkQueueSubmit(graphics_queue, 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(graphics_queue);
-        vkFreeCommandBuffers(device, graphics_pool, 1, &cmd);
+void AoPass::Images::create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h) {
+    device = &gpu;
+    auto made = gpu.create(gpu::TextureDesc{
+        .format = gpu::Format::r8_unorm,
+        .width = half_w,
+        .height = half_h,
+        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+        .queues = gpu::Queues::graphics_and_compute,
+        .initial = gpu::Clear{1.0F},
+        .name = "ao",
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("{}", made.error());
+        return;
     }
+    ao = std::move(*made);
+    extent = {half_w, half_h};
 }
 
-void AoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
+void AoPass::Images::destroy() {
     invalidate_imgui_texture();
-    destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view, ao_texture);
-    extent = {};
+    ao.reset();
+    extent = {0, 0};
 }
 
-void AoPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                             const uint32_t* concurrent_families,
-                             uint32_t concurrent_family_count,
-                             uint32_t width, uint32_t height,
-                             VkQueue graphics_queue,
-                             VkCommandPool graphics_pool) {
+void AoPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
 
-    uint32_t half_w = std::max(1U, width / 2);
-    uint32_t half_h = std::max(1U, height / 2);
-    if (extent.width == half_w && extent.height == half_h) return;
-    vkDeviceWaitIdle(device);
+    const uint32_t half_w = std::max(1U, width / 2);
+    const uint32_t half_h = std::max(1U, height / 2);
+    if (ao && extent.x == half_w && extent.y == half_h) return;
 
-    destroy(device, allocator);
-    create(gpu, device, allocator, concurrent_families, concurrent_family_count,
-           half_w, half_h, graphics_queue, graphics_pool);
+    // The editor's view of the old texture may still be in a frame's draw
+    // data; it goes when that frame is done, and the next imgui_texture()
+    // call makes one for the new texture.
+    if (imgui_descriptor != VK_NULL_HANDLE) {
+        gpu::vulkan::defer(gpu, [set = imgui_descriptor] { ImGui_ImplVulkan_RemoveTexture(set); });
+        imgui_descriptor = VK_NULL_HANDLE;
+    }
+    create(gpu, half_w, half_h);
 }
 
-VkDescriptorSet AoPass::Images::imgui_texture(VkSampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && ao_view != VK_NULL_HANDLE) {
+VkDescriptorSet AoPass::Images::imgui_texture(gpu::Sampler sampler) {
+    if (imgui_descriptor == VK_NULL_HANDLE && ao) {
         imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            sampler, ao_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, ao),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return imgui_descriptor;
 }
@@ -217,90 +129,18 @@ void AoPass::Images::invalidate_imgui_texture() {
 // ── AoPass ──────────────────────────────────────────────────────────────────
 
 Result<> AoPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    gpu_device_ = resources.device;
-    concurrent_families_ = device.concurrent_queue_families(concurrent_family_count_);
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    global_set_layout_ = resources.global_set_layout;
-    init_graphics_queue_ = resources.graphics_queue;
-    init_graphics_pool_ = resources.command_pool;
-
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(device_, &sampler_ci, nullptr, &ao_sampler_) != VK_SUCCESS) {
-        return make_error("Failed to create AO sampler");
-    }
-
-    // Blur descriptor set: binding 0 = storage output, binding 1 = sampled
-    // input AO, binding 2 = sampled normal (oct-encoded R16G16) for the
-    // cross-bilateral weight.
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo set_ci{};
-    set_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_ci.bindingCount = static_cast<uint32_t>(bindings.size());
-    set_ci.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device_, &set_ci, nullptr, &blur_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create AO blur descriptor set layout");
-    }
-
-    std::array<VkDescriptorSetLayout, 2> set_layouts = {global_set_layout_, blur_set_layout_};
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.size = sizeof(BlurPushConstants);
-
-    VkPipelineLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    layout_ci.pSetLayouts = set_layouts.data();
-    layout_ci.pushConstantRangeCount = 1;
-    layout_ci.pPushConstantRanges = &push_range;
-    if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &blur_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create AO blur pipeline layout");
-    }
-
-    auto comp_code = read_spirv(base_path::resolve("shaders/gtao_blur.comp.spv"));
-    auto* comp_module = create_shader_module(device_, comp_code);
-
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = comp_module;
-    stage.pName = "main";
-
-    VkComputePipelineCreateInfo pipeline_ci{};
-    pipeline_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipeline_ci.stage = stage;
-    pipeline_ci.layout = blur_layout_;
-
-    if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
-                                  nullptr, &blur_pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, comp_module, nullptr);
-        return make_error("Failed to create AO blur compute pipeline");
-    }
-    vkDestroyShaderModule(device_, comp_module, nullptr);
+    device_ = resources.device;
+    ao_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
+                                    .mip_filter = gpu::Filter::nearest,
+                                    .address = gpu::Address::clamp});
+    FJELL_TRY(blur_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                  .shader = "shaders/gtao_blur.comp",
+                                  .shared = {resources.globals},
+                                  .name = "gtao_blur",
+                              }));
 
     // 1x1 placeholder so the global "ao_texture" binding is valid from frame 1.
-    default_images_.create(*gpu_device_, device_, allocator_,
-                           concurrent_families_, concurrent_family_count_, 1, 1);
+    default_images_.create(*device_, 1, 1);
 
     if (auto r = create_trace(device, resources); !r) { return r; }
 
@@ -310,18 +150,12 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
 
 void AoPass::destroy() {
     destroy_trace();
-    default_images_.destroy(device_, allocator_);
-    if (ao_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, ao_sampler_, nullptr); ao_sampler_ = VK_NULL_HANDLE; }
-    if (blur_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, blur_pipeline_, nullptr); blur_pipeline_ = VK_NULL_HANDLE; }
-    if (blur_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, blur_layout_, nullptr); blur_layout_ = VK_NULL_HANDLE; }
-    if (blur_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, blur_set_layout_, nullptr); blur_set_layout_ = VK_NULL_HANDLE; }
+    default_images_.destroy();
+    blur_pipeline_.reset();
 }
 
 void AoPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(*gpu_device_, device_, allocator_,
-                           concurrent_families_, concurrent_family_count_,
-                           width, height,
-                           init_graphics_queue_, init_graphics_pool_);
+    default_images_.resize(*device_, width, height);
 }
 
 VkDescriptorSet AoPass::imgui_texture() {
@@ -341,8 +175,8 @@ void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         builder.write(ao, gpu::Access::storage_write_compute);
         declare_trace(builder, ctx);
     } else {
-        // Disabled path: ao_image is cleared, the only ao node running.
-        builder.write(ao, gpu::Access::copy_dst);
+        // Disabled path: the AO is cleared, the only ao node running.
+        builder.write(ao, gpu::Access::clear);
     }
 
     builder.has_side_effects();
@@ -351,92 +185,40 @@ void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void AoPass::record(const FrameContext& ctx) {
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->gtao() : nullptr;
     auto& g = imgs != nullptr ? *imgs : default_images_;
-    if (g.ao_view == VK_NULL_HANDLE) return;
+    if (!g.ao) return;
 
     FJELL_PROFILE_SCOPE_N("record_gtao_trace");
-    FJELL_GPU_ZONE(ctx, "GTAO Trace");
-    auto* cmd = ctx.cmd;
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("GTAO Trace");
 
     if (!enabled_) {
-        // The graph has the image in TRANSFER_DST for the clear: no
-        // occlusion.
-        VkClearColorValue clear_value{};
-        clear_value.float32[0] = 1.0F;
-        VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(cmd, g.ao_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                             &clear_value, 1, &range);
+        cmd.clear(g.ao, gpu::Clear{1.0F});   // no occlusion
         return;
     }
 
     record_trace(ctx, g);
-    g.images_need_init = false;
 }
 
 void AoPass::collect_exports(DeclareContext& /*ctx*/) {
-    // gtao_ao is registered by RenderPipeline::execute() from the active
-    // pp_resources (per-viewport ao_image), not here — AoPass only knows
-    // about its default placeholder Images, which isn't what any real
-    // viewport writes to.
+    // gtao_ao is imported by RenderPipeline::execute() from the active
+    // pp_resources (per-viewport AO), not here — AoPass only knows about
+    // its default placeholder Images, which isn't what any real viewport
+    // writes to.
 }
 
 // ── GtaoTracePass ───────────────────────────────────────────────────────────
 
-Result<> GtaoTracePass::create_trace(Device& /*device*/, const PassResources& /*resources*/) {
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo set_ci{};
-    set_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_ci.bindingCount = 1;
-    set_ci.pBindings = &binding;
-    if (vkCreateDescriptorSetLayout(device_, &set_ci, nullptr, &trace_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create GTAO trace descriptor set layout");
-    }
-
-    std::array<VkDescriptorSetLayout, 2> set_layouts = {global_set_layout_, trace_set_layout_};
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.size = sizeof(GtaoPushConstants);
-
-    VkPipelineLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    layout_ci.pSetLayouts = set_layouts.data();
-    layout_ci.pushConstantRangeCount = 1;
-    layout_ci.pPushConstantRanges = &push_range;
-    if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &trace_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create GTAO trace pipeline layout");
-    }
-
-    auto comp_code = read_spirv(base_path::resolve("shaders/gtao.comp.spv"));
-    auto* comp_module = create_shader_module(device_, comp_code);
-
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = comp_module;
-    stage.pName = "main";
-
-    VkComputePipelineCreateInfo pipeline_ci{};
-    pipeline_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipeline_ci.stage = stage;
-    pipeline_ci.layout = trace_layout_;
-    if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
-                                  nullptr, &trace_pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, comp_module, nullptr);
-        return make_error("Failed to create GTAO trace compute pipeline");
-    }
-    vkDestroyShaderModule(device_, comp_module, nullptr);
+Result<> GtaoTracePass::create_trace(Device& /*device*/, const PassResources& resources) {
+    FJELL_TRY(trace_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                   .shader = "shaders/gtao.comp",
+                                   .shared = {resources.globals},
+                                   .name = "gtao",
+                               }));
     return {};
 }
 
 void GtaoTracePass::destroy_trace() {
-    if (trace_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, trace_pipeline_, nullptr); trace_pipeline_ = VK_NULL_HANDLE; }
-    if (trace_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, trace_layout_, nullptr); trace_layout_ = VK_NULL_HANDLE; }
-    if (trace_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, trace_set_layout_, nullptr); trace_set_layout_ = VK_NULL_HANDLE; }
+    trace_pipeline_.reset();
 }
 
 void GtaoTracePass::declare_trace(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
@@ -444,42 +226,22 @@ void GtaoTracePass::declare_trace(PassBuilder& /*builder*/, const DeclareContext
 }
 
 void GtaoTracePass::record_trace(const FrameContext& ctx, Images& g) {
-    auto* cmd = ctx.cmd;
-    auto global_set = ctx.global_descriptor_set;
-    auto target_extent = ctx.target->extent();
-    uint32_t width = target_extent.width;
-    uint32_t height = target_extent.height;
-    uint32_t half_w = g.extent.width;
-    uint32_t half_h = g.extent.height;
-    uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
-    uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
-
-    FrameCacheBinding b{};
-    b.binding = 0;
-    b.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    b.image.imageView = g.ao_view;
-    b.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(trace_set_layout_, std::span{&b, 1});
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_layout_,
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_layout_,
-                            1, 1, &set, 0, nullptr);
-
-    GtaoPushConstants push{};
-    push.radius = radius();
-    push.intensity = intensity();
-    push.thickness = thickness();
-    push.max_pixel_radius = 128.0F;
-    push.viewport_width = half_w;
-    push.viewport_height = half_h;
-    push.full_viewport_width = width;
-    push.full_viewport_height = height;
-
-    vkCmdPushConstants(cmd, trace_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-    vkCmdDispatch(cmd, groups_x, groups_y, 1);
+    auto& cmd = ctx.commands();
+    const auto target_extent = ctx.target->extent();
+    cmd.set_pipeline(trace_pipeline_);
+    cmd.bind(ctx.globals);
+    cmd.bind({{"ao_output", gpu::storage(g.ao)}});
+    cmd.push(GtaoPushConstants{
+        .radius = radius(),
+        .intensity = intensity(),
+        .thickness = thickness(),
+        .max_pixel_radius = 128.0F,
+        .viewport_width = g.extent.x,
+        .viewport_height = g.extent.y,
+        .full_viewport_width = target_extent.width,
+        .full_viewport_height = target_extent.height,
+    });
+    cmd.dispatch((g.extent.x + TILE_SIZE - 1) / TILE_SIZE, (g.extent.y + TILE_SIZE - 1) / TILE_SIZE, 1);
 }
 
 PassSetup GtaoTracePass::setup() const {
@@ -530,62 +292,17 @@ void AoBlurHPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void AoBlurHPass::record(const FrameContext& ctx) {
-    if (owner_ == nullptr || !owner_->enabled()) { return; }
-    if (ctx.registry == nullptr) { return; }
+    if (owner_ == nullptr || !owner_->enabled() || ctx.target == nullptr) { return; }
 
     auto* pp = ctx.pp_resources;
     auto* imgs = pp != nullptr ? pp->gtao() : nullptr;
     auto& g = imgs != nullptr ? *imgs : owner_->images();
-    if (g.ao_view == VK_NULL_HANDLE) { return; }
+    const gpu::Texture blur = ctx.texture("gtao_blur");
+    if (!g.ao || !blur.valid()) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_gtao_blur_h");
-    FJELL_GPU_ZONE(ctx, "GTAO Blur H");
-
-    const auto* blur_res = ctx.registry->find_image("gtao_blur");
-    if (blur_res == nullptr || blur_res->image == VK_NULL_HANDLE) { return; }
-
-    auto* cmd = ctx.cmd;
-    auto global_set = ctx.global_descriptor_set;
-    uint32_t half_w = g.extent.width;
-    uint32_t half_h = g.extent.height;
-    uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
-    uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
-
-    auto normal_view = ctx.target ? ctx.target->normal_view() : VK_NULL_HANDLE;
-    if (normal_view == VK_NULL_HANDLE) { return; }
-
-    std::array<FrameCacheBinding, 3> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    bindings[0].image.imageView = blur_res->view;
-    bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    bindings[1].binding = 1;
-    bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].image.sampler = owner_->ao_sampler();
-    bindings[1].image.imageView = g.ao_view;
-    bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    bindings[2].binding = 2;
-    bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[2].image.sampler = owner_->ao_sampler();
-    bindings[2].image.imageView = normal_view;
-    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(owner_->blur_set_layout(), bindings);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline());
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline_layout(),
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline_layout(),
-                            1, 1, &set, 0, nullptr);
-
-    BlurPushConstants push{};
-    push.viewport_width = half_w;
-    push.viewport_height = half_h;
-    push.direction = 0;
-    push.depth_threshold = 0.1F;
-
-    vkCmdPushConstants(cmd, owner_->blur_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-    vkCmdDispatch(cmd, groups_x, groups_y, 1);
+    auto zone = ctx.commands().zone("GTAO Blur H");
+    record_blur(ctx, *owner_, g, blur, g.ao, 0);
 }
 
 // ── AoBlurVPass ─────────────────────────────────────────────────────────────
@@ -631,62 +348,17 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void AoBlurVPass::record(const FrameContext& ctx) {
-    if (owner_ == nullptr || !owner_->enabled()) { return; }
-    if (ctx.registry == nullptr) { return; }
+    if (owner_ == nullptr || !owner_->enabled() || ctx.target == nullptr) { return; }
 
     auto* pp = ctx.pp_resources;
     auto* imgs = pp != nullptr ? pp->gtao() : nullptr;
     auto& g = imgs != nullptr ? *imgs : owner_->images();
-    if (g.ao_view == VK_NULL_HANDLE) { return; }
+    const gpu::Texture blur = ctx.texture("gtao_blur");
+    if (!g.ao || !blur.valid()) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_gtao_blur_v");
-    FJELL_GPU_ZONE(ctx, "GTAO Blur V");
-
-    const auto* blur_res = ctx.registry->find_image("gtao_blur");
-    if (blur_res == nullptr || blur_res->image == VK_NULL_HANDLE) { return; }
-
-    auto* cmd = ctx.cmd;
-    auto global_set = ctx.global_descriptor_set;
-    uint32_t half_w = g.extent.width;
-    uint32_t half_h = g.extent.height;
-    uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
-    uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
-
-    auto normal_view = ctx.target ? ctx.target->normal_view() : VK_NULL_HANDLE;
-    if (normal_view == VK_NULL_HANDLE) { return; }
-
-    std::array<FrameCacheBinding, 3> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    bindings[0].image.imageView = g.ao_view;
-    bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    bindings[1].binding = 1;
-    bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].image.sampler = owner_->ao_sampler();
-    bindings[1].image.imageView = blur_res->view;
-    bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    bindings[2].binding = 2;
-    bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[2].image.sampler = owner_->ao_sampler();
-    bindings[2].image.imageView = normal_view;
-    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(owner_->blur_set_layout(), bindings);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline());
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline_layout(),
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline_layout(),
-                            1, 1, &set, 0, nullptr);
-
-    BlurPushConstants push{};
-    push.viewport_width = half_w;
-    push.viewport_height = half_h;
-    push.direction = 1;
-    push.depth_threshold = 0.1F;
-
-    vkCmdPushConstants(cmd, owner_->blur_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-    vkCmdDispatch(cmd, groups_x, groups_y, 1);
+    auto zone = ctx.commands().zone("GTAO Blur V");
+    record_blur(ctx, *owner_, g, g.ao, blur, 1);
 }
 
 } // namespace fjell

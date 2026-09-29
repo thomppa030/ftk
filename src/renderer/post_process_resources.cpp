@@ -63,12 +63,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
     if (config_.gtao) {
         uint32_t half_w = std::max(1u, width / 2);
         uint32_t half_h = std::max(1u, height / 2);
-        gtao_images_.create(*gpu_, device_, allocator_,
-                            passes_->gtao.concurrent_queue_families(),
-                            passes_->gtao.concurrent_queue_family_count(),
-                            half_w, half_h,
-                            passes_->gtao.init_graphics_queue(),
-                            passes_->gtao.init_graphics_pool());
+        gtao_images_.create(*gpu_, half_w, half_h);
     }
     if (config_.volumetric_fog) {
         fog_images_.create(*gpu_, device_, allocator_, width, height);
@@ -95,7 +90,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
 PostProcessResources::~PostProcessResources() {
     if (device_ == VK_NULL_HANDLE) return;
     hiz_images_.destroy();
-    gtao_images_.destroy(device_, allocator_);
+    gtao_images_.destroy();
     fog_images_.destroy(device_, allocator_);
     post_images_.destroy(device_, allocator_);
     ddgi_images_.destroy(device_, allocator_);
@@ -131,7 +126,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
     if (this != &other) {
         if (device_ != VK_NULL_HANDLE) {
             hiz_images_.destroy();
-            gtao_images_.destroy(device_, allocator_);
+            gtao_images_.destroy();
             fog_images_.destroy(device_, allocator_);
             post_images_.destroy(device_, allocator_);
             ddgi_images_.destroy(device_, allocator_);
@@ -175,12 +170,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                            width, height);
     }
     if (config_.gtao) {
-        gtao_images_.resize(*gpu_, device_, allocator_,
-                            passes_->gtao.concurrent_queue_families(),
-                            passes_->gtao.concurrent_queue_family_count(),
-                            width, height,
-                            passes_->gtao.init_graphics_queue(),
-                            passes_->gtao.init_graphics_pool());
+        gtao_images_.resize(*gpu_, width, height);
     }
     if (config_.volumetric_fog) {
         fog_images_.resize(*gpu_, device_, allocator_, width, height);
