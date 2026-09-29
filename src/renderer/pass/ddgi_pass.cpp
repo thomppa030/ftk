@@ -335,7 +335,9 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     // binding 3: sky cubemap (samplerCube)
     // binding 4: probe status SSBO
     // binding 5: probe offset texture (sampler2D)
-    std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+    // binding 6: irradiance atlas (sampler2D) — the bounce at a hit
+    // binding 7: visibility atlas (sampler2D) — the bounce at a hit
+    std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
 
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -367,8 +369,23 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     bindings[5].descriptorCount = 1;
     bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    bindings[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    bindings[7] = {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+
+    // Irradiance is re-pointed when the spatial filter is toggled, which can
+    // land while an earlier frame still references the set.
+    std::array<VkDescriptorBindingFlags, 8> trace_binding_flags{};
+    trace_binding_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo trace_flags_ci{};
+    trace_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    trace_flags_ci.bindingCount = static_cast<uint32_t>(trace_binding_flags.size());
+    trace_flags_ci.pBindingFlags = trace_binding_flags.data();
+
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layout_ci.pNext = &trace_flags_ci;
+    layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
     layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
     layout_ci.pBindings = bindings.data();
 
@@ -757,6 +774,7 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
                                      DdgiPass::Images& imgs,
                                      VkImageView sdf_view, VkSampler sdf_sampler,
                                      VkImageView sky_view, VkSampler sky_sampler,
+                                     VkImageView irradiance_view,
                                      VkSampler linear_sampler) {
     // 0: constants UBO
     VkDescriptorBufferInfo ubo_info{};
@@ -793,7 +811,18 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     offset_info.imageView = imgs.probe_offset_view;
     offset_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    std::array<VkWriteDescriptorSet, 6> writes{};
+    // 6, 7: the probe field, for the bounce at a hit
+    VkDescriptorImageInfo irradiance_info{};
+    irradiance_info.sampler = linear_sampler;
+    irradiance_info.imageView = irradiance_view;
+    irradiance_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkDescriptorImageInfo visibility_info{};
+    visibility_info.sampler = linear_sampler;
+    visibility_info.imageView = imgs.visibility_view;
+    visibility_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    std::array<VkWriteDescriptorSet, 8> writes{};
     for (auto& w : writes) {
         w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         w.dstSet = set;
@@ -823,6 +852,14 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     writes[5].dstBinding = 5;
     writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[5].pImageInfo = &offset_info;
+
+    writes[6].dstBinding = 6;
+    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[6].pImageInfo = &irradiance_info;
+
+    writes[7].dstBinding = 7;
+    writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[7].pImageInfo = &visibility_info;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -1019,16 +1056,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
         // Four sets per frame slot without RT (trace, update, sample,
-        // filter). With RT, one RT trace set per slot on top; each adds
-        // 1 UBO, 5 samplers, 1 storage image, 4 storage buffers and 1
-        // acceleration structure.
+        // filter), holding 13 samplers between them. With RT, one RT trace
+        // set per slot on top; each adds 1 UBO, 5 samplers, 1 storage image,
+        // 4 storage buffers and 1 acceleration structure.
         constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
         constexpr uint32_t RT_SLOTS = MAX_FRAMES_IN_FLIGHT;
         uint32_t max_sets = has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS;
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 13u * SLOTS + 5u * RT_SLOTS : 13u * SLOTS};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u * SLOTS + RT_SLOTS : 6u * SLOTS};
         pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u * SLOTS + 4u * RT_SLOTS : 4u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
@@ -1095,6 +1132,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             write_trace_descriptors(vk_device_, imgs.trace_set[s], s, imgs,
                                     sdf_view, sdf_sampler,
                                     sky_cubemap_view, sky_cubemap_sampler,
+                                    config_.spatial_filter ? imgs.irradiance_filtered_view
+                                                           : imgs.irradiance_view,
                                     linear_sampler_);
         }
 
@@ -1626,8 +1665,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.light_intensity = light_intensity_;
         push.light_color = light_color_;
         push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
-        push.sdf_volume_min = config_.grid_position;
-        push.sdf_volume_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
+        push.sdf_volume_min = sdf_volume_min_;
+        push.sdf_volume_max = sdf_volume_max_;
 
         vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
@@ -1685,9 +1724,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                                : imgs.irradiance_view;
         irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        // Every slot's sample set and RT trace set: this binding is static
-        // per set, so all slots move together.
-        std::array<VkWriteDescriptorSet, 2 * MAX_FRAMES_IN_FLIGHT> w{};
+        // Every slot's sample set and both trace sets: this binding is
+        // static per set, so all slots move together.
+        std::array<VkWriteDescriptorSet, 3 * MAX_FRAMES_IN_FLIGHT> w{};
         uint32_t count = 0;
         for (VkDescriptorSet sample_set : imgs.sample_set) {
             w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1704,6 +1743,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             w[count].dstSet = rt_set;
             w[count].dstBinding = 9;
+            w[count].descriptorCount = 1;
+            w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w[count].pImageInfo = &irr;
+            ++count;
+        }
+
+        for (VkDescriptorSet trace_set : imgs.trace_set) {
+            w[count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w[count].dstSet = trace_set;
+            w[count].dstBinding = 6;
             w[count].descriptorCount = 1;
             w[count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             w[count].pImageInfo = &irr;

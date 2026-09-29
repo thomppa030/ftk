@@ -2,6 +2,14 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
+// The probe field's own cage, for the bounce at a hit, read the way every
+// other reader of the field reads it. Its offsets also place each probe's
+// rays.
+#define FJELL_DDGI_CAGE
+#define FJELL_DDGI_CAGE_IRRADIANCE_BINDING 6
+#define FJELL_DDGI_CAGE_VISIBILITY_BINDING 7
+#define FJELL_DDGI_CAGE_OFFSET_BINDING     5
+#define FJELL_DDGI_CAGE_STATUS_BINDING     4
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -9,12 +17,6 @@ layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 1) uniform sampler3D scene_sdf;
 layout(rgba16f, set = 0, binding = 2) uniform writeonly image2D radiance_out;
 layout(set = 0, binding = 3) uniform samplerCube sky_cubemap;
-
-layout(std430, set = 0, binding = 4) readonly buffer ProbeStatusSSBO {
-    uint probe_status[];
-};
-
-layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
 
 // ── Push constants ──────────────────────────────────────────────────────
 
@@ -63,13 +65,12 @@ void main() {
     int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
     if (probe_index >= total_probes) return;
 
-    // Skip inactive probes
-    uint status = probe_status[probe_index];
-    if (status == PROBE_STATUS_OFF) return;
-
-    // Probe world position
+    // Every probe traces every ray, off or not: a probe the update switched
+    // off tests its burial again here, the moment it is no longer inside
+    // geometry it comes back, and every radiance row the update reads was
+    // written this frame.
     ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
-    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, ddgi_probe_offset_tex, true);
 
     // Ray direction: jittered spherical Fibonacci
     vec3 direction = normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
@@ -112,12 +113,17 @@ void main() {
         vec3 albedo = vec3(0.5);
         float NdotL = max(dot(N, light_direction), 0.0);
         radiance = albedo * light_color * light_intensity * NdotL;
-        radiance += albedo * 0.15;
+
+        // Indirect bounce, as the RT trace does it: the field's irradiance
+        // at the hit, gathered last frame, reflected once more.
+        radiance += ddgi_sample_cage(hit_pos, N, ray_origin, false).irradiance
+                  * albedo * ddgi.infinite_bounces_mult;
 
         distance = t;
     } else {
-        // Miss: sky color
-        radiance = textureLod(sky_cubemap, direction, 0.0).rgb;
+        // Miss: the sky, blurred as the RT trace reads it. Mip 0 has extreme
+        // HDR peaks (the sun disk) that drown out the bounce light.
+        radiance = textureLod(sky_cubemap, direction, 4.0).rgb;
         distance = MAX_TRACE_DIST;
     }
 

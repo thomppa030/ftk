@@ -331,8 +331,8 @@ public:
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
     void set_particle_system(class ParticleSystem* ps) { particle_system_ = ps; }
 
-    /// World-space bounds of the scene SDF volume, used by the RT trace to
-    /// test whether a probe is buried. Kept current by the owner since the
+    /// World-space bounds of the scene SDF volume, used by both traces to
+    /// test whether a probe is buried and by the SDF trace to march. Kept current by the owner since the
     /// SDF volume follows the scene every frame while the probe grid moves only
     /// when content escapes it.
     void set_sdf_bounds(const glm::vec3& min, const glm::vec3& max) {
