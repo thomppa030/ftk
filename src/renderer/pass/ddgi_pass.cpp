@@ -6,6 +6,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -346,7 +347,9 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     // binding 6: irradiance atlas (sampler2D) — the bounce at a hit
     // binding 7: visibility atlas (sampler2D) — the bounce at a hit
     // binding 8: light list (SSBO) — the local lights at a hit
-    std::array<VkDescriptorSetLayoutBinding, 9> bindings{};
+    // binding 9: scene SDF index volume (usampler3D) — the object at a hit
+    // binding 10: scene SDF object table (SSBO) — its materials
+    std::array<VkDescriptorSetLayoutBinding, 11> bindings{};
 
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -381,6 +384,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     bindings[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     bindings[7] = {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    bindings[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -391,7 +396,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create DDGI trace set layout");
     }
 
-    // Pipeline layout: descriptor set + push constants
+    // Pipeline layout: the trace set, then the bindless set (the hit's
+    // materials), + push constants
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_range.offset = 0;
@@ -399,8 +405,9 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
 
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 1;
-    pipe_layout_ci.pSetLayouts = &trace_set_layout_;
+    const std::array trace_set_layouts = {trace_set_layout_, resources.material_set_layout};
+    pipe_layout_ci.setLayoutCount = static_cast<uint32_t>(trace_set_layouts.size());
+    pipe_layout_ci.pSetLayouts = trace_set_layouts.data();
     pipe_layout_ci.pushConstantRangeCount = 1;
     pipe_layout_ci.pPushConstantRanges = &push_range;
 
@@ -754,7 +761,7 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
                                      DdgiPass::Images& imgs,
                                      VkImageView sdf_view, VkSampler sdf_sampler,
                                      VkImageView sky_view, VkSampler sky_sampler,
-                                     VkSampler linear_sampler) {
+                                     VkSampler linear_sampler, const SceneSdfPass& scene_sdf) {
     // 0: constants UBO
     VkDescriptorBufferInfo ubo_info{};
     ubo_info.buffer = imgs.constants_ubo[slot]->handle();
@@ -806,7 +813,17 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     lights_info.buffer = imgs.light_list[slot]->handle();
     lights_info.range = VK_WHOLE_SIZE;
 
-    std::array<VkWriteDescriptorSet, 9> writes{};
+    // 9, 10: the object at a hit, and its materials
+    VkDescriptorImageInfo index_info{};
+    index_info.sampler = scene_sdf.index_sampler();
+    index_info.imageView = scene_sdf.index_view();
+    index_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorBufferInfo objects_info{};
+    objects_info.buffer = scene_sdf.slot_table(slot);
+    objects_info.range = VK_WHOLE_SIZE;
+
+    std::array<VkWriteDescriptorSet, 11> writes{};
     for (auto& w : writes) {
         w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         w.dstSet = set;
@@ -848,6 +865,14 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
     writes[8].dstBinding = 8;
     writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[8].pBufferInfo = &lights_info;
+
+    writes[9].dstBinding = 9;
+    writes[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[9].pImageInfo = &index_info;
+
+    writes[10].dstBinding = 10;
+    writes[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[10].pBufferInfo = &objects_info;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -968,6 +993,10 @@ void DdgiPass::record_light_select(const FrameContext& ctx, Images& imgs) {
                  VK_ACCESS_2_SHADER_READ_BIT);
 }
 
+void DdgiPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    scene_sdf_ = passes.try_get<SceneSdfPass>("scene_sdf");
+}
+
 void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (ctx.environment != nullptr) {
         const auto& sun = ctx.environment->primary;
@@ -1015,7 +1044,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
         // Four sets per frame slot without RT (trace, update, sample, light
-        // select), holding 11 samplers, 5 storage images and 5 storage
+        // select), holding 12 samplers, 5 storage images and 6 storage
         // buffers between them. With RT, one RT trace set per slot on top;
         // each adds 1 UBO, 5 samplers, 1 storage image, 5 storage buffers
         // and 1 acceleration structure.
@@ -1025,9 +1054,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 12u * SLOTS + 5u * RT_SLOTS : 12u * SLOTS};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 5u * SLOTS + RT_SLOTS : 5u * SLOTS};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 5u * SLOTS + 5u * RT_SLOTS : 5u * SLOTS};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 6u * SLOTS + 5u * RT_SLOTS : 6u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -1075,7 +1104,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // Write descriptors on first use or when views become available
     if (imgs.images_need_init) {
-        if (sdf_view == VK_NULL_HANDLE) {
+        if (sdf_view == VK_NULL_HANDLE || scene_sdf_ == nullptr) {
             FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
             frame_counter_++;
             return;
@@ -1087,12 +1116,13 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         }
         // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
-    if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && sky_cubemap_view != VK_NULL_HANDLE) {
+    if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && scene_sdf_ != nullptr
+        && sky_cubemap_view != VK_NULL_HANDLE) {
         for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
             write_trace_descriptors(vk_device_, imgs.trace_set[s], s, imgs,
                                     sdf_view, sdf_sampler,
                                     sky_cubemap_view, sky_cubemap_sampler,
-                                    linear_sampler_);
+                                    linear_sampler_, *scene_sdf_);
         }
 
         // Write update set descriptors, the same into every slot's set but
@@ -1494,8 +1524,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_GPU_ZONE(ctx, "DDGI Trace SDF");
         // SDF fallback trace (only when explicitly configured for SDF)
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
+        const std::array sdf_sets = {imgs.trace_set[ctx.frame_index], ctx.bindless_set};
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                trace_pipeline_layout_, 0, 1, &imgs.trace_set[ctx.frame_index], 0, nullptr);
+                                trace_pipeline_layout_, 0, static_cast<uint32_t>(sdf_sets.size()),
+                                sdf_sets.data(), 0, nullptr);
 
         TracePushConstants push{};
         push.light_direction = light_direction_;

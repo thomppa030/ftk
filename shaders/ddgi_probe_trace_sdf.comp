@@ -1,4 +1,5 @@
 #version 460
+#extension GL_EXT_nonuniform_qualifier : require
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
@@ -21,6 +22,18 @@ layout(set = 0, binding = 3) uniform samplerCube sky_cubemap;
 // The point and spot lights that reach the grid (binding 8).
 #define FJELL_DDGI_LIGHTS_BINDING 8
 #include "fjell_ddgi_lights.glsl"
+
+// Which object is nearest each voxel of the SDF, and the materials each
+// object draws with (set 1 holds the materials themselves).
+layout(set = 0, binding = 9) uniform usampler3D scene_sdf_index;
+layout(set = 0, binding = 10) readonly buffer SdfSlots {
+    SdfSlot sdf_slots[];
+};
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
 
 // ── Push constants ──────────────────────────────────────────────────────
 
@@ -67,6 +80,45 @@ bool sdf_unoccluded(vec3 origin, vec3 direction, float max_t) {
 float sdf_voxel_size() {
     vec3 voxel = (sdf_volume_max - sdf_volume_min) / sdf_resolution;
     return max(voxel.x, max(voxel.y, voxel.z));
+}
+
+// A texture's last mip is its average colour; a sampler clamps past it.
+const float WHOLE_TEXTURE_LOD = 16.0;
+// What a hit bounces where no object's colour is known.
+const vec3 NEUTRAL_ALBEDO = vec3(0.5);
+
+// The colour a probe ray bounces off the object nearest `p`: each of its
+// materials' base colour factor (a shader's hint_albedo folded in) times its
+// texture's average, averaged over them. One colour per object, not per
+// texel: the field only places a hit to within a voxel.
+vec3 sdf_hit_albedo(vec3 p) {
+    vec3 uvw = (p - sdf_volume_min) / (sdf_volume_max - sdf_volume_min);
+    ivec3 size = textureSize(scene_sdf_index, 0);
+    ivec3 voxel = clamp(ivec3(uvw * vec3(size)), ivec3(0), size - 1);
+    uint slot = texelFetch(scene_sdf_index, voxel, 0).r;
+    if (slot == NO_SDF_SLOT || slot >= uint(sdf_slots.length())) {
+        return NEUTRAL_ALBEDO;
+    }
+
+    SdfSlot object = sdf_slots[slot];
+    vec3 sum = vec3(0.0);
+    uint count = 0u;
+    for (uint i = 0u; i < min(object.material_count, 3u); ++i) {
+        uint id = object.material_ids[i];
+        if (id >= uint(materials.length())) {
+            continue;
+        }
+        vec3 albedo = vec3(materials[id].base_params[0], materials[id].base_params[1],
+                           materials[id].base_params[2]);
+        uint base_color_tex = materials[id].texture_indices[0];
+        if (base_color_tex > 0u) {
+            albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], vec2(0.5),
+                                 WHOLE_TEXTURE_LOD).rgb;
+        }
+        sum += albedo;
+        ++count;
+    }
+    return count > 0u ? sum / float(count) : NEUTRAL_ALBEDO;
 }
 
 vec3 estimate_normal(vec3 p) {
@@ -130,11 +182,7 @@ void main() {
         vec3 hit_pos = ray_origin + direction * t;
         vec3 N = estimate_normal(hit_pos);
 
-        // Neutral albedo — SDF path has no access to per-instance material
-        // data. RT path uses the real material color at the hit point; the
-        // shading model is otherwise the same so switching backends keeps
-        // scene brightness consistent for mid-gray albedos.
-        vec3 albedo = vec3(0.5);
+        vec3 albedo = sdf_hit_albedo(hit_pos);
 
         // The sun, where nothing stands between it and the hit. The march
         // starts a voxel off the surface: the field is too coarse to leave

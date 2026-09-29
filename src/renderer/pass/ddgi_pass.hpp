@@ -18,6 +18,7 @@
 namespace fjell {
 
 class AccelStructureManager;
+class SceneSdfPass;
 
 enum class DdgiBackend : uint8_t {
     sdf_fallback,
@@ -276,6 +277,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
     /// Record into externally-provided images. Where it stops before
     /// sampling into the indirect output, the output holds what it held.
@@ -407,6 +409,10 @@ private:
     /// so a single shared flag would be consumed by whichever recorded
     /// first and leave the rest holding stale irradiance.
     uint32_t grid_generation_{0};
+
+    // The scene SDF, whose index volume and object table colour the SDF
+    // tracer's hits.
+    SceneSdfPass* scene_sdf_{nullptr};
 
     // RT backend
     DdgiBackend backend_{DdgiBackend::sdf_fallback};
