@@ -27,16 +27,4 @@ Mesh::Mesh(MegaMeshEntry entry)
     , mega_entry_{entry} {
 }
 
-void Mesh::bind(VkCommandBuffer cmd) const {
-    if (!vertex_buffer_ || !index_buffer_) return;
-    VkBuffer buffers[] = {vertex_buffer_->handle()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd, index_buffer_->handle(), 0, VK_INDEX_TYPE_UINT32);
-}
-
-void Mesh::draw(VkCommandBuffer cmd) const {
-    vkCmdDrawIndexed(cmd, index_count_, 1, 0, 0, 0);
-}
-
 } // namespace fjell

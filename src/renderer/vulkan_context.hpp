@@ -42,8 +42,6 @@
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/pass/post_pass.hpp"
-#include "renderer/pass/transparent_pass.hpp"
-#include "renderer/pass/opaque_pass.hpp"
 #include "renderer/pass/screen_color_copy_pass.hpp"
 #include "renderer/pass/distortion_pass.hpp"
 #include "renderer/pass/subsystem_compute_pass.hpp"
@@ -198,8 +196,6 @@ public:
   [[nodiscard]] DebugPass &debug_pass() { return passes_.get<DebugPass>("debug"); }
   [[nodiscard]] SkyPass &sky_pass() { return passes_.get<SkyPass>("sky"); }
   [[nodiscard]] SkyCubemapPass &sky_cubemap_pass() { return passes_.get<SkyCubemapPass>("sky_cubemap"); }
-  [[nodiscard]] TransparentPass &transparent_pass() { return passes_.get<TransparentPass>("transparent"); }
-  [[nodiscard]] MeshShaderDepthPass *mesh_shader_depth_pass() { return passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth"); }
   [[nodiscard]] MeshletInstancePass *meshlet_instance_pass() { return passes_.try_get<MeshletInstancePass>("meshlet_cull"); }
   [[nodiscard]] LightCullPass &light_cull_pass() { return passes_.get<LightCullPass>("light_cull"); }
   [[nodiscard]] SceneSdfPass &scene_sdf_pass() { return passes_.get<SceneSdfPass>("scene_sdf"); }
@@ -238,7 +234,6 @@ public:
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
   [[nodiscard]] MeshletVizPass *meshlet_viz_pass() { return passes_.try_get<MeshletVizPass>("meshlet_viz"); }
   [[nodiscard]] GridPass &grid_pass() { return passes_.get<GridPass>("grid"); }
-  [[nodiscard]] OpaquePass &opaque_pass() { return passes_.get<OpaquePass>("opaque"); }
   [[nodiscard]] ScreenColorCopyPass &screen_color_copy_pass() { return passes_.get<ScreenColorCopyPass>("screen_color_copy"); }
   [[nodiscard]] DistortionPass &distortion_pass() { return passes_.get<DistortionPass>("distortion"); }
   [[nodiscard]] SubsystemComputePass &subsystem_compute_pass() { return passes_.get<SubsystemComputePass>("subsystem_compute"); }

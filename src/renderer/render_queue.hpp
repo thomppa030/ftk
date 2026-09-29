@@ -51,10 +51,6 @@ public:
     void reserve(size_t count);
     void push(const DrawCommand& cmd);
     void sort(const glm::vec3& camera_pos);
-    void execute(VkCommandBuffer cmd, VkPipelineLayout layout,
-                 RenderStats* stats = nullptr) const;
-    void execute_transparent(VkCommandBuffer cmd, VkPipelineLayout layout,
-                             RenderStats* stats = nullptr) const;
 
     [[nodiscard]] bool empty() const { return opaque_.empty() && transparent_.empty(); }
     [[nodiscard]] bool has_transparent() const { return !transparent_.empty(); }

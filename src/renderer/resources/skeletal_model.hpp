@@ -57,10 +57,8 @@ public:
     // Parse a .fjskel file (mesh + embedded skeleton).
     [[nodiscard]] static FjSkinnedMeshData load_fjskel(const std::string& path);
 
-    void bind(VkCommandBuffer cmd) const;
     /// Sets the model's own vertices and 32-bit indices.
     void bind(gpu::RenderEncoder& pass) const;
-    void draw(VkCommandBuffer cmd) const;
 
     [[nodiscard]] uint32_t index_count() const { return index_count_; }
     [[nodiscard]] uint32_t joint_count() const { return joint_count_; }

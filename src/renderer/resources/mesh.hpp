@@ -24,8 +24,6 @@ public:
 
     explicit Mesh(MegaMeshEntry entry);
 
-    void bind(VkCommandBuffer cmd) const;
-    void draw(VkCommandBuffer cmd) const;
 
     [[nodiscard]] uint32_t index_count() const { return index_count_; }
     [[nodiscard]] bool has_mega_entry() const { return mega_entry_.has_value(); }

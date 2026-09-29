@@ -80,14 +80,13 @@ struct PipelineDrawRange {
     uint32_t pipeline_id{0};
     uint32_t first_draw{0};   // offset into indirect buffer (in commands)
     uint32_t draw_count{0};
-    bool skinned{false};
 };
 
 class IndirectBatch {
 public:
     /// `gpu` is the GPU interface's device, which is handed the buffers the
     /// frame graph tracks.
-    IndirectBatch(gpu::Device& gpu, VkDevice device, VmaAllocator allocator);
+    IndirectBatch(gpu::Device& gpu, VmaAllocator allocator);
 
     void build(const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
@@ -97,7 +96,6 @@ public:
                AnimationSystem* animation_system = nullptr,
                bool is_shadow_batch = false);
 
-    void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
     /// The static draws one opaque command's node got in a build: that many
     /// indirect commands and draw data entries from `first_draw` on.
@@ -174,20 +172,12 @@ public:
         return most_mesh_task_groups_[frame_index];
     }
 
-    [[nodiscard]] VkBuffer pipeline_bin_buffer(uint32_t frame_index) const {
-        return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
-    }
     /// Each draw's pipeline bin as the GPU interface knows it.
     [[nodiscard]] gpu::Buffer shared_pipeline_bin_buffer(uint32_t frame_index) const {
         return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->shared() : gpu::Buffer{};
     }
     [[nodiscard]] VkDeviceSize pipeline_bin_size(uint32_t frame_index) const {
         return opaque_counts_[frame_index] * sizeof(uint32_t);
-    }
-
-    [[nodiscard]] uint32_t draw_meshlet_count(uint32_t frame_index, uint32_t draw_index) const {
-        auto* data = static_cast<const GpuDrawData*>(draw_data_buffers_[frame_index]->mapped());
-        return data[draw_index].meshlet_count;
     }
 
     [[nodiscard]] const std::vector<uint32_t>& skinned_draw_indices(uint32_t frame_index) const {
@@ -236,11 +226,6 @@ public:
         return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
     }
 
-    [[nodiscard]] VkBuffer instanced_draw_buffer(uint32_t frame_index) const {
-        return instanced_draw_buffers_[frame_index]
-                   ? instanced_draw_buffers_[frame_index]->handle()
-                   : VK_NULL_HANDLE;
-    }
     /// The instanced draws as the GPU interface knows them.
     [[nodiscard]] gpu::Buffer shared_instanced_draw_buffer(uint32_t frame_index) const {
         return instanced_draw_buffers_[frame_index]
@@ -278,7 +263,6 @@ private:
     void retire(std::unique_ptr<Buffer> buffer);
 
     gpu::Device& gpu_;
-    VkDevice device_;
     VmaAllocator allocator_;
 
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;

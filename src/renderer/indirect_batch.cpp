@@ -15,9 +15,8 @@
 
 namespace fjell {
 
-IndirectBatch::IndirectBatch(gpu::Device& gpu, VkDevice device, VmaAllocator allocator)
+IndirectBatch::IndirectBatch(gpu::Device& gpu, VmaAllocator allocator)
     : gpu_{gpu}
-    , device_{device}
     , allocator_{allocator} {
 }
 
@@ -261,7 +260,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     };
 
     uint32_t current_pipeline = UINT32_MAX;
-    bool current_skinned = false;
     uint32_t range_start = 0;
 
     // Helper: compute LOD index for a given world-space position + matrix scale.
@@ -281,12 +279,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
         // Ensure the pipeline range reflects the current draw's pipeline before
         // we emit any sub-draws (instanced or not).
-        if (dc.pipeline_id != current_pipeline || dc.skinned != current_skinned) {
+        if (dc.pipeline_id != current_pipeline) {
             if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-                ranges.push_back({current_pipeline, range_start, draw_index - range_start, current_skinned});
+                ranges.push_back({current_pipeline, range_start, draw_index - range_start});
             }
             current_pipeline = dc.pipeline_id;
-            current_skinned = dc.skinned;
             range_start = draw_index;
         }
 
@@ -524,7 +521,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     // Close the last range
     if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-        ranges.push_back({current_pipeline, range_start, draw_index - range_start, current_skinned});
+        ranges.push_back({current_pipeline, range_start, draw_index - range_start});
     }
 
     opaque_counts_[frame_index] = draw_index;
@@ -644,14 +641,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             counts[r] = ranges[r].draw_count;
         }
     }
-}
-
-void IndirectBatch::draw(VkCommandBuffer cmd, uint32_t frame_index) const {
-    uint32_t count = opaque_counts_[frame_index];
-    if (count == 0) return;
-
-    vkCmdDrawIndexedIndirect(cmd, indirect_buffers_[frame_index]->handle(),
-                             0, count, sizeof(VkDrawIndexedIndirectCommand));
 }
 
 } // namespace fjell

@@ -139,7 +139,6 @@ struct FrameContext {
     PipelineCache* pipeline_cache{nullptr};
 
     // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
-    VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
     /// Those commands as the GPU interface knows them: one
     /// gpu::DrawMeshTasksArgs per pipeline bin.
     gpu::Buffer gpu_driven_commands{};

@@ -123,17 +123,6 @@ void SkeletalModel::bind(gpu::RenderEncoder& pass) const {
     pass.set_index_buffer(gpu::BufferRange(index_buffer_.shared()), gpu::IndexType::u32);
 }
 
-void SkeletalModel::bind(VkCommandBuffer cmd) const {
-    VkBuffer buffers[] = {vertex_buffer_.handle()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd, index_buffer_.handle(), 0, VK_INDEX_TYPE_UINT32);
-}
-
-void SkeletalModel::draw(VkCommandBuffer cmd) const {
-    vkCmdDrawIndexed(cmd, index_count_, 1, 0, 0, 0);
-}
-
 // ── .fjskel loading (mesh + skeleton) ───────────────────────────────────
 
 FjSkinnedMeshData SkeletalModel::load_fjskel(const std::string& path) {

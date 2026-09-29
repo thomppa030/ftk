@@ -411,8 +411,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         if (ctx.meshlet_set != VK_NULL_HANDLE) ctx.meshlets = gpu_.meshlets_group(ctx.meshlet_set);
         ctx.gpu_driven_commands = meshlet_instance_pass()->indirect_buffer(current_frame_);
-        ctx.gpu_driven_indirect = gpu::vulkan::native_buffer(
-            gpu_device(), meshlet_instance_pass()->indirect_buffer(current_frame_));
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
     }
     ctx.pp_resources = pp;

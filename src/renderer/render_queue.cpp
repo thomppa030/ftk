@@ -41,33 +41,6 @@ void RenderQueue::sort(const glm::vec3& /*camera_pos*/) {
               });
 }
 
-static void execute_list(const std::vector<DrawCommand>& list,
-                         VkCommandBuffer cmd, VkPipelineLayout layout,
-                         RenderStats* stats) {
-    for (const auto& dc : list) {
-        vkCmdPushConstants(cmd, layout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(PbrPushConstants), &dc.push);
-
-        if (stats) {
-            stats->draw_calls += dc.model->mesh_count();
-            stats->triangle_count += dc.model->total_indices() / 3;
-        }
-
-        dc.model->draw(cmd);
-    }
-}
-
-void RenderQueue::execute(VkCommandBuffer cmd, VkPipelineLayout layout,
-                          RenderStats* stats) const {
-    execute_list(opaque_, cmd, layout, stats);
-}
-
-void RenderQueue::execute_transparent(VkCommandBuffer cmd, VkPipelineLayout layout,
-                                      RenderStats* stats) const {
-    execute_list(transparent_, cmd, layout, stats);
-}
-
 uint64_t RenderQueue::make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id,
                                     bool skinned) {
     // [skinned:1][pipeline_id:15][material_id:24][mesh_id:24]
