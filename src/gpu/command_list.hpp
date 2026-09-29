@@ -165,6 +165,10 @@ public:
     /// as `before`. Nothing before discards what the view holds.
     void barrier(const TextureView& view, AccessSet before, AccessSet after);
     void barrier(BufferRange range, AccessSet before, AccessSet after);
+    /// `barrier` for each of `views` alike, as one: for passes stepping
+    /// several textures together, where one barrier each would wait as
+    /// many times.
+    void barrier(std::span<const TextureView> views, AccessSet before, AccessSet after);
 
     /// The frame graph's: every transition it worked out between two passes,
     /// as one batch. Work waited on from the other queue is ordered by the
