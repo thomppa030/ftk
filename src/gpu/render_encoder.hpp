@@ -122,6 +122,15 @@ struct DrawIndexedArgs {
 };
 static_assert(sizeof(DrawIndexedArgs) == 20);
 
+/// One mesh draw's task workgroup counts as
+/// `RenderEncoder::draw_mesh_tasks_indirect` reads them from a buffer.
+struct DrawMeshTasksArgs {
+    uint32_t x{0};
+    uint32_t y{1};
+    uint32_t z{1};
+};
+static_assert(sizeof(DrawMeshTasksArgs) == 12);
+
 /// The size of an index.
 enum class IndexType : uint8_t {
     u16,
