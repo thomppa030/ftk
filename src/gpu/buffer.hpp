@@ -41,6 +41,11 @@ enum class Memory : uint8_t {
 struct BufferDesc {
     /// Bytes.
     uint64_t size{0};
+    /// Bytes `Device::grow` may take the buffer to; 0 for a buffer that keeps
+    /// its size. Only `Memory::gpu`. A device that can keeps the whole range
+    /// for the buffer from the start and grows it in place; any other grows
+    /// it by a copy into a larger one.
+    uint64_t reserve{0};
     BufferUses use{};
     Memory memory{Memory::gpu};
     /// Shown by debuggers and validation messages; not kept.

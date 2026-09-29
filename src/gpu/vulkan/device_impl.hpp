@@ -47,10 +47,26 @@ struct Upload::Impl {
 struct Device::Impl {
     struct BufferRecord {
         VkBuffer buffer{VK_NULL_HANDLE};
-        /// Null for an adopted buffer, which the device does not destroy.
+        /// Null for an adopted buffer, which the device does not destroy,
+        /// and for a sparse one, whose memory is `pages`.
         VmaAllocation allocation{VK_NULL_HANDLE};
+        /// Usable bytes: for a sparse buffer, those with memory bound.
         uint64_t size{0};
         std::byte* mapped{nullptr};
+        /// What `grow` may take it to; 0 for a buffer that keeps its size.
+        /// A sparse buffer is made this large, rounded to whole pages.
+        uint64_t reserve{0};
+        /// Made with its reserve and given memory as it grows.
+        bool sparse{false};
+        /// What a sparse buffer's memory must be: page size and memory
+        /// types. The memory itself, bound in order from the start.
+        VkMemoryRequirements page_requirements{};
+        std::vector<VmaAllocation> pages;
+        /// What it was made with, for the larger buffer a copy grows into.
+        VkBufferUsageFlags usage{0};
+        std::string name;
+        /// Counts the copies that replaced it.
+        uint32_t generation{0};
     };
 
     struct View {
@@ -135,6 +151,11 @@ struct Device::Impl {
     /// `Device::create` wraps, and what transient chunks are made with.
     [[nodiscard]] Result<Buffer> make_buffer(const BufferDesc& desc);
 
+    /// Binds memory to a sparse buffer from its end up to `target` bytes,
+    /// in whole pages and no further than its reserve, and waits for the
+    /// bind.
+    [[nodiscard]] Result<> bind_pages(BufferRecord& record, uint64_t target);
+
     /// The native view for `view`, made the first time it is asked for.
     /// Null when the handle finds no texture or the view cannot be made.
     [[nodiscard]] VkImageView image_view(const TextureView& view);
@@ -185,6 +206,11 @@ struct Device::Impl {
     VkDevice device{VK_NULL_HANDLE};
     VmaAllocator allocator{VK_NULL_HANDLE};
     float max_anisotropy{1.0f};
+    /// The queue sparse memory is bound on; null where the device cannot
+    /// bind it, and growable buffers grow by copying. The fence each bind
+    /// is waited on with, made at the first.
+    VkQueue sparse_queue{VK_NULL_HANDLE};
+    VkFence sparse_fence{VK_NULL_HANDLE};
 
     HandlePool<BufferRecord, BufferTag> buffers;
     HandlePool<TextureRecord, TextureTag> textures;
