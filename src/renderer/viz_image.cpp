@@ -77,6 +77,10 @@ gpu::RenderTargets VizImage::targets(const gpu::Clear& clear) const {
     return {.color = {{.view = texture_, .load = gpu::Load::clear, .clear = clear}}};
 }
 
+gpu::RenderTargets VizImage::targets() const {
+    return {.color = {{.view = texture_, .load = gpu::Load::discard}}};
+}
+
 VkDescriptorSet VizImage::imgui_texture() {
     if (!has_rendered_) return VK_NULL_HANDLE;
     if (imgui_descriptor_ == VK_NULL_HANDLE && texture_) {
@@ -92,18 +96,6 @@ void VizImage::invalidate_imgui_texture() {
         ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
         imgui_descriptor_ = VK_NULL_HANDLE;
     }
-}
-
-VkImageView VizImage::view() const {
-    return texture_ ? gpu::vulkan::native_view(*device_, texture_) : VK_NULL_HANDLE;
-}
-
-VkImage VizImage::image() const {
-    return texture_ ? gpu::vulkan::native_image(*device_, texture_) : VK_NULL_HANDLE;
-}
-
-VkSampler VizImage::sampler() const {
-    return gpu::vulkan::native_sampler(*device_, sampler_);
 }
 
 } // namespace fjell

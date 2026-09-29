@@ -46,6 +46,9 @@ public:
     bool declare(PassBuilder& builder, const DeclareContext& ctx) const;
     /// The texture as the one colour target, cleared to `clear`.
     [[nodiscard]] gpu::RenderTargets targets(const gpu::Clear& clear) const;
+    /// The texture as the one colour target, what it held discarded: for a
+    /// draw that covers every pixel.
+    [[nodiscard]] gpu::RenderTargets targets() const;
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
@@ -55,12 +58,6 @@ public:
 
     [[nodiscard]] gpu::Texture texture() const { return texture_; }
     [[nodiscard]] bool valid() const { return static_cast<bool>(texture_); }
-
-    // For the passes that still record Vulkan themselves.
-    [[nodiscard]] VkImageView view() const;
-    [[nodiscard]] VkImage image() const;
-    [[nodiscard]] VkSampler sampler() const;
-    [[nodiscard]] VkExtent2D extent() const { return {extent_.x, extent_.y}; }
 
 private:
     void create(uint32_t width, uint32_t height);
