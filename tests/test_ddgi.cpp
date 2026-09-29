@@ -173,6 +173,25 @@ TEST_CASE("World positions pick their cell and clamp to the grid's edge", "[ddgi
     REQUIRE(ddgi_world_to_grid(vec3(500.0f, 500.0f, 500.0f)) == ivec3(15));
 }
 
+TEST_CASE("The probe field covers the grid and hands over to the sky across its last cell",
+          "[ddgi]") {
+    // Four probes a side, 2 m apart on X and Z and 1 m on Y: the grid spans
+    // 6 m x 3 m x 6 m from the origin.
+    uniform_field(ivec3(4), vec3(2.0f, 1.0f, 2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
+
+    // Well inside, the field gives all of it.
+    CHECK(ddgi_grid_coverage(vec3(3.0f, 1.5f, 3.0f)) == 1.0f);
+    // Halfway through the outermost cell on X, half.
+    CHECK(ddgi_grid_coverage(vec3(1.0f, 1.5f, 3.0f)) == Catch::Approx(0.5f));
+    // The same distance in from the Y face is a whole cell there.
+    CHECK(ddgi_grid_coverage(vec3(3.0f, 2.0f, 3.0f)) == 1.0f);
+    CHECK(ddgi_grid_coverage(vec3(3.0f, 2.75f, 3.0f)) == Catch::Approx(0.25f));
+    // On the outer probes and past them, none: the sky's IBL instead.
+    CHECK(ddgi_grid_coverage(vec3(6.0f, 1.5f, 3.0f)) == 0.0f);
+    CHECK(ddgi_grid_coverage(vec3(-4.0f, 1.5f, 3.0f)) == 0.0f);
+    CHECK(ddgi_grid_depth(vec3(-4.0f, 1.5f, 3.0f)) == Catch::Approx(-2.0f));
+}
+
 // The update pass writes a texel from the direction normalized_oct_coord()
 // gives it; the cage reads a direction through get_probe_uv(). The two only
 // agree if every texel's direction samples back into its own centre.

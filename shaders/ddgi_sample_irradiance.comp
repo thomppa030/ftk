@@ -93,10 +93,7 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal, out float out_cage_weight) {
             // red band comes from the grid's edge — either the acceleration
             // structure not covering it, or probes there having nothing to
             // trace against.
-            vec3 grid_lo = ddgi.probe_grid_position;
-            vec3 grid_hi = grid_lo + vec3(ddgi.probe_counts - ivec3(1)) * ddgi.probe_spacing;
-            vec3 d = min(world_pos - grid_lo, grid_hi - world_pos) / ddgi.probe_spacing;
-            float edge = min(d.x, min(d.y, d.z));
+            float edge = ddgi_grid_depth(world_pos);
             if (edge < 0.0) return vec3(1.0, 0.0, 1.0);   // outside the grid
             return mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
                        clamp(edge / 2.0, 0.0, 1.0));
@@ -181,8 +178,9 @@ void main() {
     }
 
 
+    // The sky: no surface, nothing to light.
     if (raw_depth >= 1.0) {
-        imageStore(indirect_out, coords, vec4(0.0, 0.0, 0.0, 1.0));
+        imageStore(indirect_out, coords, vec4(0.0));
         return;
     }
 
@@ -209,13 +207,23 @@ void main() {
     float cage_weight = 0.0;
     vec3 irradiance = sample_irradiance(world_pos, normal, cage_weight);
 
+    // The share of this pixel's diffuse ambient the probes give, in alpha,
+    // with the irradiance scaled by it: the grid's cover, and none where no
+    // probe could be read (untraced since a reset, or deep inside geometry).
+    // The surface composite gives the rest to the sky's IBL.
+    float coverage = cage_weight >= 1e-6 ? ddgi_grid_coverage(world_pos) : 0.0;
+
     if (ddgi.debug_options == DDGI_DEBUG_CAGE_WEIGHT) {
         // The cage divides by this, so darkening caused by the weights
         // collapsing shows here while darkening from the probes' own
         // irradiance does not. Log-scaled: weights are products of
         // trilinear, backface and visibility terms and span a wide range.
         irradiance = vec3(clamp(log2(1.0 + cage_weight * 8.0) / 4.0, 0.0, 1.0));
+        coverage = 1.0;
+    } else if (ddgi.debug_options != DDGI_DEBUG_OFF) {
+        // A diagnostic view is shown whole, wherever it lands.
+        coverage = 1.0;
     }
 
-    imageStore(indirect_out, coords, vec4(irradiance, 1.0));
+    imageStore(indirect_out, coords, vec4(irradiance * coverage, coverage));
 }

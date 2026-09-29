@@ -200,6 +200,23 @@ ivec3 ddgi_world_to_grid(vec3 world_pos) {
                  ivec3(0), ddgi.probe_counts - ivec3(1));
 }
 
+// How deep inside the probe grid a point sits, in cells: its distance to the
+// nearest face of the box the probes span, over the spacing. Negative
+// outside.
+float ddgi_grid_depth(vec3 world_pos) {
+    vec3 grid_min = ddgi.probe_grid_position;
+    vec3 grid_max = grid_min + vec3(ddgi.probe_counts - ivec3(1)) * ddgi.probe_spacing;
+    vec3 d = min(world_pos - grid_min, grid_max - world_pos) / ddgi.probe_spacing;
+    return min(d.x, min(d.y, d.z));
+}
+
+// How much of a point's diffuse ambient the probe field gives: all of it
+// inside the grid, fading to none across its outermost cell. Past the grid
+// the cage only repeats its edge probes, so the sky's IBL takes over there.
+float ddgi_grid_coverage(vec3 world_pos) {
+    return clamp(ddgi_grid_depth(world_pos), 0.0, 1.0);
+}
+
 // ── Probe status constants ──────────────────────────────────────────────
 
 #define PROBE_STATUS_OFF            0u
