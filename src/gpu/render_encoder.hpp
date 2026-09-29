@@ -65,6 +65,8 @@ struct DepthAttachment {
     /// tests, `depth_read_sampled` tests while the shaders sample it.
     Access access{Access::depth_attachment};
     Load load{Load::load};
+    /// What a written depth keeps; a depth only tested stores nothing,
+    /// whatever this says.
     Store store{Store::store};
     Clear clear{Clear::depth_stencil(1.0f)};
     /// The single-sample texture a multisampled view resolves into, in

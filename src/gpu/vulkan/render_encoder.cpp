@@ -116,7 +116,11 @@ Result<> describe_depth(Device::Impl& device, const DepthAttachment& depth, VkEx
     info.imageView = target->view;
     info.imageLayout = vulkan::image_scope(depth.access, true).layout;
     info.loadOp = vulkan::to_vk(depth.load);
-    info.storeOp = vulkan::to_vk(depth.store);
+    // A depth only tested is not written, so ending the scope stores nothing:
+    // a store would be a write the frame graph does not see, racing whatever
+    // samples the depth next.
+    info.storeOp = depth.access == Access::depth_attachment ? vulkan::to_vk(depth.store)
+                                                             : VK_ATTACHMENT_STORE_OP_NONE;
     info.clearValue = vulkan::to_vk(depth.clear, target->format);
     if (depth.resolve.texture.valid()) {
         auto into = attachment(device, depth.resolve, "the depth resolve target", area);
