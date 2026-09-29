@@ -1,6 +1,7 @@
 #include "renderer/pass/distortion_pass.hpp"
+
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
+#include "gpu/render_encoder.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/systems/render_subsystem.hpp"
@@ -35,38 +36,20 @@ void DistortionPass::record(const FrameContext& ctx) {
     if (target == nullptr) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_distortion");
-    FJELL_GPU_ZONE(ctx, "Distortion");
-
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = target->distortion_view();
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &color_attachment;
-    ri.pDepthAttachment = &depth_attachment;
-
-    vkCmdBeginRendering(ctx.cmd, &ri);
-
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Distortion");
+    // The subsystems still record Vulkan themselves, into the command buffer
+    // this scope is open on.
+    auto scope = cmd.render({
+        .color = {{.view = target->distortion_texture(),
+                   .load = gpu::Load::clear,
+                   .clear = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f}}},
+        .depth = gpu::DepthAttachment{.view = target->depth_texture(),
+                                      .access = gpu::Access::depth_read_sampled},
+    });
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_distortion(ctx);
     }
-
-    vkCmdEndRendering(ctx.cmd);
 }
 
 } // namespace fjell

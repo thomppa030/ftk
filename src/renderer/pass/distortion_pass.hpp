@@ -2,8 +2,6 @@
 
 #include "renderer/pass/render_pass.hpp"
 
-#include <vulkan/vulkan.h>
-
 namespace fjell {
 
 // Renders particle distortion offsets into the distortion UV buffer.
