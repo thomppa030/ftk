@@ -74,8 +74,6 @@ src/renderer/pass/scene_sdf_pass.cpp
 src/renderer/pass/scene_sdf_pass.hpp
 src/renderer/pass/ss_gi_pass.cpp
 src/renderer/pass/ss_gi_pass.hpp
-src/renderer/pass/terrain_pass.cpp
-src/renderer/pass/terrain_pass.hpp
 src/renderer/pass/uv_viz_pass.hpp
 src/renderer/pass/wireframe_pass.hpp
 src/renderer/pass_builder.hpp

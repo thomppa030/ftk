@@ -32,18 +32,14 @@ constexpr std::array<uint8_t, 4> UNPAINTED_WEIGHT = {255, 0, 0, 0};
 
 } // namespace
 
-TerrainAsset::~TerrainAsset() {
-    if (sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, sampler_, nullptr);
-    }
+TerrainAsset::~TerrainAsset() = default;
+
+gpu::Texture TerrainAsset::height_texture() const {
+    return height_image_ ? height_image_->shared() : gpu::Texture{};
 }
 
-VkImageView TerrainAsset::height_view() const {
-    return height_image_ ? height_image_->view() : VK_NULL_HANDLE;
-}
-
-VkImageView TerrainAsset::patch_bounds_view() const {
-    return patch_bounds_image_ ? patch_bounds_image_->view() : VK_NULL_HANDLE;
+gpu::Texture TerrainAsset::patch_bounds_texture() const {
+    return patch_bounds_image_ ? patch_bounds_image_->shared() : gpu::Texture{};
 }
 
 void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x,
@@ -129,8 +125,8 @@ void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
     patch_bounds_generation_ = edit_generation_;
 }
 
-VkImageView TerrainAsset::weight_view() const {
-    return weight_image_ ? weight_image_->view() : VK_NULL_HANDLE;
+gpu::Texture TerrainAsset::weight_texture() const {
+    return weight_image_ ? weight_image_->shared() : gpu::Texture{};
 }
 
 const std::string& TerrainAsset::layer_material_path(uint32_t layer) const {
@@ -227,7 +223,7 @@ void TerrainAsset::set_layer_material(uint32_t layer, Material* material) {
 }
 
 Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
-    const std::string& path, VkDevice device, VmaAllocator allocator, gpu::Device& gpu) {
+    const std::string& path, VmaAllocator allocator, gpu::Device& gpu) {
     auto parsed = load_fjterrain(path);
     if (!parsed) {
         return make_error(parsed.error());
@@ -236,7 +232,6 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     auto asset = std::make_unique<TerrainAsset>();
     asset->data_ = std::move(*parsed);
     asset->path_ = path;
-    asset->device_ = device;
 
     const uint32_t samples = asset->data_.sample_count();
 
@@ -272,8 +267,6 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
         return make_error("terrain: " + image.error());
     }
     asset->height_image_ = std::make_unique<Image>(std::move(*image));
-    asset->height_image_->create_view(device, VK_FORMAT_R16_UNORM,
-                                      VK_IMAGE_ASPECT_COLOR_BIT, 1);
     asset->height_image_->share(gpu);
     gpu::Upload& upload = gpu.upload();
     upload.to_texture(asset->height_image_->shared(), {}, std::as_bytes(std::span(texels)),
@@ -296,8 +289,6 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
                 return make_error("terrain: " + bounds_image.error());
             }
             asset->patch_bounds_image_ = std::make_unique<Image>(std::move(*bounds_image));
-            asset->patch_bounds_image_->create_view(device, VK_FORMAT_R16G16_UNORM,
-                                                    VK_IMAGE_ASPECT_COLOR_BIT, 1);
             asset->patch_bounds_image_->share(gpu);
             upload.to_texture(asset->patch_bounds_image_->shared(), {},
                               std::as_bytes(std::span(asset->patch_bounds_texels_)),
@@ -332,36 +323,10 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
             return make_error("terrain: " + weight_image.error());
         }
         asset->weight_image_ = std::make_unique<Image>(std::move(*weight_image));
-        asset->weight_image_->create_view(device, VK_FORMAT_R8G8B8A8_UNORM,
-                                          VK_IMAGE_ASPECT_COLOR_BIT, 1);
         asset->weight_image_->share(gpu);
         upload.to_texture(asset->weight_image_->shared(), {},
                           std::as_bytes(std::span(weight_bytes, weight_size)),
                           {.after = WEIGHT_READ});
-    }
-
-    // Linear filtering so heights interpolate between samples the same way the
-    // CPU query does; clamp to edge so border patches read a defined height
-    // instead of wrapping to the far side of the terrain. The weight texture
-    // shares it: layer transitions should blend, not step.
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.anisotropyEnable = VK_FALSE;
-    sampler_info.maxAnisotropy = 1.0F;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_info.compareEnable = VK_FALSE;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    sampler_info.minLod = 0.0F;
-    sampler_info.maxLod = 1.0F;
-    sampler_info.mipLodBias = 0.0F;
-    if (vkCreateSampler(device, &sampler_info, nullptr, &asset->sampler_) != VK_SUCCESS) {
-        return make_error("terrain: failed to create height sampler");
     }
 
     return asset;

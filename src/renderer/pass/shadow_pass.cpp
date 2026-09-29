@@ -290,11 +290,10 @@ void ShadowPass::record(const FrameContext& ctx) {
         }
 
         // Terrain, which generates its surface in a mesh shader and so cannot
-        // be part of the batches above. It still records natively into this
-        // scope, binding its own pipeline and sets; the cascade index picks
-        // the light matrix out of the global UBO.
+        // be part of the batches above. The cascade index picks the light
+        // matrix out of the global UBO.
         if (terrain != nullptr) {
-            terrain->record_shadow(ctx, c);
+            terrain->draw_shadow(pass, ctx, c);
         }
     }
     written_ = true;

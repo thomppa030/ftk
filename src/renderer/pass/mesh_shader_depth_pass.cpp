@@ -176,16 +176,16 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         }
     }
 
-    // Subsystem depth contributions (lit-opaque sprites, tilemaps, …), and
-    // terrain, which generates its geometry in a mesh shader and has no draw
-    // in the batch. Both still record natively into this scope, each with
-    // its own pipeline and sets.
+    // Subsystem depth contributions (lit-opaque sprites, tilemaps, …), which
+    // still record natively into this scope, each with its own pipeline and
+    // sets; and terrain, which generates its geometry in a mesh shader and
+    // has no draw in the batch.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_depth(ctx);
     }
     if (ctx.passes != nullptr) {
         if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) {
-            terrain->record_depth(ctx);
+            terrain->draw_depth(pass, ctx);
         }
     }
 }

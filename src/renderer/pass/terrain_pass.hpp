@@ -1,12 +1,14 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
+#include "gpu/sampler.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
-#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
@@ -15,7 +17,6 @@ namespace fjell {
 
 class BindlessTextures;
 class PipelineCache;
-class TerrainAsset;
 struct TerrainComponent;
 
 // Mirrors the push block in terrain.task / terrain.mesh and the terrain FJSL
@@ -43,12 +44,9 @@ struct TerrainPushConstants {
     glm::uvec4 layer_material_ids;  ///< material row per layer
     glm::vec4 layer_uv_scales;      ///< metres per texture repeat, per layer
 };
-// Offsets verified against the compiled SPIR-V, not assumed: the shader's
-// std430 rules align the vec2 and vec3 in ways the C++ struct only matches by
-// accident otherwise.
 // Offsets taken from the compiled SPIR-V rather than assumed: std430 aligns
 // the vec2 to 8 and the vec3 to 16, which C++ does not do on its own — hence
-// the explicit pad0.
+// the explicit pads.
 static_assert(sizeof(TerrainPushConstants) == 96, "push block layout must match the shaders");
 static_assert(offsetof(TerrainPushConstants, viewport) == 40);
 static_assert(offsetof(TerrainPushConstants, lod_thresholds) == 48);
@@ -62,28 +60,37 @@ static_assert(offsetof(TerrainPushConstants, layer_uv_scales) == 80);
 /// Shading comes from a `shader_type terrain` FJSL material on the node,
 /// compiled through the PipelineCache like every other material. The cache
 /// builds no pipelines for that type — the pipeline shape is this pass's,
-/// task + mesh + FJSL fragment — so the pass builds one VkPipeline per terrain
+/// task + mesh + FJSL fragment — so the pass builds one pipeline per terrain
 /// shader it meets and rebuilds it when the shader recompiles.
+///
+/// Terrain is part of the depth prepass, the shadow cascades and the opaque
+/// colour, so it draws inside those passes' render scopes rather than in one
+/// of its own: they call `draw_depth`, `draw_shadow` and `draw`.
 class TerrainPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
+    /// Nothing: the pass is never scheduled, and draws where it is called.
     void record(const FrameContext& ctx) override;
 
-    /// Record terrain into the depth prepass. Terrain is opaque geometry, and
-    /// the color pass loads depth with COMPARE_OP_LESS rather than writing it
-    /// from scratch — without this the surface fails its own depth test wherever
-    /// the prepass left the cleared far value, and terrain flickers out as the
-    /// camera turns. Also feeds Hi-Z, so terrain occludes what is behind it.
-    void record_depth(const FrameContext& ctx);
+    /// Draws terrain lit, into the opaque pass's targets, and the patch grid
+    /// over the nodes that ask for it.
+    void draw(gpu::RenderEncoder& pass, const FrameContext& ctx);
 
-    /// Record terrain into one shadow cascade. Terrain is the ground every
+    /// Draws terrain into the depth prepass. Terrain is opaque geometry, and
+    /// the colour pass tests against the prepass depth rather than writing
+    /// it — without this the surface fails its own depth test wherever the
+    /// prepass left the cleared far value, and terrain flickers out as the
+    /// camera turns. Also feeds Hi-Z, so terrain occludes what is behind it.
+    void draw_depth(gpu::RenderEncoder& pass, const FrameContext& ctx);
+
+    /// Draws terrain into one shadow cascade. Terrain is the ground every
     /// other caster stands on, so without this a hill shadows nothing — not
     /// the character walking behind it, and not the sun shafts, which read the
     /// same cascades. `cascade` selects the light matrix from the global UBO.
-    void record_shadow(const FrameContext& ctx, uint32_t cascade);
+    void draw_shadow(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t cascade);
 
     /// Whether the scene holds a terrain with a resolved asset. Depth passes
     /// early-out on an empty render queue, which terrain is never part of, so
@@ -101,23 +108,19 @@ private:
 
     /// A colour pipeline built from one terrain FJSL entry.
     struct MaterialPipeline {
-        VkPipeline pipeline{VK_NULL_HANDLE};
+        gpu::Owned<gpu::GraphicsPipeline> pipeline;
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
-    /// Point one of this frame's sets at a terrain's height, weight and
-    /// patch-bounds textures.
-    void write_terrain_set(VkDescriptorSet set, const TerrainAsset& terrain) const;
-
     /// Build (or rebuild after a recompile) the colour pipeline for a terrain
-    /// FJSL entry. Returns null when the entry failed to compile or is not a
+    /// FJSL entry. Invalid when the entry failed to compile or is not a
     /// terrain shader, in which case the fallback pipeline draws instead.
-    VkPipeline ensure_material_pipeline(uint32_t pipeline_id);
+    gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
 
     /// The colour pipeline and material row a node draws with: its own
     /// material when that is a terrain shader that compiled, else the engine's
     /// terrain.fjsl at its defaults.
-    void resolve_node_material(const TerrainComponent& comp, VkPipeline& out_pipeline,
+    void resolve_node_material(const TerrainComponent& comp, gpu::GraphicsPipeline& out_pipeline,
                                uint32_t& out_material_id);
 
     /// Register the engine's terrain.fjsl and give it a material row, so a
@@ -125,37 +128,20 @@ private:
     void ensure_fallback_material();
 
     /// Walks terrain nodes, binds their textures, pushes constants, and
-    /// dispatches one task workgroup per patch.
-    /// `view_index` picks the projection the draw writes into: 0 the camera,
-    /// 1..3 the shadow cascade of that index minus one.
-    void draw_terrain_nodes(const FrameContext& ctx, Variant variant, bool count_draws,
-                            uint32_t view_index = 0, VkExtent2D extent = {});
+    /// dispatches one task workgroup per patch. `view_index` picks the
+    /// projection the draw writes into: 0 the camera, 1..3 the shadow cascade
+    /// of that index minus one. `extent` is the size of what is drawn into,
+    /// in pixels, which each patch's level of detail is chosen against.
+    void draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContext& ctx, Variant variant,
+                            uint32_t view_index, glm::uvec2 extent);
 
-    void destroy_material_pipelines();
-
-    VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
     PassResources resources_{};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline depth_pipeline_{VK_NULL_HANDLE};
-    VkPipeline shadow_pipeline_{VK_NULL_HANDLE};
-    VkPipeline wireframe_pipeline_{VK_NULL_HANDLE};
-    /// Kept alive after create(): every material pipeline is built from them.
-    VkShaderModule task_module_{VK_NULL_HANDLE};
-    VkShaderModule mesh_module_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout terrain_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
-    /// How many distinct terrains a frame can draw. Past it a terrain is not
-    /// drawn that frame.
-    static constexpr uint32_t TERRAINS_PER_FRAME = 8;
-    /// The texture sets, one per terrain per frame in flight, written in
-    /// prepare_frame() for the terrains the scene holds. A set is never
-    /// rewritten while a frame that bound it may still be drawing, and two
-    /// terrains drawn in one frame each read their own.
-    std::array<std::array<VkDescriptorSet, TERRAINS_PER_FRAME>, MAX_FRAMES_IN_FLIGHT>
-        terrain_sets_{};
-    /// Which of this frame's sets each terrain asset was written into.
-    std::unordered_map<const TerrainAsset*, VkDescriptorSet> frame_sets_;
-    PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
+    gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> shadow_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> wireframe_pipeline_;
+    /// Linear and clamped to the edge, for all three terrain textures.
+    gpu::Sampler sampler_{};
 
     /// Projected patch height in pixels below which each coarser level takes
     /// over. A patch is finest above the first, coarsest below the last.

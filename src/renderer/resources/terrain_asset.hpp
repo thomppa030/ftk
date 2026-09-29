@@ -1,13 +1,13 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <algorithm>
 #include <array>
@@ -46,16 +46,14 @@ public:
 
     /// Load a .fjterrain and upload its heights as a single-channel texture.
     [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(
-        const std::string& path, VkDevice device, VmaAllocator allocator, gpu::Device& gpu);
+        const std::string& path, VmaAllocator allocator, gpu::Device& gpu);
 
     [[nodiscard]] const FjTerrainData& data() const { return data_; }
     [[nodiscard]] const std::string& path() const { return path_; }
 
-    /// The height texture is not a `Texture`: that class hardcodes 4 bytes per
-    /// pixel when sizing its staging copy, and heights are single-channel
-    /// 16-bit. Image + sampler are owned here instead.
-    [[nodiscard]] VkImageView height_view() const;
-    [[nodiscard]] VkSampler height_sampler() const { return sampler_; }
+    /// The heights, one normalized 16-bit sample per texel, which the mesh
+    /// stage places vertices from.
+    [[nodiscard]] gpu::Texture height_texture() const;
 
     /// Per-patch height bounds, one texel per patch, holding the lowest and
     /// highest normalized height that patch reaches. The task shader reads it
@@ -65,15 +63,13 @@ public:
     /// One texel per patch rather than a mip of the height texture, because
     /// the patch grid is the sample grid over `patch_quads` (11, prime) and no
     /// mip level lines up with it.
-    [[nodiscard]] VkImageView patch_bounds_view() const;
-    [[nodiscard]] VkSampler patch_bounds_sampler() const { return sampler_; }
+    [[nodiscard]] gpu::Texture patch_bounds_texture() const;
 
     /// Painted layer weights, one layer per channel, sampled by the fragment
     /// stage. The texture always covers the field at weight_count() texels a
     /// side; until the first paint stroke the CPU array stays empty and the
     /// texture reads as layer 0 everywhere.
-    [[nodiscard]] VkImageView weight_view() const;
-    [[nodiscard]] VkSampler weight_sampler() const { return sampler_; }
+    [[nodiscard]] gpu::Texture weight_texture() const;
 
     /// Weight texels per side. One per height sample unless the file was
     /// painted at another resolution.
@@ -338,7 +334,6 @@ private:
     /// A consumer further behind than this is handed the whole field.
     static constexpr uint32_t EDIT_HISTORY = 64;
     std::array<SampleRect, EDIT_HISTORY> edit_history_{};
-    VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     std::unique_ptr<Image> weight_image_;
     std::unique_ptr<Image> patch_bounds_image_;
@@ -349,7 +344,6 @@ private:
     /// The edit generation the ray mesh was built from.
     uint32_t ray_mesh_generation_{0};
     uint32_t weight_side_{0};
-    VkSampler sampler_{VK_NULL_HANDLE};
     std::array<Material*, FJTERRAIN_MAX_LAYERS> layer_materials_{};
     std::array<uint32_t, FJTERRAIN_MAX_LAYERS> layer_surfaces_{};
     Material* unassigned_material_{nullptr};

@@ -160,13 +160,13 @@ void OpaquePass::record(const FrameContext& ctx) {
         }
     }
 
-    // The subsystems' opaques, and terrain before the sky (opaque geometry
-    // that writes depth), still record natively into this scope.
+    // The subsystems' opaques, which still record natively into this scope,
+    // and terrain.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_opaque(ctx);
     }
     if (ctx.passes != nullptr) {
-        if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) terrain->record(ctx);
+        if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) terrain->draw(pass, ctx);
     }
 
     draw_outline(ctx, pass);

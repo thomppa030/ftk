@@ -739,7 +739,7 @@ Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string
         return it->second;
     }
 
-    auto terrain = TerrainAsset::load(path, device_, allocator_, gpu_);
+    auto terrain = TerrainAsset::load(path, allocator_, gpu_);
     if (!terrain) {
         return make_error(terrain.error());
     }
