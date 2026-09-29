@@ -36,6 +36,7 @@ ShaderBinding declared(uint32_t set, uint32_t binding, BindingKind kind, uint32_
     b.binding = binding;
     b.kind = kind;
     b.count = count;
+    b.array = count != 1;
     return b;
 }
 
@@ -168,6 +169,19 @@ TEST_CASE("a single texture never reads as the bindless table", "[gpu][binding]"
     auto sets = place_shared(with({declared(1, 0, BindingKind::sampled_texture)}), named);
     REQUIRE_FALSE(sets.has_value());
     CHECK(sets.error().find("no set that fits the shared 'bindless'") != std::string::npos);
+}
+
+TEST_CASE("an array compiled to one element still reads as the bindless table", "[gpu][binding]") {
+    // A sky or fog shader indexes the table at constants only, and glslang
+    // sizes `textures[]` to one element.
+    ShaderBinding table = declared(1, 0, BindingKind::sampled_texture);
+    table.array = true;
+    const SharedLayoutDesc named[] = {BINDLESS};
+    auto sets = place_shared(with({table, declared(1, 1, BindingKind::storage_buffer),
+                                   declared(1, 2, BindingKind::storage_buffer)}),
+                             named);
+    REQUIRE(sets.has_value());
+    CHECK(sets->front() == 1);
 }
 
 TEST_CASE("a shared layout declared away from its usual set is found there", "[gpu][binding]") {

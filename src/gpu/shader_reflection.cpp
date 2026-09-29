@@ -62,7 +62,8 @@ Result<ShaderLayout> reflect(std::span<const uint32_t> spirv) {
                 binding.binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
                 binding.kind = kind;
                 const auto& type = compiler.get_type(resource.type_id);
-                binding.count = type.array.empty() ? 1 : type.array.front();
+                binding.array = !type.array.empty();
+                binding.count = binding.array ? type.array.front() : 1;
                 binding.stages = stage;
                 layout.bindings.push_back(std::move(binding));
             }
@@ -112,9 +113,16 @@ Result<ShaderLayout> merge(const ShaderLayout& a, const ShaderLayout& b) {
             continue;
         }
         if (same_slot->name != incoming.name || same_slot->kind != incoming.kind ||
-            same_slot->count != incoming.count) {
+            same_slot->array != incoming.array ||
+            (!same_slot->array && same_slot->count != incoming.count)) {
             return make_error("Two stages declare " + binding_text(*same_slot) + " and " +
                               binding_text(incoming) + " differently");
+        }
+        // Each stage sizes an unsized array by the indices it uses, so two
+        // stages may disagree on its length: the pipeline takes the longer,
+        // and one sized at run time over either.
+        if (same_slot->array && same_slot->count != 0) {
+            same_slot->count = incoming.count == 0 ? 0 : std::max(same_slot->count, incoming.count);
         }
         same_slot->stages |= incoming.stages;
     }

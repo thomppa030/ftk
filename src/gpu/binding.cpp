@@ -22,12 +22,13 @@ const char* kind_name(BindingKind kind) {
 bool fits(const ShaderBinding& declared, const SharedLayoutDesc& shared) {
     for (const auto& offered : shared.bindings) {
         if (offered.binding != declared.binding || offered.kind != declared.kind) continue;
-        const bool offered_array = offered.count != 1;
-        // An array sized at run time fits any array; a fixed one fits an
-        // array at least as long; a single binding fits only a single one,
-        // so a pass's own texture never reads as the bindless table.
-        if (declared.count == 0) return offered_array;
-        if (declared.count == 1) return !offered_array;
+        // An array sized at run time fits any array; a fixed one, however
+        // short, fits an array at least as long; a single binding fits only
+        // a single one, so a pass's own texture never reads as the bindless
+        // table.
+        if (!declared.array) return !offered.array;
+        if (!offered.array) return false;
+        if (declared.count == 0) return true;
         return offered.count == 0 || declared.count <= offered.count;
     }
     return false;

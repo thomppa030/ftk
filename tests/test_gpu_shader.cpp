@@ -70,6 +70,29 @@ TEST_CASE("arrays keep their length, and a runtime array reads as zero", "[gpu][
     CHECK(layout.find("source")->count == 1);
 }
 
+TEST_CASE("an unsized array read at constant indices is still an array", "[gpu][shader]") {
+    const ShaderLayout frag = reflected("reflect_table.frag");
+    const ShaderBinding* textures = frag.find("textures");
+    REQUIRE(textures != nullptr);
+    CHECK(textures->array);
+    CHECK(textures->count == 1);
+
+    const ShaderLayout plain = reflected("reflect.comp");
+    CHECK_FALSE(plain.find("source")->array);
+    CHECK(plain.find("pair")->array);
+    CHECK(plain.find("textures")->array);
+}
+
+TEST_CASE("stages sizing one array differently merge to the longer", "[gpu][shader]") {
+    auto merged = merge(reflected("reflect_table.frag"), reflected("reflect_table.vert"));
+    REQUIRE(merged.has_value());
+    const ShaderBinding* textures = merged->find("textures");
+    REQUIRE(textures != nullptr);
+    CHECK(textures->array);
+    CHECK(textures->count == 3);
+    CHECK(textures->stages == (ShaderStage::vertex | ShaderStage::fragment));
+}
+
 TEST_CASE("bindings come ordered by set, then binding", "[gpu][shader]") {
     const ShaderLayout layout = reflected("reflect.comp");
     REQUIRE(layout.bindings.size() == 9);
