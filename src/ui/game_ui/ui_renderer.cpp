@@ -1,6 +1,6 @@
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_node.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -164,12 +164,12 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
 
 void UiRenderer::create(Device& device, VmaAllocator allocator,
                         const PassResources& resources,
-                        PipelineCache* fjsl_pipelines, DeferredDeleter& deleter,
+                        PipelineCache* fjsl_pipelines, gpu::Device& gpu,
                         VkFormat output_format) {
     device_ = device.handle();
     allocator_ = allocator;
     fjsl_pipelines_ = fjsl_pipelines;
-    deleter_ = &deleter;
+    gpu_device_ = &gpu;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
@@ -616,11 +616,11 @@ bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
 }
 
 void UiRenderer::retire_material_pipelines(MaterialPipelines& mp) {
-    // A frame in flight may still reference these; the deleter destroys
-    // them once that frame's fence has signalled.
+    // A frame in flight may still reference these; they are destroyed once
+    // the GPU has finished it.
     for (VkPipeline* p : {&mp.screen, &mp.world}) {
         if (*p == VK_NULL_HANDLE) continue;
-        deleter_->defer([device = device_, pipeline = *p] {
+        gpu::vulkan::defer(*gpu_device_, [device = device_, pipeline = *p] {
             vkDestroyPipeline(device, pipeline, nullptr);
         });
         *p = VK_NULL_HANDLE;

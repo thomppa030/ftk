@@ -79,7 +79,6 @@ struct ParticleComputePush {
 };
 static_assert(sizeof(ParticleComputePush) == 20);
 
-class DeferredDeleter;
 class Device;
 class Scene;
 
@@ -203,9 +202,6 @@ private:
     gpu::Device* gpu_device_{nullptr};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    DeferredDeleter* deleter_{nullptr}; // retires replaced buffers instead of
-                                        // freeing them while a frame in
-                                        // flight might still be reading them
 
     // Every pipeline the system draws or dispatches with, built together
     // so a shader reload that fails anywhere keeps the previous set whole.

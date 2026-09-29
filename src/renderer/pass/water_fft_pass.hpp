@@ -163,7 +163,6 @@ private:
     gpu::Device* gpu_device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    DeferredDeleter* deferred_deleter_{nullptr};
 
     Pipeline evolve_;
     Pipeline butterfly_;

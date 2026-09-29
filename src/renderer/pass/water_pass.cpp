@@ -7,7 +7,7 @@
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/components/water_component.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -636,15 +636,10 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
         // but a material first seen while the scene is already drawing does
         // not, and the frame slot's own fence only proves that slot is done —
         // another slot's command buffer can still reference this pipeline.
-        // The deleter holds it until every slot has cycled.
-        VkPipeline doomed = it->second.pipeline;
-        if (resources_.deferred_deleter != nullptr) {
-            resources_.deferred_deleter->defer(
-                [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
-        } else {
-            vkDeviceWaitIdle(device_);
-            vkDestroyPipeline(device_, doomed, nullptr);
-        }
+        // It waits until the GPU has finished the frames that may use it.
+        gpu::vulkan::defer(*resources_.device, [device = device_, doomed = it->second.pipeline] {
+            vkDestroyPipeline(device, doomed, nullptr);
+        });
     }
     material_pipelines_[pipeline_id] = MaterialPipeline{pipeline, generation};
     return pipeline;

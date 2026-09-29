@@ -6,7 +6,6 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/pass_builder.hpp"
@@ -890,18 +889,13 @@ void SkyCubemapPass::ensure_fjsl_pipeline() {
 
 void SkyCubemapPass::retire_fjsl_pipeline() {
     if (fjsl_pipeline_ == VK_NULL_HANDLE && fjsl_layout_ == VK_NULL_HANDLE) return;
-    if (resources_.deferred_deleter != nullptr) {
-        resources_.deferred_deleter->defer(
-            [device = device_, pipeline = fjsl_pipeline_, layout = fjsl_layout_] {
-                if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
-                if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
-            });
-        fjsl_pipeline_ = VK_NULL_HANDLE;
-        fjsl_layout_ = VK_NULL_HANDLE;
-        return;
-    }
-    vkDeviceWaitIdle(device_);
-    destroy_fjsl_pipeline();
+    gpu::vulkan::defer(*resources_.device,
+                       [device = device_, pipeline = fjsl_pipeline_, layout = fjsl_layout_] {
+                           if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
+                           if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
+                       });
+    fjsl_pipeline_ = VK_NULL_HANDLE;
+    fjsl_layout_ = VK_NULL_HANDLE;
 }
 
 void SkyCubemapPass::destroy_fjsl_pipeline() {

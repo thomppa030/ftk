@@ -170,11 +170,23 @@ uint64_t finished_frame(Device& device) {
     return value;
 }
 
-void begin_frame(Device& device, uint32_t frame_slot) {
+uint64_t begin_frame(Device& device, uint32_t frame_slot, uint64_t serial) {
     Device::Impl& self = device.impl();
     self.frame_slot = frame_slot;
     self.frame_sets.begin_frame(frame_slot);
     self.transient.begin_frame(frame_slot);
+    const uint64_t finished = finished_frame(device);
+    self.recording = serial;
+    self.releases.collect(finished);
+    return finished;
+}
+
+void defer(Device& device, std::move_only_function<void()> fn) {
+    device.impl().release_later(std::move(fn));
+}
+
+void release_all(Device& device) {
+    device.impl().releases.flush();
 }
 
 void* profiler_context([[maybe_unused]] Device& device) {

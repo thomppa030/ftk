@@ -283,7 +283,7 @@ void Engine::init_resources() {
     resource_manager_->set_viewport_resolver([this](const std::string& name) -> uint32_t {
         return vulkan_context_->scene_viewport_bindless_index(name);
     });
-    resource_manager_->set_deferred_deleter(&vulkan_context_->gpu().deferred_deleter());
+    resource_manager_->set_gpu_device(&vulkan_context_->gpu_device());
 
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
@@ -381,7 +381,7 @@ AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
 
 void Engine::init_content_browser() {
     icon_cache_ = std::make_unique<IconCache>(
-        vulkan_context_->device(), vulkan_context_->physical_device(),
+        vulkan_context_->gpu_device(), vulkan_context_->device(), vulkan_context_->physical_device(),
         vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
         base_path::resolve("engine_assets/icons"));
     IconCache::set_instance(icon_cache_.get());
@@ -2418,12 +2418,6 @@ void Engine::run() {
         // resize is about to destroy later in this same frame — see
         // PlayController::apply_pending_hud_resize.
         play_controller_.apply_pending_hud_resize();
-
-        // Same rule for thumbnails the content browser retired during last
-        // frame's draw: panels drawn before it (material inspector, VFX
-        // editor) had already recorded those descriptors into ImGui's draw
-        // list, so they can only be freed once that list has been rendered.
-        if (icon_cache_) icon_cache_->destroy_retired_thumbnails();
 
         // While the game has input focus, ImGui must not also react to the
         // keyboard — a WASD move shouldn't nudge a still-open properties

@@ -28,11 +28,11 @@ void GameUi::create(Device& device, VmaAllocator allocator,
                     BindlessTextures& bindless,
                     FontLibrary& fonts,
                     PipelineCache* fjsl_pipelines,
-                    DeferredDeleter& deleter,
+                    gpu::Device& gpu,
                     VkFormat output_format) {
     bindless_ = &bindless;
     fonts_ = &fonts;
-    renderer_.create(device, allocator, resources, fjsl_pipelines, deleter, output_format);
+    renderer_.create(device, allocator, resources, fjsl_pipelines, gpu, output_format);
 }
 
 void GameUi::set_resource_manager(ResourceManager* rm) {

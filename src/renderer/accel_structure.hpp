@@ -49,14 +49,16 @@ struct Blas {
 };
 
 class UploadContext;
-class DeferredDeleter;
+namespace gpu {
+class Device;
+}
 
 /// Manages BLAS + TLAS for DDGI ray tracing.
 class AccelStructureManager {
 public:
     AccelStructureManager(Device& device, VmaAllocator allocator,
                           VkCommandPool command_pool, VkQueue queue,
-                          UploadContext& upload, DeferredDeleter& deleter);
+                          UploadContext& upload, gpu::Device& gpu);
     ~AccelStructureManager();
 
     AccelStructureManager(const AccelStructureManager&) = delete;
@@ -136,16 +138,6 @@ public:
                     const std::vector<RtInstance>& host_instances,
                     const std::vector<ParticleEmitterInfo>& particle_emitters = {});
 
-    /// Free per-frame TLAS/instance buffers + TLAS handles that build_tlas
-    /// retired (on growth) the LAST time this slot was used. Call once per
-    /// frame AFTER the slot's in-flight fence has signaled (begin_frame).
-    /// build_tlas reallocates these per-frame buffers when the instance count
-    /// grows; an RT-tracing pass recorded earlier in the SAME frame already
-    /// bound the old buffer/TLAS, so freeing inline is a use-after-free that
-    /// the GPU hits as a dangling read (DEVICE_LOST). Retire instead, reclaim
-    /// here when the slot is provably idle.
-    void reclaim_retired(uint32_t frame_index);
-
     /// Create compute pipeline for particle → TLAS extraction (call once).
     void create_particle_tlas_pipeline(VkPipelineCache pipeline_cache);
 
@@ -169,7 +161,7 @@ private:
     [[nodiscard]] std::vector<Blas> build_blases(std::span<const MegaMeshEntry> entries,
                                                  const MegaBuffer& mega);
 
-    // Hand a stale BLAS to the deferred deleter (frame-fenced destruction).
+    // Destroys a stale BLAS once the frames that may trace it are done.
     void retire_blas(Blas blas);
 
     Device& device_;
@@ -178,7 +170,10 @@ private:
     VkCommandPool command_pool_;
     VkQueue queue_;
     UploadContext& upload_;
-    DeferredDeleter& deleter_;
+    /// Keeps what a rebuild replaces alive until the frames using it are
+    /// done: an RT pass recorded earlier in the same frame may already have
+    /// bound it, so freeing it inline is a dangling read (DEVICE_LOST).
+    gpu::Device& gpu_;
     VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
 
     // The union of what this frame's tracers asked to be able to reach.
@@ -208,12 +203,6 @@ private:
         uint32_t rt_instance_count{0};
     };
     std::array<FrameTlas, MAX_FRAMES_IN_FLIGHT> frames_{};
-
-    // Per-slot graveyard: buffers/TLAS handles replaced by build_tlas growth,
-    // kept alive until the slot's fence signals (reclaim_retired). See
-    // reclaim_retired() for why inline free is a use-after-free here.
-    std::array<std::vector<std::unique_ptr<Buffer>>, MAX_FRAMES_IN_FLIGHT> retired_buffers_;
-    std::array<std::vector<VkAccelerationStructureKHR>, MAX_FRAMES_IN_FLIGHT> retired_tlas_;
 };
 
 } // namespace fjell

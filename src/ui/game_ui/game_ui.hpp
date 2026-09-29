@@ -33,7 +33,6 @@ namespace fjell {
 
 class Device;
 class BindlessTextures;
-class DeferredDeleter;
 class FontLibrary;
 class Input;
 class PipelineCache;
@@ -63,13 +62,14 @@ public:
     GameUi();
 
     /// fjsl_pipelines compiles the `shader_type ui;` materials nodes may
-    /// name; the deleter retires the pipelines built from them.
+    /// name; `gpu` keeps the pipelines built from them alive until the
+    /// frames using them are done.
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
                 BindlessTextures& bindless,
                 FontLibrary& fonts,
                 PipelineCache* fjsl_pipelines,
-                DeferredDeleter& deleter,
+                gpu::Device& gpu,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
 
     void destroy();

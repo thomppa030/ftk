@@ -16,8 +16,10 @@
 
 namespace fjell {
 
-class DeferredDeleter;
 class Device;
+namespace gpu {
+class Device;
+}
 class PipelineCache;
 struct UiNode;
 
@@ -43,11 +45,11 @@ struct UiWorldFrameData {
 class UiRenderer {
 public:
     /// fjsl_pipelines compiles the `shader_type ui;` materials quads may
-    /// name; null means materials are ignored. Pipelines built from it are
-    /// retired through the deleter, which outlives this renderer.
+    /// name; null means materials are ignored. Pipelines built from it wait
+    /// on `gpu` for the frames using them, and it outlives this renderer.
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
-                PipelineCache* fjsl_pipelines, DeferredDeleter& deleter,
+                PipelineCache* fjsl_pipelines, gpu::Device& gpu,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
     void destroy();
 
@@ -139,8 +141,8 @@ private:
 
     // Pipelines built for one `shader_type ui;` PipelineCache entry, in the
     // two shapes the fixed quad pipelines come in. Rebuilt when the entry's
-    // compile generation moves (a hot-reload), old ones retired through the
-    // deferred deleter.
+    // compile generation moves (a hot-reload), old ones kept until the frames
+    // using them are done.
     struct MaterialPipelines {
         VkPipeline screen{VK_NULL_HANDLE};
         VkPipeline world{VK_NULL_HANDLE};
@@ -153,7 +155,7 @@ private:
     void retire_material_pipelines(MaterialPipelines& mp);
     std::unordered_map<uint32_t, MaterialPipelines> material_pipelines_;
     PipelineCache* fjsl_pipelines_{nullptr};
-    DeferredDeleter* deleter_{nullptr};
+    gpu::Device* gpu_device_{nullptr};
     // Worldspace pipeline shape, kept so material pipelines can match it
     bool has_world_pipelines_{false};
     VkSampleCountFlagBits world_samples_{VK_SAMPLE_COUNT_1_BIT};

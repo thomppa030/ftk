@@ -1,7 +1,6 @@
 #pragma once
 
 #include "gpu/device.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/upload_context.hpp"
@@ -96,9 +95,6 @@ public:
         return in_flight_[frame_index];
     }
 
-    // ── Deferred destruction ────────────────────────────────────────────
-    [[nodiscard]] DeferredDeleter& deferred_deleter() { return deferred_deleter_; }
-
     // ── Batched GPU uploads ─────────────────────────────────────────────
     [[nodiscard]] UploadContext& upload_context() { return *upload_; }
 
@@ -118,7 +114,6 @@ private:
     VmaAllocator allocator_{VK_NULL_HANDLE};
     Swapchain swapchain_;
 
-    DeferredDeleter deferred_deleter_;
     std::unique_ptr<UploadContext> upload_;
     std::unique_ptr<gpu::Device> gpu_device_;
 

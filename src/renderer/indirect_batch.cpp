@@ -1,4 +1,5 @@
 #include "renderer/indirect_batch.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "animation/animation_system.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -20,12 +21,8 @@ IndirectBatch::IndirectBatch(gpu::Device& gpu, VkDevice device, VmaAllocator all
     , allocator_{allocator} {
 }
 
-void IndirectBatch::retire(uint32_t frame_index, std::unique_ptr<Buffer> buffer) {
-    if (buffer) retired_[frame_index].push_back(std::move(buffer));
-}
-
-void IndirectBatch::reclaim_retired(uint32_t frame_index) {
-    retired_[frame_index].clear();
+void IndirectBatch::retire(std::unique_ptr<Buffer> buffer) {
+    if (buffer) gpu::vulkan::retire(gpu_, std::move(buffer));
 }
 
 void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
@@ -34,7 +31,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     uint32_t new_cap = std::max(count, capacities_[frame_index] * 2);
     if (new_cap < 256) new_cap = 256;
 
-    retire(frame_index, std::move(indirect_buffers_[frame_index]));
+    retire(std::move(indirect_buffers_[frame_index]));
     indirect_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(VkDrawIndexedIndirectCommand),
@@ -44,7 +41,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     indirect_buffers_[frame_index]->map();
     indirect_buffers_[frame_index]->share(gpu_);
 
-    retire(frame_index, std::move(draw_data_buffers_[frame_index]));
+    retire(std::move(draw_data_buffers_[frame_index]));
     draw_data_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(GpuDrawData),
@@ -54,7 +51,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     draw_data_buffers_[frame_index]->map();
 
     // Mesh shader indirect dispatch buffers
-    retire(frame_index, std::move(mesh_indirect_buffers_[frame_index]));
+    retire(std::move(mesh_indirect_buffers_[frame_index]));
     mesh_indirect_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(VkDrawMeshTasksIndirectCommandEXT),
@@ -65,7 +62,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
 
     // Count buffer: one uint32_t per pipeline range
     uint32_t max_ranges = std::max(new_cap, 64u);
-    retire(frame_index, std::move(mesh_count_buffers_[frame_index]));
+    retire(std::move(mesh_count_buffers_[frame_index]));
     mesh_count_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         max_ranges * sizeof(uint32_t),
@@ -74,7 +71,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_count_buffers_[frame_index]->map();
 
-    retire(frame_index, std::move(pipeline_bin_buffers_[frame_index]));
+    retire(std::move(pipeline_bin_buffers_[frame_index]));
     pipeline_bin_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(uint32_t),
@@ -92,7 +89,7 @@ void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t coun
     uint32_t new_cap = std::max(count, instance_transform_capacities_[frame_index] * 2);
     if (new_cap < 256) new_cap = 256;
 
-    retire(frame_index, std::move(instance_transform_buffers_[frame_index]));
+    retire(std::move(instance_transform_buffers_[frame_index]));
     instance_transform_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(glm::mat4),
@@ -102,7 +99,7 @@ void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t coun
     instance_transform_buffers_[frame_index]->map();
 
     // GPU-only buffer for per-instance culled output (written by InstanceCullPass)
-    retire(frame_index, std::move(visible_instance_buffers_[frame_index]));
+    retire(std::move(visible_instance_buffers_[frame_index]));
     visible_instance_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(glm::mat4),
@@ -119,7 +116,7 @@ void IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_
     uint32_t new_cap = std::max(count, instanced_draw_capacities_[frame_index] * 2);
     if (new_cap < 64) new_cap = 64;
 
-    retire(frame_index, std::move(instanced_draw_buffers_[frame_index]));
+    retire(std::move(instanced_draw_buffers_[frame_index]));
     instanced_draw_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(GpuInstancedDraw),
@@ -137,7 +134,7 @@ void IndirectBatch::ensure_spline_segment_capacity(uint32_t frame_index, uint32_
     uint32_t new_cap = std::max(count, spline_segment_capacities_[frame_index] * 2);
     if (new_cap < 64) new_cap = 64;
 
-    retire(frame_index, std::move(spline_segment_buffers_[frame_index]));
+    retire(std::move(spline_segment_buffers_[frame_index]));
     spline_segment_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(GpuSplineSegment),

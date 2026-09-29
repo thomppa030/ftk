@@ -35,7 +35,9 @@
 namespace fjell {
 
 class BindlessTextures;
-class DeferredDeleter;
+namespace gpu {
+class Device;
+}
 struct LutStrip;
 class MegaBuffer;
 class MeshletBuffer;
@@ -72,9 +74,10 @@ public:
     /// Debug builds; once a frame, before anything records.
     void poll_lut_changes();
 
-    /// Where a texture being replaced goes to live out the frames still
-    /// reading it. Without one a table cannot reload.
-    void set_deferred_deleter(DeferredDeleter* deleter) { deleter_ = deleter; }
+    /// The GPU interface's device, which keeps a texture being replaced
+    /// alive until the frames still reading it are done. Without one a table
+    /// cannot reload.
+    void set_gpu_device(gpu::Device* device) { gpu_device_ = device; }
 
     // Async loading support
     [[nodiscard]] ModelHandle find_model(const std::string& path) const;
@@ -296,7 +299,7 @@ private:
     void watch_lut(const std::string& path, TextureHandle handle);
     void reload_lut(LoadedLut& lut);
 
-    DeferredDeleter* deleter_{nullptr};
+    gpu::Device* gpu_device_{nullptr};
     std::vector<LoadedLut> luts_;
     platform::FileWatcher lut_watcher_;
     std::unordered_set<std::string> lut_watched_dirs_;

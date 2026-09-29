@@ -143,7 +143,6 @@ fjell_library(gpu
         gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
-        renderer/gpu/deferred_deleter.hpp
         renderer/gpu/descriptor.hpp
         renderer/gpu/device.hpp
         renderer/gpu/frames_in_flight.hpp

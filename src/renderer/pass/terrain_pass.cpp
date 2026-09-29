@@ -8,7 +8,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/gpu/device.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
@@ -533,14 +533,9 @@ VkPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id) {
     // The old pipeline may still be referenced by a frame in flight, so it
     // dies with that frame rather than now.
     if (it != material_pipelines_.end() && it->second.pipeline != VK_NULL_HANDLE) {
-        VkPipeline doomed = it->second.pipeline;
-        if (resources_.deferred_deleter != nullptr) {
-            resources_.deferred_deleter->defer(
-                [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
-        } else {
-            vkDeviceWaitIdle(device_);
-            vkDestroyPipeline(device_, doomed, nullptr);
-        }
+        gpu::vulkan::defer(*resources_.device, [device = device_, doomed = it->second.pipeline] {
+            vkDestroyPipeline(device, doomed, nullptr);
+        });
     }
     material_pipelines_[pipeline_id] = {pipeline, generation};
     FJELL_GFX_DEBUG("TerrainPass: built pipeline for '{}'",

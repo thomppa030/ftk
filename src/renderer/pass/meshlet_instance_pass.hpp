@@ -41,9 +41,6 @@ public:
     // Resize buffers if total meshlet instance count grew
     void ensure_capacity(uint32_t frame_index, uint32_t max_instances);
 
-    // Free buffers retired by capacity growth for this slot. Call once per
-    // frame AFTER the slot's in-flight fence has signaled (begin_frame).
-    void reclaim_retired(uint32_t frame_index);
 
     // Dispatch expand pass: scatter draw meshlets into flat instance buffer
     void dispatch_expand(VkCommandBuffer cmd, VkBuffer draw_data_buffer,
@@ -136,11 +133,6 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> culled_buffers_;     // Hi-Z rejected (first pass)
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> culled_counters_;    // atomic counter for culled
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
-
-    // Buffers replaced by capacity growth, freed once the slot's fence signals
-    // (reclaim_retired). visible_buffers_ is read by the async cull CB, so an
-    // inline free under a pending CB would be a UAF.
-    std::array<std::vector<std::unique_ptr<Buffer>>, MAX_FRAMES_IN_FLIGHT> retired_;
 };
 
 } // namespace fjell

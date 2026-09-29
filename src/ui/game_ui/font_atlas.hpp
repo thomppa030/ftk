@@ -17,8 +17,10 @@ struct FjFontRecipe;
 
 class Texture;
 class BindlessTextures;
-class DeferredDeleter;
 class UploadContext;
+namespace gpu {
+class Device;
+}
 
 /// What an atlas needs to reach the GPU. Kept by the atlas so it can
 /// rebuild itself in place.
@@ -28,7 +30,9 @@ struct FontAtlasGpu {
     VkPhysicalDevice physical_device{VK_NULL_HANDLE};
     UploadContext* upload{nullptr};
     BindlessTextures* bindless{nullptr};
-    DeferredDeleter* deleter{nullptr};
+    /// Keeps a reloaded atlas's old texture alive until the frames drawing
+    /// with it are done.
+    gpu::Device* gpu_device{nullptr};
 };
 
 struct GlyphInfo {
@@ -99,7 +103,7 @@ public:
 
     /// Swaps freshly loaded data into the same bindless slot, so every glyph
     /// already recorded with this atlas's index keeps drawing. The old
-    /// texture is retired through the deferred deleter, never freed under a
+    /// texture waits for the frames drawing with it, never freed under a
     /// frame in flight.
     void reload(FontAtlasData data);
 

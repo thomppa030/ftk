@@ -1,7 +1,7 @@
 #include "renderer/systems/particle_system.hpp"
 #include "environment/environment_state.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -65,7 +65,6 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     color_format_ = resources.color_format;
     depth_format_ = resources.depth_format;
     sample_count_ = resources.sample_count;
-    deleter_ = resources.deferred_deleter;
 
     // ── GPU-only mega buffers (sparse-growing, see growable_buffer.hpp) ──
     // Small initial commit — sparse growth is cheap (no device stall), so
@@ -89,35 +88,34 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
 
     auto& upload = *resources.upload_context;
-    auto& deleter = *resources.deferred_deleter;
 
     mega_particle_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, deleter,
+        device, allocator_, upload, *gpu_device_,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_PARTICLES * PARTICLE_STRIDE, MAX_PARTICLES * PARTICLE_STRIDE, "particle_mega");
 
     mega_counter_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, deleter,
+        device, allocator_, upload, *gpu_device_,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_EMITTERS * 3 * sizeof(uint32_t),
         std::max(MAX_EMITTERS * 3 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_counters");
 
     mega_indirect_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, deleter,
+        device, allocator_, upload, *gpu_device_,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_EMITTERS * 4 * sizeof(uint32_t),
         std::max(MAX_EMITTERS * 4 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_indirect");
 
     mega_alive_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, deleter,
+        device, allocator_, upload, *gpu_device_,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_alive");
 
     // The frame graph tracks the ones the draws read.
-    mega_particle_buffer_->share(*gpu_device_);
-    mega_indirect_buffer_->share(*gpu_device_);
-    mega_alive_buffer_->share(*gpu_device_);
+    mega_particle_buffer_->share();
+    mega_indirect_buffer_->share();
+    mega_alive_buffer_->share();
 
     // ── Compute descriptor set layout ──
     // 0=particles, 1=counters, 3=emitter_data, 4=indirect, 5=modules
@@ -266,12 +264,11 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     // ── Descriptor pool ──
 
     // rebuild_mega_buffers() (buffer-capacity growth) retires the old
-    // compute/mesh compute/render sets through DeferredDeleter, then
-    // immediately allocates their replacements from this same pool —
-    // but DeferredDeleter::defer() doesn't run the free until that frame
-    // slot's fence signals again, MAX_FRAMES_IN_FLIGHT frames later (see
-    // deferred_deleter.hpp). So the pool holds every generation retired in
-    // that window alongside the live one. A generation is retired by a
+    // compute/mesh compute/render sets, then immediately allocates their
+    // replacements from this same pool — but a retired set is not freed
+    // until the GPU has finished the frame it was retired in, up to
+    // MAX_FRAMES_IN_FLIGHT frames later. So the pool holds every generation
+    // retired in that window alongside the live one. A generation is retired by a
     // sync that grows the buffers, and a frame syncs at most twice: once
     // for the frame's own scene and once for a scene rendered outside the
     // frame (an asset thumbnail). That bounds the overlap, and the bound
@@ -654,8 +651,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
     mega_alive_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
 
-    // Retire old descriptor sets through the deferred deleter rather than
-    // freeing them immediately — a frame still in flight when this runs
+    // Retire old descriptor sets rather than freeing them immediately — a frame still in flight when this runs
     // may still have a command buffer bound to one of these (same reason
     // the buffer replacements above go through retire() instead of a bare
     // reset), and freeing a set a submitted command buffer references is
@@ -665,7 +661,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VkDescriptorSet doomed = set;
         VkDescriptorPool doomed_pool = pool_;
         VkDevice dev = device_;
-        deleter_->defer([dev, doomed_pool, doomed]() mutable {
+        gpu::vulkan::defer(*gpu_device_, [dev, doomed_pool, doomed]() mutable {
             vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
         });
         set = VK_NULL_HANDLE;
@@ -679,7 +675,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // These buffers are fully recreated on every growth (no in-place
     // resize like the sparse GrowableBuffers above) — the old instance is
-    // retired through DeferredDeleter rather than destroyed immediately,
+    // retired rather than destroyed immediately,
     // since a frame still in flight when this runs may still be reading
     // it. This is what lets sync_emitters skip vkDeviceWaitIdle/
     // vkQueueWaitIdle before calling rebuild_mega_buffers.
@@ -688,14 +684,14 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * MODULE_BUDGET_BYTES;
 
     for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
-        if (emitter_data_buffers_[r]) deleter_->retire(std::move(emitter_data_buffers_[r]));
+        if (emitter_data_buffers_[r]) gpu::vulkan::retire(*gpu_device_, std::move(emitter_data_buffers_[r]));
         emitter_data_buffers_[r] = std::make_unique<Buffer>(
             allocator_, emitter_data_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         emitter_data_buffers_[r]->map();
 
-        if (module_buffers_[r]) deleter_->retire(std::move(module_buffers_[r]));
+        if (module_buffers_[r]) gpu::vulkan::retire(*gpu_device_, std::move(module_buffers_[r]));
         module_buffers_[r] = std::make_unique<Buffer>(
             allocator_, module_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -706,7 +702,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // Sub-emitter event buffer: 64 bytes per event, 256 events per emitter max
     constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
     VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_SUB_EVENTS_PER_EMITTER * EVENT_SIZE);
-    if (sub_event_buffer_) deleter_->retire(std::move(sub_event_buffer_));
+    if (sub_event_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(sub_event_buffer_));
     sub_event_buffer_ = std::make_unique<Buffer>(
         allocator_, event_buf_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -714,7 +710,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // Sub-emitter event counters: one uint32 per emitter
     VkDeviceSize counter_buf_size = std::max(static_cast<VkDeviceSize>(4), static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t));
-    if (sub_event_counter_buffer_) deleter_->retire(std::move(sub_event_counter_buffer_));
+    if (sub_event_counter_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(sub_event_counter_buffer_));
     sub_event_counter_buffer_ = std::make_unique<Buffer>(
         allocator_, counter_buf_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -794,14 +790,14 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     constexpr VkBufferUsageFlags STORAGE_FLAGS = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     VkDeviceSize instance_size = static_cast<VkDeviceSize>(total_particles) * sizeof(GpuMeshInstance);
     if (instance_size == 0) instance_size = sizeof(GpuMeshInstance); // minimum 1 slot
-    if (mesh_instance_buffer_) deleter_->retire(std::move(mesh_instance_buffer_));
+    if (mesh_instance_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_instance_buffer_));
     mesh_instance_buffer_ = std::make_unique<Buffer>(
         allocator_, instance_size, STORAGE_FLAGS, VMA_MEMORY_USAGE_AUTO);
     mesh_instance_buffer_->share(*gpu_device_);
 
     VkDeviceSize instance_count_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t);
     if (instance_count_size == 0) instance_count_size = sizeof(uint32_t);
-    if (mesh_instance_count_buffer_) deleter_->retire(std::move(mesh_instance_count_buffer_));
+    if (mesh_instance_count_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_instance_count_buffer_));
     mesh_instance_count_buffer_ = std::make_unique<Buffer>(
         allocator_, instance_count_size,
         STORAGE_FLAGS | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO);
@@ -809,7 +805,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // Mesh indirect buffer: one VkDrawIndexedIndirectCommand per emitter
     VkDeviceSize mesh_indirect_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(VkDrawIndexedIndirectCommand);
     if (mesh_indirect_size == 0) mesh_indirect_size = sizeof(VkDrawIndexedIndirectCommand);
-    if (mesh_indirect_buffer_) deleter_->retire(std::move(mesh_indirect_buffer_));
+    if (mesh_indirect_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_indirect_buffer_));
     mesh_indirect_buffer_ = std::make_unique<Buffer>(
         allocator_, mesh_indirect_size,
         STORAGE_FLAGS | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -1193,8 +1189,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     // No device/queue idle wait needed before growing: the four sparse
     // buffers grow in place (ensure_capacity above), and the buffers/
     // descriptor sets rebuild_mega_buffers still fully recreates are
-    // retired through DeferredDeleter instead of being freed immediately
-    // — see its call sites.
+    // retired instead of being freed immediately — see its call sites.
     if (needs_realloc) {
         uint32_t new_total = grow_buffer_to(total, total_particle_capacity_, MAX_SCENE_PARTICLES);
         uint32_t new_count = grow_buffer_to(count, emitter_capacity_, MAX_SCENE_EMITTERS);

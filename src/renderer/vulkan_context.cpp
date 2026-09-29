@@ -92,7 +92,7 @@ VulkanContext::VulkanContext(Window& window)
         accel_manager_ = std::make_unique<AccelStructureManager>(
             gpu_.device_ref(), gpu_.allocator(),
             gpu_.command_pool(), gpu_.graphics_queue(),
-            gpu_.upload_context(), gpu_.deferred_deleter());
+            gpu_.upload_context(), gpu_device());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
         ss_gi_pass().set_accel_manager(accel_manager_.get());
@@ -141,7 +141,7 @@ VulkanContext::VulkanContext(Window& window)
     font_library_ = std::make_unique<FontLibrary>();
     font_library_->create(
         FontAtlasGpu{gpu_.device(), gpu_.allocator(), gpu_.device_ref().physical_device(),
-                     &gpu_.upload_context(), &gpu_.bindless_textures(), &gpu_.deferred_deleter()},
+                     &gpu_.upload_context(), &gpu_.bindless_textures(), &gpu_device()},
         base_path::resolve("engine_assets/fonts/Inter.fjfont"));
 
     // Default post-process resources for the main viewport (all passes enabled)
@@ -1183,7 +1183,7 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.sample_count = gpu_.msaa_samples();
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
-              *font_library_, gpu_.pipeline_cache(), gpu_.deferred_deleter(), output_format);
+              *font_library_, gpu_.pipeline_cache(), gpu_device(), output_format);
     if (world) ui.create_world_pipelines(gpu_.device_ref(), res);
 }
 
@@ -1576,12 +1576,12 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     ++frame_serial_;
     render_pipeline_.begin_frame();
-    // What the GPU has finished, as the frame timeline measures it: at least
-    // the frame that last used this slot, often later ones too. Transients
-    // and retired resources those frames used are free again.
-    const uint64_t finished = gpu::vulkan::finished_frame(gpu_device());
+    // The device frees this slot's one-frame sets and memory, and destroys
+    // what the frames the GPU has finished used, as the frame timeline
+    // measures it: at least the frame that last used this slot, often later
+    // ones too. Transients those frames used are free again.
+    const uint64_t finished = gpu::vulkan::begin_frame(gpu_device(), current_frame_, frame_serial_);
     gpu_.transient_pool().begin_frame(frame_serial_, finished);
-    gpu_.deferred_deleter().begin_frame(frame_serial_, finished);
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
     apply_ddgi_settle_rebuild();
@@ -1590,25 +1590,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // lands in a slot the GPU is done with.
     font_library_->poll();
 
-    // Free buffers that capacity growth retired for this slot last time it was
-    // in flight. Safe now that the slot's fence has signaled — the command
-    // buffers that referenced the old buffers have completed. Freeing them
-    // inline at growth time (during record) would be a UAF.
-    if (auto* batch = gatherer_.indirect_batch()) {
-        batch->reclaim_retired(current_frame_);
-    }
-    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-        if (auto* sb = gatherer_.shadow_batch(c)) sb->reclaim_retired(current_frame_);
-    }
-    if (auto* mip = meshlet_instance_pass()) {
-        mip->reclaim_retired(current_frame_);
-    }
-    // Free RT TLAS/instance buffers that build_tlas retired the last time this
-    // slot was used — safe now the slot's fence has signaled. (Inline free in
-    // build_tlas would UAF an RT trace recorded earlier in the same frame.)
     if (accel_manager_) {
-        accel_manager_->reclaim_retired(current_frame_);
-
         // Declare how far each tracer's rays go, before anything builds the
         // TLAS from the union. Done here rather than inside the passes because
         // the one that builds the TLAS (DDGI, in the Color phase) records
@@ -1621,9 +1603,6 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
                 rt_reflection_pass().trace_reach_bounds(gatherer_.camera_position()));
         }
     }
-
-    // Reclaim descriptor sets from the previous iteration of this slot.
-    gpu::vulkan::begin_frame(gpu_.core().gpu_device(), current_frame_);
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());
@@ -1966,7 +1945,7 @@ void VulkanContext::release_imgui_textures() {
     // editor preview target — may hold an ImGui image and would otherwise
     // return it from the deleter after the backend is gone.
     vkDeviceWaitIdle(gpu_.device());
-    gpu_.deferred_deleter().flush_all();
+    gpu::vulkan::release_all(gpu_device());
     font_library_->release_imgui_textures();
     default_pp_->invalidate_imgui_textures();
     depth_viz_pass().invalidate_imgui_texture();

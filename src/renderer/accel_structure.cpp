@@ -1,5 +1,5 @@
 #include "renderer/accel_structure.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -36,14 +36,14 @@ static VmaAllocationCreateFlags as_dedicated_flag() {
 
 AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator allocator,
                                              VkCommandPool command_pool, VkQueue queue,
-                                             UploadContext& upload, DeferredDeleter& deleter)
+                                             UploadContext& upload, gpu::Device& gpu)
     : device_{device}
     , vk_device_{device.handle()}
     , allocator_{allocator}
     , command_pool_{command_pool}
     , queue_{queue}
     , upload_{upload}
-    , deleter_{deleter} {
+    , gpu_{gpu} {
     // Query scratch buffer alignment requirement
     VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
     as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
@@ -90,11 +90,6 @@ AccelStructureManager::~AccelStructureManager() {
                 destroy_fn(vk_device_, blas.handle, nullptr);
             }
         }
-        for (auto& slot : retired_tlas_) {
-            for (VkAccelerationStructureKHR as : slot) {
-                if (as != VK_NULL_HANDLE) destroy_fn(vk_device_, as, nullptr);
-            }
-        }
     }
 }
 
@@ -103,15 +98,6 @@ VkDeviceAddress AccelStructureManager::buffer_address(VkBuffer buffer) const {
     info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     info.buffer = buffer;
     return device_.get_buffer_device_address_fn()(vk_device_, &info);
-}
-
-void AccelStructureManager::reclaim_retired(uint32_t frame_index) {
-    auto destroy_fn = device_.destroy_accel_struct_fn();
-    for (VkAccelerationStructureKHR as : retired_tlas_[frame_index]) {
-        if (as != VK_NULL_HANDLE && destroy_fn) destroy_fn(vk_device_, as, nullptr);
-    }
-    retired_tlas_[frame_index].clear();
-    retired_buffers_[frame_index].clear();  // ~Buffer -> vmaDestroyBuffer
 }
 
 void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& mega) {
@@ -139,8 +125,8 @@ void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& me
 }
 
 void AccelStructureManager::retire_blas(Blas blas) {
-    deleter_.defer([dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
-                    doomed = std::move(blas)]() mutable {
+    gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
+                              doomed = std::move(blas)]() mutable {
         if (doomed.handle != VK_NULL_HANDLE) {
             destroy_fn(dev, doomed.handle, nullptr);
         }
@@ -406,8 +392,7 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
     if (!frame.instance_buffer || total_instance_size > frame.instance_buffer->size()) {
         // Retire (don't inline-free): an RT pass recorded earlier in THIS frame
         // already bound the old buffer; freeing now is a GPU use-after-free.
-        if (frame.instance_buffer)
-            retired_buffers_[frame_index].push_back(std::move(frame.instance_buffer));
+        if (frame.instance_buffer) gpu::vulkan::retire(gpu_, std::move(frame.instance_buffer));
         frame.instance_buffer = std::make_unique<Buffer>(
             allocator_, total_instance_size,
             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
@@ -462,8 +447,7 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
     VkDeviceSize rt_inst_size =
         static_cast<VkDeviceSize>(total_instance_count) * sizeof(GpuRtInstance);
     if (!frame.rt_instance_data || rt_inst_size > frame.rt_instance_data->size()) {
-        if (frame.rt_instance_data)
-            retired_buffers_[frame_index].push_back(std::move(frame.rt_instance_data));
+        if (frame.rt_instance_data) gpu::vulkan::retire(gpu_, std::move(frame.rt_instance_data));
         frame.rt_instance_data = std::make_unique<Buffer>(
             allocator_, rt_inst_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -624,12 +608,13 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
     if (!frame.tlas_buffer || sizes.accelerationStructureSize > frame.tlas_buffer->size()) {
         // Retire the old TLAS handle + backing buffer instead of destroying
         // inline — an RT pass earlier in this frame bound this slot's TLAS.
-        if (frame.tlas_handle != VK_NULL_HANDLE) {
-            retired_tlas_[frame_index].push_back(frame.tlas_handle);
-            frame.tlas_handle = VK_NULL_HANDLE;
-        }
-        if (frame.tlas_buffer)
-            retired_buffers_[frame_index].push_back(std::move(frame.tlas_buffer));
+        gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
+                                  handle = frame.tlas_handle,
+                                  buffer = std::move(frame.tlas_buffer)]() mutable {
+            if (handle != VK_NULL_HANDLE && destroy_fn) destroy_fn(dev, handle, nullptr);
+            buffer.reset();
+        });
+        frame.tlas_handle = VK_NULL_HANDLE;
 
         frame.tlas_buffer = std::make_unique<Buffer>(
             allocator_, sizes.accelerationStructureSize,

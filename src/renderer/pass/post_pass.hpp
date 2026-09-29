@@ -22,7 +22,6 @@ namespace fjell {
 
 class BindlessTextures;
 class Buffer;
-class DeferredDeleter;
 class PipelineCache;
 
 // The post pass: what the viewport shows, drawn from the scene colour after
@@ -157,7 +156,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    DeferredDeleter* deferred_deleter_{nullptr};
+    gpu::Device* gpu_device_{nullptr};
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
 

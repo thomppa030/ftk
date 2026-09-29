@@ -4,7 +4,7 @@
 #include "ui/game_ui/font_atlas_build.hpp"
 #endif
 #include "renderer/bindless.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include <imgui_impl_vulkan.h>
 #include "renderer/resources/texture.hpp"
@@ -191,13 +191,14 @@ void FontAtlas::reload(FontAtlasData data) {
         data.pixels.data(), atlas_width_, atlas_height_,
         VK_FORMAT_R8G8B8A8_UNORM, 1, true);
     gpu_.bindless->update_entry(atlas_index_, fresh->image_view(), fresh->sampler());
-    if (gpu_.deleter) {
-        gpu_.deleter->retire(std::move(atlas_texture_));
+    if (gpu_.gpu_device != nullptr) {
+        gpu::vulkan::retire(*gpu_.gpu_device, std::move(atlas_texture_));
         // The editor's view of the old texture may still be in a frame's
         // draw data; it goes when that frame is done, and the next
         // imgui_texture() call makes one for the new texture.
         if (imgui_descriptor_ != VK_NULL_HANDLE) {
-            gpu_.deleter->defer([set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
+            gpu::vulkan::defer(*gpu_.gpu_device,
+                               [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
             imgui_descriptor_ = VK_NULL_HANDLE;
         }
     }

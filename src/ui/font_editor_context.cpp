@@ -2,7 +2,7 @@
 #include "core/commands.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
@@ -347,8 +347,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
     }
     if (resized || !preview_target_) {
         // The previous frame's ImGui draw may still read the old target, so
-        // it goes through the deferred deleter rather than away at once.
-        if (preview_target_) vk.gpu().deferred_deleter().retire(std::move(preview_target_));
+        // it waits for that frame rather than going at once.
+        if (preview_target_) gpu::vulkan::retire(vk.gpu_device(), std::move(preview_target_));
         preview_width_ = wanted_width_;
         preview_height_ = wanted_height_;
         preview_target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),

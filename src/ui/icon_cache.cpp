@@ -1,4 +1,5 @@
 #include "ui/icon_cache.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/log.hpp"
 #include "core/thread_pool.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -35,10 +36,11 @@ uint32_t find_memory_type(VkPhysicalDevice physical_device,
 
 } // namespace
 
-IconCache::IconCache(VkDevice device, VkPhysicalDevice physical_device,
+IconCache::IconCache(gpu::Device& gpu, VkDevice device, VkPhysicalDevice physical_device,
                      VkCommandPool command_pool, VkQueue queue,
                      const std::string& icons_dir)
-    : device_{device}
+    : gpu_{gpu}
+    , device_{device}
     , physical_device_{physical_device}
     , command_pool_{command_pool}
     , queue_{queue}
@@ -81,7 +83,6 @@ IconCache::~IconCache() {
     vkDeviceWaitIdle(device_);
     for (auto& [name, e] : icons_) destroy_entry(device_, e);
     for (auto& [path, e] : thumbnails_) destroy_entry(device_, e);
-    for (auto& e : retired_thumbnails_) destroy_entry(device_, e);
     // These alias the icon images, so only the descriptor set is owned here.
     for (auto& [key, desc] : context_descriptors_) {
         ImGui_ImplVulkan_RemoveTexture(desc);
@@ -428,20 +429,13 @@ void IconCache::clear_thumbnails() {
         vkFreeMemory(device_, in_flight_.staging_memory, nullptr);
         in_flight_ = {};
     }
-    for (auto& [path, e] : thumbnails_) retired_thumbnails_.push_back(e);
+    for (auto& [path, e] : thumbnails_) retire(e);
     thumbnails_.clear();
 }
 
 void IconCache::retire(IconEntry entry) {
     if (entry.image == VK_NULL_HANDLE && entry.descriptor == VK_NULL_HANDLE) return;
-    retired_thumbnails_.push_back(entry);
-}
-
-void IconCache::destroy_retired_thumbnails() {
-    if (retired_thumbnails_.empty()) return;
-    vkDeviceWaitIdle(device_);
-    for (auto& e : retired_thumbnails_) destroy_entry(device_, e);
-    retired_thumbnails_.clear();
+    gpu::vulkan::defer(gpu_, [device = device_, entry]() mutable { destroy_entry(device, entry); });
 }
 
 void IconCache::preload_thumbnails(const std::vector<std::string>& paths, ThreadPool& pool) {

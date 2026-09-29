@@ -168,10 +168,11 @@ int main(int argc, char** argv) {
         const int runs = profiling ? RUNS * 10 : RUNS;
 
         const size_t reported_before = device.impl().reported.size();
+        uint64_t serial = 0;
         for (int run = 0; run < runs; ++run) {
             for (Way& way : ways) {
                 // A frame of its own each time: the frame sets start empty.
-                gpu::vulkan::begin_frame(device, static_cast<uint32_t>(run) % 2);
+                (void)gpu::vulkan::begin_frame(device, static_cast<uint32_t>(run) % 2, ++serial);
                 vkResetCommandBuffer(cb, 0);
                 VkCommandBufferBeginInfo begin{};
                 begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

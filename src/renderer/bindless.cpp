@@ -1,4 +1,5 @@
 #include "renderer/bindless.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -8,11 +9,10 @@
 
 namespace fjell {
 
-Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator,
-                                  DeferredDeleter& deleter) {
+Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator, gpu::Device& gpu) {
     device_ = device;
     allocator_ = allocator;
-    deleter_ = &deleter;
+    gpu_device_ = &gpu;
 
     // Default sampler for empty slots
     VkSamplerCreateInfo sampler_ci{};
@@ -320,7 +320,7 @@ void BindlessTextures::update_material_buffer() {
             // Grow the params SSBO and re-bind the descriptor. In-flight
             // frames still read the old buffer through the previous
             // descriptor — retire it instead of destroying it inline.
-            deleter_->retire(std::move(params_ssbo_));
+            gpu::vulkan::retire(*gpu_device_, std::move(params_ssbo_));
             VkDeviceSize new_size = needed * 2;
             params_ssbo_ = std::make_unique<Buffer>(
                 allocator_, new_size,

@@ -99,11 +99,6 @@ public:
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
-    /// Free buffers retired by capacity growth for this slot. Call once per
-    /// frame AFTER the slot's in-flight fence has signaled (begin_frame), so a
-    /// reallocated buffer outlives any command buffer that still references it.
-    void reclaim_retired(uint32_t frame_index);
-
     [[nodiscard]] VkBuffer draw_data_buffer(uint32_t frame_index) const {
         return draw_data_buffers_[frame_index]->handle();
     }
@@ -225,9 +220,10 @@ private:
     void ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count);
     void ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count);
 
-    // Move an outgoing buffer onto the slot's retirement list instead of
-    // freeing it inline (the GPU may still be reading it from a pending CB).
-    void retire(uint32_t frame_index, std::unique_ptr<Buffer> buffer);
+    // Keeps an outgoing buffer alive until the frames using it are done
+    // instead of freeing it inline: a pending command buffer may still read
+    // it.
+    void retire(std::unique_ptr<Buffer> buffer);
 
     gpu::Device& gpu_;
     VkDevice device_;
@@ -276,11 +272,6 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_capacities_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_counts_{};
     std::vector<GpuSplineSegment> staged_spline_segments_;
-
-    // Buffers replaced by capacity growth, kept alive until the slot's fence
-    // signals (reclaim_retired). Freeing them inline would be a UAF when a
-    // still-pending command buffer references the old VkBuffer.
-    std::array<std::vector<std::unique_ptr<Buffer>>, MAX_FRAMES_IN_FLIGHT> retired_;
 };
 
 } // namespace fjell

@@ -7,7 +7,6 @@
 #include "renderer/bindless.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -145,7 +144,7 @@ Result<> PostPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
-    deferred_deleter_ = resources.deferred_deleter;
+    gpu_device_ = resources.device;
     global_set_layout_ = resources.global_set_layout;
     material_set_layout_ = resources.material_set_layout;
 
@@ -412,12 +411,8 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
     if (it != material_pipelines_.end()) {
         for (VkPipeline doomed : {it->second.base, it->second.over}) {
             if (doomed == VK_NULL_HANDLE) continue;
-            if (deferred_deleter_ != nullptr) {
-                deferred_deleter_->defer([device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
-            } else {
-                vkDeviceWaitIdle(device_);
-                vkDestroyPipeline(device_, doomed, nullptr);
-            }
+            gpu::vulkan::defer(*gpu_device_,
+                               [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
         }
     }
     auto& slot = material_pipelines_[pipeline_id];
@@ -441,7 +436,7 @@ uint32_t PostPass::write_values(uint32_t frame_index, const PostLayer& layer) {
         // own descriptor sets, so it lives until the frame is done; what
         // follows starts afresh in one with room.
         const auto grown = std::max(capacity * 2, static_cast<uint32_t>(block.size()));
-        if (deferred_deleter_ != nullptr) deferred_deleter_->retire(std::move(buffer));
+        gpu::vulkan::retire(*gpu_device_, std::move(buffer));
         buffer = make_value_buffer(allocator_, grown);
         used = 0;
     }

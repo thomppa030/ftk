@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/viewport_source.hpp"
 #include "core/profiler.hpp"
 #include "renderer/bindless.hpp"
@@ -594,30 +595,23 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
 
 void SkyPass::retire_fjsl_pipeline(const PassResources& resources) {
     // The sky is rebuilt from inside record(), so the pipeline being replaced
-    // may still be referenced by a command buffer in another frame slot — the
-    // current slot's fence only proves that slot is done. The deleter holds
-    // both handles until every slot has cycled.
-    if (resources.deferred_deleter != nullptr) {
-        VkPipeline doomed_pipeline = fjsl_pipeline_;
-        VkPipelineLayout doomed_layout = fjsl_layout_;
-        if (doomed_pipeline != VK_NULL_HANDLE || doomed_layout != VK_NULL_HANDLE) {
-            resources.deferred_deleter->defer(
-                [device = device_, doomed_pipeline, doomed_layout] {
-                    if (doomed_pipeline != VK_NULL_HANDLE) {
-                        vkDestroyPipeline(device, doomed_pipeline, nullptr);
-                    }
-                    if (doomed_layout != VK_NULL_HANDLE) {
-                        vkDestroyPipelineLayout(device, doomed_layout, nullptr);
-                    }
-                });
-        }
-        fjsl_pipeline_ = VK_NULL_HANDLE;
-        fjsl_layout_ = VK_NULL_HANDLE;
-        fjsl_pipeline_shader_.clear();
-        return;
+    // may still be referenced by a command buffer of a frame in flight: both
+    // handles wait until the GPU has finished it.
+    VkPipeline doomed_pipeline = fjsl_pipeline_;
+    VkPipelineLayout doomed_layout = fjsl_layout_;
+    if (doomed_pipeline != VK_NULL_HANDLE || doomed_layout != VK_NULL_HANDLE) {
+        gpu::vulkan::defer(*resources.device, [device = device_, doomed_pipeline, doomed_layout] {
+            if (doomed_pipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, doomed_pipeline, nullptr);
+            }
+            if (doomed_layout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, doomed_layout, nullptr);
+            }
+        });
     }
-    vkDeviceWaitIdle(device_);
-    destroy_fjsl_pipeline();
+    fjsl_pipeline_ = VK_NULL_HANDLE;
+    fjsl_layout_ = VK_NULL_HANDLE;
+    fjsl_pipeline_shader_.clear();
 }
 
 void SkyPass::destroy_fjsl_pipeline() {

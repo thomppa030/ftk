@@ -16,15 +16,15 @@ constexpr VkBufferUsageFlags MESHLET_SSBO_USAGE =
 } // namespace
 
 MeshletBuffer::MeshletBuffer(Device& device, VmaAllocator allocator,
-                             UploadContext& upload, DeferredDeleter& deleter)
+                             UploadContext& upload, gpu::Device& gpu)
     : upload_{upload}
-    , meshlet_buffer_{device, allocator, upload, deleter, MESHLET_SSBO_USAGE,
+    , meshlet_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                       INITIAL_MESHLET_SIZE, MAX_MESHLET_SIZE, "meshlets"}
-    , bounds_buffer_{device, allocator, upload, deleter, MESHLET_SSBO_USAGE,
+    , bounds_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                      INITIAL_BOUNDS_SIZE, MAX_BOUNDS_SIZE, "meshlet_bounds"}
-    , vertex_index_buffer_{device, allocator, upload, deleter, MESHLET_SSBO_USAGE,
+    , vertex_index_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                            INITIAL_VERTEX_INDEX_SIZE, MAX_VERTEX_INDEX_SIZE, "meshlet_verts"}
-    , triangle_buffer_{device, allocator, upload, deleter, MESHLET_SSBO_USAGE,
+    , triangle_buffer_{device, allocator, upload, gpu, MESHLET_SSBO_USAGE,
                        INITIAL_TRIANGLE_SIZE, MAX_TRIANGLE_SIZE, "meshlet_tris"} {
     FJELL_GFX_INFO("MeshletBuffer created: {}KB meshlets, {}KB bounds, {}KB vert_idx, {}KB tris",
                    meshlet_buffer_.capacity() / 1024, bounds_buffer_.capacity() / 1024,

@@ -4,7 +4,6 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -160,7 +159,6 @@ Result<> WaterFftPass::create(Device& device, const PassResources& resources) {
     gpu_device_ = resources.device;
     allocator_ = resources.allocator;
     vk_pipeline_cache_ = resources.pipeline_cache;
-    deferred_deleter_ = resources.deferred_deleter;
 
     constexpr auto BUFFER = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     constexpr auto IMAGE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -281,7 +279,7 @@ Result<> WaterFftPass::create_image(Image& out, VkFormat format, std::uint32_t s
 void WaterFftPass::retire_image(Image& image) {
     if (image.image == VK_NULL_HANDLE) return;
     // Frames already recorded may still sample it.
-    deferred_deleter_->defer([device = device_, allocator = allocator_, doomed = image] {
+    gpu::vulkan::defer(*gpu_device_, [device = device_, allocator = allocator_, doomed = image] {
         if (doomed.sampled != VK_NULL_HANDLE) vkDestroyImageView(device, doomed.sampled, nullptr);
         if (doomed.top != VK_NULL_HANDLE) vkDestroyImageView(device, doomed.top, nullptr);
         destroy_vma_image(allocator, doomed.image, doomed.memory);
@@ -297,7 +295,7 @@ void WaterFftPass::retire_images() {
     }
     retire_image(derivatives_);
     for (auto& buffer : amplitude_buffers_) {
-        if (buffer) deferred_deleter_->retire(std::move(buffer));
+        if (buffer) gpu::vulkan::retire(*gpu_device_, std::move(buffer));
     }
     images_ready_ = false;
 }

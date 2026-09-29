@@ -112,7 +112,7 @@ GpuContext::GpuContext(Window& window)
 
     create_descriptor_resources();
     if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator(),
-                                           core_.deferred_deleter()); !r) {
+                                           core_.gpu_device()); !r) {
         throw std::runtime_error(r.error());
     }
 
@@ -120,11 +120,11 @@ GpuContext::GpuContext(Window& window)
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
-        core_.device(), core_.allocator(), core_.upload_context(), core_.deferred_deleter());
+        core_.device(), core_.allocator(), core_.upload_context(), core_.gpu_device());
 
     // Meshlet buffers + descriptor (uploaded at model load time)
     meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-        core_.device(), core_.allocator(), core_.upload_context(), core_.deferred_deleter());
+        core_.device(), core_.allocator(), core_.upload_context(), core_.gpu_device());
     meshlet_descriptor_.create(core_.vk_device(), core_.allocator());
 
     // Query and clamp MSAA sample count
@@ -459,11 +459,10 @@ PassResources GpuContext::pass_resources() const {
     // core_ itself — same "logically const" shape as every other pointer/
     // handle field above, just needing a cast since these two accessors
     // aren't const-qualified on GpuCore (they hand out mutable state on
-    // purpose; upload_context()/deferred_deleter() callers need to call
+    // purpose; upload_context()/gpu_device() callers need to call
     // non-const methods on them).
     auto& mutable_core = const_cast<GpuCore&>(core_);
     res.upload_context = &mutable_core.upload_context();
-    res.deferred_deleter = &mutable_core.deferred_deleter();
     res.device = &mutable_core.gpu_device();
     return res;
 }

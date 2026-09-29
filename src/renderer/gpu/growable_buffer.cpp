@@ -1,6 +1,5 @@
 #include "renderer/gpu/growable_buffer.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -13,7 +12,7 @@
 namespace fjell {
 
 GrowableBuffer::GrowableBuffer(Device& device, VmaAllocator allocator,
-                               UploadContext& upload, DeferredDeleter& deleter,
+                               UploadContext& upload, gpu::Device& gpu,
                                VkBufferUsageFlags usage,
                                VkDeviceSize initial_capacity,
                                VkDeviceSize virtual_capacity,
@@ -21,7 +20,7 @@ GrowableBuffer::GrowableBuffer(Device& device, VmaAllocator allocator,
     : device_{device.handle()}
     , allocator_{allocator}
     , upload_{upload}
-    , deleter_{deleter}
+    , gpu_{gpu}
     , usage_{usage}
     , virtual_capacity_{virtual_capacity}
     , name_{std::move(debug_name)} {
@@ -113,21 +112,21 @@ void GrowableBuffer::ensure_capacity(VkDeviceSize needed) {
         allocator_, new_size, usage_,
         VMA_MEMORY_USAGE_AUTO, 0, 0, upload_.sharing_families());
     upload_.copy_buffer(fallback_->handle(), new_buffer->handle(), capacity_);
-    deleter_.retire(std::move(fallback_));
+    gpu::vulkan::retire(gpu_, std::move(fallback_));
     fallback_ = std::move(new_buffer);
-    if (shared_with_ != nullptr) fallback_->share(*shared_with_);
+    if (shared_) fallback_->share(gpu_);
     capacity_ = new_size;
     ++generation_;
     FJELL_GFX_INFO("GrowableBuffer '{}': grew to {}MB (copy, new address)",
                    name_, capacity_ / (1024 * 1024));
 }
 
-void GrowableBuffer::share(gpu::Device& device) {
-    shared_with_ = &device;
+void GrowableBuffer::share() {
+    shared_ = true;
     if (sparse_buffer_ != VK_NULL_HANDLE) {
-        sparse_shared_ = gpu::vulkan::adopt(device, sparse_buffer_, virtual_capacity_);
+        sparse_shared_ = gpu::vulkan::adopt(gpu_, sparse_buffer_, virtual_capacity_);
     } else {
-        fallback_->share(device);
+        fallback_->share(gpu_);
     }
 }
 

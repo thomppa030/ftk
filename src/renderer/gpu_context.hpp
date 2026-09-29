@@ -117,7 +117,6 @@ public:
     }
 
     // ── Deferred destruction ────────────────────────────────────────────
-    [[nodiscard]] DeferredDeleter& deferred_deleter() { return core_.deferred_deleter(); }
 
     // ── Batched GPU uploads ─────────────────────────────────────────────
     [[nodiscard]] UploadContext& upload_context() { return core_.upload_context(); }

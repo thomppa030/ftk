@@ -114,12 +114,12 @@ int main() {
         // Transient memory, which the command list hands out: two slices in
         // one frame slot, the same ones again when that slot comes round.
         auto& transient = device.impl().transient;
-        fjell::gpu::vulkan::begin_frame(device, 0);
+        (void)fjell::gpu::vulkan::begin_frame(device, 0, 1);
         auto first = transient.allocate(100);
         auto second = transient.allocate(3u << 20);
-        fjell::gpu::vulkan::begin_frame(device, 1);
+        (void)fjell::gpu::vulkan::begin_frame(device, 1, 2);
         auto other_slot = transient.allocate(100);
-        fjell::gpu::vulkan::begin_frame(device, 0);
+        (void)fjell::gpu::vulkan::begin_frame(device, 0, 3);
         auto again = transient.allocate(100);
         const bool transient_ok = first && second && other_slot && again &&
                                   again->range == first->range &&

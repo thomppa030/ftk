@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/gpu/device.hpp"
@@ -236,10 +237,6 @@ void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*
     }
 }
 
-void MeshletInstancePass::reclaim_retired(uint32_t frame_index) {
-    retired_[frame_index].clear();
-}
-
 void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_instances) {
     if (max_instances <= capacities_[frame_index]) return;
 
@@ -251,7 +248,7 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
     // Retire (don't inline-free) the outgoing buffers — a pending command
     // buffer (async cull especially) may still reference the old handles.
     auto retire = [&](std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT>& bufs) {
-        if (bufs[frame_index]) retired_[frame_index].push_back(std::move(bufs[frame_index]));
+        if (bufs[frame_index]) gpu::vulkan::retire(*gpu_device_, std::move(bufs[frame_index]));
     };
     retire(instance_buffers_);
     retire(visible_buffers_);

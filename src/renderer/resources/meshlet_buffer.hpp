@@ -11,7 +11,9 @@ namespace fjell {
 
 class Device;
 class UploadContext;
-class DeferredDeleter;
+namespace gpu {
+class Device;
+}
 
 struct MeshletRange {
     uint32_t meshlet_offset{0};  // first meshlet index in the global array
@@ -22,7 +24,7 @@ struct MeshletRange {
 class MeshletBuffer {
 public:
     MeshletBuffer(Device& device, VmaAllocator allocator,
-                  UploadContext& upload, DeferredDeleter& deleter);
+                  UploadContext& upload, gpu::Device& gpu);
 
     MeshletRange upload(const MeshletBuildResult& result, uint32_t mega_vertex_offset);
 

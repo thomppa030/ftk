@@ -11,7 +11,7 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/resources/lut_asset.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -321,7 +321,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     const uint32_t index = bindless_index(lut.handle);
     bindless_.update_entry(index, fresh->image_view(), fresh->sampler());
     auto& slot = textures_.slots[lut.handle.index()];
-    if (deleter_ != nullptr) deleter_->retire(std::move(slot));
+    if (gpu_device_ != nullptr) gpu::vulkan::retire(*gpu_device_, std::move(slot));
     slot = std::move(fresh);
     FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }

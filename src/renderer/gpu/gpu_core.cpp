@@ -146,10 +146,9 @@ GpuCore::~GpuCore() {
     // them while both are still alive, once the GPU can't touch them.
     vkDeviceWaitIdle(dev);
     // Uploads still open may clear textures the device holds: they run, and
-    // finish, before the device destroys what it still has. What was retired
-    // goes first, since freeing a bind group's set needs the device's pools.
+    // finish, before the device destroys what it still has, what was
+    // released first, since freeing a bind group's set needs its pools.
     upload_->wait_all();
-    deferred_deleter_.flush_all();
     gpu_device_.reset();
     upload_.reset();
 

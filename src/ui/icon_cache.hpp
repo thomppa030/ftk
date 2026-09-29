@@ -13,6 +13,10 @@
 
 namespace fjell {
 
+namespace gpu {
+class Device;
+}
+
 class IconCache {
 public:
     struct IconEntry {
@@ -27,7 +31,9 @@ public:
         VkDescriptorSet pixel_descriptor{VK_NULL_HANDLE};
     };
 
-    IconCache(VkDevice device, VkPhysicalDevice physical_device,
+    /// `gpu` is the GPU interface's device, which keeps a retired entry
+    /// alive until the frames that may draw it are done.
+    IconCache(gpu::Device& gpu, VkDevice device, VkPhysicalDevice physical_device,
               VkCommandPool command_pool, VkQueue queue,
               const std::string& icons_dir);
     ~IconCache();
@@ -74,12 +80,9 @@ public:
     /// Forget all cached thumbnails. Their GPU resources are retired, not
     /// destroyed: a descriptor handed out earlier in the current frame may
     /// already sit in ImGui's draw list, so freeing it here would leave that
-    /// draw referencing a dead set. destroy_retired_thumbnails() frees them.
+    /// draw referencing a dead set. They go once the GPU has finished the
+    /// frame recording now.
     void clear_thumbnails();
-
-    /// Destroy thumbnails retired by clear_thumbnails(). Call once per frame
-    /// before ImGui begins recording, when no draw list can still reference them.
-    void destroy_retired_thumbnails();
 
     /// Queue async thumbnail decode for a list of image paths.
     /// CPU decode runs on background threads, GPU upload happens in poll_thumbnails().
@@ -101,9 +104,10 @@ public:
     /// Gives an entry from upload_rgba() its pixel_descriptor, freed with it.
     void add_pixel_view(IconEntry& entry);
 
-    /// Hand an entry from upload_rgba() back for destruction at the next
-    /// frame boundary, with the same lifetime rule as clear_thumbnails():
-    /// its descriptor may still sit in this frame's draw list.
+    /// Hand an entry from upload_rgba() back for destruction once the GPU has
+    /// finished the frame recording now, with the same lifetime rule as
+    /// clear_thumbnails(): its descriptor may still sit in this frame's draw
+    /// list.
     void retire(IconEntry entry);
 
     /// Global instance — set once at engine init, used by all panels.
@@ -115,6 +119,7 @@ private:
 
     void load_icon(const std::string& name, const std::string& path);
 
+    gpu::Device& gpu_;
     VkDevice device_;
     VkPhysicalDevice physical_device_;
     VkCommandPool command_pool_;
@@ -122,7 +127,6 @@ private:
 
     std::unordered_map<std::string, IconEntry> icons_;
     std::unordered_map<std::string, IconEntry> thumbnails_;
-    std::vector<IconEntry> retired_thumbnails_;
 
     // Per-context icon descriptors for secondary ImGui contexts.
     // Key: (ImGuiContext*, icon_name) → VkDescriptorSet

@@ -36,7 +36,6 @@
 #include "renderer/gpu/shader_utils.hpp"
 #include "environment/environment_state.hpp"
 #include "core/base_path.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
@@ -222,7 +221,6 @@ Result<> FogCore::create(Device& device, const PassResources& resources) {
     gpu_device_ = resources.device;
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
-    deferred_deleter_ = resources.deferred_deleter;
     auto global_set_layout = resources.global_set_layout;
 
     VkSamplerCreateInfo sampler_ci{};
@@ -571,13 +569,8 @@ const FogCore::MaterialPipeline* FogCore::ensure_material_pipeline(uint32_t pipe
     if (it != material_pipelines_.end()) {
         for (VkPipeline doomed : {it->second.medium, it->second.light}) {
             if (doomed == VK_NULL_HANDLE) { continue; }
-            if (deferred_deleter_ != nullptr) {
-                deferred_deleter_->defer(
-                    [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
-            } else {
-                vkDeviceWaitIdle(device_);
-                vkDestroyPipeline(device_, doomed, nullptr);
-            }
+            gpu::vulkan::defer(*gpu_device_,
+                               [device = device_, doomed] { vkDestroyPipeline(device, doomed, nullptr); });
         }
     }
     auto& slot = material_pipelines_[pipeline_id];

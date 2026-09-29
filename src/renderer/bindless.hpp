@@ -2,7 +2,6 @@
 
 #include "core/result.hpp"
 #include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 
 #include <vulkan/vulkan.h>
@@ -16,6 +15,10 @@
 #include <vector>
 
 namespace fjell {
+
+namespace gpu {
+class Device;
+}
 
 class Texture;
 
@@ -77,8 +80,9 @@ public:
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t MAX_MATERIALS = 1024;
 
-    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,
-                                  DeferredDeleter& deleter);
+    /// `gpu` is the GPU interface's device, which keeps a replaced params
+    /// buffer alive until the frames reading it are done.
+    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator, gpu::Device& gpu);
     void destroy();
 
     // Register a texture and get its bindless index.
@@ -133,7 +137,7 @@ private:
 
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    DeferredDeleter* deleter_{nullptr};
+    gpu::Device* gpu_device_{nullptr};
 
     VkDescriptorSetLayout layout_{VK_NULL_HANDLE};
     std::array<VkDescriptorSetLayoutBinding, 3> layout_bindings_{};

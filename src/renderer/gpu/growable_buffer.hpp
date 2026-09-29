@@ -14,7 +14,6 @@ namespace fjell {
 
 class Device;
 class UploadContext;
-class DeferredDeleter;
 
 /// GPU buffer that grows without invalidating its handle or device address.
 ///
@@ -24,13 +23,13 @@ class DeferredDeleter;
 /// device addresses (BLAS geometry) and descriptor bindings stay valid
 /// forever, and growth copies nothing.
 ///
-/// Fallback mode: classic allocate-bigger / GPU-copy / retire through the
-/// deferred deleter. The handle changes and generation() bumps so consumers
-/// that baked the old address know to rebuild.
+/// Fallback mode: classic allocate-bigger / GPU-copy, the old buffer kept
+/// until the frames using it are done. The handle changes and generation()
+/// bumps so consumers that baked the old address know to rebuild.
 class GrowableBuffer {
 public:
     GrowableBuffer(Device& device, VmaAllocator allocator,
-                   UploadContext& upload, DeferredDeleter& deleter,
+                   UploadContext& upload, gpu::Device& gpu,
                    VkBufferUsageFlags usage,
                    VkDeviceSize initial_capacity,
                    VkDeviceSize virtual_capacity,
@@ -54,7 +53,7 @@ public:
 
     /// Hands the buffer to the GPU interface's device, as `Buffer::share`
     /// does; a growth that replaces the buffer hands on the new one.
-    void share(gpu::Device& device);
+    void share();
 
     /// The buffer as the GPU interface knows it; invalid until shared.
     [[nodiscard]] gpu::Buffer shared() const {
@@ -72,7 +71,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     UploadContext& upload_;
-    DeferredDeleter& deleter_;
+    gpu::Device& gpu_;
     VkBufferUsageFlags usage_{0};
     VkDeviceSize virtual_capacity_{0};
     std::string name_;
@@ -90,7 +89,7 @@ private:
     // Fallback mode
     std::unique_ptr<Buffer> fallback_;
 
-    gpu::Device* shared_with_{nullptr};
+    bool shared_{false};
     gpu::Owned<gpu::Buffer> sparse_shared_;
 };
 

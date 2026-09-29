@@ -12,7 +12,9 @@ namespace fjell {
 
 class Device;
 class UploadContext;
-class DeferredDeleter;
+namespace gpu {
+class Device;
+}
 
 struct MegaMeshEntry {
     uint32_t vertex_offset{0};
@@ -26,7 +28,7 @@ struct MegaMeshEntry {
 class MegaBuffer {
 public:
     MegaBuffer(Device& device, VmaAllocator allocator,
-               UploadContext& upload, DeferredDeleter& deleter);
+               UploadContext& upload, gpu::Device& gpu);
 
     MegaMeshEntry upload(const std::vector<Vertex>& vertices,
                          const std::vector<uint32_t>& indices);

@@ -21,11 +21,11 @@ constexpr VkBufferUsageFlags MEGA_INDEX_USAGE =
 } // namespace
 
 MegaBuffer::MegaBuffer(Device& device, VmaAllocator allocator,
-                       UploadContext& upload, DeferredDeleter& deleter)
+                       UploadContext& upload, gpu::Device& gpu)
     : upload_{upload}
-    , vertex_buffer_{device, allocator, upload, deleter, MEGA_VERTEX_USAGE,
+    , vertex_buffer_{device, allocator, upload, gpu, MEGA_VERTEX_USAGE,
                      INITIAL_VERTEX_SIZE, MAX_VERTEX_SIZE, "mega_vertex"}
-    , index_buffer_{device, allocator, upload, deleter, MEGA_INDEX_USAGE,
+    , index_buffer_{device, allocator, upload, gpu, MEGA_INDEX_USAGE,
                     INITIAL_INDEX_SIZE, MAX_INDEX_SIZE, "mega_index"} {
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
                    vertex_buffer_.capacity() / (1024 * 1024),

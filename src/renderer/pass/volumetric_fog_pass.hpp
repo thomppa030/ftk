@@ -299,7 +299,6 @@ private:
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
-    DeferredDeleter* deferred_deleter_{nullptr};
 
     std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
     // Entries already complained about, so a wrong-typed material is one
