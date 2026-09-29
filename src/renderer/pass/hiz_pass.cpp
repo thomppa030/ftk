@@ -141,11 +141,14 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
 }
 
 PassSetup HizPass::setup() const {
+    // On the graphics queue: the second meshlet cull reads the pyramid and
+    // its depth draw writes the depth the compute queue's passes read, and
+    // the compute queue runs one stretch of a frame's work, which cannot
+    // wait on graphics work that waits on it.
     return {
         .name = "hiz",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 100,
-        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 
