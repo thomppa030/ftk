@@ -1,4 +1,5 @@
 #include "renderer/pass/rt_reflection_pass.hpp"
+#include "gpu/vulkan/native.hpp"
 
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -423,7 +424,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
 
 // ── Images (per-viewport) ──────────────────────────────────────────────
 
-void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
+void RtReflectionPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                        VkDescriptorSetLayout set_layout,
                                        VkDescriptorSetLayout denoise_layout,
                                        VkDescriptorSetLayout spatial_layout,
@@ -468,6 +469,17 @@ void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
 
     make_color(out_image, out_alloc, out_view, "output image");
     make_color(raw_image, raw_alloc, raw_view, "raw image");
+    VkImageCreateInfo color_info{};
+    color_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    color_info.imageType = VK_IMAGE_TYPE_2D;
+    color_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    color_info.extent = {width, height, 1};
+    color_info.mipLevels = 1;
+    color_info.arrayLayers = 1;
+    color_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    color_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    out_texture = gpu::vulkan::adopt(gpu, out_image, out_view, color_info);
+    raw_texture = gpu::vulkan::adopt(gpu, raw_image, raw_view, color_info);
     make_color(history_image, history_alloc, history_view, "history image");
 
     // Previous frame's depth, for the denoise's disocclusion test. R32F colour
@@ -601,6 +613,8 @@ void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) 
         }
     };
 
+    out_texture.reset();
+    raw_texture.reset();
     drop_view(out_view);          drop_image(out_image, out_alloc);
     drop_view(raw_view);          drop_image(raw_image, raw_alloc);
     drop_view(history_view);      drop_image(history_image, history_alloc);
@@ -618,7 +632,7 @@ void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) 
     prev_depth_valid = false;
 }
 
-void RtReflectionPass::Images::resize(VkDevice device, VmaAllocator allocator,
+void RtReflectionPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                                        VkDescriptorSetLayout set_layout,
                                        VkDescriptorSetLayout denoise_layout,
                                        VkDescriptorSetLayout spatial_layout,
@@ -628,7 +642,7 @@ void RtReflectionPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
     destroy(device, allocator);
     if (width > 0 && height > 0) {
-        create(device, allocator, set_layout, denoise_layout, spatial_layout,
+        create(gpu, device, allocator, set_layout, denoise_layout, spatial_layout,
                depth_format, width, height);
     }
 }
@@ -729,6 +743,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     if (ctx.registry != nullptr) {
         ctx.registry->register_image("rt_reflection_output",
             {.frame_graph_id = 0,
+             .texture = imgs->out_texture,
              .image = imgs->out_image,
              .view = imgs->out_view,
              .sampler = linear_sampler_});
@@ -1169,6 +1184,7 @@ void RtReflectionPass::record_spatial(const FrameContext& ctx, Images& imgs) {
     if (ctx.registry != nullptr) {
         ctx.registry->register_image("rt_reflection_output",
             {.frame_graph_id = 0,
+             .texture = imgs.raw_texture,
              .image = imgs.raw_image,
              .view = imgs.raw_view,
              .sampler = linear_sampler_});

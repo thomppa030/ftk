@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
@@ -50,6 +52,9 @@ public:
     struct Images {
         // Denoised result. This is what the composite reads.
         VkImage out_image{VK_NULL_HANDLE};
+        /// The denoised and raw results as the GPU interface's textures.
+        gpu::Owned<gpu::Texture> out_texture;
+        gpu::Owned<gpu::Texture> raw_texture;
         VmaAllocation out_alloc{VK_NULL_HANDLE};
         VkImageView out_view{VK_NULL_HANDLE};
         VkExtent2D out_extent{};
@@ -104,14 +109,14 @@ public:
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};
         bool first_use{true};
 
-        void create(VkDevice device, VmaAllocator allocator,
+        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      VkDescriptorSetLayout denoise_layout,
                      VkDescriptorSetLayout spatial_layout,
                      VkFormat depth_format,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
+        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      VkDescriptorSetLayout denoise_layout,
                      VkDescriptorSetLayout spatial_layout,

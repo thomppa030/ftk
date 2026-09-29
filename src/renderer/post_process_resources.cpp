@@ -80,7 +80,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
         taa_images_.create(*gpu_, width, height);
     }
     if (config_.rt_reflection && width > 0 && height > 0) {
-        rt_reflection_images_.create(device_, allocator_,
+        rt_reflection_images_.create(*gpu_, device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
                                       passes_->rt_reflection.denoise_set_layout(),
                                       passes_->rt_reflection.spatial_set_layout(),
@@ -192,7 +192,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         taa_images_.resize(*gpu_, width, height);
     }
     if (config_.rt_reflection) {
-        rt_reflection_images_.resize(device_, allocator_,
+        rt_reflection_images_.resize(*gpu_, device_, allocator_,
                                       passes_->rt_reflection.trace_set_layout(),
                                       passes_->rt_reflection.denoise_set_layout(),
                                       passes_->rt_reflection.spatial_set_layout(),
