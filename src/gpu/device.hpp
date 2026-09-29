@@ -87,6 +87,23 @@ public:
     /// A buffer's size in bytes; 0 for a handle that finds no buffer.
     [[nodiscard]] uint64_t size(Buffer buffer) const;
 
+    /// Makes at least `size` bytes of a buffer made with a `reserve` usable,
+    /// keeping what it holds, and the handle with it: bindings made after
+    /// this see the larger buffer. It grows by at least double, up to its
+    /// reserve. In place where the device keeps the reserve for it;
+    /// elsewhere by a copy, ordered after the uploads before it and before
+    /// the work submitted after it, into a new buffer whose address differs
+    /// (`generation()` moves). Nothing while it is already that large.
+    /// @return nothing, or why it cannot grow: no buffer, no reserve, a size
+    ///         past the reserve, or no memory.
+    [[nodiscard]] Result<> grow(Buffer buffer, uint64_t size);
+
+    /// How many times a buffer's address has moved, which a copy made to
+    /// grow it does: a holder of the address (an acceleration structure
+    /// built from the buffer) compares it with the count it was built at.
+    /// 0 for a handle that finds no buffer.
+    [[nodiscard]] uint32_t generation(Buffer buffer) const;
+
     /// What a texture was made as; an empty `TextureInfo` (0 × 0, undefined
     /// format) for a handle that finds no texture.
     [[nodiscard]] const TextureInfo& info(Texture texture) const;

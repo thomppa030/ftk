@@ -5,9 +5,11 @@
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/frames_in_flight.hpp"
 #include "renderer/gpu/gpu_core.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
+#include <span>
 #include <string>
 
 namespace fjell::gpu {
@@ -64,9 +66,25 @@ void destroy_texture(VkDevice device, VmaAllocator allocator,
     }
 }
 
-void destroy_buffer(VmaAllocator allocator, const Device::Impl::BufferRecord& record) {
-    if (record.allocation != VK_NULL_HANDLE) {
+void destroy_buffer(VkDevice device, VmaAllocator allocator, const Device::Impl::BufferRecord& record) {
+    if (record.sparse) {
+        vkDestroyBuffer(device, record.buffer, nullptr);
+        if (!record.pages.empty()) {
+            vmaFreeMemoryPages(allocator, record.pages.size(), record.pages.data());
+        }
+    } else if (record.allocation != VK_NULL_HANDLE) {
         vmaDestroyBuffer(allocator, record.buffer, record.allocation);
+    }
+}
+
+// Where each queue family the uploads run on may use a buffer.
+void share_with_upload_families(VkBufferCreateInfo& info, std::span<const uint32_t> families) {
+    // Uploads may run on the transfer queue and compute on its own: a buffer
+    // shared across the families needs no ownership transfers between them.
+    if (families.size() >= 2) {
+        info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        info.queueFamilyIndexCount = static_cast<uint32_t>(families.size());
+        info.pQueueFamilyIndices = families.data();
     }
 }
 
@@ -88,6 +106,7 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
 
 Device::Impl::Impl(GpuCore& gpu_core)
     : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()),
+      sparse_queue(gpu_core.device().sparse_bind_queue()),
       upload_state{gpu_core.upload_context()},
       transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
                  .alignment = transient_alignment(gpu_core.physical_device()),
@@ -177,10 +196,11 @@ Device::Impl::~Impl() {
     // released by an owner that outlived the device.
     releases.flush();
     for (Buffer chunk : transient.chunks()) {
-        if (auto record = buffers.take(chunk)) destroy_buffer(allocator, *record);
+        if (auto record = buffers.take(chunk)) destroy_buffer(device, allocator, *record);
     }
     uint32_t leaked = buffers.size() + textures.size();
-    buffers.for_each([&](Buffer, BufferRecord& record) { destroy_buffer(allocator, record); });
+    buffers.for_each([&](Buffer, BufferRecord& record) { destroy_buffer(device, allocator, record); });
+    if (sparse_fence != VK_NULL_HANDLE) vkDestroyFence(device, sparse_fence, nullptr);
     textures.for_each([&](Texture, TextureRecord& record) {
         destroy_texture(device, allocator, record);
     });
@@ -252,17 +272,52 @@ Result<Owned<Buffer>> Device::create(const BufferDesc& desc) {
 Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     if (desc.size == 0) return make_error(described("Empty buffer", desc.name));
 
+    if (desc.reserve != 0 && desc.memory != Memory::gpu) {
+        return make_error(described("Buffer", desc.name) + " reserves room to grow outside GPU memory");
+    }
+    if (desc.reserve != 0 && desc.reserve < desc.size) {
+        return make_error(described("Buffer", desc.name) + " reserves less than its size");
+    }
+
     VkBufferCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = desc.size;
     create_info.usage = vulkan::to_vk(desc.use);
-    // Uploads may run on the transfer queue and compute on its own: a buffer
-    // shared across the families needs no ownership transfers between them.
     const auto families = core.device().upload_sharing_families();
-    if (families.size() >= 2) {
-        create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        create_info.queueFamilyIndexCount = static_cast<uint32_t>(families.size());
-        create_info.pQueueFamilyIndices = families.data();
+    share_with_upload_families(create_info, families);
+
+    if (desc.reserve != 0 && sparse_queue != VK_NULL_HANDLE) {
+        // Made as large as it may grow, in whole pages, with memory bound
+        // only as it grows: nothing ever moves.
+        create_info.flags = VK_BUFFER_CREATE_SPARSE_BINDING_BIT;
+        create_info.size = desc.reserve;
+        VkDeviceBufferMemoryRequirements query{};
+        query.sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS;
+        query.pCreateInfo = &create_info;
+        VkMemoryRequirements2 needs{};
+        needs.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        vkGetDeviceBufferMemoryRequirements(device, &query, &needs);
+        const uint64_t page = needs.memoryRequirements.alignment;
+        create_info.size = (desc.reserve + page - 1) / page * page;
+
+        BufferRecord record;
+        record.sparse = true;
+        record.reserve = create_info.size;
+        record.usage = create_info.usage;
+        record.name = desc.name;
+        const VkResult made = vkCreateBuffer(device, &create_info, nullptr, &record.buffer);
+        if (made != VK_SUCCESS) {
+            return make_error("Failed to create " + described("buffer", desc.name) +
+                              " (VkResult=" + std::to_string(static_cast<int>(made)) + ")");
+        }
+        vkGetBufferMemoryRequirements(device, record.buffer, &record.page_requirements);
+        if (auto bound = bind_pages(record, desc.size); !bound) {
+            destroy_buffer(device, allocator, record);
+            return std::unexpected(bound.error());
+        }
+        vulkan::name_object(device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
+                            desc.name);
+        return buffers.emplace(std::move(record));
     }
 
     VmaAllocationCreateInfo allocation_info{};
@@ -287,6 +342,9 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
 
     BufferRecord record;
     record.size = desc.size;
+    record.reserve = desc.reserve;
+    record.usage = create_info.usage;
+    if (desc.reserve != 0) record.name = desc.name;
     VmaAllocationInfo allocated{};
     const VkResult result = vmaCreateBuffer(allocator, &create_info, &allocation_info,
                                             &record.buffer, &record.allocation, &allocated);
@@ -298,6 +356,59 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     vulkan::name_object(device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(record.buffer),
                         desc.name);
     return buffers.emplace(record);
+}
+
+Result<> Device::Impl::bind_pages(BufferRecord& record, uint64_t target) {
+    const uint64_t page = record.page_requirements.alignment;
+    target = std::min((target + page - 1) / page * page, record.reserve);
+    if (target <= record.size) return {};
+
+    VkMemoryRequirements needs = record.page_requirements;
+    needs.size = target - record.size;
+    VmaAllocationCreateInfo allocation_info{};
+    allocation_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    VmaAllocation memory{VK_NULL_HANDLE};
+    VmaAllocationInfo allocated{};
+    if (vmaAllocateMemoryPages(allocator, &needs, &allocation_info, 1, &memory, &allocated) != VK_SUCCESS) {
+        return make_error("No memory to grow " + described("buffer", record.name) + " to " +
+                          std::to_string(target) + " bytes");
+    }
+
+    VkSparseMemoryBind bind{};
+    bind.resourceOffset = record.size;
+    bind.size = needs.size;
+    bind.memory = allocated.deviceMemory;
+    bind.memoryOffset = allocated.offset;
+    VkSparseBufferMemoryBindInfo buffer_bind{};
+    buffer_bind.buffer = record.buffer;
+    buffer_bind.bindCount = 1;
+    buffer_bind.pBinds = &bind;
+    VkBindSparseInfo bind_info{};
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
+    bind_info.bufferBindCount = 1;
+    bind_info.pBufferBinds = &buffer_bind;
+
+    // The range is new, so no work submitted before touches it and the bind
+    // waits on nothing; the fence only says when it is done. Binds order
+    // against semaphores, never command buffers, so it signals at once
+    // however many frames are in flight.
+    VkResult result = VK_SUCCESS;
+    if (sparse_fence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fence_info{};
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        result = vkCreateFence(device, &fence_info, nullptr, &sparse_fence);
+    }
+    if (result == VK_SUCCESS) result = vkResetFences(device, 1, &sparse_fence);
+    if (result == VK_SUCCESS) result = vkQueueBindSparse(sparse_queue, 1, &bind_info, sparse_fence);
+    if (result == VK_SUCCESS) result = vkWaitForFences(device, 1, &sparse_fence, VK_TRUE, UINT64_MAX);
+    if (result != VK_SUCCESS) {
+        vmaFreeMemoryPages(allocator, 1, &memory);
+        return make_error("Failed to bind memory to " + described("buffer", record.name) +
+                          " (VkResult=" + std::to_string(static_cast<int>(result)) + ")");
+    }
+    record.pages.push_back(memory);
+    record.size = target;
+    return {};
 }
 
 Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
@@ -412,6 +523,57 @@ uint64_t Device::size(Buffer buffer) const {
     return record != nullptr ? record->size : 0;
 }
 
+Result<> Device::grow(Buffer buffer, uint64_t size) {
+    Impl& self = *impl_;
+    Impl::BufferRecord* record = self.buffers.get(buffer);
+    if (record == nullptr) return make_error("No buffer to grow");
+    if (size <= record->size) return {};
+    if (record->reserve == 0) {
+        return make_error(described("Buffer", record->name) + " was made without room to grow");
+    }
+    if (size > record->reserve) {
+        return make_error(described("Buffer", record->name) + " cannot grow to " + std::to_string(size) +
+                          " bytes, past its reserve of " + std::to_string(record->reserve));
+    }
+    const uint64_t target = std::min(std::max(size, record->size * 2), record->reserve);
+    if (record->sparse) return self.bind_pages(*record, target);
+
+    // A larger buffer with the same uses, the bytes copied across on the
+    // upload lane, after the uploads into the old one before it. The frames
+    // still reading the old one keep it until they are done.
+    VkBufferCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    create_info.size = target;
+    create_info.usage = record->usage;
+    const auto families = self.core.device().upload_sharing_families();
+    share_with_upload_families(create_info, families);
+    VmaAllocationCreateInfo allocation_info{};
+    allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
+    Impl::BufferRecord grown = *record;
+    const VkResult made = vmaCreateBuffer(self.allocator, &create_info, &allocation_info, &grown.buffer,
+                                          &grown.allocation, nullptr);
+    if (made != VK_SUCCESS) {
+        return make_error("No memory to grow " + described("buffer", record->name) + " to " +
+                          std::to_string(target) + " bytes (VkResult=" +
+                          std::to_string(static_cast<int>(made)) + ")");
+    }
+    self.upload_state.lanes.copy_buffer(record->buffer, grown.buffer, record->size);
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(grown.buffer),
+                        record->name);
+    grown.size = target;
+    ++grown.generation;
+    self.release_later([device = self.device, allocator = self.allocator, gone = std::move(*record)] {
+        destroy_buffer(device, allocator, gone);
+    });
+    *record = std::move(grown);
+    return {};
+}
+
+uint32_t Device::generation(Buffer buffer) const {
+    const Impl::BufferRecord* record = impl_->buffers.get(buffer);
+    return record != nullptr ? record->generation : 0;
+}
+
 void Device::set_shader_locator(ShaderLocator locator) {
     impl_->locator = std::move(locator);
 }
@@ -441,7 +603,9 @@ void release(Device& device, Buffer buffer) {
     auto record = self.buffers.take(buffer);
     if (!record.has_value()) return;
     self.release_later(
-        [allocator = self.allocator, gone = *record] { destroy_buffer(allocator, gone); });
+        [device = self.device, allocator = self.allocator, gone = std::move(*record)] {
+            destroy_buffer(device, allocator, gone);
+        });
 }
 
 void release(Device& device, Texture texture) {
