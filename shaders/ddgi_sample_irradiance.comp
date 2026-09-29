@@ -66,7 +66,7 @@ vec3 debug_grid_cell(ivec3 base_grid) {
 // pixel land in, what did the weights do) and have no meaning to a
 // reflection ray.
 vec3 sample_irradiance(vec3 world_pos, vec3 normal, out float out_cage_weight) {
-    DdgiCageSample trace = ddgi_sample_cage(world_pos, normal,
+    DdgiCageSample trace = ddgi_sample_cage(world_pos, normal, ddgi.camera_position,
                                             ddgi.debug_options == DDGI_DEBUG_NO_VISIBILITY);
     out_cage_weight = trace.sum_weight;
 

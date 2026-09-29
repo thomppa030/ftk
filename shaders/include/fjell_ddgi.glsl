@@ -290,12 +290,15 @@ struct DdgiCageSample {
     float cheb_floored;   // of those, how many hit the weight floor
 };
 
-// Skip the Chebyshev visibility test. Only the screen-space pass's
+// `seen_from` is where the point is being looked at from: the camera for a
+// pixel on screen, the ray's origin for a point a ray hit. The sample leans
+// toward it. Skip the Chebyshev visibility test: only the screen-space pass's
 // NO_VISIBILITY diagnostic passes true.
-DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibility) {
+DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
+                                bool skip_visibility) {
     DdgiCageSample trace;
     trace.irradiance = vec3(0.0);
-    vec3 Wo = normalize(ddgi.camera_position - world_pos);
+    vec3 Wo = normalize(seen_from - world_pos);
 
     // Bias the sample off the surface before the cage lookup. Lean on the
     // normal so the offset lifts away from the surface; keep the view term
@@ -312,13 +315,13 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, bool skip_visibilit
     vec3 cell = ddgi.probe_spacing;
     float cell_min = min(cell.x, min(cell.y, cell.z));
 
-    // The view term fades out as the camera closes to within one cell.
+    // The view term fades out as the viewer closes to within one cell.
     // Lumen does this (LumenIrradianceFieldInterpolation.ush: "Reduce the
     // view dependent bias as the camera gets closer than the distance
     // between probes") because up close the bias would push the sample
     // past the surface it is shading.
-    float camera_distance = length(ddgi.camera_position - world_pos);
-    float view_scale = clamp(camera_distance / cell_min, 0.0, 1.0);
+    float view_distance = length(seen_from - world_pos);
+    float view_scale = clamp(view_distance / cell_min, 0.0, 1.0);
 
     // A flat surface gives a probe above it a perfectly consistent depth,
     // so the Chebyshev variance is ~0 and any sample even slightly beyond

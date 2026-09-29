@@ -179,7 +179,7 @@ vec3 trace_radiance(vec3 origin, vec3 direction) {
     vec3 sun_radiance = albedo * rc.sun_color.rgb * rc.sun_dir_intensity.w * NdotL;
 
     // DDGI indirect at the hit point.
-    vec3 indirect = ddgi_sample_cage(world_pos, N, false).irradiance * albedo;
+    vec3 indirect = ddgi_sample_cage(world_pos, N, origin, false).irradiance * albedo;
 
     return sun_radiance + indirect + rt_surface_emission(surface, uv);
 }

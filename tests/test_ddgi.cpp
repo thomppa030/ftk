@@ -255,8 +255,9 @@ TEST_CASE("A uniform probe field gives its irradiance everywhere inside it", "[d
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), light, 100.0f);
     for (const vec3& p : SAMPLE_POINTS) {
         for (const vec3& n : SAMPLE_NORMALS) {
-            const DdgiCageSample s = ddgi_sample_cage(p, n, false);
-            INFO("point " << p.x << "," << p.y << "," << p.z << " normal " << n.x << "," << n.y << "," << n.z);
+            const DdgiCageSample s = ddgi_sample_cage(p, n, ddgi.camera_position, false);
+            INFO("point " << p.x << "," << p.y << "," << p.z
+                 << " normal " << n.x << "," << n.y << "," << n.z);
             REQUIRE(s.sum_weight > 0.0f);
             REQUIRE(s.cheb_tested == 0.0f);
             REQUIRE(near(s.irradiance, light * DDGI_ENERGY_CONSERVATION, 1e-4f));
@@ -272,12 +273,12 @@ TEST_CASE("A probe the status pass switched off does not reach the cage", "[ddgi
     probe_irradiance[static_cast<size_t>(corner)] = ddgi_encode_irradiance(vec3(30.0f, 0.0f, 0.0f));
 
     probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_OFF;
-    REQUIRE(near(ddgi_sample_cage(p, SAMPLE_NORMALS[0], false).irradiance,
+    REQUIRE(near(ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false).irradiance,
                  light * DDGI_ENERGY_CONSERVATION, 1e-4f));
 
     // Switched back on, the same probe does pull the result toward red.
     probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_ACTIVE;
-    REQUIRE(ddgi_sample_cage(p, SAMPLE_NORMALS[0], false).irradiance.x
+    REQUIRE(ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false).irradiance.x
             > light.x * DDGI_ENERGY_CONSERVATION + 0.1f);
 }
 
@@ -291,7 +292,7 @@ TEST_CASE("A probe not traced since the last reset does not reach the cage", "[d
     probe_visibility[static_cast<size_t>(corner)] = vec2(0.0f);
     probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_UNINITIALIZED;
 
-    const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[3], false);
+    const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[3], ddgi.camera_position, false);
     REQUIRE(s.cheb_tested == 0.0f);
     REQUIRE(near(s.irradiance, light * DDGI_ENERGY_CONSERVATION, 1e-4f));
 }
@@ -299,7 +300,8 @@ TEST_CASE("A probe not traced since the last reset does not reach the cage", "[d
 TEST_CASE("With no cage probe traced since the last reset the cage gives no light", "[ddgi]") {
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
     probe_status.assign(probe_status.size(), PROBE_STATUS_UNINITIALIZED);
-    const DdgiCageSample s = ddgi_sample_cage(SAMPLE_POINTS[3], SAMPLE_NORMALS[1], false);
+    const DdgiCageSample s =
+        ddgi_sample_cage(SAMPLE_POINTS[3], SAMPLE_NORMALS[1], ddgi.camera_position, false);
     REQUIRE(s.sum_weight == 0.0f);
     REQUIRE(s.irradiance == vec3(0.0f));
 }
@@ -307,7 +309,8 @@ TEST_CASE("With no cage probe traced since the last reset the cage gives no ligh
 TEST_CASE("With every cage probe switched off the cage gives no light", "[ddgi]") {
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
     probe_status.assign(probe_status.size(), PROBE_STATUS_OFF);
-    const DdgiCageSample s = ddgi_sample_cage(SAMPLE_POINTS[1], SAMPLE_NORMALS[0], false);
+    const DdgiCageSample s =
+        ddgi_sample_cage(SAMPLE_POINTS[1], SAMPLE_NORMALS[0], ddgi.camera_position, false);
     REQUIRE(s.sum_weight == 0.0f);
     REQUIRE(s.irradiance == vec3(0.0f));
 }
@@ -320,10 +323,10 @@ TEST_CASE("A probe whose recorded depth stops short of the point is weighted dow
     // metre away, is behind it.
     probe_visibility[static_cast<size_t>(corner)] = vec2(0.05f, 0.05f * 0.05f);
 
-    const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[0], false);
+    const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false);
     REQUIRE(s.cheb_tested == 1.0f);
     REQUIRE(s.cheb_floored == 1.0f);
 
     // The diagnostic that skips the test leaves it alone.
-    REQUIRE(ddgi_sample_cage(p, SAMPLE_NORMALS[0], true).cheb_tested == 0.0f);
+    REQUIRE(ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, true).cheb_tested == 0.0f);
 }
