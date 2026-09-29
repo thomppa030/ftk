@@ -23,6 +23,9 @@ namespace fjell::gpu {
 
 /// What the device can do, where it differs between GPUs.
 struct Caps {
+    /// Whether the GPU runs task and mesh shaders. Without them no pipeline
+    /// with a task or mesh stage can be made, and the limits below are 0.
+    bool mesh_shaders{false};
     /// The most vertices and primitives a mesh shader workgroup may output.
     uint32_t mesh_max_output_vertices{0};
     uint32_t mesh_max_output_primitives{0};

@@ -107,6 +107,7 @@ Device::Impl::Impl(GpuCore& gpu_core)
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
+    caps.mesh_shaders = gpu_core.device().mesh_shader_supported();
     caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
     begin_label = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
