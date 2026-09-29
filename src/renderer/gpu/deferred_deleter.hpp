@@ -1,25 +1,24 @@
 #pragma once
 
-#include "renderer/gpu/frames_in_flight.hpp"
+#include "gpu/release_queue.hpp"
 
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <utility>
-#include <vector>
 
 namespace fjell {
 
-/// Frame-fenced deferred destruction for GPU resources.
+/// Deferred destruction for GPU resources, released by the frame timeline.
 ///
 /// Destroying a buffer/image/pipeline the GPU may still be reading is a
 /// use-after-free, and waiting the whole device idle to dodge that is a
-/// hitch. Instead, hand the doomed object here: it stays alive until the
-/// frame slot that retired it has its in-flight fence signal again, which
-/// proves every command buffer that could reference it has finished.
+/// hitch. Instead, hand the doomed object here: it stays alive until the GPU
+/// has finished the frame being recorded when it was retired, as the frame
+/// timeline measures it, which proves every command buffer that could
+/// reference it has finished.
 ///
-/// Main-thread only: retirements land in the slot currently recording, and
-/// reclaim happens right after that slot's fence wait in begin_frame.
+/// Main-thread only: retirements are marked with the frame recording, and
+/// released once a later begin_frame() is told that frame is finished.
 class DeferredDeleter {
 public:
     /// Keep a movable RAII object (Buffer, unique_ptr, VmaImage, ...) alive
@@ -30,40 +29,26 @@ public:
     }
 
     /// Run an arbitrary destruction callback once the GPU is done with the
-    /// current frame slot. For raw handles (VkPipeline, VkImageView, ...)
+    /// frame recording now. For raw handles (VkPipeline, VkImageView, ...)
     /// whose cleanup needs a device or allocator captured alongside.
     void defer(std::move_only_function<void()> fn) {
-        buckets_[slot_].push_back(std::move(fn));
+        queue_.defer(recording_, std::move(fn));
     }
 
-    /// Call once per frame, immediately after the slot's in-flight fence
-    /// wait: destroys everything retired the previous time this slot
-    /// recorded, and directs new retirements at this slot.
-    void begin_frame(uint32_t frame_index) {
-        slot_ = frame_index;
-        flush(slot_);
+    /// Call once per frame, when its serial is known and before it records:
+    /// destroys everything retired by `finished` or earlier, the newest frame
+    /// the GPU has finished, and marks new retirements with `serial`.
+    void begin_frame(uint64_t serial, uint64_t finished) {
+        recording_ = serial;
+        queue_.collect(finished);
     }
 
-    /// Destroy everything regardless of slot. The device must be idle.
-    void flush_all() {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            flush(i);
-        }
-    }
+    /// Destroy everything, whatever frame retired it. The device must be idle.
+    void flush_all() { queue_.flush(); }
 
 private:
-    void flush(uint32_t slot) {
-        // Swap out first: a callback may itself retire objects, which must
-        // land in the live bucket and survive until this slot cycles again.
-        std::vector<std::move_only_function<void()>> doomed;
-        doomed.swap(buckets_[slot]);
-        for (auto& fn : doomed) {
-            fn();
-        }
-    }
-
-    std::array<std::vector<std::move_only_function<void()>>, MAX_FRAMES_IN_FLIGHT> buckets_;
-    uint32_t slot_{0};
+    gpu::ReleaseQueue queue_;
+    uint64_t recording_{0};
 };
 
 } // namespace fjell

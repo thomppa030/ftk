@@ -4,6 +4,7 @@
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/frames_in_flight.hpp"
 #include "renderer/gpu/gpu_core.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
 #include <string>
@@ -169,6 +170,18 @@ Device::Impl::Impl(GpuCore& gpu_core)
     draw_mesh_tasks_indirect_count = gpu_core.device().draw_mesh_tasks_indirect_count_fn();
     locator = [](const std::string& relative) { return relative; };
     frame_sets.create(device, MAX_FRAMES_IN_FLIGHT, {});
+
+    VkSemaphoreTypeCreateInfo timeline_type{};
+    timeline_type.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timeline_type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_type.initialValue = 0;
+    VkSemaphoreCreateInfo timeline_info{};
+    timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    timeline_info.pNext = &timeline_type;
+    vk_check(vkCreateSemaphore(device, &timeline_info, nullptr, &frame_timeline),
+             "Failed to create the frame timeline");
+    vulkan::name_object(device, VK_OBJECT_TYPE_SEMAPHORE,
+                        reinterpret_cast<uint64_t>(frame_timeline), "frame timeline");
 }
 
 Device::Impl::~Impl() {
@@ -194,6 +207,7 @@ Device::Impl::~Impl() {
         vkDestroyPipeline(device, record.pipeline, nullptr);
     });
     for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
+    vkDestroySemaphore(device, frame_timeline, nullptr);
     frame_sets.destroy();
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);

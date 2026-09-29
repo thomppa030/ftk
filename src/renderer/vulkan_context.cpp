@@ -1345,6 +1345,14 @@ void VulkanContext::submit_and_present() {
     upload_wait.value = upload.last_buffer_value();
     upload_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
+    // The frame's last submission marks it finished on the frame timeline,
+    // which is what releases what it used.
+    VkSemaphoreSubmitInfo frame_done{};
+    frame_done.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    frame_done.semaphore = gpu::vulkan::frame_timeline(gpu_device());
+    frame_done.value = recorded_serial_;
+    frame_done.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
     auto& render_finished = gpu_.swapchain().render_finished_semaphores();
     VkSemaphore image_available = recorded_acquire_semaphore_;
     VkFence fence = gpu_.in_flight_fence(recorded_frame_);
@@ -1363,13 +1371,14 @@ void VulkanContext::submit_and_present() {
         cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         cmd_info.commandBuffer = gpu_.command_buffer(recorded_frame_);
 
-        VkSemaphoreSubmitInfo signal{};
-        signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        signal.semaphore = render_finished[recorded_image_index_];
         // Every stage: the swapchain image's transition to PRESENT_SRC is
         // the last thing in the command buffer, and present has to wait for
         // it, not only for the colour writes before it.
-        signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        std::array<VkSemaphoreSubmitInfo, 2> signals{};
+        signals[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signals[0].semaphore = render_finished[recorded_image_index_];
+        signals[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        signals[1] = frame_done;
 
         VkSubmitInfo2 submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -1377,8 +1386,8 @@ void VulkanContext::submit_and_present() {
         submit.pWaitSemaphoreInfos = waits.data();
         submit.commandBufferInfoCount = 1;
         submit.pCommandBufferInfos = &cmd_info;
-        submit.signalSemaphoreInfoCount = 1;
-        submit.pSignalSemaphoreInfos = &signal;
+        submit.signalSemaphoreInfoCount = static_cast<uint32_t>(signals.size());
+        submit.pSignalSemaphoreInfos = signals.data();
 
         if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit, fence); r != VK_SUCCESS) {
             FJELL_GFX_CRITICAL("vkQueueSubmit2 (single) failed: VkResult={}", static_cast<int>(r));
@@ -1502,12 +1511,13 @@ void VulkanContext::submit_and_present() {
         post_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         post_cmd.commandBuffer = gpu_.graphics_post_cb(recorded_frame_);
 
-        VkSemaphoreSubmitInfo post_signal{};
-        post_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        post_signal.semaphore = render_finished[recorded_image_index_];
         // Every stage, for the same reason as the single-submit path: the
         // transition to PRESENT_SRC has to be inside what present waits on.
-        post_signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        std::array<VkSemaphoreSubmitInfo, 2> post_signals{};
+        post_signals[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        post_signals[0].semaphore = render_finished[recorded_image_index_];
+        post_signals[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        post_signals[1] = frame_done;
 
         VkSubmitInfo2 post_submit{};
         post_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -1515,8 +1525,8 @@ void VulkanContext::submit_and_present() {
         post_submit.pWaitSemaphoreInfos = &post_wait;
         post_submit.commandBufferInfoCount = 1;
         post_submit.pCommandBufferInfos = &post_cmd;
-        post_submit.signalSemaphoreInfoCount = 1;
-        post_submit.pSignalSemaphoreInfos = &post_signal;
+        post_submit.signalSemaphoreInfoCount = static_cast<uint32_t>(post_signals.size());
+        post_submit.pSignalSemaphoreInfos = post_signals.data();
 
         if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &post_submit, fence); r != VK_SUCCESS) {
             FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_post) failed: VkResult={}", static_cast<int>(r));
@@ -1566,17 +1576,15 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     ++frame_serial_;
     render_pipeline_.begin_frame();
-    // The frame that last used this slot is the newest one known complete.
-    gpu_.transient_pool().begin_frame(
-        frame_serial_,
-        frame_serial_ > MAX_FRAMES_IN_FLIGHT ? frame_serial_ - MAX_FRAMES_IN_FLIGHT : 0);
+    // What the GPU has finished, as the frame timeline measures it: at least
+    // the frame that last used this slot, often later ones too. Transients
+    // and retired resources those frames used are free again.
+    const uint64_t finished = gpu::vulkan::finished_frame(gpu_device());
+    gpu_.transient_pool().begin_frame(frame_serial_, finished);
+    gpu_.deferred_deleter().begin_frame(frame_serial_, finished);
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
     apply_ddgi_settle_rebuild();
-
-    // Destroy resources retired the last time this slot recorded, and point
-    // new retirements at this slot.
-    gpu_.deferred_deleter().begin_frame(current_frame_);
 
     // A font whose recipe changed is rebuilt here, where the retired texture
     // lands in a slot the GPU is done with.
@@ -1943,6 +1951,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                           viewports, environment, scene, dt, selected_id, pool);
 
     recorded_frame_ = current_frame_;
+    recorded_serial_ = frame_serial_;
     recorded_image_index_ = pending_image_index_;
     recorded_acquire_semaphore_ = pending_acquire_semaphore_;
     has_recorded_frame_ = true;

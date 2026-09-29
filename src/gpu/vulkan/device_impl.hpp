@@ -181,6 +181,10 @@ struct Device::Impl {
     FrameDescriptorCache frame_sets;
     /// The frame slot being recorded, set where each frame starts.
     uint32_t frame_slot{0};
+    /// The timeline each frame's last submission signals at the frame's
+    /// serial: the value it has reached is the newest frame the GPU has
+    /// finished.
+    VkSemaphore frame_timeline{VK_NULL_HANDLE};
     /// Memory that lasts one frame, reset with `frame_sets`. Its chunks are
     /// the device's own, destroyed with it.
     TransientMemory transient;

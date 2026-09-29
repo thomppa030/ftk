@@ -481,8 +481,12 @@ private:
   VkImage bound_gi_indirect_{VK_NULL_HANDLE};
   VkImage bound_ss_gi_emissive_{VK_NULL_HANDLE};
   /// Counts frames from the first begin_frame(); what the transient pool
-  /// and the frame graph date their state by.
+  /// and the frame graph date their state by, and the value each frame
+  /// signals on the frame timeline.
   uint64_t frame_serial_{0};
+  /// The serial of the frame recorded and not yet submitted, which its last
+  /// submission signals on the frame timeline.
+  uint64_t recorded_serial_{0};
   // Per-frame-slot monotonic counter for timeline semaphore values.
   // Compute submit signals `next`, graphics waits on `next`, then we
   // advance. Separate per slot so MAX_FRAMES_IN_FLIGHT concurrent frames
