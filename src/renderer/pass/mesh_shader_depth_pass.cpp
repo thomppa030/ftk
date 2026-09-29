@@ -5,6 +5,7 @@
 #include "gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
@@ -102,9 +103,6 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         // What the meshlet cull found visible, bin by bin, except the bins of
         // materials with their own mesh stage, drawn below.
         if (gpu_driven) {
-            // The cull adds one task group per visible meshlet, at most a
-            // segment's worth per bin.
-            const uint32_t segment = ctx.gpu_driven_segment_size;
             gpu::GraphicsPipeline bound{};
             for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
                 if (meshes_.has_custom(ranges[bin].pipeline_id)) continue;
@@ -117,11 +115,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
                     pass.bind(ctx.meshlets);
                     bound = needed;
                 }
-                pass.push(bin * segment);
-                pass.draw_mesh_tasks_indirect(
-                    gpu::BufferRange(ctx.gpu_driven_commands, uint64_t{bin} * sizeof(gpu::DrawMeshTasksArgs),
-                                     sizeof(gpu::DrawMeshTasksArgs)),
-                    1, sizeof(gpu::DrawMeshTasksArgs), std::max(segment, 1U));
+                MeshletInstancePass::draw_bin(pass, ctx, bin);
             }
         }
 

@@ -138,11 +138,10 @@ struct FrameContext {
     gpu::BindGroup meshlets{};
     PipelineCache* pipeline_cache{nullptr};
 
-    // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
-    /// Those commands as the GPU interface knows them: one
-    /// gpu::DrawMeshTasksArgs per pipeline bin.
+    /// The meshlet cull's commands, one gpu::DrawMeshTasksArgs per pipeline
+    /// bin, drawn through MeshletInstancePass::draw_bin(). Unset when the
+    /// viewport's graph runs no meshlet cull.
     gpu::Buffer gpu_driven_commands{};
-    uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
 
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};

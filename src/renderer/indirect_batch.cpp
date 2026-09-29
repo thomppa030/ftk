@@ -263,6 +263,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     uint32_t current_pipeline = UINT32_MAX;
     uint32_t range_start = 0;
+    uint32_t range_meshlets_start = 0;
+    const auto close_range = [&] {
+        ranges.push_back({current_pipeline, range_start, draw_index - range_start,
+                          range_meshlets_start, total_meshlets - range_meshlets_start});
+    };
 
     // Helper: compute LOD index for a given world-space position + matrix scale.
     // Mirrors the original per-draw LOD path below but takes an explicit world
@@ -287,11 +292,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         // Ensure the pipeline range reflects the current draw's pipeline before
         // we emit any sub-draws (instanced or not).
         if (dc.pipeline_id != current_pipeline) {
-            if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-                ranges.push_back({current_pipeline, range_start, draw_index - range_start});
-            }
+            if (current_pipeline != UINT32_MAX && draw_index > range_start) close_range();
             current_pipeline = dc.pipeline_id;
             range_start = draw_index;
+            range_meshlets_start = total_meshlets;
         }
 
         bool is_instanced = dc.instance_transforms && !dc.instance_transforms->empty();
@@ -531,9 +535,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
 
     // Close the last range
-    if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-        ranges.push_back({current_pipeline, range_start, draw_index - range_start});
-    }
+    if (current_pipeline != UINT32_MAX && draw_index > range_start) close_range();
 
     opaque_counts_[frame_index] = draw_index;
     total_meshlet_instances_[frame_index] = total_meshlets;

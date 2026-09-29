@@ -29,8 +29,13 @@ struct TaskDispatch {
     uint32_t z;
 };
 
+// A bin's segment of the visible instances, as the cull reads it.
+struct BinSegment {
+    uint32_t first;
+    uint32_t count;
+};
+
 struct CullPush {
-    uint32_t segment_size;
     uint32_t viewport_width;
     uint32_t viewport_height;
     uint32_t hiz_mip_count;
@@ -90,17 +95,24 @@ void MeshletInstancePass::destroy() {
 
 void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (!ctx.indirect_batch) return;
-    uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
+    const IndirectBatch& batch = *ctx.indirect_batch;
+    const uint32_t total_mi = batch.total_meshlet_instances(ctx.frame_index);
     if (total_mi > 0) {
-        ensure_capacity(ctx.frame_index, total_mi);
+        ensure_capacity(ctx.frame_index, total_mi,
+                        static_cast<uint32_t>(batch.pipeline_ranges(ctx.frame_index).size()));
     }
 }
 
-void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_instances) {
-    if (max_instances <= capacities_[frame_index]) return;
+void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t instance_count, uint32_t bin_count) {
+    if (instance_count <= capacities_[frame_index] && bin_count <= bin_capacities_[frame_index]) return;
 
-    uint32_t new_cap = std::max(max_instances, capacities_[frame_index] * 2);
-    if (new_cap < 256) new_cap = 256;
+    // Grown by doubling, so a scene that grows a little each frame does not
+    // reallocate each frame.
+    const auto grown = [](uint32_t needed, uint32_t held, uint32_t least) {
+        return needed <= held ? held : std::max({needed, held * 2, least});
+    };
+    const uint32_t new_cap = grown(instance_count, capacities_[frame_index], 256);
+    const uint32_t new_bins = grown(bin_count, bin_capacities_[frame_index], 16);
 
     const uint64_t instance_size = uint64_t{new_cap} * sizeof(GpuMeshletInstance);
     bool made_all = true;
@@ -114,10 +126,10 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
         return std::move(*made);
     };
     auto instances = make(instance_size, gpu::BufferUse::storage, "meshlet_instances");
-    // N segments, each able to hold every instance.
-    auto visible = make(instance_size * MAX_PIPELINE_BINS, gpu::BufferUse::storage, "meshlet_visible");
+    // Each bin's segment holds every meshlet its range expands to.
+    auto visible = make(instance_size, gpu::BufferUse::storage, "meshlet_visible");
     auto expand_count = make(sizeof(uint32_t), gpu::BufferUse::storage, "meshlet_expand_count");
-    auto indirect = make(MAX_PIPELINE_BINS * sizeof(TaskDispatch),
+    auto indirect = make(uint64_t{new_bins} * sizeof(TaskDispatch),
                          gpu::BufferUse::storage | gpu::BufferUse::indirect, "meshlet_indirect");
     // What the first cull's Hi-Z test rejected, for the second to test again.
     auto culled = make(instance_size, gpu::BufferUse::storage, "meshlet_culled");
@@ -132,6 +144,7 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
     culled_buffers_[frame_index] = std::move(culled);
     culled_counters_[frame_index] = std::move(culled_count);
     capacities_[frame_index] = new_cap;
+    bin_capacities_[frame_index] = new_bins;
 }
 
 void MeshletInstancePass::record_expand(const FrameContext& ctx, uint32_t total_draws) {
@@ -163,7 +176,11 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
     if (ctx.indirect_batch == nullptr || ctx.target == nullptr || ctx.registry == nullptr) return;
     const uint32_t frame = ctx.frame_index;
     const IndirectBatch& batch = *ctx.indirect_batch;
-    if (!visible_buffers_[frame]) return;
+    const auto& ranges = batch.pipeline_ranges(frame);
+    const uint32_t bins = static_cast<uint32_t>(ranges.size());
+    const uint32_t total = batch.total_meshlet_instances(frame);
+    if (!visible_buffers_[frame] || bins == 0) return;
+    if (total > capacities_[frame] || bins > bin_capacities_[frame]) return;
 
     const auto* bounds = ctx.registry->find_buffer("meshlet_bounds");
     if (bounds == nullptr || !bounds->buffer.valid()) return;
@@ -178,7 +195,6 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
     const gpu::BufferRange culled_count(culled_counters_[frame], 0, sizeof(uint32_t));
     if (which == Cull::first) {
         // Every bin's dispatch starts at no groups; the cull counts into x.
-        const uint32_t bins = std::max<uint32_t>(static_cast<uint32_t>(batch.pipeline_ranges(frame).size()), 1);
         const std::vector<TaskDispatch> start(bins, TaskDispatch{0, 1, 1});
         const gpu::BufferRange commands(indirect_buffers_[frame], 0, bins * sizeof(TaskDispatch));
         cmd.copy(cmd.transient(start), commands);
@@ -192,8 +208,12 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
     const bool first = which == Cull::first;
     const gpu::Buffer input = first ? instance_buffers_[frame] : culled_buffers_[frame];
     const gpu::Buffer input_count = first ? expand_counters_[frame] : culled_counters_[frame];
-    const uint32_t segment = capacities_[frame];
     const auto extent = ctx.target->extent();
+    std::vector<BinSegment> segments;
+    segments.reserve(bins);
+    for (const PipelineDrawRange& range : ranges) {
+        segments.push_back({range.first_meshlet_instance, range.meshlet_instances});
+    }
 
     cmd.set_pipeline(cull_pipeline_);
     cmd.bind(ctx.globals);
@@ -209,19 +229,36 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
                                                                    batch.pipeline_bin_size(frame)))},
               {"hiz_pyramid", gpu::sampled(hiz, hiz_sampler_)},
               {"CulledInstances", gpu::storage(culled_buffers_[frame])},
-              {"CulledCounter", gpu::storage(culled_count)}});
+              {"CulledCounter", gpu::storage(culled_count)},
+              {"BinSegments", gpu::storage(cmd.transient(segments))}});
     cmd.push(CullPush{
-        .segment_size = segment,
         .viewport_width = extent.width,
         .viewport_height = extent.height,
         .hiz_mip_count = hiz_mips,
         .is_second_pass = static_cast<uint32_t>(which),
     });
-    cmd.dispatch((segment + GROUP - 1) / GROUP, 1, 1);
+    // One invocation per meshlet the draws expand to; the second cull's
+    // input is some of them.
+    cmd.dispatch((total + GROUP - 1) / GROUP, 1, 1);
 
     if (first && ctx.render_stats != nullptr) {
         ctx.render_stats->two_pass_occlusion = hiz_ready;
     }
+}
+
+void MeshletInstancePass::draw_bin(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t bin) {
+    const PipelineDrawRange& range = ctx.indirect_batch->pipeline_ranges(ctx.frame_index)[bin];
+    // A range without meshlets has nothing to draw, and while no range has
+    // any the cull does not run to reset the commands.
+    if (range.meshlet_instances == 0) return;
+    // The task stage reads the bin's segment from where the push says it
+    // starts. The segment holds every meshlet of the range, so the cull
+    // never finds more visible than that.
+    pass.push(range.first_meshlet_instance);
+    pass.draw_mesh_tasks_indirect(
+        gpu::BufferRange(ctx.gpu_driven_commands, uint64_t{bin} * sizeof(gpu::DrawMeshTasksArgs),
+                         sizeof(gpu::DrawMeshTasksArgs)),
+        1, sizeof(gpu::DrawMeshTasksArgs), range.meshlet_instances);
 }
 
 PassSetup MeshletInstancePass::setup() const {

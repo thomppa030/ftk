@@ -3,6 +3,7 @@
 #include "gpu/buffer.hpp"
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
 #include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
@@ -23,9 +24,11 @@ static_assert(sizeof(GpuMeshletInstance) == 16);
 
 /// Expands every opaque draw into its meshlets and culls them into one
 /// segment of visible instances per pipeline bin, with a mesh-task dispatch
-/// per bin counting them. The first cull tests against last frame's Hi-Z and
-/// sets aside what it rejected; `MeshletCullPass2` tests those again against
-/// this frame's and appends what is visible after all.
+/// per bin counting them. A bin is one of the batch's pipeline ranges, and
+/// its segment holds every meshlet the range expands to. The first cull
+/// tests against last frame's Hi-Z and sets aside what it rejected;
+/// `MeshletCullPass2` tests those again against this frame's and appends
+/// what is visible after all.
 class MeshletInstancePass : public RenderPass {
 public:
     /// Which of the two culls a dispatch is.
@@ -40,8 +43,9 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
-    // Resize buffers if total meshlet instance count grew
-    void ensure_capacity(uint32_t frame_index, uint32_t max_instances);
+    /// Grows the frame slot's buffers to hold `instance_count` meshlet
+    /// instances in `bin_count` pipeline bins.
+    void ensure_capacity(uint32_t frame_index, uint32_t instance_count, uint32_t bin_count);
 
     /// Records one cull over this frame's draws. The first starts the
     /// indirect commands and the set-aside count from zero; the second
@@ -51,16 +55,16 @@ public:
     // Visible instances buffer for binding in meshlet descriptor (set 3 binding 5)
     [[nodiscard]] gpu::Buffer visible_buffer(uint32_t frame_index) const { return visible_buffers_[frame_index]; }
     [[nodiscard]] uint64_t visible_buffer_size(uint32_t frame_index) const {
-        return uint64_t{capacities_[frame_index]} * sizeof(GpuMeshletInstance) * MAX_PIPELINE_BINS;
+        return uint64_t{capacities_[frame_index]} * sizeof(GpuMeshletInstance);
     }
 
     /// One mesh-task dispatch (x, y, z groups) per pipeline bin.
     [[nodiscard]] gpu::Buffer indirect_buffer(uint32_t frame_index) const { return indirect_buffers_[frame_index]; }
 
-    // Max instances per pipeline bin (segment size in the visible buffer)
-    [[nodiscard]] uint32_t segment_size(uint32_t frame_index) const {
-        return capacities_[frame_index];
-    }
+    /// Draws the meshlets the culls found visible in one bin, one task
+    /// group each, through the pipeline bound: one whose task stage is
+    /// mesh_gpu_driven.task.
+    static void draw_bin(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t bin);
 
 private:
     void record_expand(const FrameContext& ctx, uint32_t total_draws);
@@ -83,7 +87,9 @@ private:
     PerFrame<gpu::Owned<gpu::Buffer>> indirect_buffers_;   // N dispatch cmds
     PerFrame<gpu::Owned<gpu::Buffer>> culled_buffers_;     // Hi-Z rejected (first pass)
     PerFrame<gpu::Owned<gpu::Buffer>> culled_counters_;    // atomic counter for culled
+    /// Meshlet instances and pipeline bins each slot's buffers hold.
     PerFrame<uint32_t> capacities_{};
+    PerFrame<uint32_t> bin_capacities_{};
 };
 
 } // namespace fjell

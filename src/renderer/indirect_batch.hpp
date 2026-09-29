@@ -87,6 +87,11 @@ struct PipelineDrawRange {
     uint32_t pipeline_id{0};
     uint32_t first_draw{0};   // offset into indirect buffer (in commands)
     uint32_t draw_count{0};
+    /// The meshlets the range's draws expand to, each instance's apart, and
+    /// how many of the frame's come before them: the range's segment of the
+    /// meshlets the meshlet cull finds visible.
+    uint32_t first_meshlet_instance{0};
+    uint32_t meshlet_instances{0};
 };
 
 class IndirectBatch {

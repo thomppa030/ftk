@@ -26,7 +26,7 @@ layout(set = 1, binding = 2) readonly buffer InputCounter {
     uint input_count;
 };
 
-// Visible output: binned by pipeline, each bin is a segment of segment_size entries
+// Visible output: binned by pipeline, each bin a segment of its own
 layout(set = 1, binding = 3) writeonly buffer OutputInstances {
     MeshletInstance instances_out[];
 };
@@ -48,7 +48,7 @@ layout(set = 1, binding = 6) readonly buffer PipelineBinBuffer {
 // Hi-Z depth pyramid for occlusion culling
 layout(set = 1, binding = 7) uniform sampler2D hiz_pyramid;
 
-// Per-draw pipeline bin index
+// What the first pass's Hi-Z test rejected, for the second to test again
 layout(set = 1, binding = 8) writeonly buffer CulledInstances {
     MeshletInstance instances_culled[];
 };
@@ -57,8 +57,13 @@ layout(set = 1, binding = 9) buffer CulledCounter {
     uint culled_count;
 };
 
+// Each bin's segment of the visible output: its first slot, and how many
+// it holds
+layout(set = 1, binding = 10) readonly buffer BinSegments {
+    uvec2 bin_segments[];
+};
+
 layout(push_constant) uniform PushConstants {
-    uint segment_size;    // max instances per bin
     uint viewport_width;
     uint viewport_height;
     uint hiz_mip_count;
@@ -121,10 +126,11 @@ void main() {
         if (occluded) return;
     }
 
-    // Visible — add to binned output
+    // Visible — add to its bin's segment
     uint bin = pipeline_bin[inst.draw_index];
+    uvec2 segment = bin_segments[bin];
     uint slot = atomicAdd(cmds[bin * 3], 1);
-    if (slot < segment_size) {
-        instances_out[bin * segment_size + slot] = inst;
+    if (slot < segment.y) {
+        instances_out[segment.x + slot] = inst;
     }
 }
