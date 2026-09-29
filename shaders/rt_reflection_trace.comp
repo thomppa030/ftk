@@ -162,10 +162,10 @@ vec3 trace_radiance(vec3 origin, vec3 direction) {
     }
 
     RtHit hit = rt_committed_hit(q);
-    RtSurface surface;
-    if (!rt_resolve_hit(hit, surface)) {
+    if (!rt_hit_in_bounds(hit)) {
         return vec3(0.0);
     }
+    RtSurface surface = rt_resolve_hit(hit);
 
     vec3 N = rt_surface_normal(surface);
     vec3 world_pos = origin + direction * hit.t;

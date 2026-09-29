@@ -123,10 +123,11 @@ vec3 trace_emission(vec3 origin, vec3 direction) {
     if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
         return vec3(0.0);
     }
-    RtSurface surface;
-    if (!rt_resolve_hit(rt_committed_hit(q), surface)) {
+    RtHit hit = rt_committed_hit(q);
+    if (!rt_hit_in_bounds(hit)) {
         return vec3(0.0);
     }
+    RtSurface surface = rt_resolve_hit(hit);
     vec2 uv = rt_surface_uv(surface);
     return rt_surface_emission(surface, uv);
 }

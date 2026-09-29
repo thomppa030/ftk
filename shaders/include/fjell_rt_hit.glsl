@@ -16,11 +16,15 @@
 //     #define FJELL_RT_INSTANCE_BINDING 8
 //
 // The geometry is the mega buffer the TLAS was built from, plus one
-// RtInstanceData per TLAS instance, in instance order.
+// RtInstanceData per TLAS instance, in instance order. A caller that holds
+// the geometry some other way leaves the bindings undefined and provides
+// `vertex_data`, `index_data` and `rt_instances` itself: tests/test_rt_hit.cpp
+// compiles this file as C++ that way.
 
 #include "fjell_gpu_types.glsl"
 #include "fjell_material_emission.glsl"
 
+#ifdef FJELL_RT_VERTEX_BINDING
 layout(set = 0, binding = FJELL_RT_VERTEX_BINDING) readonly buffer VertexBuffer {
     float vertex_data[];
 };
@@ -32,6 +36,7 @@ layout(set = 0, binding = FJELL_RT_INDEX_BINDING) readonly buffer IndexBuffer {
 layout(set = 0, binding = FJELL_RT_INSTANCE_BINDING) readonly buffer InstanceDataBuffer {
     RtInstanceData rt_instances[];
 };
+#endif
 
 // Vertex layout: position(vec3), color(vec3), tex_coord(vec2), normal(vec3),
 // tangent(vec4), 15 floats.
@@ -48,6 +53,7 @@ struct RtHit {
     mat4x3 world_to_object;  // the inverse of the instance's transform
 };
 
+#ifdef GL_EXT_ray_query
 // The closest triangle a finished query committed to. Only meaningful when
 // rayQueryGetIntersectionTypeEXT(q, true) reports a triangle.
 RtHit rt_committed_hit(rayQueryEXT q) {
@@ -59,22 +65,22 @@ RtHit rt_committed_hit(rayQueryEXT q) {
     hit.world_to_object = rayQueryGetIntersectionWorldToObjectEXT(q, true);
     return hit;
 }
+#endif
 
-// A hit resolved to the surface it landed on.
-struct RtSurface {
-    GpuMaterial material;
-    uvec3 vertices;          // the triangle's vertices, as indices into vertex_data
-    vec3 weights;            // the barycentric weight of each
-    mat4x3 world_to_object;
-    bool two_sided;          // either side of the surface is its front
-};
+// The triangle's vertices, as indices into vertex_data.
+uvec3 rt_hit_vertices(RtInstanceData inst, uint primitive) {
+    uint idx_base = inst.first_index + primitive * 3;
+    return uvec3(index_data[idx_base + 0] + inst.vertex_offset,
+                 index_data[idx_base + 1] + inst.vertex_offset,
+                 index_data[idx_base + 2] + inst.vertex_offset);
+}
 
-// Resolves a hit to its material and vertices. Returns false when a read it
-// needs would fall outside its buffer, and the tracer then drops the hit.
-// Under rapid spawn churn the TLAS can hold more instances than rt_instances
-// has entries, and an entry in range can carry a stale first_index or
-// material_id; an unchecked read past a bound buffer loses the device.
-bool rt_resolve_hit(RtHit hit, out RtSurface surface) {
+// Whether every read rt_resolve_hit makes for this hit falls inside its
+// buffer. A tracer drops a hit that does not: under rapid spawn churn the
+// TLAS can hold more instances than rt_instances has entries, and an entry
+// in range can carry a stale first_index or material_id. An unchecked read
+// past a bound buffer loses the device.
+bool rt_hit_in_bounds(RtHit hit) {
     if (hit.instance >= rt_instances.length()) {
         return false;
     }
@@ -85,21 +91,31 @@ bool rt_resolve_hit(RtHit hit, out RtSurface surface) {
         || idx_base + 2 >= index_data.length()) {
         return false;
     }
-    surface.material = materials[inst.material_id];
-
-    uvec3 v = uvec3(index_data[idx_base + 0],
-                    index_data[idx_base + 1],
-                    index_data[idx_base + 2]) + inst.vertex_offset;
+    uvec3 v = rt_hit_vertices(inst, hit.primitive);
     uint max_vtx = max(v.x, max(v.y, v.z));
-    if ((max_vtx + 1) * RT_FLOATS_PER_VERTEX > vertex_data.length()) {
-        return false;
-    }
-    surface.vertices = v;
+    return (max_vtx + 1) * RT_FLOATS_PER_VERTEX <= vertex_data.length();
+}
+
+// A hit resolved to the surface it landed on.
+struct RtSurface {
+    GpuMaterial material;
+    uvec3 vertices;          // the triangle's vertices, as indices into vertex_data
+    vec3 weights;            // the barycentric weight of each
+    mat4x3 world_to_object;
+    bool two_sided;          // either side of the surface is its front
+};
+
+// The surface a hit landed on. Only for a hit rt_hit_in_bounds accepts.
+RtSurface rt_resolve_hit(RtHit hit) {
+    RtInstanceData inst = rt_instances[hit.instance];
+    RtSurface surface;
+    surface.material = materials[inst.material_id];
+    surface.vertices = rt_hit_vertices(inst, hit.primitive);
     surface.weights = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y,
                            hit.barycentrics.x, hit.barycentrics.y);
     surface.world_to_object = hit.world_to_object;
     surface.two_sided = (inst.flags & RT_INSTANCE_TWO_SIDED) != 0u;
-    return true;
+    return surface;
 }
 
 vec2 rt_vertex_texcoord(uint vertex_index) {
@@ -146,7 +162,7 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
                        surface.material.base_params[2]);
     uint base_color_tex = surface.material.texture_indices[0];
     if (base_color_tex > 0) {
-        albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
+        albedo *= vec3(textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0));
     }
     return albedo;
 }
@@ -154,8 +170,8 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
 // What the surface emits at the hit (see fjell_material_emission.glsl), read
 // one mip down: a ray does not know its footprint.
 vec3 rt_surface_emission(RtSurface surface, vec2 uv) {
-    vec3 emissive_sample = textureLod(
-        textures[nonuniformEXT(surface.material.texture_indices[3])], uv, 1.0).rgb;
+    vec3 emissive_sample = vec3(textureLod(
+        textures[nonuniformEXT(surface.material.texture_indices[3])], uv, 1.0));
     return material_emission(surface.material, emissive_sample);
 }
 

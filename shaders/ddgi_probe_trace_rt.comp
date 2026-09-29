@@ -88,10 +88,10 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
     }
 
     RtHit hit = rt_committed_hit(q);
-    RtSurface surface;
-    if (!rt_resolve_hit(hit, surface)) {
+    if (!rt_hit_in_bounds(hit)) {
         return vec4(0.0, 0.0, 0.0, hit.t);
     }
+    RtSurface surface = rt_resolve_hit(hit);
 
     // A ray reaching a surface from the side its normal faces away from has
     // hit the back of it. On a one-sided surface that means the probe sits

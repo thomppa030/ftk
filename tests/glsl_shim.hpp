@@ -14,8 +14,13 @@
 /// apart; compiling the shader alone proves it parses, not that it still
 /// computes what the CPU computes.
 ///
-/// Only for shaders that are pure functions over vectors and scalars — no
-/// bindings, no samplers, no stage builtins.
+/// It also pins a shader's own rules where there is no CPU half, as
+/// test_post_effects.cpp and test_rt_hit.cpp do.
+///
+/// Only for shaders that are functions over vectors and scalars, with no
+/// stage builtins. Whatever such an include reads from a buffer or sampler
+/// it reads through names its caller provides, which a test defines before
+/// including it.
 
 #include <glm/glm.hpp>
 
@@ -27,9 +32,12 @@ using vec3 = glm::vec3;
 using vec4 = glm::vec4;
 using mat3 = glm::mat3;
 using mat4 = glm::mat4;
+using mat4x3 = glm::mat4x3;
 using ivec2 = glm::ivec2;
 using ivec3 = glm::ivec3;
+using ivec4 = glm::ivec4;
 using uvec2 = glm::uvec2;
+using uvec3 = glm::uvec3;
 using uvec4 = glm::uvec4;
 using uint = unsigned int;
 
@@ -42,6 +50,10 @@ using glm::max;
 using glm::min;
 using glm::mix;
 using glm::normalize;
+using glm::transpose;
+
+/// Only marks an index as varying across invocations on the GPU.
+template <typename T> T nonuniformEXT(T index) { return index; }
 
 inline float max(float a, float b) { return std::max(a, b); }
 inline float min(float a, float b) { return std::min(a, b); }
