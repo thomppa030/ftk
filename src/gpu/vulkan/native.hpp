@@ -97,6 +97,13 @@ void begin_frame(Device& device, uint32_t frame_slot);
 /// (the frame graph's barrier trace); null stops it.
 void trace_transitions(Device& device, std::string* lines);
 
+/// The timeline a frame's last submission signals at the frame's serial.
+[[nodiscard]] VkSemaphore frame_timeline(Device& device);
+
+/// The newest frame serial the GPU has finished: what the frame timeline has
+/// reached.
+[[nodiscard]] uint64_t finished_frame(Device& device);
+
 /// The device's one-frame descriptor sets, for passes that acquire their own.
 [[nodiscard]] FrameDescriptorCache& frame_cache(Device& device);
 [[nodiscard]] const FrameDescriptorCache& frame_cache(const Device& device);

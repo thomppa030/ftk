@@ -2,6 +2,7 @@
 
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/translate.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 namespace fjell::gpu::vulkan {
 
@@ -156,6 +157,17 @@ Owned<BindGroup> adopt_group(Device& device, SharedLayout shared, VkDescriptorSe
 VkDescriptorSet native_group(Device& device, BindGroup group) {
     const auto* record = device.impl().groups.get(group);
     return record != nullptr ? record->set : VK_NULL_HANDLE;
+}
+
+VkSemaphore frame_timeline(Device& device) {
+    return device.impl().frame_timeline;
+}
+
+uint64_t finished_frame(Device& device) {
+    uint64_t value = 0;
+    vk_check(vkGetSemaphoreCounterValue(device.impl().device, device.impl().frame_timeline, &value),
+             "Failed to read the frame timeline");
+    return value;
 }
 
 void begin_frame(Device& device, uint32_t frame_slot) {
