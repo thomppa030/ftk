@@ -332,7 +332,7 @@ PassSetup DepthPrePass::setup() const {
 
 void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
-    const bool has_msaa = ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT;
+    const bool has_msaa = ctx.msaa_samples != gpu::Samples::x1;
     auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
     builder.write(depth, gpu::Access::depth_attachment);
     // On the mesh-shader path the prepass draws what the first meshlet cull

@@ -67,7 +67,7 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(msaa_depth, gpu::Access::depth_attachment);
     // Under MSAA the depth attachment resolves into `depth` as rendering
     // ends; without it the two names are one attachment.
-    builder.write(depth, ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT
+    builder.write(depth, ctx.msaa_samples != gpu::Samples::x1
                              ? gpu::Access::depth_resolve
                              : gpu::Access::depth_attachment);
 

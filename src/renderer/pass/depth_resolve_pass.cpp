@@ -1,6 +1,7 @@
 #include "renderer/pass/depth_resolve_pass.hpp"
+
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
+#include "gpu/render_encoder.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 
@@ -15,7 +16,7 @@ PassSetup DepthResolvePass::setup() const {
 }
 
 void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    if (ctx.msaa_samples == VK_SAMPLE_COUNT_1_BIT) { return; }
+    if (ctx.msaa_samples == gpu::Samples::x1) { return; }
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
     builder.read(msaa_depth, gpu::Access::depth_attachment_read);
@@ -24,29 +25,18 @@ void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
 
 void DepthResolvePass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
-    if (target == nullptr || target->sample_count() == VK_SAMPLE_COUNT_1_BIT) { return; }
+    if (target == nullptr || target->samples() == gpu::Samples::x1) { return; }
 
     FJELL_PROFILE_SCOPE_N("record_depth_resolve");
-    FJELL_GPU_ZONE(ctx, "Depth Resolve");
-
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->msaa_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    depth_attachment.resolveImageView = target->depth_view();
-    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.pDepthAttachment = &depth_attachment;
-
-    vkCmdBeginRendering(ctx.cmd, &ri);
-    vkCmdEndRendering(ctx.cmd);
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Depth Resolve");
+    // Nothing is drawn: beginning and ending the scope resolves the samples.
+    auto resolve = cmd.render({.depth = gpu::DepthAttachment{
+                                   .view = target->msaa_depth_texture(),
+                                   .access = gpu::Access::depth_attachment_read,
+                                   .resolve = target->depth_texture(),
+                                   .resolve_mode = gpu::DepthResolve::sample_zero,
+                               }});
 }
 
 } // namespace fjell

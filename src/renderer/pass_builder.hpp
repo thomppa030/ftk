@@ -87,7 +87,7 @@ struct TextureExport {
 
 struct DeclareContext {
     glm::uvec2 viewport_extent{0, 0};
-    VkSampleCountFlagBits msaa_samples{VK_SAMPLE_COUNT_1_BIT};
+    gpu::Samples msaa_samples{gpu::Samples::x1};
     uint32_t frame_index{0};
 
     // Hardware capability flags

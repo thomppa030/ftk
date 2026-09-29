@@ -64,7 +64,6 @@ src/renderer/pass/debug_pass.hpp
 src/renderer/pass/depth_pipeline.hpp
 src/renderer/pass/depth_prepass.cpp
 src/renderer/pass/depth_prepass.hpp
-src/renderer/pass/depth_resolve_pass.cpp
 src/renderer/pass/depth_viz_pass.cpp
 src/renderer/pass/depth_viz_pass.hpp
 src/renderer/pass/distortion_apply_pass.cpp

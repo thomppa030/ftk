@@ -30,6 +30,10 @@ namespace fjell::gpu::vulkan {
 /// The Vulkan sample count, which is the same number.
 [[nodiscard]] VkSampleCountFlagBits to_vk(Samples samples);
 
+/// The interface's sample count for a Vulkan one, for targets made before the
+/// interface. A count above eight reads as eight, the most the interface has.
+[[nodiscard]] Samples from_vk(VkSampleCountFlagBits samples);
+
 /// The Vulkan usage for `uses`, with copies and clears always allowed: as on
 /// Metal, which asks no usage of a blit, any texture may be the source or the
 /// destination of one.

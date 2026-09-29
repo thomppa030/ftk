@@ -2,6 +2,7 @@
 
 #include "gpu/owned.hpp"
 #include "gpu/texture.hpp"
+#include "gpu/vulkan/translate.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -68,6 +69,7 @@ public:
     [[nodiscard]] VkImageView resolve_water_depth_view() const { return resolve_water_depth_view_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
     [[nodiscard]] VkSampleCountFlagBits sample_count() const { return msaa_samples_; }
+    [[nodiscard]] gpu::Samples samples() const { return gpu::vulkan::from_vk(msaa_samples_); }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     [[nodiscard]] VkDescriptorSet depth_imgui_texture();
     void invalidate_imgui_texture();

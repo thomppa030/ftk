@@ -16,6 +16,7 @@
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "gpu/vulkan/native.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
@@ -124,7 +125,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // ── Per-frame DeclareContext ──────────────────────────────────────
     DeclareContext decl_ctx;
     decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
-    decl_ctx.msaa_samples    = msaa;
+    decl_ctx.msaa_samples    = gpu::vulkan::from_vk(msaa);
     decl_ctx.frame_index     = frame_index;
     decl_ctx.active_sources  = active_sources;
     decl_ctx.grid_shown      = ctx.show_grid;

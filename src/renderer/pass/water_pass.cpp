@@ -1141,7 +1141,7 @@ void WaterDepthPrepass::declare(PassBuilder& builder, const DeclareContext& ctx)
     builder.write(builder.import_named(ctx, "msaa_surface_depth"),
                   gpu::Access::depth_attachment);
     builder.write(builder.import_named(ctx, "surface_depth"),
-                  ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT ? gpu::Access::depth_resolve
+                  ctx.msaa_samples != gpu::Samples::x1 ? gpu::Access::depth_resolve
                                                             : gpu::Access::depth_attachment);
     // The simulated sea, which the mesh stage moves the surface by.
     WaterPass::declare_simulation_reads(builder, ctx, gpu::Access::sampled_mesh);

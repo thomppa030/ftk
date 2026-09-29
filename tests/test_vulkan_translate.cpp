@@ -48,7 +48,9 @@ TEST_CASE("formats Apple GPUs lack have no name in the interface", "[gpu]") {
 TEST_CASE("a sample count maps to the same count", "[gpu]") {
     for (Samples samples : {Samples::x1, Samples::x2, Samples::x4, Samples::x8}) {
         CHECK(static_cast<uint32_t>(vulkan::to_vk(samples)) == static_cast<uint32_t>(samples));
+        CHECK(vulkan::from_vk(vulkan::to_vk(samples)) == samples);
     }
+    CHECK(vulkan::from_vk(VK_SAMPLE_COUNT_16_BIT) == Samples::x8);
 }
 
 TEST_CASE("any texture or buffer may be copied and cleared", "[gpu]") {
