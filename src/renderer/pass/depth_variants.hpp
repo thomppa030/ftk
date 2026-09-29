@@ -6,6 +6,7 @@
 #include "gpu/render_encoder.hpp"
 #include "renderer/indirect_batch.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,8 @@ struct DepthVariantShaders {
     const char* fragment{nullptr};
 };
 
-/// What a depth-only pipeline is made of besides its shaders.
+/// What a depth-only pipeline is made of besides its shaders. The raster
+/// state's cull is chosen per draw: see DepthVariants.
 struct DepthVariantState {
     gpu::VertexLayout vertex_layout{};
     gpu::Raster raster{};
@@ -41,9 +43,10 @@ struct DepthVariantLayouts {
     gpu::SharedLayout meshlets{};
 };
 
-/// A depth-only pass's pipelines over the batch's static draws: its own
-/// default, and one for each material shader with a stage of its own (a
-/// displacement), built from that shader's compiled stage on the same state.
+/// A depth-only pass's pipelines over the batch's static draws: its own, one
+/// for each way a draw can be culled, and one for each material shader with a
+/// stage of its own (a displacement), built from that shader's compiled stage
+/// on the same state with that material's cull.
 class DepthVariants {
 public:
     /// The pipeline a range of material shader `pipeline_id` draws with.
@@ -59,30 +62,33 @@ public:
     void destroy();
 
     /// Builds, or builds again, the pipeline for material shader
-    /// `pipeline_id` from its compiled stage at `spirv_path`. A failure is
-    /// logged, and the shader draws with what it had.
-    void register_custom(uint32_t pipeline_id, const std::string& spirv_path);
+    /// `pipeline_id` from its compiled stage at `spirv_path`, culling `cull`.
+    /// A failure is logged, and the shader draws with what it had.
+    void register_custom(uint32_t pipeline_id, const std::string& spirv_path, gpu::Cull cull);
     /// Forgets every material shader's pipeline: they draw with the default.
     void clear_custom();
 
-    [[nodiscard]] Variant variant(uint32_t pipeline_id) const {
+    /// The pipeline material shader `pipeline_id` draws with: its own, or the
+    /// pass's culling `cull`.
+    [[nodiscard]] Variant variant(uint32_t pipeline_id, gpu::Cull cull) const {
         const auto custom = custom_.find(pipeline_id);
-        return custom != custom_.end() ? Variant{custom->second, true} : Variant{default_, false};
+        return custom != custom_.end() ? Variant{custom->second, true}
+                                       : Variant{defaults_[static_cast<size_t>(cull)], false};
     }
     [[nodiscard]] bool has_custom(uint32_t pipeline_id) const { return custom_.contains(pipeline_id); }
 
     /// Draws the batch's static draws range by range, each with its material
-    /// shader's pipeline or the default: a vertex pipeline's indexed draws
-    /// from the batch's indirect commands. `bind(custom)` runs after every
-    /// pipeline change to bind what the pipeline reads: the bindless table
-    /// too when `custom`.
-    template <typename Bind>
+    /// shader's pipeline or the pass's culling `cull_of(pipeline_id)`: a
+    /// vertex pipeline's indexed draws from the batch's indirect commands.
+    /// `bind(custom)` runs after every pipeline change to bind what the
+    /// pipeline reads: the bindless table too when `custom`.
+    template <typename CullOf, typename Bind>
     void draw_batch(gpu::RenderEncoder& pass, const IndirectBatch& batch, uint32_t frame_index,
-                    Bind&& bind) const {
+                    CullOf&& cull_of, Bind&& bind) const {
         const gpu::Buffer commands = batch.shared_indirect_buffer(frame_index);
         gpu::GraphicsPipeline bound{};
         for (const auto& range : batch.pipeline_ranges(frame_index)) {
-            const Variant needed = variant(range.pipeline_id);
+            const Variant needed = variant(range.pipeline_id, cull_of(range.pipeline_id));
             if (needed.pipeline != bound) {
                 pass.set_pipeline(needed.pipeline);
                 bind(needed.custom);
@@ -96,15 +102,16 @@ public:
     }
 
 private:
-    [[nodiscard]] gpu::GraphicsPipelineDesc description(const DepthVariantShaders& shaders,
-                                                        bool custom, std::string_view name) const;
+    [[nodiscard]] gpu::GraphicsPipelineDesc description(const DepthVariantShaders& shaders, bool custom,
+                                                        gpu::Cull cull, std::string_view name) const;
 
     gpu::Device* device_{nullptr};
     DepthVariantShaders shaders_{};
     DepthVariantState state_{};
     DepthVariantLayouts layouts_{};
     std::string name_;
-    gpu::Owned<gpu::GraphicsPipeline> default_;
+    /// The pass's own, one per gpu::Cull.
+    std::array<gpu::Owned<gpu::GraphicsPipeline>, 3> defaults_;
     std::unordered_map<uint32_t, gpu::Owned<gpu::GraphicsPipeline>> custom_;
 };
 

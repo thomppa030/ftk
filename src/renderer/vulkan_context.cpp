@@ -470,6 +470,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         gi.pool = &pool;
         gi.stats = &gpu_.render_stats();
         gi.animation_system = animation_system_;
+        gi.pipelines = gpu_.pipeline_cache();
         if (ddgi_pass().backend() == DdgiBackend::ray_traced) {
             gi.gi_reach = ddgi_pass().trace_reach_bounds();
         }
@@ -1811,12 +1812,12 @@ void VulkanContext::sync_custom_depth_pipelines() {
 
         const auto& depth_mesh = pc->depth_mesh_spv(id);
         if (msd && !depth_mesh.empty()) {
-            msd->register_custom_depth(id, depth_mesh);
+            msd->register_custom_depth(id, depth_mesh, pc->cull(id));
         }
 
         const auto& depth_vert = pc->depth_vert_spv(id);
         if (!depth_vert.empty()) {
-            depth_prepass().register_custom_depth(id, depth_vert);
+            depth_prepass().register_custom_depth(id, depth_vert, pc->cull(id));
         }
 
         const auto& shadow_vert = pc->shadow_vert_spv(id);

@@ -7,6 +7,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/vertex.hpp"
@@ -18,7 +19,8 @@ namespace fjell {
 
 Result<> MeshShaderDepthPass::create(Device& /*device*/, const PassResources& resources) {
     gpu::Device& device = *resources.device;
-    // Every side drawn, nearer wins.
+    // Nearer wins; each draw culls what its material culls, as the colour
+    // pass does, so the depth holds exactly the faces it shades.
     const DepthVariantState state{
         .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
         .depth_format = resources.scene_depth_format,
@@ -36,16 +38,20 @@ Result<> MeshShaderDepthPass::create(Device& /*device*/, const PassResources& re
         !made) {
         return made;
     }
-    FJELL_TRY(gpu_driven_pipeline_, device.create(gpu::GraphicsPipelineDesc{
-                                        .task = "shaders/mesh_gpu_driven.task",
-                                        .mesh = "shaders/depth_gpu_driven.mesh",
-                                        .fragment = "shaders/depth_only.frag",
-                                        .depth = state.depth,
-                                        .depth_format = state.depth_format,
-                                        .samples = state.samples,
-                                        .shared = {layouts.globals, layouts.draw_data, layouts.meshlets},
-                                        .name = "mesh_depth_gpu_driven",
-                                    }));
+    for (const gpu::Cull cull : {gpu::Cull::none, gpu::Cull::back, gpu::Cull::front}) {
+        FJELL_TRY(gpu_driven_pipelines_[static_cast<size_t>(cull)],
+                  device.create(gpu::GraphicsPipelineDesc{
+                      .task = "shaders/mesh_gpu_driven.task",
+                      .mesh = "shaders/depth_gpu_driven.mesh",
+                      .fragment = "shaders/depth_only.frag",
+                      .raster = {.cull = cull},
+                      .depth = state.depth,
+                      .depth_format = state.depth_format,
+                      .samples = state.samples,
+                      .shared = {layouts.globals, layouts.draw_data, layouts.meshlets},
+                      .name = "mesh_depth_gpu_driven",
+                  }));
+    }
     FJELL_TRY(skinned_pipeline_, device.create(gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_depth.vert",
                                      .fragment = "shaders/depth_only.frag",
@@ -62,7 +68,7 @@ Result<> MeshShaderDepthPass::create(Device& /*device*/, const PassResources& re
 
 void MeshShaderDepthPass::destroy() {
     meshes_.destroy();
-    gpu_driven_pipeline_.reset();
+    for (auto& pipeline : gpu_driven_pipelines_) pipeline.reset();
     skinned_pipeline_.reset();
 }
 
@@ -89,19 +95,28 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         const IndirectBatch& batch = *ctx.indirect_batch;
         const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
         const bool gpu_driven = ctx.gpu_driven_commands.valid();
+        const auto cull_of = [&](uint32_t pipeline_id) {
+            return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
+        };
 
         // What the meshlet cull found visible, bin by bin, except the bins of
         // materials with their own mesh stage, drawn below.
         if (gpu_driven) {
-            pass.set_pipeline(gpu_driven_pipeline_);
-            pass.bind(ctx.globals);
-            pass.bind(ctx.draw_data);
-            pass.bind(ctx.meshlets);
             // The cull adds one task group per visible meshlet, at most a
             // segment's worth per bin.
             const uint32_t segment = ctx.gpu_driven_segment_size;
+            gpu::GraphicsPipeline bound{};
             for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
                 if (meshes_.has_custom(ranges[bin].pipeline_id)) continue;
+                const gpu::GraphicsPipeline needed =
+                    gpu_driven_pipelines_[static_cast<size_t>(cull_of(ranges[bin].pipeline_id))];
+                if (needed != bound) {
+                    pass.set_pipeline(needed);
+                    pass.bind(ctx.globals);
+                    pass.bind(ctx.draw_data);
+                    pass.bind(ctx.meshlets);
+                    bound = needed;
+                }
                 pass.push(bin * segment);
                 pass.draw_mesh_tasks_indirect(
                     gpu::BufferRange(ctx.gpu_driven_commands, uint64_t{bin} * sizeof(gpu::DrawMeshTasksArgs),
@@ -118,7 +133,8 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         gpu::GraphicsPipeline bound{};
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             if (gpu_driven && !meshes_.has_custom(ranges[r].pipeline_id)) continue;
-            const DepthVariants::Variant needed = meshes_.variant(ranges[r].pipeline_id);
+            const DepthVariants::Variant needed =
+                meshes_.variant(ranges[r].pipeline_id, cull_of(ranges[r].pipeline_id));
             if (needed.pipeline != bound) {
                 pass.set_pipeline(needed.pipeline);
                 pass.bind(ctx.globals);

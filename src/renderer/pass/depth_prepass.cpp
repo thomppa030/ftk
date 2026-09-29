@@ -9,6 +9,7 @@
 #include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/skeletal_model.hpp"
@@ -19,7 +20,8 @@ namespace fjell {
 
 Result<> DepthPrePass::create(Device& /*device*/, const PassResources& resources) {
     gpu::Device& device = *resources.device;
-    // Every side drawn, nearer wins.
+    // Nearer wins; each draw culls what its material culls, as the colour
+    // pass does, so the depth holds exactly the faces it shades.
     const DepthVariantState state{
         .vertex_layout = Vertex::layout(),
         .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
@@ -78,11 +80,16 @@ void DepthPrePass::record(const FrameContext& ctx) {
 
     if (ctx.mega_buffer && ctx.indirect_batch) {
         ctx.mega_buffer->bind(pass);
-        casters_.draw_batch(pass, *ctx.indirect_batch, ctx.frame_index, [&](bool custom) {
-            pass.bind(ctx.globals);
-            if (custom) pass.bind(ctx.bindless);
-            pass.bind(ctx.draw_data);
-        });
+        casters_.draw_batch(
+            pass, *ctx.indirect_batch, ctx.frame_index,
+            [&](uint32_t pipeline_id) {
+                return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
+            },
+            [&](bool custom) {
+                pass.bind(ctx.globals);
+                if (custom) pass.bind(ctx.bindless);
+                pass.bind(ctx.draw_data);
+            });
     }
 
     // Skinned depth draws, each from its own vertices.

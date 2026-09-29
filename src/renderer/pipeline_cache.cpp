@@ -286,6 +286,9 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     } else {
         raster.cull = gpu::Cull::back;
     }
+    // The meshlet culls drop back-facing meshlets unless a draw's data says
+    // it keeps them, as it does for exactly the materials that cull no back
+    // faces.
     // The colour pass tests against the prepass's depth and writes none.
     const gpu::Depth depth{.test = !rs.depth_test_disabled, .write = false,
                            .compare = gpu::Compare::less_equal};
@@ -370,7 +373,6 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
                                       "skinned transparent pipeline for: " + path);
 
     // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
-    // It draws every side, whatever the material's cull says.
     if (layouts_.meshlets.valid()) {
         std::vector<uint32_t> own_mesh;
         gpu::ShaderCode mesh = "shaders/mesh_gpu_driven.mesh";
@@ -382,6 +384,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
                                      .task = "shaders/mesh_gpu_driven.task",
                                      .mesh = mesh,
                                      .fragment = std::span<const uint32_t>(fragment),
+                                     .raster = raster,
                                      .depth = depth,
                                      .color = targets(gpu::Blend::none, TWO_CHANNELS),
                                      .depth_format = targets_.depth,
@@ -496,6 +499,13 @@ gpu::GraphicsPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) c
 gpu::GraphicsPipeline PipelineCache::outline_pipeline(uint32_t id) const {
     const gpu::GraphicsPipeline p = entries_[id].outline;
     return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].outline);
+}
+
+gpu::Cull PipelineCache::cull(uint32_t id) const {
+    const auto& rs = entries_[id].program.metadata.render_state;
+    if (rs.cull_disabled) return gpu::Cull::none;
+    if (rs.cull_front) return gpu::Cull::front;
+    return gpu::Cull::back;
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {

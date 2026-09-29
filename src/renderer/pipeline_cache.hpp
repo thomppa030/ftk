@@ -67,6 +67,9 @@ public:
     [[nodiscard]] gpu::GraphicsPipeline skinned_transparent_pipeline(uint32_t id) const;
     [[nodiscard]] gpu::GraphicsPipeline outline_pipeline(uint32_t id) const;
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
+    /// The faces a material shader's surfaces are drawn with culled: back
+    /// faces, unless its render state says `cull_disabled` or `cull_front`.
+    [[nodiscard]] gpu::Cull cull(uint32_t id) const;
     [[nodiscard]] bool has_custom_vertex(uint32_t id) const;
     [[nodiscard]] const std::string& depth_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;

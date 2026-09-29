@@ -21,8 +21,10 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
-    void register_custom_depth(uint32_t pipeline_id, const std::string& vert_spv_path) {
-        casters_.register_custom(pipeline_id, vert_spv_path);
+    /// Create a custom depth pipeline for material shader `pipeline_id`, culling
+    /// what its material culls.
+    void register_custom_depth(uint32_t pipeline_id, const std::string& vert_spv_path, gpu::Cull cull) {
+        casters_.register_custom(pipeline_id, vert_spv_path, cull);
     }
     /// Forget every custom depth pipeline.
     void clear_custom_depth() { casters_.clear_custom(); }

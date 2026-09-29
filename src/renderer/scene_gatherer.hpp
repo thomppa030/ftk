@@ -16,6 +16,8 @@
 
 namespace fjell {
 
+class PipelineCache;
+
 class AnimationSystem;
 class GpuContext;
 class Scene;
@@ -35,6 +37,9 @@ struct GatherInput {
     ThreadPool* pool{nullptr};
     RenderStats* stats{nullptr};
     AnimationSystem* animation_system{nullptr};
+    /// The material pipelines, whose cull modes the camera batch notes per
+    /// draw for the meshlet cull.
+    const PipelineCache* pipelines{nullptr};
     /// The volume GI rays can reach. Opaque geometry inside it that the
     /// camera rejects is kept on the GI-only list so it stays in the
     /// acceleration structure. Empty when no ray-traced GI runs, and then

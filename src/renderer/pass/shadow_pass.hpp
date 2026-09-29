@@ -27,6 +27,9 @@ public:
     /// across the ground.
     static constexpr float DEPTH_BIAS_CONSTANT = 1.25F;
     static constexpr float DEPTH_BIAS_SLOPE = 1.75F;
+    /// Every caster's front faces are culled, whatever its material culls:
+    /// with the bias, it keeps acne off lit surfaces.
+    static constexpr gpu::Cull CASTER_CULL = gpu::Cull::front;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -40,7 +43,7 @@ public:
     /// Create a custom shadow pipeline for a specific shader pipeline ID
     /// using a custom vertex shader SPV.
     void register_custom_shadow(uint32_t pipeline_id, const std::string& vert_spv_path) {
-        casters_.register_custom(pipeline_id, vert_spv_path);
+        casters_.register_custom(pipeline_id, vert_spv_path, CASTER_CULL);
     }
     /// Forget every custom shadow pipeline.
     void clear_custom_shadows() { casters_.clear_custom(); }

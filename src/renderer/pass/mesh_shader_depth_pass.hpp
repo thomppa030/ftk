@@ -5,6 +5,7 @@
 #include "renderer/pass/depth_variants.hpp"
 #include "renderer/pass/render_pass.hpp"
 
+#include <array>
 #include <string>
 
 namespace fjell {
@@ -21,9 +22,10 @@ public:
     void record(const FrameContext& ctx) override;
 
     /// Create a custom depth pipeline for a specific shader pipeline ID
-    /// using a custom mesh shader SPV, on the default pipeline's state.
-    void register_custom_depth(uint32_t pipeline_id, const std::string& mesh_spv_path) {
-        meshes_.register_custom(pipeline_id, mesh_spv_path);
+    /// using a custom mesh shader SPV, on the default pipeline's state,
+    /// culling what its material culls.
+    void register_custom_depth(uint32_t pipeline_id, const std::string& mesh_spv_path, gpu::Cull cull) {
+        meshes_.register_custom(pipeline_id, mesh_spv_path, cull);
     }
     /// Forget every custom depth pipeline.
     void clear_custom_depth() { meshes_.clear_custom(); }
@@ -32,8 +34,9 @@ private:
     /// The batch's per-draw commands: depth_mesh.task and depth_mesh.mesh,
     /// or a material's own mesh stage.
     DepthVariants meshes_;
-    /// What the meshlet cull found visible, one bin at a time.
-    gpu::Owned<gpu::GraphicsPipeline> gpu_driven_pipeline_;
+    /// What the meshlet cull found visible, one bin at a time; one per
+    /// gpu::Cull, each bin culling what its material culls.
+    std::array<gpu::Owned<gpu::GraphicsPipeline>, 3> gpu_driven_pipelines_;
 
     // TODO(compute-pre-skin): Remove once skinned meshes go through mesh shader path.
     gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;

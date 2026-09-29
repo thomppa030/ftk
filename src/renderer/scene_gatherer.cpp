@@ -318,7 +318,8 @@ void SceneGatherer::gather(const GatherInput& input) {
                            render_queue_.transparent_commands(),
                            input.frame_index,
                            projection_matrix_, camera_position_,
-                           input.animation_system);
+                           input.animation_system, /*is_shadow_batch=*/false,
+                           input.pipelines);
 
     // Build per-cascade shadow indirect batches (each cascade only draws its own geometry).
     // Pass is_shadow_batch=true so instanced draws skip per-instance LOD bucketing + InstanceCullPass.

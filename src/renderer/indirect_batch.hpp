@@ -17,6 +17,12 @@ class AnimationSystem;
 struct DrawCommand;
 struct MegaMeshEntry;
 class Model;
+class PipelineCache;
+
+/// The draw's surfaces keep what faces away from the camera (a material that
+/// culls nothing, or front faces): the meshlet cull must not drop meshlets
+/// that all face away. Matches fjell_draw_data.glsl.
+constexpr uint32_t DRAW_FLAG_KEEPS_BACK_FACES = 1U;
 
 struct GpuDrawData {
     glm::mat4 model;
@@ -34,7 +40,8 @@ struct GpuDrawData {
     // instance segment = spline_segment_offset + (gl_InstanceIndex - first_instance).
     // 0xFFFFFFFF = not a spline-mesh draw (vertex stage skips deform).
     uint32_t spline_segment_offset{0xFFFFFFFF};
-    uint32_t _pad0{0};
+    /// DRAW_FLAG_* bits.
+    uint32_t flags{0};
     uint32_t _pad1{0};
     uint32_t _pad2{0};
 };
@@ -94,7 +101,8 @@ public:
                const glm::mat4& projection = glm::mat4(1.0f),
                const glm::vec3& camera_pos = glm::vec3(0.0f),
                AnimationSystem* animation_system = nullptr,
-               bool is_shadow_batch = false);
+               bool is_shadow_batch = false,
+               const PipelineCache* pipelines = nullptr);
 
 
     /// The static draws one opaque command's node got in a build: that many

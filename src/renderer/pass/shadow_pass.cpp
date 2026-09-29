@@ -177,7 +177,7 @@ Result<> ShadowPass::create(Device& /*device*/, const PassResources& resources) 
     // against acne.
     DepthVariantState state{
         .vertex_layout = Vertex::layout(),
-        .raster = {.cull = gpu::Cull::front,
+        .raster = {.cull = CASTER_CULL,
                    .depth_clamp = true,
                    .depth_bias = DEPTH_BIAS_CONSTANT,
                    .depth_bias_slope = DEPTH_BIAS_SLOPE},
@@ -268,7 +268,8 @@ void ShadowPass::record(const FrameContext& ctx) {
             // pipeline.
             if (ctx.mega_buffer) {
                 ctx.mega_buffer->bind(pass);
-                casters_.draw_batch(pass, *cascade_batch, ctx.frame_index, bind);
+                casters_.draw_batch(pass, *cascade_batch, ctx.frame_index,
+                                    [](uint32_t) { return CASTER_CULL; }, bind);
             }
 
             // Skinned casters, each from its own vertices.

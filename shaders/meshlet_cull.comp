@@ -101,7 +101,8 @@ void main() {
     if (is_second_pass == 0) {
         // First pass: frustum + cone + occlusion against previous frame's Hi-Z
         if (!frustum_visible) return;
-        if (cull_cone(b.cone_apex.xyz, b.cone_axis_cutoff.xyz, b.cone_axis_cutoff.w,
+        if ((dd.flags & DRAW_FLAG_KEEPS_BACK_FACES) == 0u &&
+            cull_cone(b.cone_apex.xyz, b.cone_axis_cutoff.xyz, b.cone_axis_cutoff.w,
                       model, camera_pos)) return;
 
         bool occluded = cull_hiz_sphere(center, radius, ubo.view, ubo.projection,

@@ -1,4 +1,5 @@
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "animation/animation_system.hpp"
 #include "core/log.hpp"
@@ -170,7 +171,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const glm::mat4& projection,
                           const glm::vec3& camera_pos,
                           AnimationSystem* animation_system,
-                          bool is_shadow_batch) {
+                          bool is_shadow_batch,
+                          const PipelineCache* pipelines) {
     FJELL_PROFILE_SCOPE_N("indirect_batch_build");
 
     // LOD selection reads the projection's vertical scale; an identity
@@ -276,6 +278,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     for (const auto& dc : opaque_commands) {
         if (dc.skinned) continue; // skinned draws appended after static draws
         const NoteNodeDraws note{node_draws, dc.node_id, draw_index, draw_index};
+        // A material that culls no back faces keeps the meshlets facing away.
+        const uint32_t draw_flags =
+            pipelines != nullptr && pipelines->cull(dc.pipeline_id) != gpu::Cull::back
+                ? DRAW_FLAG_KEEPS_BACK_FACES
+                : 0U;
 
         // Ensure the pipeline range reflects the current draw's pipeline before
         // we emit any sub-draws (instanced or not).
@@ -337,6 +344,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 data.instance_count = seg_count;
                 data.first_instance = 0;
                 data.spline_segment_offset = seg_offset;
+                data.flags = draw_flags;
 
                 total_meshlets += entry.meshlet_count * seg_count;
                 triangles      += (entry.index_count / 3) * seg_count;
@@ -386,6 +394,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.vertex_offset = entry.vertex_offset;
                     data.instance_count = src_count;
                     data.first_instance = bucket_first_instance;
+                    data.flags = draw_flags;
 
                     total_meshlets += entry.meshlet_count * src_count;
                     triangles += (entry.index_count / 3) * src_count;
@@ -476,6 +485,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.vertex_offset = entry.vertex_offset;
                     data.instance_count = bucket_count;
                     data.first_instance = bucket_first_instance;
+                    data.flags = draw_flags;
 
                     total_meshlets += entry.meshlet_count * bucket_count;
                     triangles += (entry.index_count / 3) * bucket_count;
@@ -512,6 +522,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.vertex_offset = entry.vertex_offset;
             data.instance_count = 1;
             data.first_instance = 0;
+            data.flags = draw_flags;
 
             total_meshlets += entry.meshlet_count;
             triangles += entry.index_count / 3;
