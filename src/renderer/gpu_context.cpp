@@ -1,5 +1,6 @@
 #include "renderer/gpu_context.hpp"
 #include "gpu/vulkan/native.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -467,6 +468,8 @@ PassResources GpuContext::pass_resources() const {
     res.depth_format = core_.device().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
+    res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
+    res.samples = gpu::vulkan::from_vk(res.sample_count);
     res.allocator = core_.allocator();
     res.pipeline_cache = vk_pipeline_cache_;
     res.command_pool = core_.command_pool();

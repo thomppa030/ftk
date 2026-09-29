@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "gpu/vulkan/native.hpp"
+#include "gpu/vulkan/translate.hpp"
 #include "environment/environment_ubo.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
 #include "renderer/pass/fog_density_field_pass.hpp"
@@ -1092,6 +1093,8 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
+    res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
+    res.samples = gpu::vulkan::from_vk(res.sample_count);
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
               *font_library_, gpu_.pipeline_cache(), gpu_device(), output_format);

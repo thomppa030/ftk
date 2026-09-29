@@ -1,10 +1,9 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/renderer_constants.hpp"
-
-#include <array>
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -21,14 +20,8 @@ public:
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
-
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sets_{};
-    VkSampler sampler_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    gpu::Sampler sampler_;
 };
 
 } // namespace fjell

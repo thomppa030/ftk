@@ -52,6 +52,10 @@ struct PassResources {
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
+    /// The scene colour's format and the sample count above as the GPU
+    /// interface names them, for pipelines it builds.
+    gpu::Format scene_color_format{gpu::Format::undefined};
+    gpu::Samples samples{gpu::Samples::x1};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     VkCommandPool command_pool{VK_NULL_HANDLE};
