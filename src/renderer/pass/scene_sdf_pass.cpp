@@ -92,6 +92,9 @@ void SceneSdfPass::destroy() {
 
     mesh_sdf_buffer_.reset();
     for (auto& buffer : instance_buffers_) buffer.reset();
+    for (auto& table : slot_tables_) table.reset();
+    slots_.clear();
+    free_slots_.clear();
     tracked_.clear();
     gathered_.clear();
     gathered_bounds_.clear();
@@ -108,6 +111,11 @@ void SceneSdfPass::destroy() {
     destroy_vma_image(allocator_, sdf_image_, sdf_memory_);
     sdf_image_ = VK_NULL_HANDLE;
     sdf_memory_ = VK_NULL_HANDLE;
+    safe(index_sampler_, vkDestroySampler);
+    safe(index_view_, vkDestroyImageView);
+    destroy_vma_image(allocator_, index_image_, index_memory_);
+    index_image_ = VK_NULL_HANDLE;
+    index_memory_ = VK_NULL_HANDLE;
 }
 
 void SceneSdfPass::create_volume_image() {
@@ -144,11 +152,25 @@ void SceneSdfPass::create_volume_image() {
     sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     vk_check(vkCreateSampler(device_, &sci, nullptr, &sdf_sampler_), "SDF pass");
+
+    // The index volume: same grid, one slot per voxel, read unfiltered
+    VkImageCreateInfo index_ci = ci;
+    index_ci.format = SDF_INDEX_FORMAT;
+    vk_check(create_vma_image(allocator_, &index_ci, &index_image_, &index_memory_), "SDF create index image");
+    VkImageViewCreateInfo index_vci = vci;
+    index_vci.image = index_image_;
+    index_vci.format = SDF_INDEX_FORMAT;
+    vk_check(vkCreateImageView(device_, &index_vci, nullptr, &index_view_), "SDF pass");
+    VkSamplerCreateInfo index_sci = sci;
+    index_sci.magFilter = VK_FILTER_NEAREST;
+    index_sci.minFilter = VK_FILTER_NEAREST;
+    vk_check(vkCreateSampler(device_, &index_sci, nullptr, &index_sampler_), "SDF pass");
 }
 
 void SceneSdfPass::create_compute_pipeline() {
-    // Descriptor set layout: binding 0 = storage image, 1 = mesh SDF SSBO, 2 = instance SSBO
-    VkDescriptorSetLayoutBinding bindings[3]{};
+    // Descriptor set layout: binding 0 = storage image, 1 = mesh SDF SSBO,
+    // 2 = instance SSBO, 3 = index volume (storage image)
+    VkDescriptorSetLayoutBinding bindings[4]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
@@ -164,9 +186,14 @@ void SceneSdfPass::create_compute_pipeline() {
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 3;
+    layout_ci.bindingCount = 4;
     layout_ci.pBindings = bindings;
     vk_check(vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &composite_set_layout_), "SDF pass");
 
@@ -204,7 +231,7 @@ void SceneSdfPass::create_compute_pipeline() {
     // instance buffer
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    pool_sizes[0].descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     pool_sizes[1].descriptorCount = 2 * MAX_FRAMES_IN_FLIGHT;
 
@@ -242,12 +269,26 @@ void SceneSdfPass::create_compute_pipeline() {
         buffer->map();
     }
 
-    // Each slot's set: the field (0), the shared mesh SDF data (1) and the
-    // slot's own instances (2)
+    // Each frame's object materials
+    for (auto& table : slot_tables_) {
+        table = std::make_unique<Buffer>(
+            allocator_, MAX_SDF_SLOTS * sizeof(GpuSdfSlot),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        table->map();
+    }
+
+    // Each slot's set: the field (0), the shared mesh SDF data (1), the
+    // slot's own instances (2) and the index volume (3)
     for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
         VkDescriptorImageInfo img_info{};
         img_info.imageView = sdf_view_;
         img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo index_info{};
+        index_info.imageView = index_view_;
+        index_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         VkDescriptorBufferInfo mesh_buf_info{};
         mesh_buf_info.buffer = mesh_sdf_buffer_->handle();
@@ -257,7 +298,7 @@ void SceneSdfPass::create_compute_pipeline() {
         inst_buf_info.buffer = instance_buffers_[slot]->handle();
         inst_buf_info.range = instance_buffers_[slot]->size();
 
-        VkWriteDescriptorSet writes[3]{};
+        VkWriteDescriptorSet writes[4]{};
         for (auto& w : writes) {
             w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             w.dstSet = composite_sets_[slot];
@@ -272,7 +313,10 @@ void SceneSdfPass::create_compute_pipeline() {
         writes[2].dstBinding = 2;
         writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[2].pBufferInfo = &inst_buf_info;
-        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
+        writes[3].dstBinding = 3;
+        writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[3].pImageInfo = &index_info;
+        vkUpdateDescriptorSets(device_, 4, writes, 0, nullptr);
     }
 }
 
@@ -405,35 +449,67 @@ void SceneSdfPass::begin_gather() {
     for (auto& [key, tracked] : tracked_) tracked.seen = false;
 }
 
-void SceneSdfPass::gather_instance(uint64_t key, const AABB& world_bounds, bool moved,
-                                   const GpuSdfInstance& instance) {
-    gathered_.push_back(instance);
-    gathered_bounds_.push_back(world_bounds);
+uint32_t SceneSdfPass::acquire_slot() {
+    if (!free_slots_.empty()) {
+        const uint32_t slot = free_slots_.back();
+        free_slots_.pop_back();
+        return slot;
+    }
+    if (slots_.size() >= MAX_SDF_SLOTS) return NO_SDF_SLOT;
+    slots_.push_back({});
+    return static_cast<uint32_t>(slots_.size() - 1);
+}
 
+void SceneSdfPass::gather_instance(uint64_t key, const AABB& world_bounds, bool moved,
+                                   const GpuSdfInstance& instance,
+                                   std::span<const uint32_t> materials) {
     auto it = tracked_.find(key);
     if (it == tracked_.end()) {
         add_dirty_region(world_bounds);
-        tracked_.emplace(key, TrackedInstance{world_bounds, instance.grid_offset, true});
-        return;
+        it = tracked_.emplace(key, TrackedInstance{world_bounds, instance.grid_offset, true,
+                                                   acquire_slot()})
+                 .first;
+    } else {
+        auto& tracked = it->second;
+        tracked.seen = true;
+        if (moved || tracked.grid_offset != instance.grid_offset) {
+            add_dirty_region(tracked.bounds);
+            add_dirty_region(world_bounds);
+            tracked.bounds = world_bounds;
+            tracked.grid_offset = instance.grid_offset;
+        }
     }
-    auto& tracked = it->second;
-    tracked.seen = true;
-    if (moved || tracked.grid_offset != instance.grid_offset) {
-        add_dirty_region(tracked.bounds);
-        add_dirty_region(world_bounds);
-        tracked.bounds = world_bounds;
-        tracked.grid_offset = instance.grid_offset;
+
+    const uint32_t slot = it->second.slot;
+    GpuSdfInstance placed = instance;
+    placed.slot = slot;
+    gathered_.push_back(placed);
+    gathered_bounds_.push_back(world_bounds);
+
+    if (slot != NO_SDF_SLOT) {
+        GpuSdfSlot& entry = slots_[slot];
+        entry = {};
+        entry.material_count = static_cast<uint32_t>(std::min<size_t>(materials.size(), SDF_SLOT_MATERIALS));
+        std::copy_n(materials.begin(), entry.material_count, entry.material_ids);
     }
 }
 
-void SceneSdfPass::end_gather() {
+void SceneSdfPass::end_gather(uint32_t frame_index) {
     for (auto it = tracked_.begin(); it != tracked_.end();) {
         if (it->second.seen) {
             ++it;
         } else {
+            // Its voxels are recomposed this frame, so none names the slot
+            // by the time an object that takes it next is composed.
             add_dirty_region(it->second.bounds);
+            if (it->second.slot != NO_SDF_SLOT) free_slots_.push_back(it->second.slot);
             it = tracked_.erase(it);
         }
+    }
+
+    if (!slots_.empty()) {
+        std::memcpy(slot_tables_[frame_index]->mapped(), slots_.data(),
+                    slots_.size() * sizeof(GpuSdfSlot));
     }
 
     // Past this many regions, or this share of the volume, one dispatch
@@ -535,25 +611,28 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd, uint32_t frame_index) {
                     upload.size() * sizeof(GpuSdfInstance));
     }
 
-    // Storage layout for the writes. A region update keeps the rest of the
-    // field, so the transition must come from the layout the image holds,
-    // not from UNDEFINED.
-    VkImageMemoryBarrier2 pre_barrier{};
-    pre_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    pre_barrier.oldLayout = image_layout_;
-    pre_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    pre_barrier.image = sdf_image_;
-    pre_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    pre_barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    // Storage layout for the writes, the distances and the index volume
+    // together. A region update keeps the rest of both, so the transition
+    // must come from the layout they hold, not from UNDEFINED.
+    std::array<VkImageMemoryBarrier2, 2> pre_barriers{};
+    for (VkImageMemoryBarrier2& pre_barrier : pre_barriers) {
+        pre_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        pre_barrier.oldLayout = image_layout_;
+        pre_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        pre_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        pre_barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        pre_barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        pre_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    }
+    pre_barriers[0].image = sdf_image_;
+    pre_barriers[1].image = index_image_;
 
     VkDependencyInfo pre_dep{};
     pre_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    pre_dep.imageMemoryBarrierCount = 1;
-    pre_dep.pImageMemoryBarriers = &pre_barrier;
+    pre_dep.imageMemoryBarrierCount = static_cast<uint32_t>(pre_barriers.size());
+    pre_dep.pImageMemoryBarriers = pre_barriers.data();
     vkCmdPipelineBarrier2(cmd, &pre_dep);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
@@ -563,23 +642,26 @@ void SceneSdfPass::compose_pending(VkCommandBuffer cmd, uint32_t frame_index) {
         compose_region(cmd, d.voxel_min, d.voxel_extent, d.instance_offset, d.instance_count);
     }
 
-    // Transition to SHADER_READ_ONLY for sampling
-    VkImageMemoryBarrier2 post_barrier{};
-    post_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    post_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    post_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    post_barrier.image = sdf_image_;
-    post_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    post_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    post_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    post_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    // Transition both to SHADER_READ_ONLY for sampling
+    std::array<VkImageMemoryBarrier2, 2> post_barriers{};
+    for (VkImageMemoryBarrier2& post_barrier : post_barriers) {
+        post_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        post_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        post_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        post_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        post_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        post_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        post_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    }
+    post_barriers[0].image = sdf_image_;
+    post_barriers[1].image = index_image_;
 
     VkDependencyInfo post_dep{};
     post_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    post_dep.imageMemoryBarrierCount = 1;
-    post_dep.pImageMemoryBarriers = &post_barrier;
+    post_dep.imageMemoryBarrierCount = static_cast<uint32_t>(post_barriers.size());
+    post_dep.pImageMemoryBarriers = post_barriers.data();
     vkCmdPipelineBarrier2(cmd, &post_dep);
     image_layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 

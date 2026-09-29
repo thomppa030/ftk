@@ -4,6 +4,7 @@
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
+#include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -35,7 +37,7 @@ struct GpuSdfInstance {
     glm::vec3 sdf_max;         // local-space SDF volume max
     uint32_t grid_offset;      // offset into mesh SDF buffer (in int16 units)
     glm::uvec3 grid_resolution;
-    uint32_t pad0;
+    uint32_t slot;             // the object's lasting id, written into the index volume
     glm::vec3 mesh_min;        // local-space mesh bounds, tighter than the grid
     float pad1;
     glm::vec3 mesh_max;
@@ -56,6 +58,11 @@ class SceneSdfPass : public RenderPass {
 public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
     static constexpr VkFormat SDF_FORMAT = VK_FORMAT_R16_SFLOAT;
+    /// The index volume: per voxel, the slot of the object nearest it within
+    /// max_distance(), or NO_SDF_SLOT. A slot is an object's id for as long
+    /// as it is in the scene, so a voxel left alone by later composes still
+    /// names the right object.
+    static constexpr VkFormat SDF_INDEX_FORMAT = VK_FORMAT_R16_UINT;
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
@@ -103,10 +110,13 @@ public:
     /// added and vanished instances into voxel regions for compose_pending().
     void begin_gather();
     /// `world_bounds` is the mesh's bounding box in world space, `moved` says
-    /// its transform changed since the previous frame.
+    /// its transform changed since the previous frame, `materials` are the
+    /// material ids it draws with (the first SDF_SLOT_MATERIALS count).
     void gather_instance(uint64_t key, const AABB& world_bounds, bool moved,
-                         const GpuSdfInstance& instance);
-    void end_gather();
+                         const GpuSdfInstance& instance, std::span<const uint32_t> materials);
+    /// Ends the gather, and writes every object's materials into frame slot
+    /// `frame_index`'s table.
+    void end_gather(uint32_t frame_index);
 
     [[nodiscard]] bool has_pending_update() const {
         return full_rebuild_ || !dirty_regions_.empty();
@@ -126,6 +136,13 @@ public:
     [[nodiscard]] VkImageView view() const { return sdf_view_; }
     [[nodiscard]] VkSampler sampler() const { return sdf_sampler_; }
     [[nodiscard]] VkImage image() const { return sdf_image_; }
+    /// The index volume (SDF_INDEX_FORMAT), read with texelFetch.
+    [[nodiscard]] VkImageView index_view() const { return index_view_; }
+    [[nodiscard]] VkSampler index_sampler() const { return index_sampler_; }
+    /// Frame slot `frame_index`'s GpuSdfSlot per slot the index volume names.
+    [[nodiscard]] VkBuffer slot_table(uint32_t frame_index) const {
+        return slot_tables_[frame_index]->handle();
+    }
     [[nodiscard]] const glm::vec3& volume_min() const { return volume_min_; }
     [[nodiscard]] const glm::vec3& volume_max() const { return volume_max_; }
     [[nodiscard]] uint32_t resolution() const { return resolution_; }
@@ -180,6 +197,12 @@ private:
     VkImageView sdf_view_{VK_NULL_HANDLE};
     VkSampler sdf_sampler_{VK_NULL_HANDLE};
 
+    // The index volume, beside it
+    VkImage index_image_{VK_NULL_HANDLE};
+    VmaAllocation index_memory_{VK_NULL_HANDLE};
+    VkImageView index_view_{VK_NULL_HANDLE};
+    VkSampler index_sampler_{VK_NULL_HANDLE};
+
     // Compositing compute pipeline
     VkDescriptorSetLayout composite_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout composite_layout_{VK_NULL_HANDLE};
@@ -196,10 +219,19 @@ private:
     // the next frame's instance list.
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;
 
+    // Each slot's materials, rewritten every frame from the gather, so one
+    // table per frame in flight; `slots_` is the CPU copy, by slot.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> slot_tables_;
+    std::vector<GpuSdfSlot> slots_;
+    // Slots given back by objects that left, handed out again first.
+    std::vector<uint32_t> free_slots_;
+    [[nodiscard]] uint32_t acquire_slot();
+
     // Volume config
     glm::vec3 volume_min_{-10.0f};
     glm::vec3 volume_max_{10.0f};
     uint32_t resolution_{DEFAULT_RESOLUTION};
+    // The layout the distance and index volumes both hold between composes
     VkImageLayout image_layout_{VK_IMAGE_LAYOUT_UNDEFINED};
 
     std::unordered_map<uintptr_t, MeshSdfEntry> model_sdf_entries_;
@@ -211,6 +243,7 @@ private:
         AABB bounds;
         uint32_t grid_offset;
         bool seen;
+        uint32_t slot;      // NO_SDF_SLOT when every slot was taken
     };
     std::unordered_map<uint64_t, TrackedInstance> tracked_;
 

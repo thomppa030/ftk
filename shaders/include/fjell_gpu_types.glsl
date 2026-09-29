@@ -98,4 +98,14 @@ struct DdgiLight {
     float pad1;
 };
 
+// One object of the scene SDF: the materials whose base colours average to
+// what DDGI's SDF tracer bounces off it. Mirrors fjell::GpuSdfSlot
+// (renderer/uniform_types.hpp).
+struct SdfSlot {
+    uint material_count;
+    uint material_ids[3];
+};
+// A voxel of the scene SDF's index volume that no object reaches.
+#define NO_SDF_SLOT 0xFFFFu
+
 #endif // FJELL_GPU_TYPES_GLSL

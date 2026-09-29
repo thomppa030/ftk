@@ -1,6 +1,7 @@
 // DDGI's local lights at a probe hit (fjell_ddgi_lights.glsl), compiled as
 // C++: what one light gives a point, and the pick that lets a hit take one
-// light for all of them. See glsl_shim.hpp.
+// light for all of them. Also the records the probe tracers read beside the
+// engine's. See glsl_shim.hpp.
 
 #include "renderer/uniform_types.hpp"
 
@@ -11,6 +12,12 @@
 #include <vector>
 
 #include "glsl_shim.hpp"
+
+// The engine's value, read before the shader's macro of the same name takes
+// that name over for the rest of the file.
+namespace {
+constexpr uint32_t ENGINE_NO_SDF_SLOT = fjell::NO_SDF_SLOT;
+} // namespace
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -205,4 +212,12 @@ TEST_CASE("DDGI lights: the shaders' light record is the engine's", "[ddgi][ligh
     STATIC_REQUIRE(offsetof(DdgiLight, direction) == offsetof(fjell::GpuDdgiLight, direction));
     STATIC_REQUIRE(offsetof(DdgiLight, cos_outer) == offsetof(fjell::GpuDdgiLight, cos_outer));
     STATIC_REQUIRE(offsetof(DdgiLight, is_spot) == offsetof(fjell::GpuDdgiLight, is_spot));
+}
+
+TEST_CASE("DDGI lights: the SDF tracer's object record is the engine's", "[ddgi][lights]") {
+    STATIC_REQUIRE(sizeof(SdfSlot) == sizeof(fjell::GpuSdfSlot));
+    STATIC_REQUIRE(offsetof(SdfSlot, material_ids) == offsetof(fjell::GpuSdfSlot, material_ids));
+    STATIC_REQUIRE(NO_SDF_SLOT == ENGINE_NO_SDF_SLOT);
+    // The index volume holds 16 bits a voxel.
+    STATIC_REQUIRE(fjell::MAX_SDF_SLOTS < ENGINE_NO_SDF_SLOT);
 }

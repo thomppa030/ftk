@@ -1454,9 +1454,13 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                         inst.terrain_size = span;
                         inst.terrain_height_scale = terrain.height_scale();
                         inst.terrain_height_offset = terrain.height_offset() + origin.y;
+                        // Rays cannot run the layer blend, so an SDF-traced
+                        // probe ray bounces the terrain's first layer, as the
+                        // ray-traced tracer does.
+                        const uint32_t ground = terrain.layer_material_id(0);
                         scene_sdf_pass().gather_instance(
                             SceneSdfPass::instance_key(s.id(), obj->id), terrain_bounds,
-                            spatial->world_dirty_, inst);
+                            spatial->world_dirty_, inst, std::span<const uint32_t>(&ground, 1));
                     }
                 }
             }
@@ -1488,9 +1492,22 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     inst.grid_resolution = glm::uvec3(it->resolution);
                     inst.mesh_min = it->mesh_min;
                     inst.mesh_max = it->mesh_max;
+
+                    // The materials it draws with, whose colours an
+                    // SDF-traced probe ray bounces off it.
+                    std::array<uint32_t, SDF_SLOT_MATERIALS> materials{};
+                    size_t material_count = 0;
+                    if (mesh_comp->slot_materials.empty()) {
+                        materials[material_count++] = mesh_comp->resolved_material_id();
+                    }
+                    for (uint32_t slot = 0; slot < mesh_comp->slot_materials.size()
+                                            && material_count < materials.size(); ++slot) {
+                        materials[material_count++] = mesh_comp->resolved_material_id(slot);
+                    }
                     scene_sdf_pass().gather_instance(
                         SceneSdfPass::instance_key(s.id(), obj->id),
-                        world_aabb, spatial->world_dirty_, inst);
+                        world_aabb, spatial->world_dirty_, inst,
+                        std::span<const uint32_t>(materials.data(), material_count));
                 }
             }
         };
@@ -1568,7 +1585,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             }
         }
 
-        scene_sdf_pass().end_gather();
+        scene_sdf_pass().end_gather(current_frame_);
     }
 
     // Update per-frame global bindings before recording

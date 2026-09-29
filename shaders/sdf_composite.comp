@@ -3,6 +3,9 @@
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 layout(set = 0, binding = 0, r16f) uniform writeonly image3D scene_sdf;
+// The slot of the object nearest each voxel, NO_SDF_SLOT where none reaches.
+layout(set = 0, binding = 3, r16ui) uniform writeonly uimage3D scene_sdf_index;
+const uint NO_SDF_SLOT = 0xFFFFu;
 
 layout(std430, set = 0, binding = 1) readonly buffer MeshSdfData {
     int mesh_sdf_packed[];  // int16 values packed as pairs in int32
@@ -11,7 +14,7 @@ layout(std430, set = 0, binding = 1) readonly buffer MeshSdfData {
 layout(std430, set = 0, binding = 2) readonly buffer SdfMetadata {
     // Per-instance: mat4 world_to_sdf (64), vec3 sdf_min (12), float sdf_scale (4),
     //               vec3 sdf_max (12), uint grid_offset (4),
-    //               uvec3 grid_resolution (12), uint pad (4),
+    //               uvec3 grid_resolution (12), uint slot (4),
     //               vec3 mesh_min (12), pad (4), vec3 mesh_max (12), pad (4),
     //               uint kind (4), pad (4), vec2 terrain_origin (8),
     //               float terrain_size (4), float terrain_height_scale (4),
@@ -176,11 +179,14 @@ void main() {
     vec3 uvw = (vec3(gid) + 0.5) / float(resolution);
     vec3 world_pos = mix(volume_min, volume_max, uvw);
 
-    // Nothing within reach leaves the voxel at the clamp distance
+    // Nothing within reach leaves the voxel at the clamp distance, and
+    // naming no object
     float min_dist = max_distance;
+    uint nearest = NO_SDF_SLOT;
 
     for (uint n = 0u; n < instance_count; n++) {
         uint i = instance_offset + n;
+        uint slot = read_instance_uint(i, 27u);
         if (read_instance_uint(i, 36u) == KIND_TERRAIN) {
             uint grid_offset = read_instance_uint(i, 23u);
             uint samples = read_instance_uint(i, 24u);
@@ -188,8 +194,12 @@ void main() {
             float size = read_instance_float(i, 40u);
             float height_scale = read_instance_float(i, 41u);
             float height_offset = read_instance_float(i, 42u);
-            min_dist = min(min_dist, terrain_distance(world_pos, grid_offset, samples, origin, size,
-                                                      height_scale, height_offset, max_distance));
+            float d = terrain_distance(world_pos, grid_offset, samples, origin, size,
+                                       height_scale, height_offset, max_distance);
+            if (d < min_dist) {
+                min_dist = d;
+                nearest = slot;
+            }
             continue;
         }
         mat4 world_to_sdf = read_instance_mat4(i, 0u);
@@ -231,8 +241,12 @@ void main() {
         }
 
         // Union: take minimum
-        min_dist = min(min_dist, dist * to_world);
+        if (dist * to_world < min_dist) {
+            min_dist = dist * to_world;
+            nearest = slot;
+        }
     }
 
     imageStore(scene_sdf, gid, vec4(min_dist));
+    imageStore(scene_sdf_index, gid, uvec4(nearest));
 }

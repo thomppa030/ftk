@@ -183,6 +183,23 @@ static_assert(sizeof(GpuDdgiLight) == 64);
 inline constexpr uint32_t MAX_DDGI_LIGHTS = 2048;
 inline constexpr uint64_t DDGI_LIGHT_LIST_BYTES = 16 + uint64_t{MAX_DDGI_LIGHTS} * sizeof(GpuDdgiLight);
 
+/// One object of the scene SDF as DDGI's SDF tracer reads it: the materials
+/// it is drawn with, whose base colours average to the colour a probe ray
+/// hitting it bounces. Mirrored by `SdfSlot` in
+/// shaders/include/fjell_gpu_types.glsl; the scene SDF's index volume names
+/// the one nearest each voxel.
+inline constexpr uint32_t SDF_SLOT_MATERIALS = 3;
+struct GpuSdfSlot {
+    uint32_t material_count;
+    uint32_t material_ids[SDF_SLOT_MATERIALS];
+};
+static_assert(sizeof(GpuSdfSlot) == 16);
+
+/// How many objects the scene SDF can tell apart; one past that has no
+/// colour of its own. NO_SDF_SLOT marks a voxel no object reaches.
+inline constexpr uint32_t MAX_SDF_SLOTS = 16384;
+inline constexpr uint32_t NO_SDF_SLOT = 0xFFFF;
+
 struct PbrPushConstants {
     glm::mat4 model;
     uint32_t material_id{0};
