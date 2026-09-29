@@ -3,23 +3,21 @@
 #include "renderer/pass/water_fft_pass.hpp"
 #include "renderer/pass_registry.hpp"
 
-#include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
+#include "gpu/shader.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/components/water_component.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/lit_surface_reads.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/render_stats.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
-#include "renderer/resource_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/material.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/uniform_types.hpp"
@@ -28,19 +26,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstddef>
-#include <cstring>
 #include <span>
 #include <vector>
 
 namespace fjell {
 
 namespace {
-
-// Every stage declares the same push block, so every stage is named here.
-constexpr VkShaderStageFlags WATER_PUSH_STAGES = VK_SHADER_STAGE_TASK_BIT_EXT |
-                                                 VK_SHADER_STAGE_MESH_BIT_EXT |
-                                                 VK_SHADER_STAGE_FRAGMENT_BIT;
 
 // The engine's default water surface, drawn when a node has no material.
 // Named for the engine rather than for water: a game is very likely to have
@@ -51,302 +42,55 @@ constexpr const char* FALLBACK_WATER_SHADER = "shaders/water_default.fjsl";
 
 } // namespace
 
-Result<> WaterPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
+Result<> WaterPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
     resources_ = resources;
-    allocator_ = resources.allocator;
-    draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
-
-    // The wave field lives on its own set: it changes with the water node,
-    // not with the frame, and the global set has no free binding for a
-    // per-node resource. Only the mesh stage reads it — the fragment stage
-    // is handed what it needs through varyings rather than solving the field
-    // a second time per pixel.
-    std::array<VkDescriptorSetLayoutBinding, 7> set_bindings{};
-    set_bindings[0].binding = 0;
-    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    set_bindings[0].descriptorCount = 1;
-    set_bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
-    // The clipmap's level table. The task stage reads it to turn a workgroup
-    // into a patch of a level; the mesh stage declares it so both stages see
-    // the same set.
-    set_bindings[1].binding = 1;
-    set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    set_bindings[1].descriptorCount = 1;
-    set_bindings[1].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
-    // The simulated sea: its displacement now, its displacement a frame ago,
-    // and its derivatives. A contributor that is an FFT's output has nothing
-    // to put in the field buffer but where its textures tile.
-    for (std::uint32_t binding = 2; binding <= 4; ++binding) {
-        set_bindings[binding].binding = binding;
-        set_bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        set_bindings[binding].descriptorCount = 1;
-        set_bindings[binding].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    // The wakes. The mesh stage moves the surface by the wide ones; the
-    // fragment stage shades the narrow ones per pixel and reads how churned
-    // the water is, which is the one thing here it solves for itself.
-    set_bindings[5].binding = 5;
-    set_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    set_bindings[5].descriptorCount = 1;
-    set_bindings[5].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT
-                               | VK_SHADER_STAGE_COMPUTE_BIT;
-    // The fog integrated front to back, which the fragment stage samples at
-    // the surface and at the bed for the medium between them.
-    set_bindings[6].binding = 6;
-    set_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    set_bindings[6].descriptorCount = 1;
-    set_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo set_layout_info{};
-    set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_layout_info.bindingCount = static_cast<uint32_t>(set_bindings.size());
-    set_layout_info.pBindings = set_bindings.data();
-    if (vkCreateDescriptorSetLayout(device_, &set_layout_info, nullptr,
-                                    &water_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create water set layout");
-    }
-
-    // Each node's field is bound at its own offset into the frame's buffer,
-    // so the records sit at the alignment the device asks of a uniform
-    // buffer offset.
-    VkPhysicalDeviceProperties props{};
-    vkGetPhysicalDeviceProperties(device.physical_device(), &props);
-    const VkDeviceSize alignment = std::max<VkDeviceSize>(
-        props.limits.minUniformBufferOffsetAlignment, 1);
-    field_stride_ = (sizeof(GpuWaterField) + alignment - 1) / alignment * alignment;
-
-    for (auto& buffer : field_buffers_) {
-        buffer = std::make_unique<Buffer>(
-            allocator_, field_stride_ * WATER_NODES_PER_FRAME,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                VMA_ALLOCATION_CREATE_MAPPED_BIT);
-        // A field of flat water in the first record, so the waterline
-        // dispatch that runs with no water in reach never binds
-        // uninitialised memory.
-        GpuWaterField empty{};
-        buffer->write(&empty, sizeof(empty));
-    }
-    for (auto& buffer : clipmap_buffers_) {
-        buffer = std::make_unique<Buffer>(
-            allocator_, sizeof(GpuWaterClipmap), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                VMA_ALLOCATION_CREATE_MAPPED_BIT);
-        const GpuWaterClipmap table = clipmap_.gpu();
-        buffer->write(&table, sizeof(table));
-    }
-
-    for (auto& buffer : wake_buffers_) {
-        buffer = std::make_unique<Buffer>(
-            allocator_, WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                VMA_ALLOCATION_CREATE_MAPPED_BIT);
-        buffer->map();
-    }
-
-    auto task_code = read_spirv(base_path::resolve("shaders/water.task.spv"));
-    auto mesh_code = read_spirv(base_path::resolve("shaders/water.mesh.spv"));
-
-    // Task and mesh modules outlive create(): the colour pipelines are built
-    // per water material, whenever one is first seen or recompiles.
-    task_module_ = create_shader_module(device_, task_code);
-    mesh_module_ = create_shader_module(device_, mesh_code);
-
-    // Set 1 is the material set — bindless textures, material rows, params —
-    // that the FJSL fragment reads its own uniforms from.
-    std::array<VkDescriptorSetLayout, 3> set_layouts = {resources.global_set_layout,
-                                                        resources.material_set_layout,
-                                                        water_set_layout_};
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = WATER_PUSH_STAGES;
-    push_range.offset = 0;
-    push_range.size = sizeof(WaterPushConstants);
-
-    VkPipelineLayoutCreateInfo layout_info{};
-    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    layout_info.pSetLayouts = set_layouts.data();
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
-
-    if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-        return make_error("Failed to create water pipeline layout");
-    }
 
     // The prepass: the surface's depth and nothing else. The same task and
     // mesh stages as every colour pipeline, so the depth is the displaced
     // surface to the bit; no fragment stage, since nothing it would compute
-    // is kept. Tests and writes LESS against the seeded scene depth.
-    {
-        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-        stages[0].module = task_module_;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-        stages[1].module = mesh_module_;
-        stages[1].pName = "main";
-
-        VkPipelineViewportStateCreateInfo viewport_state{};
-        viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewport_state.viewportCount = 1;
-        viewport_state.scissorCount = 1;
-        std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        VkPipelineDynamicStateCreateInfo dynamic_state{};
-        dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-        dynamic_state.pDynamicStates = dynamic_states.data();
-
-        VkPipelineRasterizationStateCreateInfo rasterizer{};
-        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterizer.lineWidth = 1.0F;
-        rasterizer.cullMode = VK_CULL_MODE_NONE;   // as the colour pipelines: seen from both sides
-        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = resources.sample_count;
-
-        VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-        depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depth_stencil.depthTestEnable = VK_TRUE;
-        depth_stencil.depthWriteEnable = VK_TRUE;
-        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
-
-        VkPipelineRenderingCreateInfo rendering_info{};
-        rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-        rendering_info.depthAttachmentFormat = resources.depth_format;
-
-        VkGraphicsPipelineCreateInfo pipeline_ci{};
-        pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipeline_ci.pNext = &rendering_info;
-        pipeline_ci.stageCount = static_cast<uint32_t>(stages.size());
-        pipeline_ci.pStages = stages.data();
-        pipeline_ci.pViewportState = &viewport_state;
-        pipeline_ci.pRasterizationState = &rasterizer;
-        pipeline_ci.pMultisampleState = &multisampling;
-        pipeline_ci.pDepthStencilState = &depth_stencil;
-        pipeline_ci.pDynamicState = &dynamic_state;
-        pipeline_ci.layout = layout_;
-        if (vkCreateGraphicsPipelines(device_, resources.pipeline_cache, 1, &pipeline_ci, nullptr,
-                                      &depth_pipeline_) != VK_SUCCESS) {
-            return make_error("Failed to create water depth prepass pipeline");
-        }
-    }
+    // is kept. Tests and writes LESS against the seeded scene depth. Seen
+    // from both sides, as the colour pipelines are. Set 0 the globals, set 2
+    // the water set, which is the pass's own.
+    FJELL_TRY(depth_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+                                   .task = "shaders/water.task",
+                                   .mesh = "shaders/water.mesh",
+                                   .raster = {.cull = gpu::Cull::none},
+                                   .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+                                   .depth_format = resources.scene_depth_format,
+                                   .samples = resources.samples,
+                                   .shared = {resources.globals},
+                                   .name = "water_depth",
+                               }));
 
     // The waterline: a compute dispatch over the froxel columns that asks the
     // wave field, for each, whether the near plane's point lies on the other
     // side of the surface from the camera. Its set 2 is the water set the mesh
     // stage reads; set 3 is the mask it writes.
-    {
-        VkDescriptorSetLayoutBinding mask_binding{};
-        mask_binding.binding = 0;
-        mask_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        mask_binding.descriptorCount = 1;
-        mask_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        VkDescriptorSetLayoutCreateInfo mask_layout_info{};
-        mask_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        mask_layout_info.bindingCount = 1;
-        mask_layout_info.pBindings = &mask_binding;
-        if (vkCreateDescriptorSetLayout(device_, &mask_layout_info, nullptr, &line_set_layout_)
-            != VK_SUCCESS) {
-            return make_error("Failed to create waterline set layout");
-        }
+    FJELL_TRY(line_pipeline_, device_->create(gpu::ComputePipelineDesc{
+                                  .shader = "shaders/water_line.comp",
+                                  .shared = {resources.globals},
+                                  .name = "water_line",
+                              }));
 
-        std::array<VkDescriptorSetLayout, 4> line_sets = {resources.global_set_layout,
-                                                          resources.material_set_layout,
-                                                          water_set_layout_, line_set_layout_};
-        VkPushConstantRange line_push{};
-        line_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        line_push.size = sizeof(WaterPushConstants);
-        VkPipelineLayoutCreateInfo line_layout_info{};
-        line_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        line_layout_info.setLayoutCount = static_cast<uint32_t>(line_sets.size());
-        line_layout_info.pSetLayouts = line_sets.data();
-        line_layout_info.pushConstantRangeCount = 1;
-        line_layout_info.pPushConstantRanges = &line_push;
-        if (vkCreatePipelineLayout(device_, &line_layout_info, nullptr, &line_layout_)
-            != VK_SUCCESS) {
-            return make_error("Failed to create waterline pipeline layout");
-        }
-
-        auto line_code = read_spirv(base_path::resolve("shaders/water_line.comp.spv"));
-        line_module_ = create_shader_module(device_, line_code);
-        VkPipelineShaderStageCreateInfo stage{};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage.module = line_module_;
-        stage.pName = "main";
-        VkComputePipelineCreateInfo line_ci{};
-        line_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        line_ci.stage = stage;
-        line_ci.layout = line_layout_;
-        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &line_ci, nullptr,
-                                     &line_pipeline_) != VK_SUCCESS) {
-            return make_error("Failed to create waterline pipeline");
-        }
-    }
-
+    FJELL_TRY(no_medium_, device_->create(gpu::TextureDesc{
+                              .kind = gpu::TextureKind::tex3d,
+                              .format = gpu::Format::rgba16_float,
+                              .width = 1,
+                              .height = 1,
+                              .use = gpu::TextureUse::sampled,
+                              .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
+                              .name = "water_no_medium",
+                          }));
     return {};
 }
 
 void WaterPass::destroy() {
-    destroy_material_pipelines();
-    if (depth_pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device_, depth_pipeline_, nullptr);
-        depth_pipeline_ = VK_NULL_HANDLE;
-    }
-    for (auto& buffer : field_buffers_) buffer.reset();
-    for (auto& buffer : clipmap_buffers_) buffer.reset();
-    for (auto& buffer : wake_buffers_) buffer.reset();
-    if (line_pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device_, line_pipeline_, nullptr);
-        line_pipeline_ = VK_NULL_HANDLE;
-    }
-    if (line_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device_, line_layout_, nullptr);
-        line_layout_ = VK_NULL_HANDLE;
-    }
-    if (line_set_layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device_, line_set_layout_, nullptr);
-        line_set_layout_ = VK_NULL_HANDLE;
-    }
-    if (line_module_ != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device_, line_module_, nullptr);
-        line_module_ = VK_NULL_HANDLE;
-    }
-    if (mesh_module_ != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device_, mesh_module_, nullptr);
-        mesh_module_ = VK_NULL_HANDLE;
-    }
-    if (task_module_ != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device_, task_module_, nullptr);
-        task_module_ = VK_NULL_HANDLE;
-    }
-    if (layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device_, layout_, nullptr);
-        layout_ = VK_NULL_HANDLE;
-    }
-    if (water_set_layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device_, water_set_layout_, nullptr);
-        water_set_layout_ = VK_NULL_HANDLE;
-    }
-    field_slots_.clear();
-}
-
-void WaterPass::destroy_material_pipelines() {
-    for (auto& [id, mp] : material_pipelines_) {
-        if (mp.pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device_, mp.pipeline, nullptr);
-        }
-    }
     material_pipelines_.clear();
+    depth_pipeline_.reset();
+    line_pipeline_.reset();
+    no_medium_.reset();
+    fields_.clear();
 }
 
 void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
@@ -354,7 +98,6 @@ void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     bindless_ = &gpu.bindless_textures();
     simulation_ = passes.try_get<WaterFftPass>("water_fft");
     fog_ = passes.try_get<FogCore>("fog_medium");
-    fallback_volume_ = gpu.volume_fallback_view();
     if (simulation_ == nullptr) {
         FJELL_CORE_ERROR("WaterPass: no water_fft pass in the render graph. Water samples the "
                          "simulated sea's textures whether or not a field has one, so without "
@@ -425,13 +168,12 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         simulation_->set_sea(running);
     }
 
-    upload_fields(ctx);
-    upload_clipmap(ctx);
-    upload_wakes(ctx);
+    gather_fields(ctx);
+    gather_wakes(ctx);
 
     // Pipelines are built here rather than in record(): a first sighting of a
-    // material or a hot-reloaded shader means vkCreateGraphicsPipelines,
-    // which does not belong inside command recording.
+    // material or a hot-reloaded shader means building a pipeline, which
+    // does not belong inside command recording.
     bool any = false;
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         any = true;
@@ -478,12 +220,12 @@ void WaterPass::ensure_fallback_material() {
     }
     fallback_material_id_ = bindless_->add_material(gpu);
     fallback_pipeline_id_ = pid;
-    fallback_ready_ = ensure_material_pipeline(pid) != VK_NULL_HANDLE;
+    fallback_ready_ = ensure_material_pipeline(pid).valid();
 }
 
-VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
+gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
-        return VK_NULL_HANDLE;
+        return {};
     }
     const uint32_t generation = pipeline_cache_->generation(pipeline_id);
     auto it = material_pipelines_.find(pipeline_id);
@@ -498,80 +240,27 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
                             "shader_type water",
                             pipeline_cache_->shader_path(pipeline_id), shader_type_name(meta.shader_type));
         }
-        return VK_NULL_HANDLE;
+        return {};
     }
+    const auto kept = [&]() -> gpu::GraphicsPipeline {
+        return it != material_pipelines_.end() ? gpu::GraphicsPipeline(it->second.pipeline) : gpu::GraphicsPipeline{};
+    };
     if (pipeline_cache_->has_compile_error(pipeline_id) || generation == 0) {
         // A failed recompile keeps the pipeline built from the last good one.
-        return it != material_pipelines_.end() ? it->second.pipeline : VK_NULL_HANDLE;
+        return kept();
     }
 
-    auto frag_code = read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
-    VkShaderModule frag_module = create_shader_module(device_, frag_code);
-
-    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-    stages[0].module = task_module_;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-    stages[1].module = mesh_module_;
-    stages[1].pName = "main";
-    stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[2].module = frag_module;
-    stages[2].pName = "main";
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0F;
-    // A sea is seen from under it as well as over it, and a wave steep enough
-    // to fold shows its own back face. Neither is a reason to drop a triangle.
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = resources_.sample_count;
+    auto fragment = gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
+    if (!fragment) {
+        FJELL_GFX_ERROR("WaterPass: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
+        return kept();
+    }
 
     // Water blends over the scene behind it. The three data attachments take
     // the fragment's values straight: a velocity or normal averaged with what
     // the opaque pass left there belongs to neither surface.
-    VkPipelineColorBlendAttachmentState color_blend{};
-    color_blend.blendEnable = VK_TRUE;
-    color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
-    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    VkPipelineColorBlendAttachmentState data_blend{};
-    data_blend.blendEnable = VK_FALSE;
-    data_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    std::array blend_attachments = {color_blend, data_blend, data_blend, data_blend};
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = static_cast<uint32_t>(blend_attachments.size());
-    color_blending.pAttachments = blend_attachments.data();
-
-    // Tests against the depth the prepass wrote, and writes none: only the
+    //
+    // It tests against the depth the prepass wrote, and writes none: only the
     // nearest surface at each pixel passes, so the sea is hidden by what
     // stands in front of it and hides itself.
     //
@@ -590,72 +279,51 @@ VkPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     // LESS_OR_EQUAL because the prepass wrote this surface's own depth, which
     // LESS would reject; the mesh stage's invariant position makes the two
     // draws agree to the bit.
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    std::array<VkFormat, 4> color_formats = {resources_.color_format, VK_FORMAT_R8G8_UNORM,
-                                             OffscreenPass::NORMAL_FORMAT,
-                                             OffscreenPass::VELOCITY_FORMAT};
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = static_cast<uint32_t>(color_formats.size());
-    rendering_info.pColorAttachmentFormats = color_formats.data();
-    rendering_info.depthAttachmentFormat = resources_.depth_format;
-
-    VkGraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_ci.pNext = &rendering_info;
-    pipeline_ci.stageCount = static_cast<uint32_t>(stages.size());
-    pipeline_ci.pStages = stages.data();
-    pipeline_ci.pViewportState = &viewport_state;
-    pipeline_ci.pRasterizationState = &rasterizer;
-    pipeline_ci.pMultisampleState = &multisampling;
-    pipeline_ci.pDepthStencilState = &depth_stencil;
-    pipeline_ci.pColorBlendState = &color_blending;
-    pipeline_ci.pDynamicState = &dynamic_state;
-    pipeline_ci.layout = layout_;
-    pipeline_ci.renderPass = VK_NULL_HANDLE;
-
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    VkResult result = vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
-                                                nullptr, &pipeline);
-    vkDestroyShaderModule(device_, frag_module, nullptr);
-
-    if (result != VK_SUCCESS) {
-        FJELL_GFX_ERROR("WaterPass: failed to create pipeline for '{}'",
-                        pipeline_cache_->shader_path(pipeline_id));
-        return it != material_pipelines_.end() ? it->second.pipeline : VK_NULL_HANDLE;
+    //
+    // A sea is seen from under it as well as over it, and a wave steep enough
+    // to fold shows its own back face. Neither is a reason to drop a triangle.
+    const gpu::Blend over{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
+                          gpu::BlendFactor::one, gpu::BlendFactor::one_minus_src_alpha};
+    auto made = device_->create(gpu::GraphicsPipelineDesc{
+        .task = "shaders/water.task",
+        .mesh = "shaders/water.mesh",
+        .fragment = std::span<const uint32_t>(*fragment),
+        .raster = {.cull = gpu::Cull::none},
+        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .color = {{.format = resources_.scene_color_format, .blend = over},
+                  {.format = resources_.scene_mr_format},
+                  {.format = resources_.scene_normal_format},
+                  {.format = resources_.scene_velocity_format}},
+        .depth_format = resources_.scene_depth_format,
+        .samples = resources_.samples,
+        .shared = {resources_.globals, resources_.bindless},
+        .name = pipeline_cache_->shader_path(pipeline_id),
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("WaterPass: failed to create pipeline for '{}': {}",
+                        pipeline_cache_->shader_path(pipeline_id), made.error());
+        return kept();
     }
 
-    if (it != material_pipelines_.end() && it->second.pipeline != VK_NULL_HANDLE) {
-        // Retired rather than destroyed: a hot reload idles the device first,
-        // but a material first seen while the scene is already drawing does
-        // not, and the frame slot's own fence only proves that slot is done —
-        // another slot's command buffer can still reference this pipeline.
-        // It waits until the GPU has finished the frames that may use it.
-        gpu::vulkan::defer(*resources_.device, [device = device_, doomed = it->second.pipeline] {
-            vkDestroyPipeline(device, doomed, nullptr);
-        });
-    }
-    material_pipelines_[pipeline_id] = MaterialPipeline{pipeline, generation};
-    return pipeline;
+    // The old pipeline may still be drawn with by a frame in flight; the
+    // device releases it once that frame is done.
+    auto& slot = material_pipelines_[pipeline_id];
+    slot.pipeline = std::move(*made);
+    slot.generation = generation;
+    return slot.pipeline;
 }
 
-void WaterPass::resolve_node_material(const WaterComponent& comp, VkPipeline& out_pipeline,
+void WaterPass::resolve_node_material(const WaterComponent& comp, gpu::GraphicsPipeline& out_pipeline,
                                        uint32_t& out_material_id) {
-    out_pipeline = VK_NULL_HANDLE;
+    out_pipeline = {};
     out_material_id = fallback_material_id_;
 
     if (comp.material != nullptr) {
         // The pipeline comes from the shared material either way: a script's
         // override clones the parent's params into its own SSBO row, it does
         // not change which shader draws the surface.
-        VkPipeline p = ensure_material_pipeline(comp.material->pipeline_id());
-        if (p != VK_NULL_HANDLE) {
+        const gpu::GraphicsPipeline p = ensure_material_pipeline(comp.material->pipeline_id());
+        if (p.valid()) {
             out_pipeline = p;
             out_material_id = comp.resolved_material_id();
             return;
@@ -671,13 +339,9 @@ void WaterPass::resolve_node_material(const WaterComponent& comp, VkPipeline& ou
     }
 }
 
-void WaterPass::upload_fields(const FrameContext& ctx) {
-    field_slots_.clear();
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    auto* records = static_cast<std::byte*>(field_buffers_[slot]->mapped());
-    std::uint32_t used = 0;
+void WaterPass::gather_fields(const FrameContext& ctx) {
+    fields_.clear();
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
-        if (used >= WATER_NODES_PER_FRAME) break;
         GpuWaterField field = to_gpu_field(wc->effective_water);
         // A field with a simulated contributor is drawn with the sea the
         // world is running, which is its own unless another body of water
@@ -688,15 +352,12 @@ void WaterPass::upload_fields(const FrameContext& ctx) {
         if (field.simulated_patch_size > 0.0f) {
             field.simulated_patch_size = simulation_->active() ? simulation_->patch_size() : 0.0f;
         }
-        const VkDeviceSize offset = used * field_stride_;
-        std::memcpy(records + offset, &field, sizeof(field));
-        field_slots_[wc] = FieldSlot{offset, field.simulated_patch_size};
-        ++used;
+        fields_[wc] = field;
     }
 }
 
 void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
-    if (ctx.scene == nullptr || line_pipeline_ == VK_NULL_HANDLE || simulation_ == nullptr) return;
+    if (ctx.scene == nullptr || !line_pipeline_ || simulation_ == nullptr) return;
 
     // The body of water nearest the camera, if any is within reach of the
     // near plane. One: a camera cannot be at two surfaces at once.
@@ -712,10 +373,12 @@ void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
     }
 
     WaterPushConstants push{};
-    VkDeviceSize field_offset = 0;
-    const auto field = water != nullptr ? field_slots_.find(water) : field_slots_.end();
-    if (field != field_slots_.end()) {
-        field_offset = field->second.offset;
+    // Flat water when none is in reach: the dispatch then writes an empty
+    // mask, and binds a field that is defined.
+    GpuWaterField line_field{};
+    const auto field = water != nullptr ? fields_.find(water) : fields_.end();
+    if (field != fields_.end()) {
+        line_field = field->second;
         const auto* spatial = nearest->as_spatial();
         push.surface_height = spatial != nullptr ? spatial->world_matrix_[3].y : 0.0F;
         push.simulated_patch_size = field->second.simulated_patch_size;
@@ -727,95 +390,58 @@ void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
         push.line_active = 1;
     }
 
-    FrameCacheBinding mask_binding{};
-    mask_binding.binding = 0;
-    mask_binding.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    mask_binding.image.imageView = gpu::vulkan::native_view(*ctx.device, mask);
-    mask_binding.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    const VkDescriptorSet mask_set =
-        ctx.descriptor_cache->acquire(line_set_layout_, std::span{&mask_binding, 1});
-
-    std::array<VkDescriptorSet, 4> sets = {ctx.global_descriptor_set, ctx.bindless_set,
-                                          acquire_water_set(ctx, field_offset, VK_NULL_HANDLE),
-                                          mask_set};
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, line_layout_, 0,
-                            static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, line_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-    const gpu::TextureInfo& size = ctx.device->info(mask);
-    vkCmdDispatch(ctx.cmd, (size.width + 7) / 8, (size.height + 7) / 8, 1);
+    auto& cmd = ctx.commands();
+    cmd.set_pipeline(line_pipeline_);
+    cmd.bind(ctx.globals);
+    std::vector<gpu::BindEntry> entries =
+        water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {});
+    entries.push_back({"water_line", gpu::storage(mask)});
+    cmd.bind(entries);
+    cmd.push(push);
+    const gpu::TextureInfo& size = device_->info(mask);
+    cmd.dispatch((size.width + 7) / 8, (size.height + 7) / 8, 1);
 }
 
-void WaterPass::upload_wakes(const FrameContext& ctx) {
+void WaterPass::gather_wakes(const FrameContext& ctx) {
     wake_ranges_.clear();
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    auto* records = static_cast<GpuWakeSource*>(wake_buffers_[slot]->mapped());
-    std::uint32_t used = 0;
+    wakes_.clear();
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
-        WakeRange range{used, 0};
+        WakeRange range{static_cast<uint32_t>(wakes_.size()), 0};
         for (const water::WakeSource& wake : wc->effective_water.wakes) {
-            if (used >= WAKE_RECORDS_PER_FRAME) break;
-            records[used++] = to_gpu_wake(wake);
+            if (wakes_.size() >= WAKE_RECORDS_PER_FRAME) break;
+            wakes_.push_back(to_gpu_wake(wake));
             ++range.count;
         }
         wake_ranges_[wc] = range;
     }
 }
 
-VkDescriptorSet WaterPass::acquire_water_set(const FrameContext& ctx,
-                                             VkDeviceSize field_offset,
-                                             VkImageView medium) const {
-    auto sampled = [this, &ctx](std::uint32_t binding, VkImageView view) {
-        FrameCacheBinding b{};
-        b.binding = binding;
-        b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        b.image.sampler = gpu::vulkan::native_sampler(*ctx.device, simulation_->sampler());
-        b.image.imageView = view;
-        b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        return b;
-    };
-    auto uniform = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
-                      VkDeviceSize range) {
-        FrameCacheBinding b{};
-        b.binding = binding;
-        b.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        b.buffer.buffer = buffer;
-        b.buffer.offset = offset;
-        b.buffer.range = range;
-        return b;
-    };
-    auto storage = [](std::uint32_t binding, VkBuffer buffer, VkDeviceSize range) {
-        FrameCacheBinding b{};
-        b.binding = binding;
-        b.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        b.buffer.buffer = buffer;
-        b.buffer.range = range;
-        return b;
-    };
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    FrameCacheBinding volume{};
-    volume.binding = 6;
-    volume.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    volume.image.sampler = fog_ != nullptr ? gpu::vulkan::native_sampler(*ctx.device, fog_->fog_sampler())
-                                           : gpu::vulkan::native_sampler(*ctx.device, simulation_->sampler());
-    volume.image.imageView = medium != VK_NULL_HANDLE ? medium : fallback_volume_;
-    volume.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    const FrameCacheBinding bindings[7]{
-        uniform(0, field_buffers_[slot]->handle(), field_offset, sizeof(GpuWaterField)),
-        uniform(1, clipmap_buffers_[slot]->handle(), 0, sizeof(GpuWaterClipmap)),
-        sampled(2, gpu::vulkan::native_view(*ctx.device, simulation_->displacement())),
-        sampled(3, gpu::vulkan::native_view(*ctx.device, simulation_->previous_displacement())),
-        sampled(4, gpu::vulkan::native_view(*ctx.device, simulation_->derivatives())),
-        storage(5, wake_buffers_[slot]->handle(), WAKE_RECORDS_PER_FRAME * sizeof(GpuWakeSource)),
-        volume,
-    };
-    return ctx.descriptor_cache->acquire(water_set_layout_, {bindings, 7});
+std::span<const GpuWakeSource> WaterPass::wake_records() const {
+    // A buffer is never bound empty; with no wakes a node's range is empty
+    // and the one record is never read.
+    static const GpuWakeSource none{};
+    return wakes_.empty() ? std::span(&none, 1) : std::span(wakes_);
 }
 
-void WaterPass::upload_clipmap(const FrameContext& ctx) {
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
-    const GpuWaterClipmap& table = clipmap_.gpu();
-    std::memcpy(clipmap_buffers_[slot]->mapped(), &table, sizeof(table));
+std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange field,
+                                                 gpu::BufferRange clipmap, gpu::BufferRange wakes,
+                                                 gpu::Texture medium) const {
+    const gpu::Sampler sampler = simulation_->sampler();
+    std::vector<gpu::BindEntry> entries{
+        {"WaterFieldBuffer", gpu::uniform(field)},
+        {"simulated_displacement", gpu::sampled(simulation_->displacement(), sampler)},
+        {"WakeBuffer", gpu::storage(wakes)},
+    };
+    if (use == WaterSet::line) return entries;
+    entries.push_back({"WaterClipmapBuffer", gpu::uniform(clipmap)});
+    entries.push_back({"simulated_previous", gpu::sampled(simulation_->previous_displacement(), sampler)});
+    entries.push_back({"simulated_derivatives", gpu::sampled(simulation_->derivatives(), sampler)});
+    if (use == WaterSet::colour) {
+        entries.push_back({"medium_volume",
+                           medium.valid() ? gpu::sampled(medium, fog_->fog_sampler())
+                                          : gpu::sampled(no_medium_, sampler)});
+    }
+    return entries;
 }
 
 bool WaterPass::scene_has_water(const FrameContext& ctx) {
@@ -826,25 +452,16 @@ bool WaterPass::scene_has_water(const FrameContext& ctx) {
 }
 
 bool WaterPass::draws(const FrameContext& ctx) const {
-    return ctx.target != nullptr && draw_mesh_tasks_ != nullptr && simulation_ != nullptr &&
-           scene_has_water(ctx);
+    return ctx.target != nullptr && device_ != nullptr && device_->caps().mesh_shaders &&
+           simulation_ != nullptr && scene_has_water(ctx);
 }
 
 void WaterPass::seed_water_depth(const FrameContext& ctx) {
     if (!draws(ctx)) return;
-    const VkImage scene_depth = ctx.target->msaa_depth_image();
-    const VkImage water_depth = ctx.target->water_depth_image();
-    if (scene_depth == VK_NULL_HANDLE || water_depth == VK_NULL_HANDLE) return;
-
     FJELL_PROFILE_SCOPE_N("record_water_depth_seed");
-    FJELL_GPU_ZONE(ctx, "Water Depth Seed");
-
-    VkImageCopy region{};
-    region.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-    region.dstSubresource = region.srcSubresource;
-    region.extent = {ctx.target->extent().width, ctx.target->extent().height, 1};
-    vkCmdCopyImage(ctx.cmd, scene_depth, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   water_depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Water Depth Seed");
+    cmd.copy(ctx.target->msaa_depth_texture(), ctx.target->water_depth_texture());
 }
 
 PassSetup WaterPass::setup() const {
@@ -891,43 +508,29 @@ void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareCont
     }
 }
 
-void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkImageView medium) {
-    // Its own scope means its own viewport and scissor.
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0F;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    VkPipeline current = VK_NULL_HANDLE;
+void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
+                           gpu::GraphicsPipeline depth_only, gpu::Texture medium) {
+    // The same clipmap and wakes for every node; each node its own field.
+    const gpu::BufferRange clipmap = pass.transient(clipmap_.gpu());
+    const gpu::BufferRange wakes = pass.transient(wake_records());
+    const WaterSet use = depth_only.valid() ? WaterSet::mesh : WaterSet::colour;
 
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
-        // Absent when the frame's field buffer was full.
-        const auto field = field_slots_.find(wc);
-        if (field == field_slots_.end()) continue;
+        const auto field = fields_.find(wc);
+        if (field == fields_.end()) continue;
 
         // A node without a usable colour pipeline is not drawn at all, its
         // depth included, so the surface depth never holds water nobody sees.
-        VkPipeline pipeline = VK_NULL_HANDLE;
+        gpu::GraphicsPipeline pipeline{};
         uint32_t material_id = 0;
         resolve_node_material(*wc, pipeline, material_id);
-        if (pipeline == VK_NULL_HANDLE) continue;
-        if (depth_only != VK_NULL_HANDLE) pipeline = depth_only;
+        if (!pipeline.valid()) continue;
+        if (depth_only.valid()) pipeline = depth_only;
 
-        // Each node reads its own field record, so the set is per node.
-        std::array<VkDescriptorSet, 3> sets = {
-            ctx.global_descriptor_set, ctx.bindless_set,
-            acquire_water_set(ctx, field->second.offset, medium)};
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0,
-                                static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-        if (pipeline != current) {
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-            current = pipeline;
-        }
+        pass.set_pipeline(pipeline);
+        pass.bind(ctx.globals);
+        if (use == WaterSet::colour) pass.bind(ctx.bindless);
+        pass.bind(water_set(use, pass.transient(field->second), clipmap, wakes, medium));
 
         const bool infinite = wc->extent == WaterComponent::Extent::infinite;
         const uint32_t patches = wc->patches_per_side > 0 ? wc->patches_per_side : 1;
@@ -959,15 +562,14 @@ void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkIma
         push.camera_below = camera_below(node->id) ? 1U : 0U;
         // The froxel range to map the medium's samples by, for a water that
         // names a medium, in a run that built the fog volume.
-        if (medium != VK_NULL_HANDLE && fog_ != nullptr && wc->medium_material != nullptr) {
+        if (medium.valid() && fog_ != nullptr && wc->medium_material != nullptr) {
             push.medium_near = FogCore::NEAR_PLANE;
             push.medium_far = fog_->far_plane();
             push.medium_slices = FogCore::DEPTH_SLICES;
         }
 
-        vkCmdPushConstants(ctx.cmd, layout_, WATER_PUSH_STAGES, 0, sizeof(push), &push);
-        draw_mesh_tasks_(ctx.cmd, infinite ? WaterClipmap::patch_count() : patches * patches,
-                         1, 1);
+        pass.push(push);
+        pass.draw_mesh_tasks(infinite ? WaterClipmap::patch_count() : patches * patches, 1, 1);
 
         if (ctx.render_stats != nullptr) {
             ctx.render_stats->draw_calls++;
@@ -976,38 +578,25 @@ void WaterPass::draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkIma
 }
 
 void WaterPass::record_depth(const FrameContext& ctx) {
-    if (!draws(ctx) || depth_pipeline_ == VK_NULL_HANDLE) return;
+    if (!draws(ctx) || !depth_pipeline_) return;
 
     FJELL_PROFILE_SCOPE_N("record_water_depth");
-    FJELL_GPU_ZONE(ctx, "Water Depth");
-
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Water Depth");
     auto* target = ctx.target;
 
     // Loaded, because the seed filled it with the scene depth that hides the
     // water behind the opaque scene; stored, because the colour draw tests
     // against it. Under MSAA it also resolves into the surface depth the
     // rest of the frame samples; at one sample it is that image.
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->water_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    if (target->sample_count() != VK_SAMPLE_COUNT_1_BIT) {
-        depth_attachment.resolveImageView = target->resolve_water_depth_view();
-        depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-    }
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.pDepthAttachment = &depth_attachment;
-    vkCmdBeginRendering(ctx.cmd, &ri);
-    draw_nodes(ctx, depth_pipeline_, VK_NULL_HANDLE);
-    vkCmdEndRendering(ctx.cmd);
-
+    const bool msaa = target->samples() != gpu::Samples::x1;
+    auto pass = cmd.render({.depth = gpu::DepthAttachment{
+                                .view = target->water_depth_texture(),
+                                .resolve = msaa ? gpu::TextureView(target->surface_depth_texture())
+                                                : gpu::TextureView{},
+                                .resolve_mode = gpu::DepthResolve::sample_zero,
+                            }});
+    draw_nodes(ctx, pass, depth_pipeline_, {});
     depth_drawn_for_ = target;
 }
 
@@ -1028,8 +617,8 @@ void WaterPass::record(const FrameContext& ctx) {
     depth_drawn_for_ = nullptr;
 
     FJELL_PROFILE_SCOPE_N("record_water");
-    FJELL_GPU_ZONE(ctx, "Water");
-
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Water");
     auto* target = ctx.target;
 
     // The sea draws with a depth attachment of its own, because the
@@ -1041,48 +630,18 @@ void WaterPass::record(const FrameContext& ctx) {
     // No colour resolve here: the transparent pass resolves the same
     // attachments at its end, and that resolve sees the water's contribution
     // because it resolves the whole image. Resolving twice would be correct
-    // and wasted.
-    std::array<VkRenderingAttachmentInfo, 4> color_attachments{};
-    const std::array<VkImageView, 4> views = {
-        target->msaa_color_view(), target->msaa_mr_view(),
-        target->msaa_normal_view(), target->msaa_velocity_view()};
-    for (std::size_t i = 0; i < color_attachments.size(); ++i) {
-        color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachments[i].imageView = views[i];
-        color_attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
-    }
-
-    // The depth the prepass left: tested, not written, and kept as it is,
-    // since it already is the surface depth.
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target->water_depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.offset = {0, 0};
-    ri.renderArea.extent = target->extent();
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-    ri.pColorAttachments = color_attachments.data();
-    ri.pDepthAttachment = &depth_attachment;
+    // and wasted. The depth the prepass left is tested, not written, and
+    // kept as it is, since it already is the surface depth.
+    auto pass = cmd.render({
+        .color = {{.view = target->msaa_color_texture()},
+                  {.view = target->msaa_mr_texture()},
+                  {.view = target->msaa_normal_texture()},
+                  {.view = target->msaa_velocity_texture()}},
+        .depth = gpu::DepthAttachment{.view = target->water_depth_texture(),
+                                      .access = gpu::Access::depth_attachment_read},
+    });
     // The fog integrated front to back, when this run built it.
-    VkImageView medium = VK_NULL_HANDLE;
-    if (ctx.registry != nullptr) {
-        if (const auto* volume = ctx.registry->find_image(FogCore::INTEGRATED_NAME)) {
-            medium = volume->view;
-        }
-    }
-
-    vkCmdBeginRendering(ctx.cmd, &ri);
-    draw_nodes(ctx, VK_NULL_HANDLE, medium);
-    vkCmdEndRendering(ctx.cmd);
+    draw_nodes(ctx, pass, {}, ctx.texture(FogCore::INTEGRATED_NAME));
 }
 
 // ── WaterDepthSeedPass ──────────────────────────────────────────────────────

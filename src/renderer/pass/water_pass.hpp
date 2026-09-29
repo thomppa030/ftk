@@ -1,19 +1,22 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
+#include "gpu/binding.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/render_encoder.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
-#include <array>
 #include <cstdint>
-#include <memory>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace fjell {
 
@@ -88,7 +91,7 @@ static_assert(sizeof(WaterPushConstants) == 100, "push block layout must match t
 /// Shading comes from a `shader_type water` FJSL material on the node,
 /// compiled through the PipelineCache like every other material. The cache
 /// builds no pipelines for that type — the pipeline shape is this pass's,
-/// task + mesh + FJSL fragment — so the pass builds one VkPipeline per water
+/// task + mesh + FJSL fragment — so the pass builds one pipeline per water
 /// shader it meets and rebuilds it when the shader recompiles.
 ///
 /// A graph node of its own, "water", just before the transparent pass. Water
@@ -121,8 +124,7 @@ public:
     /// Copy the scene depth into the water's own depth image, so the sea is
     /// still hidden by whatever opaque geometry stands in front of it.
     /// Recorded by WaterDepthSeedPass, which declares both images: the scene
-    /// depth must be in TRANSFER_SRC_OPTIMAL and the water's in
-    /// TRANSFER_DST_OPTIMAL.
+    /// depth as a copy source and the water's as a copy target.
     void seed_water_depth(const FrameContext& ctx);
 
     /// Whether the sea draws into this target this frame: the scene holds
@@ -151,29 +153,30 @@ public:
 private:
     /// A colour pipeline built from one water FJSL entry.
     struct MaterialPipeline {
-        VkPipeline pipeline{VK_NULL_HANDLE};
+        gpu::Owned<gpu::GraphicsPipeline> pipeline;
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
-    /// Write every water node's wave field into this frame's field buffer,
-    /// one record per node, and note where each landed. A node past the
-    /// buffer's capacity is not drawn that frame.
-    void upload_fields(const FrameContext& ctx);
+    /// Work out every water node's wave field for the frame. Each draw binds
+    /// its node's as a copy of its own.
+    void gather_fields(const FrameContext& ctx);
 
-    /// Write the clipmap level table into this frame's clipmap buffer.
-    void upload_clipmap(const FrameContext& ctx);
-    /// The water's own set for one node this frame: its field, the clipmap,
-    /// the simulated sea's textures, the wakes and the fog's integrated
-    /// volume (`medium`, or the empty volume when null). Per frame because
-    /// those textures swap every frame, which a set written once could not
-    /// follow; per node because each reads its own field record.
-    [[nodiscard]] VkDescriptorSet acquire_water_set(const FrameContext& ctx,
-                                                    VkDeviceSize field_offset,
-                                                    VkImageView medium) const;
-
-    /// Pack every water node's wakes into this frame's wake buffer and note
+    /// Gather every water node's wakes into one list for the frame and note
     /// where each node's begin.
-    void upload_wakes(const FrameContext& ctx);
+    void gather_wakes(const FrameContext& ctx);
+    /// The frame's wakes as the water set binds them: never empty.
+    [[nodiscard]] std::span<const GpuWakeSource> wake_records() const;
+
+    /// Which of the water set's bindings a pipeline's shaders declare: the
+    /// task and mesh stages read the field, the clipmap, the sea and the
+    /// wakes, the colour draw's fragment stage the fog's medium as well, and
+    /// the waterline the field, the sea's displacement and the wakes.
+    enum class WaterSet : uint8_t { mesh, colour, line };
+    /// The water set for one draw or dispatch: `field` and `clipmap` and
+    /// `wakes` copies made for it, and `medium` the fog's volume or unset.
+    [[nodiscard]] std::vector<gpu::BindEntry> water_set(WaterSet use, gpu::BufferRange field,
+                                                        gpu::BufferRange clipmap, gpu::BufferRange wakes,
+                                                        gpu::Texture medium) const;
 
 public:
     /// Whether the camera is under the body of water `node_id`, as decided
@@ -206,10 +209,7 @@ private:
 
     /// The waterline compute pipeline: the water set as the mesh stage has
     /// it, plus the mask it writes.
-    VkShaderModule line_module_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout line_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout line_layout_{VK_NULL_HANDLE};
-    VkPipeline line_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> line_pipeline_;
 
     /// Bind, push and draw every water node with a usable material, with its
     /// material's colour pipeline, or with `depth_only` for all of them when
@@ -217,99 +217,73 @@ private:
     /// always cover the same nodes. `medium` is the fog's integrated volume
     /// when this run built one, for the nodes that name a medium. Inside a
     /// rendering scope.
-    void draw_nodes(const FrameContext& ctx, VkPipeline depth_only, VkImageView medium);
+    void draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline depth_only,
+                    gpu::Texture medium);
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
-    /// FJSL entry. Returns null when the entry failed to compile or is not a
+    /// FJSL entry. Returns unset when the entry failed to compile or is not a
     /// water shader, in which case the fallback pipeline draws instead.
-    VkPipeline ensure_material_pipeline(uint32_t pipeline_id);
+    gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
 
     /// The colour pipeline and material row a node draws with: its own
     /// material when that is a water shader that compiled, else the engine's
     /// water.fjsl at its defaults.
-    void resolve_node_material(const WaterComponent& comp, VkPipeline& out_pipeline,
+    void resolve_node_material(const WaterComponent& comp, gpu::GraphicsPipeline& out_pipeline,
                                uint32_t& out_material_id);
 
     /// Register the engine's water.fjsl and give it a material row, so a node
     /// with no material of its own still draws.
     void ensure_fallback_material();
 
-    void destroy_material_pipelines();
-
-    VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
     PassResources resources_{};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
     /// Where the scene SDF sits, refreshed each frame through set_sdf_bounds().
     /// Equal min and max mean no SDF, which the shader reads as no geometry
     /// near rather than dividing by a zero extent.
     glm::vec3 sdf_volume_min_{0.0F};
     glm::vec3 sdf_volume_max_{0.0F};
-    /// Kept alive after create(): every material pipeline is built from them.
-    VkShaderModule task_module_{VK_NULL_HANDLE};
-    VkShaderModule mesh_module_{VK_NULL_HANDLE};
     /// The prepass pipeline: the same task and mesh stages, no fragment stage,
     /// no colour attachments.
-    VkPipeline depth_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
     /// The target the prepass drew into this frame, or null. The colour draw
     /// tests against that depth, and does not draw without it.
     const OffscreenPass* depth_drawn_for_{nullptr};
     bool warned_no_prepass_{false};
-    VkDescriptorSetLayout water_set_layout_{VK_NULL_HANDLE};
     /// The simulated sea's textures, which every water draw samples. Owned by
     /// the registry; null only if the render graph lists no water_fft pass.
     WaterFftPass* simulation_{nullptr};
     /// The volumetric fog, whose froxel range the water maps its medium
     /// samples by; null when the graph has no fog.
     FogCore* fog_{nullptr};
-    /// Bound in place of the fog's volume where there is none.
-    VkImageView fallback_volume_{VK_NULL_HANDLE};
+    /// Bound in place of the fog's volume where there is none: one texel
+    /// of air, which nothing samples while there is no medium.
+    gpu::Owned<gpu::Texture> no_medium_;
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};
-    /// How many water nodes a frame's field buffer holds. Past it a node is
-    /// not drawn that frame.
-    static constexpr uint32_t WATER_NODES_PER_FRAME = 16;
-    /// The wave fields the mesh shader reads, one record per water node at
-    /// `field_stride_`, one buffer per frame in flight: a frame still
-    /// drawing must not see the next one's field, and two nodes drawn in
-    /// one frame must each read their own. Host-visible and mapped; a
-    /// couple of kilobytes per node is not worth a staging copy.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> field_buffers_;
-    /// The distance between records: the field's size rounded up to the
-    /// device's uniform buffer offset alignment.
-    VkDeviceSize field_stride_{0};
-    /// Where this frame's record for each node sits, and the one value of
-    /// it the push constants also need.
-    struct FieldSlot {
-        VkDeviceSize offset{0};
-        float simulated_patch_size{0.0F};
-    };
-    std::unordered_map<const WaterComponent*, FieldSlot> field_slots_;
+    /// Each node's wave field this frame, and the one value of it the push
+    /// constants also need.
+    std::unordered_map<const WaterComponent*, GpuWaterField> fields_;
     /// The levels an infinite surface is drawn from, recentered on the camera
     /// once per frame. One set of levels for the scene rather than one per
     /// node: they follow the camera, not the water, so two infinite seas at
-    /// different heights share them. One buffer per frame in flight for the
-    /// same reason as the fields.
+    /// different heights share them.
     WaterClipmap clipmap_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> clipmap_buffers_;
 
-    /// How many wake records a frame's buffer holds across every water node.
-    /// Past it a node's remaining wakes are not drawn that frame.
+    /// How many wake records a frame holds across every water node. Past it
+    /// a node's remaining wakes are not drawn that frame.
     static constexpr uint32_t WAKE_RECORDS_PER_FRAME = 64;
-    /// The wakes the mesh and fragment stages read, one buffer per frame in
-    /// flight: they change every frame, and a frame still drawing must not
-    /// see the next one's. Host-visible and mapped; a few kilobytes.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> wake_buffers_;
+    /// The wakes the mesh and fragment stages read, every node's one after
+    /// another, and where each node's are.
+    std::vector<GpuWakeSource> wakes_;
     struct WakeRange {
         uint32_t first{0};
         uint32_t count{0};
     };
     std::unordered_map<const WaterComponent*, WakeRange> wake_ranges_;
-    PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
-    VmaAllocator allocator_{nullptr};
     std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
     /// Entries already reported as unusable, so the log says it once.
     std::unordered_set<uint32_t> reported_entries_;
