@@ -107,6 +107,10 @@ void defer(Device& device, std::move_only_function<void()> fn);
 /// be idle.
 void release_all(Device& device);
 
+/// Waits until the GPU has finished everything submitted: for code outside
+/// the interface that rewrites descriptor sets every frame slot reads.
+void wait_idle(Device& device);
+
 template <typename T>
 void retire(Device& device, T object) {
     defer(device, [doomed = std::move(object)] { (void)doomed; });
