@@ -73,6 +73,13 @@ VkSampleCountFlagBits to_vk(Samples samples) {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
+Samples from_vk(VkSampleCountFlagBits samples) {
+    if (samples >= VK_SAMPLE_COUNT_8_BIT) return Samples::x8;
+    if (samples >= VK_SAMPLE_COUNT_4_BIT) return Samples::x4;
+    if (samples >= VK_SAMPLE_COUNT_2_BIT) return Samples::x2;
+    return Samples::x1;
+}
+
 VkImageUsageFlags to_vk(TextureUses uses) {
     VkImageUsageFlags flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     uses.for_each([&](TextureUse use) {
