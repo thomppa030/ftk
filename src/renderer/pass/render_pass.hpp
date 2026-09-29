@@ -56,6 +56,11 @@ struct PassResources {
     /// the GPU interface names them, for pipelines it builds.
     gpu::Format scene_color_format{gpu::Format::undefined};
     gpu::Format scene_depth_format{gpu::Format::undefined};
+    /// The scene's other targets, which surfaces write beside colour:
+    /// metallic/roughness, normal and motion.
+    gpu::Format scene_mr_format{gpu::Format::undefined};
+    gpu::Format scene_normal_format{gpu::Format::undefined};
+    gpu::Format scene_velocity_format{gpu::Format::undefined};
     gpu::Samples samples{gpu::Samples::x1};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};

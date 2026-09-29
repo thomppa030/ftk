@@ -1095,6 +1095,9 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.sample_count = gpu_.msaa_samples();
     res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
     res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
+    res.scene_mr_format = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT);
+    res.scene_normal_format = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT);
+    res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
     res.samples = gpu::vulkan::from_vk(res.sample_count);
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
