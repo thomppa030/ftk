@@ -176,6 +176,10 @@ void release_all(Device& device) {
     device.impl().releases.flush();
 }
 
+void wait_idle(Device& device) {
+    vkDeviceWaitIdle(device.impl().device);
+}
+
 void* profiler_context([[maybe_unused]] Device& device) {
 #ifdef FJELL_ENABLE_TRACY
     return device.impl().profiler;

@@ -1,27 +1,30 @@
 #pragma once
 
+#include "environment/environment_state.hpp"
+#include "environment/environment_ubo.hpp"
+#include "gpu/command_list.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
-
-#include "environment/environment_state.hpp"
-#include "environment/environment_ubo.hpp"
 
 namespace fjell {
 
 class SkyPass;
 
-/// Generates a sky gradient cubemap (64x64 per face, mipmapped) and a
-/// split-sum BRDF integration LUT (512x512 RG16F) for IBL.
+/// The lighting environment surfaces sample through the global set: the sky
+/// as a cubemap, mipmapped for rough reflections, and the split-sum BRDF
+/// lookup table (512x512 RG16F) for IBL. The cubemap is the procedural sky
+/// (gradient, atmosphere or FJSL) rendered at 64x64 a face when it changes,
+/// or an HDRI converted and prefiltered at 512x512 a face when one is set,
+/// which replaces it. Everything is generated in the frame, in this pass.
 class SkyCubemapPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
@@ -34,113 +37,73 @@ public:
     void register_resources(ResourceRegistry& registry) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    /// Set sky gradient colors. Marks dirty so next generate() re-renders.
-    void set_colors(const glm::vec3& top, const glm::vec3& bottom);
+    /// Whether an HDRI replaces the procedural cubemap.
+    [[nodiscard]] bool has_hdri() const { return static_cast<bool>(hdri_cubemap_); }
 
-    /// Configure atmospheric scattering state. When enabled, the cubemap
-    /// is regenerated with the procedural model instead of the gradient,
-    /// so IBL sampling matches what the sky pass renders.
-    void set_atmosphere(bool enabled, const glm::vec3& sun_dir,
-                        const glm::vec3& sun_color, float sun_intensity,
-                        float rayleigh_scale, float mie_scale,
-                        float mie_g, float mie_coeff);
+    void set_project(const class Project* p) { project_ = p; }
 
-    /// Dispatch the cubemap compute shader and generate mips. Only does
-    /// work if dirty. Expects the cubemap in GENERAL layout: inside the
-    /// frame graph the declared write puts it there, and the creation-time
-    /// one-shot goes through begin_cubemap_write() first.
-    void generate(VkCommandBuffer cmd);
-    /// Render the active FJSL sky into the cubemap with its compute variant,
-    /// so the sky that is drawn is the sky that lights. Rebuilds its pipeline
-    /// when SkyPass compiles a new shader.
-    void generate_fjsl(const FrameContext& ctx);
-
-    [[nodiscard]] VkImageView cubemap_view() const {
-        return hdri_cubemap_view_ != VK_NULL_HANDLE ? hdri_cubemap_view_ : cubemap_view_;
-    }
-    [[nodiscard]] VkSampler cubemap_sampler() const {
-        return hdri_cubemap_sampler_ != VK_NULL_HANDLE ? hdri_cubemap_sampler_ : cubemap_sampler_;
-    }
-    [[nodiscard]] VkImageView brdf_lut_view() const { return brdf_lut_view_; }
-    [[nodiscard]] VkSampler brdf_lut_sampler() const { return brdf_lut_sampler_; }
-
-    [[nodiscard]] bool dirty() const { return dirty_; }
-    [[nodiscard]] bool has_hdri() const { return hdri_cubemap_view_ != VK_NULL_HANDLE; }
+private:
     /// Whether record() renders the procedural cubemap this frame. An HDRI
     /// replaces it entirely, so a stale gradient under one is not rendered
     /// until the HDRI goes away. declare() and record() both answer this so
     /// the graph sees exactly the frames that write.
     [[nodiscard]] bool generates_this_frame() const { return dirty_ && !has_hdri(); }
 
-    /// Monotonic counter — bumped whenever the sky cubemap view/sampler
-    /// identity changes (HDRI load, HDRI clear). Consumers (DDGI, SSR) that
-    /// cache the cubemap in their own descriptor sets compare their last-seen
-    /// version and rewrite when stale.
-    [[nodiscard]] uint32_t binding_version() const { return binding_version_; }
+    /// Mark the cubemap stale when the gradient or the atmosphere changes.
+    void set_colors(const glm::vec3& top, const glm::vec3& bottom);
+    void set_atmosphere(bool enabled, const glm::vec3& sun_dir,
+                        const glm::vec3& sun_color, float sun_intensity,
+                        float rayleigh_scale, float mie_scale,
+                        float mie_g, float mie_coeff);
 
-    /// Load an HDRI equirectangular image, convert to cubemap, and prefilter.
-    /// Path must be absolute or resolvable from the current working directory.
+    /// The cubemap the surfaces sample now: the HDRI's when there is one.
+    [[nodiscard]] gpu::Texture sky_texture() const {
+        return hdri_cubemap_ ? hdri_cubemap_.get() : cubemap_.get();
+    }
+    /// Points the global set and the registry at sky_texture(). Every frame
+    /// slot's set is rewritten, so nothing may be in flight.
+    void bind_sky(GpuContext& gpu);
+
+    /// Reads an HDRI equirectangular image and makes what converting it
+    /// takes, for record() to convert and prefilter in the frame. Keeps the
+    /// current sky when the file cannot be read.
     void load_hdri(const std::string& path);
 
-    void set_project(const class Project* p) { project_ = p; }
-
-private:
-    void create_cubemap();
-    void create_brdf_lut();
-    void create_cubemap_pipeline();
-    // Move mip 0 of the cubemap into GENERAL for a compute write.
-    void begin_cubemap_write(VkCommandBuffer cmd);
+    // Each records its work into the frame; the graph has brought what it
+    // writes to storage as declare() says.
+    void generate_brdf_lut(gpu::CommandList& cmd);
+    /// The built-in sky (gradient or atmosphere).
+    void generate(gpu::CommandList& cmd);
+    /// The active FJSL sky through its compute variant, so the sky that is
+    /// drawn is the sky that lights; the built-in sky while it has none.
+    void generate_fjsl(const FrameContext& ctx);
+    /// Builds, or rebuilds after SkyPass compiled a new shader, the FJSL
+    /// sky's compute variant.
     void ensure_fjsl_pipeline();
-    /// Hand the pipeline and layout to the deferred deleter: a frame still in
-    /// flight may have rendered the cubemap with them.
-    void retire_fjsl_pipeline();
-    void destroy_fjsl_pipeline();
-    void create_brdf_pipeline();
-    void create_hdri_pipelines();
-    void generate_brdf_lut();
-    void generate_mips(VkCommandBuffer cmd);
-    void generate_mips_hdri(VkCommandBuffer cmd);
-    void destroy_hdri();
+    /// Mip 0 of the procedural cubemap has been written as storage: fills
+    /// the rest of the chain from it and leaves it all as a copy target.
+    void finish_cubemap(gpu::CommandList& cmd);
+    void convert_hdri(gpu::CommandList& cmd);
 
     static constexpr uint32_t CUBEMAP_SIZE = 64;
+    static constexpr uint32_t MIP_LEVELS = 7; // floor(log2(64)) + 1
     static constexpr uint32_t HDRI_CUBEMAP_SIZE = 512;
     static constexpr uint32_t HDRI_MIP_LEVELS = 10; // floor(log2(512)) + 1
     static constexpr uint32_t BRDF_LUT_SIZE = 512;
-    static constexpr uint32_t MIP_LEVELS = 7; // floor(log2(64)) + 1
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
-    VkQueue queue_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
+    PassResources resources_{};
 
-    // Cubemap
-    VkImage cubemap_image_{VK_NULL_HANDLE};
-    VmaAllocation cubemap_memory_{VK_NULL_HANDLE};
-    VkImageView cubemap_view_{VK_NULL_HANDLE};        // CUBE view for sampling
-    gpu::Owned<gpu::Texture> cubemap_texture_;        // as the GPU interface's texture
-    VkImageView cubemap_storage_view_{VK_NULL_HANDLE}; // 2D_ARRAY view for compute storage (mip 0)
-    VkSampler cubemap_sampler_{VK_NULL_HANDLE};
-
-    // Cubemap compute
-    VkDescriptorSetLayout cubemap_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool cubemap_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet cubemap_set_{VK_NULL_HANDLE};
-    VkPipelineLayout cubemap_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline cubemap_pipeline_{VK_NULL_HANDLE};
-
-    // BRDF LUT
-    VkImage brdf_lut_image_{VK_NULL_HANDLE};
-    VmaAllocation brdf_lut_memory_{VK_NULL_HANDLE};
-    VkImageView brdf_lut_view_{VK_NULL_HANDLE};
-    VkSampler brdf_lut_sampler_{VK_NULL_HANDLE};
-
-    // BRDF compute
-    VkDescriptorSetLayout brdf_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool brdf_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet brdf_set_{VK_NULL_HANDLE};
-    VkPipelineLayout brdf_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline brdf_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::Texture> cubemap_;
+    gpu::Owned<gpu::Texture> brdf_lut_;
+    /// Trilinear, for the cubemaps' mips; linear, for the lookup table.
+    gpu::Sampler cubemap_sampler_;
+    gpu::Sampler brdf_lut_sampler_;
+    gpu::Owned<gpu::ComputePipeline> cubemap_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> brdf_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> equirect_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> prefilter_pipeline_;
+    bool brdf_generated_{false};
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
     glm::vec3 bottom_color_{0.35f, 0.35f, 0.4f};
@@ -157,12 +120,10 @@ private:
     bool dirty_{true};
 
     // FJSL sky: the sky shader's compute variant over the six faces. Binds
-    // the global set, the bindless set and the storage image.
-    PassResources resources_{};
+    // the global set, the bindless set and the faces as storage.
     SkyPass* sky_pass_{nullptr};
     bool fjsl_active_{false};
-    VkPipelineLayout fjsl_layout_{VK_NULL_HANDLE};
-    VkPipeline fjsl_pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> fjsl_pipeline_;
     uint32_t fjsl_pipeline_id_{0};
     uint32_t fjsl_generation_{0};
     // What the cubemap last rendered; a change re-renders it.
@@ -174,45 +135,18 @@ private:
     };
     FjslInputs fjsl_inputs_{};
     bool fjsl_rendered_{false};
-    uint32_t binding_version_{0};
     ResourceRegistry* registry_{nullptr};
     const class Project* project_{nullptr};
 
     // ── HDRI environment map ──────────────────────────────────────────
     std::string loaded_hdri_path_;
-
-    // Equirectangular source (2D, R32G32B32A32_SFLOAT)
-    VkImage equirect_image_{VK_NULL_HANDLE};
-    VmaAllocation equirect_memory_{VK_NULL_HANDLE};
-    VkImageView equirect_view_{VK_NULL_HANDLE};
-    VkSampler equirect_sampler_{VK_NULL_HANDLE};
-
-    // HDRI cubemap (512x512, 10 mips, prefiltered)
-    VkImage hdri_cubemap_image_{VK_NULL_HANDLE};
-    VmaAllocation hdri_cubemap_memory_{VK_NULL_HANDLE};
-    VkImageView hdri_cubemap_view_{VK_NULL_HANDLE};       // CUBE view (all mips)
-    gpu::Owned<gpu::Texture> hdri_cubemap_texture_;       // as the GPU interface's texture
-    VkImageView hdri_storage_view_{VK_NULL_HANDLE};       // 2D_ARRAY (mip 0, for equirect conversion)
-    VkSampler hdri_cubemap_sampler_{VK_NULL_HANDLE};
-
-    // Per-mip storage views for prefilter output
-    std::array<VkImageView, HDRI_MIP_LEVELS> hdri_mip_views_{};
-
-    // Equirect-to-cube pipeline
-    VkDescriptorSetLayout equirect_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool equirect_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet equirect_set_{VK_NULL_HANDLE};
-    VkPipelineLayout equirect_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline equirect_pipeline_{VK_NULL_HANDLE};
-
-    // Prefilter pipeline
-    VkDescriptorSetLayout prefilter_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool prefilter_pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, HDRI_MIP_LEVELS> prefilter_sets_{};
-    VkPipelineLayout prefilter_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline prefilter_pipeline_{VK_NULL_HANDLE};
-
-    bool hdri_pipelines_created_{false};
+    /// The prefiltered cubemap surfaces sample: roughness rises with the mip.
+    gpu::Owned<gpu::Texture> hdri_cubemap_;
+    /// Until the frame that converts them: the image as uploaded, and the
+    /// same as a cube with a plain mip chain, which the prefilter samples.
+    gpu::Owned<gpu::Texture> hdri_equirect_;
+    gpu::Owned<gpu::Texture> hdri_source_;
+    bool hdri_pending_{false};
 };
 
 } // namespace fjell

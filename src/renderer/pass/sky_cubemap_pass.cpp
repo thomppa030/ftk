@@ -1,46 +1,94 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/vma_image.hpp"
-#include "renderer/gpu_context.hpp"
-#include "renderer/resource_registry.hpp"
-#include "renderer/pass/sky_pass.hpp"
-#include "renderer/pipeline_cache.hpp"
-#include "renderer/pass_builder.hpp"
-#include "renderer/pass_registry.hpp"
-#include "renderer/renderer_constants.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "renderer/gpu/vk_check.hpp"
-#include "environment/environment_state.hpp"
-#include "core/project.hpp"
+
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
+#include "core/project.hpp"
+#include "environment/environment_state.hpp"
+#include "gpu/device.hpp"
+#include "gpu/shader.hpp"
+#include "gpu/upload.hpp"
+#include "gpu/vulkan/native.hpp"
+#include "renderer/global_bindings.hpp"
+#include "renderer/gpu_context.hpp"
+#include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/pipeline_cache.hpp"
+#include "renderer/resource_registry.hpp"
 
 #include <stb_image.h>
 
 #include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstring>
-#include <stdexcept>
+#include <memory>
+#include <span>
 
 namespace fjell {
 
-Result<> SkyCubemapPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    resources_ = resources;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    command_pool_ = resources.command_pool;
-    queue_ = resources.graphics_queue;
+namespace {
 
-    create_cubemap();
-    create_cubemap_pipeline();
-    create_brdf_lut();
-    create_brdf_pipeline();
-    generate_brdf_lut();
+// One mip of a cubemap as its six faces, the layers a compute shader writes.
+gpu::TextureView faces(gpu::Texture cubemap, uint32_t mip) {
+    gpu::TextureView view = gpu::mip(cubemap, mip);
+    view.kind = gpu::ViewKind::tex2d_array;
+    return view;
+}
+
+// Workgroups covering a face of `size` texels, eight by eight.
+uint32_t groups(uint32_t size) {
+    return (size + 7) / 8;
+}
+
+} // namespace
+
+Result<> SkyCubemapPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    resources_ = resources;
+    gpu::Device& device = *device_;
+
+    // Cleared until generated in the first frame this pass runs, so anything
+    // sampling them before reads something defined.
+    FJELL_TRY(cubemap_, device.create(gpu::TextureDesc{
+                            .kind = gpu::TextureKind::cube,
+                            .format = gpu::Format::rgba16_float,
+                            .width = CUBEMAP_SIZE,
+                            .height = CUBEMAP_SIZE,
+                            .mips = MIP_LEVELS,
+                            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+                            .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
+                            .name = "sky_cubemap",
+                        }));
+    FJELL_TRY(brdf_lut_, device.create(gpu::TextureDesc{
+                             .format = gpu::Format::rg16_float,
+                             .width = BRDF_LUT_SIZE,
+                             .height = BRDF_LUT_SIZE,
+                             .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+                             .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                             .name = "brdf_lut",
+                         }));
+    cubemap_sampler_ = device.sampler({.filter = gpu::Filter::linear,
+                                       .mip_filter = gpu::Filter::linear,
+                                       .address = gpu::Address::clamp});
+    brdf_lut_sampler_ = device.sampler({.filter = gpu::Filter::linear,
+                                        .mip_filter = gpu::Filter::nearest,
+                                        .address = gpu::Address::clamp});
+
+    FJELL_TRY(cubemap_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                     .shader = "shaders/sky_cubemap.comp",
+                                     .name = "sky_cubemap",
+                                 }));
+    FJELL_TRY(brdf_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                  .shader = "shaders/brdf_lut.comp",
+                                  .name = "brdf_lut",
+                              }));
+    FJELL_TRY(equirect_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                      .shader = "shaders/equirect_to_cube.comp",
+                                      .name = "equirect_to_cube",
+                                  }));
+    FJELL_TRY(prefilter_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                       .shader = "shaders/prefilter_envmap.comp",
+                                       .name = "prefilter_envmap",
+                                   }));
 
     FJELL_GFX_DEBUG("Sky cubemap pass created");
     return {};
@@ -52,81 +100,39 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     sky_pass_ = &sky;
     set_colors(sky.top_color(), sky.bottom_color());
 
-    // One-shot cubemap generation
-    VkCommandBuffer cmd{};
-    VkCommandBufferAllocateInfo cmd_ai{};
-    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmd_ai.commandPool = command_pool_;
-    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmd_ai.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_, &cmd_ai, &cmd);
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin);
-    begin_cubemap_write(cmd);
-    generate(cmd);
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue_);
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-
-    // Write cubemap and BRDF LUT into global descriptors
-    auto& gb = gpu.global_bindings();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        gb.write_image(i, "sky_cubemap",
-            cubemap_view_, cubemap_sampler_,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image(i, "brdf_lut",
-            brdf_lut_view_, brdf_lut_sampler_,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.flush_writes();
-    }
+    bind_sky(gpu);
+    gpu.global_bindings().set("brdf_lut", gpu::sampled(brdf_lut_, brdf_lut_sampler_));
 }
 
 void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
     registry_ = &registry;
-    registry.register_image("sky_cubemap",
-        {.frame_graph_id = 0, .image = cubemap_image_, .view = cubemap_view(), .sampler = cubemap_sampler()});
+    const gpu::Texture sky = sky_texture();
+    registry.register_image("sky_cubemap", {.frame_graph_id = 0,
+                                            .texture = sky,
+                                            .image = gpu::vulkan::native_image(*device_, sky),
+                                            .view = gpu::vulkan::native_view(*device_, sky),
+                                            .sampler = gpu::vulkan::native_sampler(*device_, cubemap_sampler_)});
 }
 
 void SkyCubemapPass::destroy() {
-    if (device_ == VK_NULL_HANDLE) return;
+    fjsl_pipeline_.reset();
+    cubemap_pipeline_.reset();
+    brdf_pipeline_.reset();
+    equirect_pipeline_.reset();
+    prefilter_pipeline_.reset();
+    hdri_cubemap_.reset();
+    hdri_equirect_.reset();
+    hdri_source_.reset();
+    cubemap_.reset();
+    brdf_lut_.reset();
+}
 
-    // BRDF compute
-    if (brdf_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, brdf_pipeline_, nullptr);
-    if (brdf_pipeline_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, brdf_pipeline_layout_, nullptr);
-    if (brdf_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(device_, brdf_pool_, nullptr);
-    if (brdf_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device_, brdf_set_layout_, nullptr);
-
-    // BRDF LUT image
-    if (brdf_lut_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, brdf_lut_sampler_, nullptr);
-    if (brdf_lut_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, brdf_lut_view_, nullptr);
-    destroy_vma_image(allocator_, brdf_lut_image_, brdf_lut_memory_);
-
-    // Cubemap compute
-    if (cubemap_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, cubemap_pipeline_, nullptr);
-    if (cubemap_pipeline_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, cubemap_pipeline_layout_, nullptr);
-    if (cubemap_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(device_, cubemap_pool_, nullptr);
-    if (cubemap_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device_, cubemap_set_layout_, nullptr);
-
-    // Cubemap image
-    if (cubemap_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, cubemap_sampler_, nullptr);
-    if (cubemap_storage_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_storage_view_, nullptr);
-    if (cubemap_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_view_, nullptr);
-    cubemap_texture_.reset();
-    destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
-
-    destroy_hdri();
-    destroy_fjsl_pipeline();
-
-    device_ = VK_NULL_HANDLE;
+void SkyCubemapPass::bind_sky(GpuContext& gpu) {
+    // Every frame slot's global set points at the sky cubemap, and so do the
+    // descriptor sets DDGI keeps for every slot, which it rewrites when the
+    // cubemap it finds in the registry changes: nothing may still read them.
+    gpu::vulkan::wait_idle(*device_);
+    gpu.global_bindings().set("sky_cubemap", gpu::sampled(sky_texture(), cubemap_sampler_));
 }
 
 void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
@@ -169,51 +175,21 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // Load HDRI if path changed (works regardless of atmosphere mode —
     // atmosphere modulates the HDRI color rather than replacing it).
     if (!fjsl_active_ && !sky.hdri_path.empty() && sky.hdri_path != loaded_hdri_path_) {
-        auto resolved = base_path::resolve_asset(sky.hdri_path, project_);
-        load_hdri(resolved);
+        load_hdri(base_path::resolve_asset(sky.hdri_path, project_));
+        // Not read again while the path stays, whether or not it loaded.
         loaded_hdri_path_ = sky.hdri_path;
-
-        // Update global descriptor binding to point to HDRI cubemap
-        auto& gb = gpu.global_bindings();
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            gb.write_image(i, "sky_cubemap",
-                hdri_cubemap_view_, hdri_cubemap_sampler_,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.flush_writes();
-        }
-
-        // Update ResourceRegistry + bump version so consumers (DDGI)
-        // rewrite their cached sky_cubemap descriptor.
-        if (registry_ != nullptr) {
-            registry_->register_image("sky_cubemap",
-                {.frame_graph_id = 0, .image = hdri_cubemap_image_,
-                 .view = hdri_cubemap_view_, .sampler = hdri_cubemap_sampler_});
-        }
-        ++binding_version_;
+        if (hdri_pending_) bind_sky(gpu);
     } else if ((sky.hdri_path.empty() || fjsl_active_) && !loaded_hdri_path_.empty()) {
-        // HDRI was cleared — revert to gradient cubemap.
-        // The sky_cubemap binding (on both the global set and DDGI's
-        // RT set) isn't UPDATE_AFTER_BIND, so we must wait for
-        // in-flight frames before rewriting the descriptor and
-        // destroying the HDRI image/sampler it referenced.
-        vkDeviceWaitIdle(device_);
-
-        auto& gb = gpu.global_bindings();
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            gb.write_image(i, "sky_cubemap",
-                cubemap_view_, cubemap_sampler_,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.flush_writes();
-        }
-
-        if (registry_ != nullptr) {
-            registry_->register_image("sky_cubemap",
-                {.frame_graph_id = 0, .image = cubemap_image_,
-                 .view = cubemap_view_, .sampler = cubemap_sampler_});
-        }
-        ++binding_version_;
-
-        destroy_hdri();
+        // The HDRI goes and the procedural cubemap it covered is rendered
+        // again. The frames still reading the HDRI keep it until they are
+        // done.
+        loaded_hdri_path_.clear();
+        const bool had_hdri = has_hdri();
+        hdri_cubemap_.reset();
+        hdri_equirect_.reset();
+        hdri_source_.reset();
+        hdri_pending_ = false;
+        if (had_hdri) bind_sky(gpu);
         dirty_ = true;
     }
 }
@@ -251,41 +227,38 @@ void SkyCubemapPass::set_atmosphere(bool enabled, const glm::vec3& sun_dir,
     if (changed) dirty_ = true;
 }
 
-void SkyCubemapPass::begin_cubemap_write(VkCommandBuffer cmd) {
-    // The whole image to GENERAL for the compute write and the mip blits.
-    // Only the creation-time one-shot comes through here, on a fresh image;
-    // in the frame the graph performs this transition from the declared
-    // write.
-    {
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        barrier.srcAccessMask = 0;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = cubemap_image_;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = MIP_LEVELS;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 6;
+void SkyCubemapPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_sky_cubemap");
+    // Everything that decides what is written was read in prepare_frame(),
+    // before declare() told the graph about this frame's writes; nothing may
+    // change it here or a write would go unbarriered.
+    const bool brdf = !brdf_generated_;
+    const bool hdri = hdri_pending_;
+    const bool sky = generates_this_frame();
+    if (!brdf && !hdri && !sky) return;
 
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Sky Cubemap");
+    if (brdf) generate_brdf_lut(cmd);
+    if (hdri) convert_hdri(cmd);
+    if (sky) {
+        if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
+            generate_fjsl(ctx);
+        } else {
+            generate(cmd);
+        }
     }
 }
 
-void SkyCubemapPass::generate(VkCommandBuffer cmd) {
-    if (!dirty_) return;
+void SkyCubemapPass::generate_brdf_lut(gpu::CommandList& cmd) {
+    cmd.set_pipeline(brdf_pipeline_);
+    cmd.bind({{"lut", gpu::storage(brdf_lut_)}});
+    cmd.dispatch(groups(BRDF_LUT_SIZE), groups(BRDF_LUT_SIZE), 1);
+    brdf_generated_ = true;
+    FJELL_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
+}
 
-    // Dispatch cubemap compute shader
+void SkyCubemapPass::generate(gpu::CommandList& cmd) {
     struct PushConstants {
         glm::vec4 top_color;
         glm::vec4 bottom_color;
@@ -314,605 +287,62 @@ void SkyCubemapPass::generate(VkCommandBuffer cmd) {
         0.0f
     };
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            cubemap_pipeline_layout_, 0, 1, &cubemap_set_, 0, nullptr);
-    vkCmdPushConstants(cmd, cubemap_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
-
-    uint32_t groups_xy = (CUBEMAP_SIZE + 7) / 8;
-    vkCmdDispatch(cmd, groups_xy, groups_xy, 6);
-
-    // Generate mips via vkCmdBlitImage
-    generate_mips(cmd);
-
+    cmd.set_pipeline(cubemap_pipeline_);
+    cmd.bind({{"cubemap", gpu::storage(faces(cubemap_, 0))}});
+    cmd.push(push);
+    cmd.dispatch(groups(CUBEMAP_SIZE), groups(CUBEMAP_SIZE), 6);
+    finish_cubemap(cmd);
     dirty_ = false;
 }
 
-void SkyCubemapPass::generate_mips(VkCommandBuffer cmd) {
-    // After compute: mip 0 is in GENERAL layout. Transition to TRANSFER_SRC.
-    {
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = cubemap_image_;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 6;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    int32_t mip_width = static_cast<int32_t>(CUBEMAP_SIZE);
-    int32_t mip_height = static_cast<int32_t>(CUBEMAP_SIZE);
-
-    for (uint32_t mip = 1; mip < MIP_LEVELS; ++mip) {
-        int32_t next_width = std::max(mip_width / 2, 1);
-        int32_t next_height = std::max(mip_height / 2, 1);
-
-        // Transition dst mip to TRANSFER_DST
-        {
-            VkImageMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            barrier.srcAccessMask = 0;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-            barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL; // was set to GENERAL earlier
-            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image = cubemap_image_;
-            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            barrier.subresourceRange.baseMipLevel = mip;
-            barrier.subresourceRange.levelCount = 1;
-            barrier.subresourceRange.baseArrayLayer = 0;
-            barrier.subresourceRange.layerCount = 6;
-
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        }
-
-        // Blit from previous mip to this mip
-        VkImageBlit2 blit{};
-        blit.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.srcSubresource.mipLevel = mip - 1;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount = 6;
-        blit.srcOffsets[0] = {0, 0, 0};
-        blit.srcOffsets[1] = {mip_width, mip_height, 1};
-        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.dstSubresource.mipLevel = mip;
-        blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount = 6;
-        blit.dstOffsets[0] = {0, 0, 0};
-        blit.dstOffsets[1] = {next_width, next_height, 1};
-
-        VkBlitImageInfo2 blit_info{};
-        blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-        blit_info.srcImage = cubemap_image_;
-        blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        blit_info.dstImage = cubemap_image_;
-        blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        blit_info.regionCount = 1;
-        blit_info.pRegions = &blit;
-        blit_info.filter = VK_FILTER_LINEAR;
-
-        vkCmdBlitImage2(cmd, &blit_info);
-
-        // Transition this mip to TRANSFER_SRC for next iteration
-        {
-            VkImageMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-            barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-            barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image = cubemap_image_;
-            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            barrier.subresourceRange.baseMipLevel = mip;
-            barrier.subresourceRange.levelCount = 1;
-            barrier.subresourceRange.baseArrayLayer = 0;
-            barrier.subresourceRange.layerCount = 6;
-
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        }
-
-        mip_width = next_width;
-        mip_height = next_height;
-    }
-
-    // Transition all mips from TRANSFER_SRC to SHADER_READ_ONLY_OPTIMAL
-    {
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = cubemap_image_;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = MIP_LEVELS;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 6;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-}
-
-void SkyCubemapPass::create_cubemap() {
-    // Create cubemap image
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    ci.extent = {CUBEMAP_SIZE, CUBEMAP_SIZE, 1};
-    ci.mipLevels = MIP_LEVELS;
-    ci.arrayLayers = 6;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-               VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(create_vma_image(allocator_, &ci, &cubemap_image_, &cubemap_memory_),
-             "Failed to create sky cubemap image");
-
-    // Cube view for sampling (all mips, all layers)
-    VkImageViewCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    vi.image = cubemap_image_;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-    vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    vi.subresourceRange.baseMipLevel = 0;
-    vi.subresourceRange.levelCount = MIP_LEVELS;
-    vi.subresourceRange.baseArrayLayer = 0;
-    vi.subresourceRange.layerCount = 6;
-    vk_check(vkCreateImageView(device_, &vi, nullptr, &cubemap_view_),
-             "Failed to create sky cubemap cube view");
-    cubemap_texture_ = gpu::vulkan::adopt(*resources_.device, cubemap_image_, cubemap_view_, ci);
-
-    // 2D array view for compute storage writes (mip 0 only)
-    VkImageViewCreateInfo si{};
-    si.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    si.image = cubemap_image_;
-    si.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    si.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    si.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    si.subresourceRange.baseMipLevel = 0;
-    si.subresourceRange.levelCount = 1;
-    si.subresourceRange.baseArrayLayer = 0;
-    si.subresourceRange.layerCount = 6;
-    vk_check(vkCreateImageView(device_, &si, nullptr, &cubemap_storage_view_),
-             "Failed to create sky cubemap storage view");
-
-    // Sampler with trilinear filtering for mip sampling
-    VkSamplerCreateInfo samp{};
-    samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samp.magFilter = VK_FILTER_LINEAR;
-    samp.minFilter = VK_FILTER_LINEAR;
-    samp.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samp.maxLod = static_cast<float>(MIP_LEVELS);
-    vk_check(vkCreateSampler(device_, &samp, nullptr, &cubemap_sampler_),
-             "Failed to create sky cubemap sampler");
-}
-
-void SkyCubemapPass::create_brdf_lut() {
-    // Create BRDF LUT image
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R16G16_SFLOAT;
-    ci.extent = {BRDF_LUT_SIZE, BRDF_LUT_SIZE, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(create_vma_image(allocator_, &ci, &brdf_lut_image_, &brdf_lut_memory_),
-             "Failed to create BRDF LUT image");
-
-    // Image view
-    VkImageViewCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    vi.image = brdf_lut_image_;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = VK_FORMAT_R16G16_SFLOAT;
-    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vk_check(vkCreateImageView(device_, &vi, nullptr, &brdf_lut_view_),
-             "Failed to create BRDF LUT view");
-
-    // Sampler
-    VkSamplerCreateInfo samp{};
-    samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samp.magFilter = VK_FILTER_LINEAR;
-    samp.minFilter = VK_FILTER_LINEAR;
-    samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    vk_check(vkCreateSampler(device_, &samp, nullptr, &brdf_lut_sampler_),
-             "Failed to create BRDF LUT sampler");
-}
-
-void SkyCubemapPass::create_cubemap_pipeline() {
-    // Descriptor set layout: binding 0 = storage image (2D array)
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 1;
-    layout_ci.pBindings = &binding;
-    vk_check(vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &cubemap_set_layout_),
-             "Failed to create cubemap descriptor set layout");
-
-    // Descriptor pool
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pool_size.descriptorCount = 1;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 1;
-    pool_ci.poolSizeCount = 1;
-    pool_ci.pPoolSizes = &pool_size;
-    vk_check(vkCreateDescriptorPool(device_, &pool_ci, nullptr, &cubemap_pool_),
-             "Failed to create cubemap descriptor pool");
-
-    // Allocate descriptor set
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = cubemap_pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &cubemap_set_layout_;
-    vk_check(vkAllocateDescriptorSets(device_, &alloc_info, &cubemap_set_),
-             "Failed to allocate cubemap descriptor set");
-
-    // Write storage image descriptor
-    VkDescriptorImageInfo img_info{};
-    img_info.imageView = cubemap_storage_view_;
-    img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = cubemap_set_;
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    write.descriptorCount = 1;
-    write.pImageInfo = &img_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-
-    // Push constants: top_color (vec4) + bottom_color (vec4) + face_size (uint)
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
-    // top + bottom + light_dir + light_color = 4 vec4 = 64 bytes
-    // face_size (u32) + sky_mode (u32) + 6 floats + padding = 32 bytes
-    push_range.size = sizeof(glm::vec4) * 4 + 8 * sizeof(uint32_t);
-
-    // Pipeline layout
-    VkPipelineLayoutCreateInfo pl_ci{};
-    pl_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pl_ci.setLayoutCount = 1;
-    pl_ci.pSetLayouts = &cubemap_set_layout_;
-    pl_ci.pushConstantRangeCount = 1;
-    pl_ci.pPushConstantRanges = &push_range;
-    vk_check(vkCreatePipelineLayout(device_, &pl_ci, nullptr, &cubemap_pipeline_layout_),
-             "Failed to create cubemap pipeline layout");
-
-    // Compute pipeline
-    auto code = read_spirv(base_path::resolve("shaders/sky_cubemap.comp.spv"));
-    auto module = create_shader_module(device_, code);
-
-    VkComputePipelineCreateInfo comp_ci{};
-    comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    comp_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    comp_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    comp_ci.stage.module = module;
-    comp_ci.stage.pName = "main";
-    comp_ci.layout = cubemap_pipeline_layout_;
-    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci,
-                                       nullptr, &cubemap_pipeline_),
-             "Failed to create cubemap compute pipeline");
-
-    vkDestroyShaderModule(device_, module, nullptr);
-}
-
-void SkyCubemapPass::create_brdf_pipeline() {
-    // Descriptor set layout: binding 0 = storage image (2D)
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 1;
-    layout_ci.pBindings = &binding;
-    vk_check(vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &brdf_set_layout_),
-             "Failed to create BRDF descriptor set layout");
-
-    // Descriptor pool
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pool_size.descriptorCount = 1;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 1;
-    pool_ci.poolSizeCount = 1;
-    pool_ci.pPoolSizes = &pool_size;
-    vk_check(vkCreateDescriptorPool(device_, &pool_ci, nullptr, &brdf_pool_),
-             "Failed to create BRDF descriptor pool");
-
-    // Allocate descriptor set
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = brdf_pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &brdf_set_layout_;
-    vk_check(vkAllocateDescriptorSets(device_, &alloc_info, &brdf_set_),
-             "Failed to allocate BRDF descriptor set");
-
-    // Write storage image descriptor
-    VkDescriptorImageInfo img_info{};
-    img_info.imageView = brdf_lut_view_;
-    img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = brdf_set_;
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    write.descriptorCount = 1;
-    write.pImageInfo = &img_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-
-    // Pipeline layout (no push constants for BRDF)
-    VkPipelineLayoutCreateInfo pl_ci{};
-    pl_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pl_ci.setLayoutCount = 1;
-    pl_ci.pSetLayouts = &brdf_set_layout_;
-    vk_check(vkCreatePipelineLayout(device_, &pl_ci, nullptr, &brdf_pipeline_layout_),
-             "Failed to create BRDF pipeline layout");
-
-    // Compute pipeline
-    auto code = read_spirv(base_path::resolve("shaders/brdf_lut.comp.spv"));
-    auto module = create_shader_module(device_, code);
-
-    VkComputePipelineCreateInfo comp_ci{};
-    comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    comp_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    comp_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    comp_ci.stage.module = module;
-    comp_ci.stage.pName = "main";
-    comp_ci.layout = brdf_pipeline_layout_;
-    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci,
-                                       nullptr, &brdf_pipeline_),
-             "Failed to create BRDF compute pipeline");
-
-    vkDestroyShaderModule(device_, module, nullptr);
-}
-
-void SkyCubemapPass::generate_brdf_lut() {
-    // One-shot command buffer to generate the BRDF LUT at startup
-    VkCommandBuffer cmd;
-    VkCommandBufferAllocateInfo cmd_ai{};
-    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmd_ai.commandPool = command_pool_;
-    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmd_ai.commandBufferCount = 1;
-    vk_check(vkAllocateCommandBuffers(device_, &cmd_ai, &cmd),
-             "Failed to allocate BRDF LUT command buffer");
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin),
-             "Failed to begin BRDF LUT command buffer");
-
-    // Transition BRDF LUT to GENERAL for compute write
-    {
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        barrier.srcAccessMask = 0;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = brdf_lut_image_;
-        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    // Dispatch BRDF LUT compute
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, brdf_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            brdf_pipeline_layout_, 0, 1, &brdf_set_, 0, nullptr);
-
-    uint32_t groups = (BRDF_LUT_SIZE + 7) / 8;
-    vkCmdDispatch(cmd, groups, groups, 1);
-
-    // final_layout reconciliation: BRDF LUT is generated once (one-shot init
-    // CB submitted outside the per-frame graph) and then sampled forever
-    // through the global descriptor at SHADER_READ_ONLY. The graph never
-    // sees this image as a writer, so it can't emit the final transition;
-    // we bake it here at end of init.
-    {
-        VkImageMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = brdf_lut_image_;
-        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    vk_check(vkEndCommandBuffer(cmd),
-             "Failed to end BRDF LUT command buffer");
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE),
-             "Failed to submit BRDF LUT generation");
-    vkQueueWaitIdle(queue_);
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-
-    FJELL_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
-}
-
-void SkyCubemapPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_sky_cubemap");
-    // Everything that makes the cubemap stale was read in prepare_frame(),
-    // before declare() told the graph about this frame's write; nothing may
-    // dirty it here or the write would go unbarriered.
-    if (!generates_this_frame()) { return; }
-    FJELL_GPU_ZONE(ctx, "Sky Cubemap");
-    if (fjsl_active_ && sky_pass_ != nullptr && sky_pass_->fjsl_active()) {
-        generate_fjsl(ctx);
-    } else {
-        generate(ctx.cmd);
-    }
+void SkyCubemapPass::finish_cubemap(gpu::CommandList& cmd) {
+    // Mip 0 as the compute shader wrote it, the rest to be filled from it:
+    // all as copy targets, which is where the chain starts and ends.
+    cmd.barrier(cubemap_, gpu::Access::storage_write_compute, gpu::Access::copy_dst);
+    cmd.generate_mipmaps(cubemap_);
 }
 
 void SkyCubemapPass::ensure_fjsl_pipeline() {
     const uint32_t pid = sky_pass_->fjsl_pipeline_id();
     const uint32_t generation = sky_pass_->fjsl_pipeline_generation();
-    if (fjsl_pipeline_ != VK_NULL_HANDLE && fjsl_pipeline_id_ == pid && fjsl_generation_ == generation) {
-        return;
-    }
-    retire_fjsl_pipeline();
+    // Tried once per compile of the shader, whether it builds or not.
+    if (fjsl_pipeline_id_ == pid && fjsl_generation_ == generation) return;
+    fjsl_pipeline_id_ = pid;
+    fjsl_generation_ = generation;
+    // A frame in flight may have rendered the cubemap with the old one; the
+    // device releases it once that frame is done.
+    fjsl_pipeline_.reset();
 
-    auto* cache = sky_pass_ != nullptr ? sky_pass_->pipeline_cache() : nullptr;
+    auto* cache = sky_pass_->pipeline_cache();
     if (cache == nullptr) return;
     const std::string& spv = cache->sky_cubemap_spv(pid);
     if (spv.empty()) return;
-
-    // set 0 = global (UBOs), set 1 = bindless (textures, materials, params),
-    // set 2 = the cubemap faces as a storage image.
-    std::array set_layouts = {resources_.global_set_layout, resources_.material_set_layout,
-                              cubemap_set_layout_};
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(float) * 2 + sizeof(uint32_t) * 2;
-
-    VkPipelineLayoutCreateInfo layout_info{};
-    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-    layout_info.pSetLayouts = set_layouts.data();
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
-    vk_check(vkCreatePipelineLayout(device_, &layout_info, nullptr, &fjsl_layout_),
-             "Failed to create FJSL sky cubemap pipeline layout");
-
-    auto code = read_spirv(spv);
-    auto module = create_shader_module(device_, code);
-    VkComputePipelineCreateInfo comp_ci{};
-    comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    comp_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    comp_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    comp_ci.stage.module = module;
-    comp_ci.stage.pName = "main";
-    comp_ci.layout = fjsl_layout_;
-    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci, nullptr, &fjsl_pipeline_),
-             "Failed to create FJSL sky cubemap pipeline");
-    vkDestroyShaderModule(device_, module, nullptr);
-
-    fjsl_pipeline_id_ = pid;
-    fjsl_generation_ = generation;
-}
-
-void SkyCubemapPass::retire_fjsl_pipeline() {
-    if (fjsl_pipeline_ == VK_NULL_HANDLE && fjsl_layout_ == VK_NULL_HANDLE) return;
-    gpu::vulkan::defer(*resources_.device,
-                       [device = device_, pipeline = fjsl_pipeline_, layout = fjsl_layout_] {
-                           if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, nullptr);
-                           if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
-                       });
-    fjsl_pipeline_ = VK_NULL_HANDLE;
-    fjsl_layout_ = VK_NULL_HANDLE;
-}
-
-void SkyCubemapPass::destroy_fjsl_pipeline() {
-    if (fjsl_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, fjsl_pipeline_, nullptr);
-    if (fjsl_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, fjsl_layout_, nullptr);
-    fjsl_pipeline_ = VK_NULL_HANDLE;
-    fjsl_layout_ = VK_NULL_HANDLE;
+    auto code = gpu::read_spirv(spv);
+    if (!code) {
+        FJELL_GFX_ERROR("Sky cubemap: {}", code.error());
+        return;
+    }
+    // Set 0 the globals, set 1 the bindless material set, set 2 the faces.
+    auto made = device_->create(gpu::ComputePipelineDesc{
+        .shader = std::span<const uint32_t>(*code),
+        .shared = {resources_.globals, resources_.bindless},
+        .name = "sky_cubemap_fjsl",
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("Sky cubemap: {}", made.error());
+        return;
+    }
+    fjsl_pipeline_ = std::move(*made);
 }
 
 void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
-    ensure_fjsl_pipeline();
-    if (fjsl_pipeline_ == VK_NULL_HANDLE || sky_pass_->fjsl_material_id() == ~0u) {
+    auto& cmd = ctx.commands();
+    if (!fjsl_pipeline_ || sky_pass_->fjsl_material_id() == ~0u) {
         // No cubemap variant compiled, or the sky has not taken a material
         // row yet. Either way the built-in path keeps the cubemap valid
         // rather than leaving it stale — and reading a row that does not
         // exist would sample past the end of the material buffer.
-        generate(ctx.cmd);
+        generate(cmd);
         return;
     }
 
@@ -923,15 +353,13 @@ void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
         uint32_t face_size;
     } push{0.0f, 0.0f, sky_pass_->fjsl_material_id(), CUBEMAP_SIZE};
 
-    std::array sets = {ctx.global_descriptor_set, ctx.bindless_set, cubemap_set_};
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, fjsl_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, fjsl_layout_, 0,
-                            static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, fjsl_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-    const uint32_t groups_xy = (CUBEMAP_SIZE + 7) / 8;
-    vkCmdDispatch(ctx.cmd, groups_xy, groups_xy, 6);
-
-    generate_mips(ctx.cmd);
+    cmd.set_pipeline(fjsl_pipeline_);
+    cmd.bind(ctx.globals);
+    cmd.bind(ctx.bindless);
+    cmd.bind({{"sky_cube", gpu::storage(faces(cubemap_, 0))}});
+    cmd.push(push);
+    cmd.dispatch(groups(CUBEMAP_SIZE), groups(CUBEMAP_SIZE), 6);
+    finish_cubemap(cmd);
     dirty_ = false;
     fjsl_rendered_ = true;
 }
@@ -945,573 +373,138 @@ PassSetup SkyCubemapPass::setup() const {
 }
 
 void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    // On a clean frame the pass writes nothing, declares nothing, and the
-    // graph culls it. On a dirty frame the declared write is what brings
-    // the whole image (every mip, all six faces) to GENERAL before the
-    // dispatch; the mip chain then blits through TRANSFER layouts and
-    // leaves everything at rest, readable by fragment shaders, which is
-    // what leaves() reports: a fragment reader needs nothing more and a
-    // compute or ray tracing reader gets its barrier.
-    if (!generates_this_frame()) { return; }
-    auto cubemap = builder.import_named(ctx, "sky_cubemap");
-    if (!cubemap.valid()) { return; }
-    builder.write(cubemap, gpu::Access::storage_write_compute);
-    builder.leaves(cubemap, gpu::Access::copy_dst, gpu::Access::sampled_fragment);
-    // BRDF LUT is a static pass-private texture — not in the catalog.
+    // Each write is declared only in the frame that makes it; in any other
+    // the pass declares nothing and the graph culls it. The declared write
+    // brings the whole texture to storage for the compute shaders.
+    if (!brdf_generated_) {
+        if (auto lut = builder.import_named(ctx, "brdf_lut"); lut.valid()) {
+            builder.write(lut, gpu::Access::storage_write_compute);
+            // Surfaces sample it through the global set, which the graph
+            // does not see.
+            builder.has_side_effects();
+        }
+    }
+    if (hdri_pending_ || generates_this_frame()) {
+        auto cubemap = builder.import_named(ctx, "sky_cubemap");
+        if (!cubemap.valid()) return;
+        builder.write(cubemap, gpu::Access::storage_write_compute);
+        // The procedural cubemap's mips are filled by copies from the first,
+        // after the compute write; the HDRI's are all written as storage.
+        if (!hdri_pending_) builder.leaves(cubemap, gpu::Access::copy_dst, gpu::Access::copy_dst);
+    }
 }
 
 void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
-    // HDRI takes precedence over the procedural cubemap when present.
-    const gpu::Texture texture = hdri_cubemap_texture_ ? hdri_cubemap_texture_.get()
-                                                       : cubemap_texture_.get();
-    if (!texture.valid()) { return; }
-    ImportedImage img{};
-    img.view = texture;
-    img.persistent = true;
-    // Rests where the sky and every material sample it through the global
-    // set. Both cubemaps are generated there at creation, and an HDRI is
-    // never written again in the frame, so a reader can come first.
-    img.resting = gpu::Access::sampled_fragment;
-    ctx.imports.emplace(fg_name_hash("sky_cubemap"), img);
+    // Both rest where the sky and every material sample them through the
+    // global set: a reader can come first, as it does on every frame the
+    // pass does not write them.
+    const TextureExport sampled{.persistent = true, .resting = gpu::Access::sampled_fragment};
+    ctx.export_texture("sky_cubemap", sky_texture(), sampled);
+    ctx.export_texture("brdf_lut", brdf_lut_, sampled);
 }
 
 // ── HDRI environment map support ─────────────────────────────────────────
 
-void SkyCubemapPass::create_hdri_pipelines() {
-    if (hdri_pipelines_created_) return;
-
-    // ── Equirect-to-cube pipeline ─────────────────────────────────────
-    // Layout: binding 0 = equirect sampler, binding 1 = cubemap storage
-    VkDescriptorSetLayoutBinding eq_bindings[2]{};
-    eq_bindings[0].binding = 0;
-    eq_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    eq_bindings[0].descriptorCount = 1;
-    eq_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    eq_bindings[1].binding = 1;
-    eq_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    eq_bindings[1].descriptorCount = 1;
-    eq_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo eq_layout_ci{};
-    eq_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    eq_layout_ci.bindingCount = 2;
-    eq_layout_ci.pBindings = eq_bindings;
-    vkCreateDescriptorSetLayout(device_, &eq_layout_ci, nullptr, &equirect_set_layout_);
-
-    VkPushConstantRange eq_push{};
-    eq_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    eq_push.size = sizeof(uint32_t);
-
-    VkPipelineLayoutCreateInfo eq_pipe_ci{};
-    eq_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    eq_pipe_ci.setLayoutCount = 1;
-    eq_pipe_ci.pSetLayouts = &equirect_set_layout_;
-    eq_pipe_ci.pushConstantRangeCount = 1;
-    eq_pipe_ci.pPushConstantRanges = &eq_push;
-    vkCreatePipelineLayout(device_, &eq_pipe_ci, nullptr, &equirect_pipeline_layout_);
-
-    auto eq_code = read_spirv(base_path::resolve("shaders/equirect_to_cube.comp.spv"));
-    auto eq_mod = create_shader_module(device_, eq_code);
-    VkPipelineShaderStageCreateInfo eq_stage{};
-    eq_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    eq_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    eq_stage.module = eq_mod;
-    eq_stage.pName = "main";
-    VkComputePipelineCreateInfo eq_pipe{};
-    eq_pipe.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    eq_pipe.stage = eq_stage;
-    eq_pipe.layout = equirect_pipeline_layout_;
-    vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &eq_pipe, nullptr, &equirect_pipeline_);
-    vkDestroyShaderModule(device_, eq_mod, nullptr);
-
-    // Descriptor pool for equirect (1 set: 1 sampler + 1 storage)
-    VkDescriptorPoolSize eq_pool_sizes[2]{};
-    eq_pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
-    eq_pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1};
-    VkDescriptorPoolCreateInfo eq_pool_ci{};
-    eq_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    eq_pool_ci.maxSets = 1;
-    eq_pool_ci.poolSizeCount = 2;
-    eq_pool_ci.pPoolSizes = eq_pool_sizes;
-    vkCreateDescriptorPool(device_, &eq_pool_ci, nullptr, &equirect_pool_);
-
-    VkDescriptorSetAllocateInfo eq_alloc{};
-    eq_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    eq_alloc.descriptorPool = equirect_pool_;
-    eq_alloc.descriptorSetCount = 1;
-    eq_alloc.pSetLayouts = &equirect_set_layout_;
-    vkAllocateDescriptorSets(device_, &eq_alloc, &equirect_set_);
-
-    // ── Prefilter pipeline ───────────────────────────────────────────
-    // Layout: binding 0 = source cubemap sampler, binding 1 = output storage
-    VkDescriptorSetLayoutBinding pf_bindings[2]{};
-    pf_bindings[0].binding = 0;
-    pf_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pf_bindings[0].descriptorCount = 1;
-    pf_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pf_bindings[1].binding = 1;
-    pf_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pf_bindings[1].descriptorCount = 1;
-    pf_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo pf_layout_ci{};
-    pf_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    pf_layout_ci.bindingCount = 2;
-    pf_layout_ci.pBindings = pf_bindings;
-    vkCreateDescriptorSetLayout(device_, &pf_layout_ci, nullptr, &prefilter_set_layout_);
-
-    struct PrefilterPush { uint32_t face_size; float roughness; uint32_t sample_count; };
-    VkPushConstantRange pf_push{};
-    pf_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pf_push.size = sizeof(PrefilterPush);
-
-    VkPipelineLayoutCreateInfo pf_pipe_ci{};
-    pf_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pf_pipe_ci.setLayoutCount = 1;
-    pf_pipe_ci.pSetLayouts = &prefilter_set_layout_;
-    pf_pipe_ci.pushConstantRangeCount = 1;
-    pf_pipe_ci.pPushConstantRanges = &pf_push;
-    vkCreatePipelineLayout(device_, &pf_pipe_ci, nullptr, &prefilter_pipeline_layout_);
-
-    auto pf_code = read_spirv(base_path::resolve("shaders/prefilter_envmap.comp.spv"));
-    auto pf_mod = create_shader_module(device_, pf_code);
-    VkPipelineShaderStageCreateInfo pf_stage{};
-    pf_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pf_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pf_stage.module = pf_mod;
-    pf_stage.pName = "main";
-    VkComputePipelineCreateInfo pf_pipe{};
-    pf_pipe.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pf_pipe.stage = pf_stage;
-    pf_pipe.layout = prefilter_pipeline_layout_;
-    vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pf_pipe, nullptr, &prefilter_pipeline_);
-    vkDestroyShaderModule(device_, pf_mod, nullptr);
-
-    // Descriptor pool for prefilter (HDRI_MIP_LEVELS sets: each has 1 sampler + 1 storage)
-    VkDescriptorPoolSize pf_pool_sizes[2]{};
-    pf_pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, HDRI_MIP_LEVELS};
-    pf_pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, HDRI_MIP_LEVELS};
-    VkDescriptorPoolCreateInfo pf_pool_ci{};
-    pf_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pf_pool_ci.maxSets = HDRI_MIP_LEVELS;
-    pf_pool_ci.poolSizeCount = 2;
-    pf_pool_ci.pPoolSizes = pf_pool_sizes;
-    vkCreateDescriptorPool(device_, &pf_pool_ci, nullptr, &prefilter_pool_);
-
-    std::array<VkDescriptorSetLayout, HDRI_MIP_LEVELS> pf_layouts;
-    pf_layouts.fill(prefilter_set_layout_);
-    VkDescriptorSetAllocateInfo pf_alloc{};
-    pf_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    pf_alloc.descriptorPool = prefilter_pool_;
-    pf_alloc.descriptorSetCount = HDRI_MIP_LEVELS;
-    pf_alloc.pSetLayouts = pf_layouts.data();
-    vkAllocateDescriptorSets(device_, &pf_alloc, prefilter_sets_.data());
-
-    hdri_pipelines_created_ = true;
-    FJELL_GFX_DEBUG("HDRI pipelines created");
-}
-
-void SkyCubemapPass::destroy_hdri() {
-    // Per-mip views
-    for (auto& v : hdri_mip_views_) {
-        if (v != VK_NULL_HANDLE) { vkDestroyImageView(device_, v, nullptr); v = VK_NULL_HANDLE; }
-    }
-
-    // HDRI cubemap
-    if (hdri_cubemap_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdri_cubemap_sampler_, nullptr); hdri_cubemap_sampler_ = VK_NULL_HANDLE; }
-    if (hdri_storage_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_storage_view_, nullptr); hdri_storage_view_ = VK_NULL_HANDLE; }
-    if (hdri_cubemap_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_cubemap_view_, nullptr); hdri_cubemap_view_ = VK_NULL_HANDLE; }
-    hdri_cubemap_texture_.reset();
-    if (hdri_cubemap_image_ != VK_NULL_HANDLE) { destroy_vma_image(allocator_, hdri_cubemap_image_, hdri_cubemap_memory_); hdri_cubemap_image_ = VK_NULL_HANDLE; }
-
-    // Equirect source
-    if (equirect_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, equirect_sampler_, nullptr); equirect_sampler_ = VK_NULL_HANDLE; }
-    if (equirect_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, equirect_view_, nullptr); equirect_view_ = VK_NULL_HANDLE; }
-    if (equirect_image_ != VK_NULL_HANDLE) { destroy_vma_image(allocator_, equirect_image_, equirect_memory_); equirect_image_ = VK_NULL_HANDLE; }
-
-    // Pipelines (keep for reuse)
-    // Pools/sets freed with pool
-
-    if (equirect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, equirect_pipeline_, nullptr); equirect_pipeline_ = VK_NULL_HANDLE; }
-    if (equirect_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, equirect_pipeline_layout_, nullptr); equirect_pipeline_layout_ = VK_NULL_HANDLE; }
-    if (equirect_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, equirect_pool_, nullptr); equirect_pool_ = VK_NULL_HANDLE; }
-    if (equirect_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, equirect_set_layout_, nullptr); equirect_set_layout_ = VK_NULL_HANDLE; }
-
-    if (prefilter_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, prefilter_pipeline_, nullptr); prefilter_pipeline_ = VK_NULL_HANDLE; }
-    if (prefilter_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, prefilter_pipeline_layout_, nullptr); prefilter_pipeline_layout_ = VK_NULL_HANDLE; }
-    if (prefilter_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, prefilter_pool_, nullptr); prefilter_pool_ = VK_NULL_HANDLE; }
-    if (prefilter_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, prefilter_set_layout_, nullptr); prefilter_set_layout_ = VK_NULL_HANDLE; }
-
-    hdri_pipelines_created_ = false;
-    loaded_hdri_path_.clear();
-}
-
 void SkyCubemapPass::load_hdri(const std::string& path) {
-    if (path == loaded_hdri_path_ && hdri_cubemap_view_ != VK_NULL_HANDLE) return;
-
-    vkDeviceWaitIdle(device_);
-    destroy_hdri();
-    create_hdri_pipelines();
-
-    // ── 1. Load equirectangular HDR via stb ────────────────────────────
-    int width = 0, height = 0, channels = 0;
-    float* pixels = stbi_loadf(path.c_str(), &width, &height, &channels, 4);
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    const std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
+        stbi_loadf(path.c_str(), &width, &height, &channels, 4), stbi_image_free);
     if (!pixels) {
         FJELL_GFX_ERROR("Failed to load HDRI: {}", path);
         return;
     }
     FJELL_GFX_INFO("Loaded HDRI: {}x{} from {}", width, height, path);
 
-    VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4 * sizeof(float);
+    gpu::Device& device = *device_;
+    const auto made = [&](const gpu::TextureDesc& desc) {
+        auto texture = device.create(desc);
+        if (!texture) FJELL_GFX_ERROR("HDRI '{}': {}", path, texture.error());
+        return texture ? std::move(*texture) : gpu::Owned<gpu::Texture>{};
+    };
+    const gpu::TextureDesc cube{
+        .kind = gpu::TextureKind::cube,
+        .format = gpu::Format::rgba16_float,
+        .width = HDRI_CUBEMAP_SIZE,
+        .height = HDRI_CUBEMAP_SIZE,
+        .mips = HDRI_MIP_LEVELS,
+        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+    };
+    auto equirect = made(gpu::TextureDesc{
+        .format = gpu::Format::rgba32_float,
+        .width = static_cast<uint32_t>(width),
+        .height = static_cast<uint32_t>(height),
+        .use = gpu::TextureUse::sampled,
+        .name = "hdri_equirect",
+    });
+    gpu::TextureDesc source_desc = cube;
+    source_desc.name = "hdri_source";
+    auto source = made(source_desc);
+    // Cleared until the frame that converts it, as surfaces sample it from
+    // the moment it is bound.
+    gpu::TextureDesc cubemap_desc = cube;
+    cubemap_desc.initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f};
+    cubemap_desc.name = "hdri_cubemap";
+    auto cubemap = made(cubemap_desc);
+    if (!equirect || !source || !cubemap) return;
 
-    // Staging buffer
-    VkBufferCreateInfo staging_ci{};
-    staging_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    staging_ci.size = image_size;
-    staging_ci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    VmaAllocationCreateInfo staging_alloc_ci{};
-    staging_alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
-    staging_alloc_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    const size_t floats = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    device.upload().to_texture(equirect,
+                               gpu::TextureRegion{.width = static_cast<uint32_t>(width),
+                                                  .height = static_cast<uint32_t>(height)},
+                               std::as_bytes(std::span(pixels.get(), floats)),
+                               {.after = gpu::Access::sampled_compute});
 
-    VkBuffer staging_buf = VK_NULL_HANDLE;
-    VmaAllocation staging_mem = VK_NULL_HANDLE;
-    vmaCreateBuffer(allocator_, &staging_ci, &staging_alloc_ci, &staging_buf, &staging_mem, nullptr);
+    hdri_equirect_ = std::move(equirect);
+    hdri_source_ = std::move(source);
+    hdri_cubemap_ = std::move(cubemap);
+    hdri_pending_ = true;
+}
 
-    void* mapped = nullptr;
-    vmaMapMemory(allocator_, staging_mem, &mapped);
-    std::memcpy(mapped, pixels, image_size);
-    vmaUnmapMemory(allocator_, staging_mem);
-    stbi_image_free(pixels);
+void SkyCubemapPass::convert_hdri(gpu::CommandList& cmd) {
+    gpu::Device& device = *device_;
 
-    // Create equirect image (R32G32B32A32_SFLOAT, 2D)
-    VkImageCreateInfo eq_ci{};
-    eq_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    eq_ci.imageType = VK_IMAGE_TYPE_2D;
-    eq_ci.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    eq_ci.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
-    eq_ci.mipLevels = 1;
-    eq_ci.arrayLayers = 1;
-    eq_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    eq_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    eq_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    eq_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(create_vma_image(allocator_, &eq_ci, &equirect_image_, &equirect_memory_),
-             "Failed to create equirect image");
+    // The image as a cube, then that cube's plain mip chain, which the
+    // prefilter samples at the mip its roughness asks for. The prefilter
+    // cannot read the cubemap it writes: its lower mips hold what it has
+    // already filtered, not the image.
+    const gpu::Sampler equirect_sampler = device.sampler({.filter = gpu::Filter::linear,
+                                                          .mip_filter = gpu::Filter::nearest,
+                                                          .address = gpu::Address::repeat});
+    cmd.barrier(hdri_source_, {}, gpu::Access::storage_write_compute);
+    cmd.set_pipeline(equirect_pipeline_);
+    cmd.bind({{"equirect_map", gpu::sampled(hdri_equirect_, equirect_sampler)},
+              {"cubemap_out", gpu::storage(faces(hdri_source_, 0))}});
+    cmd.push(HDRI_CUBEMAP_SIZE);
+    cmd.dispatch(groups(HDRI_CUBEMAP_SIZE), groups(HDRI_CUBEMAP_SIZE), 6);
+    cmd.barrier(hdri_source_, gpu::Access::storage_write_compute, gpu::Access::copy_dst);
+    cmd.generate_mipmaps(hdri_source_);
+    cmd.barrier(hdri_source_, gpu::Access::copy_dst, gpu::Access::sampled_compute);
 
-    VkImageViewCreateInfo eq_vi{};
-    eq_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    eq_vi.image = equirect_image_;
-    eq_vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    eq_vi.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    eq_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCreateImageView(device_, &eq_vi, nullptr, &equirect_view_);
-
-    VkSamplerCreateInfo eq_samp{};
-    eq_samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    eq_samp.magFilter = VK_FILTER_LINEAR;
-    eq_samp.minFilter = VK_FILTER_LINEAR;
-    eq_samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    eq_samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    eq_samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    vkCreateSampler(device_, &eq_samp, nullptr, &equirect_sampler_);
-
-    // ── 2. Create HDRI cubemap (512x512, 10 mips) ─────────────────────
-    VkImageCreateInfo cube_ci{};
-    cube_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    cube_ci.imageType = VK_IMAGE_TYPE_2D;
-    cube_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    cube_ci.extent = {HDRI_CUBEMAP_SIZE, HDRI_CUBEMAP_SIZE, 1};
-    cube_ci.mipLevels = HDRI_MIP_LEVELS;
-    cube_ci.arrayLayers = 6;
-    cube_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    cube_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    cube_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    cube_ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-    cube_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(create_vma_image(allocator_, &cube_ci, &hdri_cubemap_image_, &hdri_cubemap_memory_),
-             "Failed to create HDRI cubemap");
-
-    // Cube view (all mips, for sampling)
-    VkImageViewCreateInfo cube_vi{};
-    cube_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    cube_vi.image = hdri_cubemap_image_;
-    cube_vi.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-    cube_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    cube_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
-    vkCreateImageView(device_, &cube_vi, nullptr, &hdri_cubemap_view_);
-    hdri_cubemap_texture_ =
-        gpu::vulkan::adopt(*resources_.device, hdri_cubemap_image_, hdri_cubemap_view_, cube_ci);
-
-    // 2D array view for mip 0 (equirect conversion output)
-    VkImageViewCreateInfo storage_vi{};
-    storage_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    storage_vi.image = hdri_cubemap_image_;
-    storage_vi.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    storage_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    storage_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-    vkCreateImageView(device_, &storage_vi, nullptr, &hdri_storage_view_);
-
-    // Per-mip 2D array views for prefilter output
+    // Each mip of the cubemap surfaces sample, filtered for the roughness it
+    // stands for; mip 0, roughness 0, is the image itself.
+    struct PrefilterPush {
+        uint32_t face_size;
+        float roughness;
+        uint32_t sample_count;
+    };
+    cmd.set_pipeline(prefilter_pipeline_);
     for (uint32_t mip = 0; mip < HDRI_MIP_LEVELS; ++mip) {
-        VkImageViewCreateInfo mip_vi{};
-        mip_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        mip_vi.image = hdri_cubemap_image_;
-        mip_vi.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-        mip_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        mip_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, 0, 6};
-        vkCreateImageView(device_, &mip_vi, nullptr, &hdri_mip_views_[mip]);
+        const uint32_t mip_size = std::max(HDRI_CUBEMAP_SIZE >> mip, 1U);
+        const float roughness = static_cast<float>(mip) / static_cast<float>(HDRI_MIP_LEVELS - 1);
+        cmd.bind({{"env_cubemap", gpu::sampled(hdri_source_, cubemap_sampler_)},
+                  {"filtered_out", gpu::storage(faces(hdri_cubemap_, mip))}});
+        cmd.push(PrefilterPush{mip_size, roughness, std::min(1024U, 64U * std::max(mip, 1U))});
+        cmd.dispatch(groups(mip_size), groups(mip_size), 6);
     }
 
-    // Sampler (trilinear for prefiltered mip sampling)
-    VkSamplerCreateInfo cube_samp{};
-    cube_samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    cube_samp.magFilter = VK_FILTER_LINEAR;
-    cube_samp.minFilter = VK_FILTER_LINEAR;
-    cube_samp.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    cube_samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    cube_samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    cube_samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    cube_samp.maxLod = static_cast<float>(HDRI_MIP_LEVELS);
-    vkCreateSampler(device_, &cube_samp, nullptr, &hdri_cubemap_sampler_);
-
-    // ── 3. GPU work: upload + convert + prefilter ─────────────────────
-    VkCommandBuffer cmd{};
-    VkCommandBufferAllocateInfo cmd_ai{};
-    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmd_ai.commandPool = command_pool_;
-    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmd_ai.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_, &cmd_ai, &cmd);
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin);
-
-    // Upload equirect: transition + copy
-    {
-        VkImageMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = equirect_image_;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
-    vkCmdCopyBufferToImage(cmd, staging_buf, equirect_image_,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    // Transition equirect to SHADER_READ_ONLY
-    {
-        VkImageMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = equirect_image_;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    // Transition cubemap mip 0 to GENERAL for compute write
-    {
-        VkImageMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = hdri_cubemap_image_;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    // Write equirect descriptor set
-    {
-        VkDescriptorImageInfo eq_info{};
-        eq_info.sampler = equirect_sampler_;
-        eq_info.imageView = equirect_view_;
-        eq_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        VkDescriptorImageInfo cube_info{};
-        cube_info.imageView = hdri_storage_view_;
-        cube_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkWriteDescriptorSet writes[2]{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = equirect_set_;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &eq_info;
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = equirect_set_;
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &cube_info;
-        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
-    }
-
-    // Dispatch equirect-to-cube conversion
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, equirect_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, equirect_pipeline_layout_,
-                            0, 1, &equirect_set_, 0, nullptr);
-    uint32_t face_size = HDRI_CUBEMAP_SIZE;
-    vkCmdPushConstants(cmd, equirect_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &face_size);
-    uint32_t groups = (HDRI_CUBEMAP_SIZE + 7) / 8;
-    vkCmdDispatch(cmd, groups, groups, 6);
-
-    // Barrier: equirect conversion done → prefilter reads
-    {
-        VkMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    // Transition mip 0 to SHADER_READ_ONLY so the prefilter can sample the unfiltered cubemap
-    // while writing to higher mips (which stay GENERAL).
-    // Actually — the prefilter samples via samplerCube which needs SHADER_READ_ONLY,
-    // but writes to per-mip storage views which need GENERAL. Since all mips are already
-    // GENERAL, and the cubemap sampler reads from mip 0 while writing to other mips,
-    // we can keep everything in GENERAL — the driver handles coherency via the barrier above.
-
-    // Write prefilter descriptor sets (one per mip level)
-    for (uint32_t mip = 0; mip < HDRI_MIP_LEVELS; ++mip) {
-        VkDescriptorImageInfo src_info{};
-        src_info.sampler = hdri_cubemap_sampler_;
-        src_info.imageView = hdri_cubemap_view_;
-        src_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkDescriptorImageInfo dst_info{};
-        dst_info.imageView = hdri_mip_views_[mip];
-        dst_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        VkWriteDescriptorSet writes[2]{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = prefilter_sets_[mip];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &src_info;
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = prefilter_sets_[mip];
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &dst_info;
-        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
-    }
-
-    // Dispatch prefilter for each mip level
-    struct PrefilterPush { uint32_t face_size; float roughness; uint32_t sample_count; };
-
-    // Skip mip 0 — equirect conversion already wrote unfiltered data there.
-    // Prefiltering mip 0 would read+write the same subresource (undefined behavior).
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_pipeline_);
-    for (uint32_t mip = 1; mip < HDRI_MIP_LEVELS; ++mip) {
-        uint32_t mip_size = std::max(HDRI_CUBEMAP_SIZE >> mip, 1u);
-        float roughness = static_cast<float>(mip) / static_cast<float>(HDRI_MIP_LEVELS - 1);
-        uint32_t samples = std::min(1024u, 64u * mip);
-
-        PrefilterPush push{mip_size, roughness, samples};
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_pipeline_layout_,
-                                0, 1, &prefilter_sets_[mip], 0, nullptr);
-        vkCmdPushConstants(cmd, prefilter_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-
-        uint32_t g = (mip_size + 7) / 8;
-        vkCmdDispatch(cmd, g, g, 6);
-
-        // Barrier between mip levels
-        if (mip + 1 < HDRI_MIP_LEVELS) {
-            VkMemoryBarrier2 b{};
-            b.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.memoryBarrierCount = 1;
-            dep.pMemoryBarriers = &b;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        }
-    }
-
-    // final_layout reconciliation: HDRI prefilter runs in a one-shot init
-    // CB outside the per-frame graph. After this point all six faces and
-    // their mips are sampled through the global descriptor at
-    // SHADER_READ_ONLY; the graph never sees the writes, so we bake the
-    // post-init layout here.
-    {
-        VkImageMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-        b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = hdri_cubemap_image_;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue_);
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-
-    // Clean up staging
-    vmaDestroyBuffer(allocator_, staging_buf, staging_mem);
-
-    FJELL_GFX_INFO("HDRI cubemap created: {}x{}, {} mips, prefiltered", HDRI_CUBEMAP_SIZE, HDRI_CUBEMAP_SIZE, HDRI_MIP_LEVELS);
+    // What the conversion took goes once this frame is done with it.
+    hdri_equirect_.reset();
+    hdri_source_.reset();
+    hdri_pending_ = false;
+    FJELL_GFX_INFO("HDRI cubemap created: {}x{}, {} mips, prefiltered", HDRI_CUBEMAP_SIZE,
+                   HDRI_CUBEMAP_SIZE, HDRI_MIP_LEVELS);
 }
 
 } // namespace fjell

@@ -45,7 +45,11 @@ void main() {
     vec2 uv = (vec2(id.xy) + 0.5) / float(face_size);
     vec3 dir = cube_dir(face, uv);
     vec2 eq_uv = dir_to_equirect(dir);
+    // The sampler wraps, which joins the image around the horizon; at the
+    // poles it would blend in the opposite one, so the rows stop there.
+    float half_texel = 0.5 / float(textureSize(equirect_map, 0).y);
+    eq_uv.y = clamp(eq_uv.y, half_texel, 1.0 - half_texel);
 
-    vec3 color = texture(equirect_map, eq_uv).rgb;
+    vec3 color = textureLod(equirect_map, eq_uv, 0.0).rgb;
     imageStore(cubemap_out, ivec3(id.xy, face), vec4(color, 1.0));
 }
