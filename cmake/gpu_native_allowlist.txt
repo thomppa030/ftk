@@ -73,8 +73,6 @@ src/renderer/pass/distortion_pass.cpp
 src/renderer/pass/distortion_pass.hpp
 src/renderer/pass/exposure_pass.cpp
 src/renderer/pass/exposure_pass.hpp
-src/renderer/pass/fog_density_field_pass.cpp
-src/renderer/pass/fog_density_field_pass.hpp
 src/renderer/pass/grid_pass.cpp
 src/renderer/pass/grid_pass.hpp
 src/renderer/pass/gtao_pass.cpp

@@ -1,16 +1,13 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
-
-#include <memory>
+#include "gpu/format.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -55,7 +52,7 @@ public:
     /// that is lower than the camera would have put it.
     static constexpr float FLOOR_BELOW_SOURCE = 2.0f;
     /// One signed channel: how much of the fog here was pushed aside.
-    static constexpr VkFormat FIELD_FORMAT = VK_FORMAT_R16_SFLOAT;
+    static constexpr gpu::Format FIELD_FORMAT = gpu::Format::r16_float;
     /// How long a disturbance lasts. Longer than the motion field remembers,
     /// because outlasting the mark that made it is the whole point.
     static constexpr float MEMORY_SECONDS = 6.0f;
@@ -135,32 +132,21 @@ private:
     glm::mat4 world_to_uv_{1.0f};
     float elapsed_{0.0f};
 
-    VkDevice device_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
 
     // Two fields, ping-ponged. Advection asks what flowed into a texel, which
     // lands at an arbitrary place in the previous field — generally a texel
     // another invocation is in the middle of writing. One image could not do
     // it: there is no ordering between workgroups to make that read safe.
-    struct Field {
-        VkImage image{VK_NULL_HANDLE};
-        VmaAllocation memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        /// The field as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> texture;
-    };
-    Field fields_[2];
+    std::array<gpu::Owned<gpu::Texture>, 2> fields_;
     uint32_t cur_{0};
-    VkSampler sampler_{VK_NULL_HANDLE};
+    gpu::Sampler sampler_;
 
     [[nodiscard]] uint32_t prev_index() const { return 1 - cur_; }
 
-    /// What moved this frame, one buffer per frame in flight: rewritten
-    /// every frame, and a frame still stirring must not see the next one's
-    /// sources.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> source_buffers_;
+    /// What moved this frame, gathered before recording and copied into the
+    /// frame's own memory when the pass records.
+    std::array<GpuSource, MAX_SOURCES> sources_{};
     uint32_t source_count_{0};
     uint32_t moving_count_{0};
     float still_seconds_{0.0f};
@@ -179,9 +165,7 @@ private:
     /// written. prepare_frame runs once a frame and clears this.
     bool stepped_this_frame_{false};
 
-    VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
 };
 
 } // namespace fjell

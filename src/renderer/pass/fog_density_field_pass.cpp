@@ -1,160 +1,49 @@
 #include "renderer/pass/fog_density_field_pass.hpp"
-#include "gpu/vulkan/native.hpp"
 
-#include "core/base_path.hpp"
 #include "core/profiler.hpp"
 #include "environment/environment_state.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "renderer/gpu/vma_image.hpp"
+#include "gpu/device.hpp"
+#include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/pass_registry.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
+#include <span>
 
 namespace fjell {
 
-Result<> FogDensityFieldPass::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    gpu_device_ = resources.device;
-    allocator_ = resources.allocator;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-
-    // set 0: the sources to splat, last frame's field, this frame's field.
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo li{};
-    li.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    li.bindingCount = static_cast<uint32_t>(bindings.size());
-    li.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device_, &li, nullptr, &set_layout_) != VK_SUCCESS) {
-        return make_error("FogDensityFieldPass: failed to create descriptor set layout");
-    }
-
-    VkPushConstantRange push{};
-    push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push.size = sizeof(PushConstants);
-
-    VkPipelineLayoutCreateInfo pli{};
-    pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pli.setLayoutCount = 1;
-    pli.pSetLayouts = &set_layout_;
-    pli.pushConstantRangeCount = 1;
-    pli.pPushConstantRanges = &push;
-    if (vkCreatePipelineLayout(device_, &pli, nullptr, &pipeline_layout_) != VK_SUCCESS) {
-        return make_error("FogDensityFieldPass: failed to create pipeline layout");
-    }
-
-    auto code = read_spirv(base_path::resolve("shaders/fog_density_field.comp.spv"));
-    auto* module = create_shader_module(device_, code);
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = module;
-    stage.pName = "main";
-    VkComputePipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    ci.stage = stage;
-    ci.layout = pipeline_layout_;
-    const VkResult r = vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci,
-                                                nullptr, &pipeline_);
-    vkDestroyShaderModule(device_, module, nullptr);
-    if (r != VK_SUCCESS) {
-        return make_error("FogDensityFieldPass: failed to create compute pipeline");
-    }
-
-    VkSamplerCreateInfo si{};
-    si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    si.magFilter = VK_FILTER_LINEAR;
-    si.minFilter = VK_FILTER_LINEAR;
-    si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+Result<> FogDensityFieldPass::create(Device& /*device*/, const PassResources& resources) {
+    device_ = resources.device;
+    FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
+                             .shader = "shaders/fog_density_field.comp",
+                             .name = "fog_density_field",
+                         }));
     // Outside the box the air is undisturbed, which is what a zero border says.
-    si.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    if (vkCreateSampler(device_, &si, nullptr, &sampler_) != VK_SUCCESS) {
-        return make_error("FogDensityFieldPass: failed to create sampler");
-    }
-
+    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
+                                 .mip_filter = gpu::Filter::nearest,
+                                 .address = gpu::Address::border,
+                                 .border = gpu::Border::transparent_black});
+    // Both fields start undisturbed, so anything reading before the pass has
+    // run reads still air.
     for (auto& field : fields_) {
-        VkImageCreateInfo ii{};
-        ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ii.imageType = VK_IMAGE_TYPE_3D;
-        ii.format = FIELD_FORMAT;
-        ii.extent = {RESOLUTION_XZ, RESOLUTION_Y, RESOLUTION_XZ};
-        ii.mipLevels = 1;
-        ii.arrayLayers = 1;
-        ii.samples = VK_SAMPLE_COUNT_1_BIT;
-        ii.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ii.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (create_vma_image(allocator_, &ii, &field.image, &field.memory) != VK_SUCCESS) {
-            return make_error("FogDensityFieldPass: failed to create field image");
-        }
-        set_image_debug_name(device_, field.image, "fog_density_field");
-
-        VkImageViewCreateInfo vi{};
-        vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vi.image = field.image;
-        vi.viewType = VK_IMAGE_VIEW_TYPE_3D;
-        vi.format = FIELD_FORMAT;
-        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(device_, &vi, nullptr, &field.view) != VK_SUCCESS) {
-            return make_error("FogDensityFieldPass: failed to create field view");
-        }
-        field.texture = gpu::vulkan::adopt(*gpu_device_, field.image, field.view, ii);
+        FJELL_TRY(field, device_->create(gpu::TextureDesc{
+                             .kind = gpu::TextureKind::tex3d,
+                             .format = FIELD_FORMAT,
+                             .width = RESOLUTION_XZ,
+                             .height = RESOLUTION_Y,
+                             .depth = RESOLUTION_XZ,
+                             .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+                             .initial = gpu::Clear{0.0f},
+                             .name = "fog_density_field",
+                         }));
     }
-
-    for (auto& buffer : source_buffers_) {
-        buffer = std::make_unique<Buffer>(
-            allocator_, MAX_SOURCES * sizeof(GpuSource),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        buffer->map();
-    }
-
     return {};
 }
 
 void FogDensityFieldPass::destroy() {
-    if (device_ == VK_NULL_HANDLE) return;
-    for (auto& buffer : source_buffers_) buffer.reset();
-    for (auto& field : fields_) {
-        if (field.view != VK_NULL_HANDLE) vkDestroyImageView(device_, field.view, nullptr);
-        destroy_vma_image(allocator_, field.image, field.memory);
-        field = {};
-    }
-    if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, sampler_, nullptr);
-    if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
-    if (pipeline_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
-    }
-    if (set_layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr);
-    }
-    sampler_ = VK_NULL_HANDLE;
-    pipeline_ = VK_NULL_HANDLE;
-    pipeline_layout_ = VK_NULL_HANDLE;
-    set_layout_ = VK_NULL_HANDLE;
-    device_ = VK_NULL_HANDLE;
+    pipeline_.reset();
+    for (auto& field : fields_) field.reset();
 }
 
 void FogDensityFieldPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
@@ -162,12 +51,7 @@ void FogDensityFieldPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/)
     // two a reader should see changes every frame, so the binding is rewritten
     // in prepare_frame; this only points the first frame's descriptor at a real
     // image.
-    auto& gb = gpu.global_bindings();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        gb.write_image(i, "fog_density_field", fields_[cur_].view, sampler_,
-                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    gb.flush_writes();
+    gpu.global_bindings().set("fog_density_field", gpu::sampled(fields_[cur_], sampler_));
 }
 
 void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
@@ -176,10 +60,9 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
     if (ctx.environment != nullptr) {
         const auto& sources = ctx.environment->motion_sources;
         source_count_ = std::min(static_cast<uint32_t>(sources.size()), MAX_SOURCES);
-        auto* dst = static_cast<GpuSource*>(source_buffers_[ctx.frame_index]->mapped());
         for (uint32_t i = 0; i < source_count_; ++i) {
             const auto& s = sources[i];
-            dst[i] = GpuSource{
+            sources_[i] = GpuSource{
                 .position_radius = glm::vec4(s.position, s.radius),
                 .velocity_reach = glm::vec4(s.velocity, s.height),
                 .strength = glm::vec4(s.strength, 0.0f, 0.0f, 0.0f),
@@ -218,10 +101,9 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
     // decides which patch of ground is worth keeping.
     float floor_y = eye.y - FLOOR_BELOW_EYE;
     if (source_count_ > 0) {
-        const auto* src = static_cast<const GpuSource*>(source_buffers_[ctx.frame_index]->mapped());
-        float lowest = src[0].position_radius.y;
+        float lowest = sources_[0].position_radius.y;
         for (uint32_t i = 1; i < source_count_; ++i) {
-            lowest = std::min(lowest, src[i].position_radius.y);
+            lowest = std::min(lowest, sources_[i].position_radius.y);
         }
         floor_y = std::min(floor_y, lowest - FLOOR_BELOW_SOURCE);
     }
@@ -265,10 +147,8 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
     stepped_this_frame_ = false;
     if (active_) { cur_ = prev_index(); }
 
-    auto& gb = gpu.global_bindings();
-    gb.write_image(ctx.frame_index, "fog_density_field", fields_[cur_].view, sampler_,
-                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    gb.flush_writes();
+    gpu.global_bindings().set(ctx.frame_index, "fog_density_field",
+                              gpu::sampled(fields_[cur_], sampler_));
 }
 
 PassSetup FogDensityFieldPass::setup() const {
@@ -292,20 +172,13 @@ void FogDensityFieldPass::declare(PassBuilder& builder, const DeclareContext& ct
 }
 
 void FogDensityFieldPass::collect_exports(DeclareContext& ctx) {
-    if (fields_[cur_].image == VK_NULL_HANDLE) { return; }
+    if (!fields_[cur_]) { return; }
     // Both fields rest where the fog samples them, in compute through the
-    // global set; neither holds anything before the pass first runs.
-    auto add = [&](std::string_view name, const Field& field) {
-        ImportedImage img{};
-        img.view = field.texture;
-        img.persistent = true;   // carried into the next frame's field
-        img.resting = gpu::Access::sampled_compute;
-        img.unwritten = first_frame_;
-        ctx.imports.emplace(fg_name_hash(name), img);
-    };
+    // global set, and are carried into the next frame's field.
+    const TextureExport how{.persistent = true, .resting = gpu::Access::sampled_compute};
     // The field this frame writes is the one the global set binds.
-    add("fog_density_field", fields_[cur_]);
-    add("fog_density_field_prev", fields_[prev_index()]);
+    ctx.export_texture("fog_density_field", fields_[cur_], how);
+    ctx.export_texture("fog_density_field_prev", fields_[prev_index()], how);
 }
 
 void FogDensityFieldPass::record(const FrameContext& ctx) {
@@ -314,29 +187,11 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     stepped_this_frame_ = true;
 
     FJELL_PROFILE_SCOPE_N("record_fog_density_field");
-    FJELL_GPU_ZONE(ctx, "Fog Density Field");
-    VkCommandBuffer cmd = ctx.cmd;
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Fog Density Field");
 
     const uint32_t write = cur_;
     const uint32_t read = 1 - cur_;
-
-    // The graph has the field written in GENERAL and the one read in
-    // SHADER_READ_ONLY_OPTIMAL.
-    FrameCacheBinding b[3]{};
-    b[0].binding = 0;
-    b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    b[0].buffer.buffer = source_buffers_[ctx.frame_index]->handle();
-    b[0].buffer.range = MAX_SOURCES * sizeof(GpuSource);
-    b[1].binding = 1;
-    b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    b[1].image.sampler = sampler_;
-    b[1].image.imageView = fields_[read].view;
-    b[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    b[2].binding = 2;
-    b[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    b[2].image.imageView = fields_[write].view;
-    b[2].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    VkDescriptorSet set = ctx.descriptor_cache->acquire(set_layout_, {b, 3});
 
     const float texel_xz = EXTENT_METRES / static_cast<float>(RESOLUTION_XZ);
     const float texel_y = HEIGHT_METRES / static_cast<float>(RESOLUTION_Y);
@@ -352,28 +207,29 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
         }
     }
 
-    PushConstants push{};
-    push.origin_texel = glm::vec4(origin_, texel_xz);
-    push.prev_origin_texel_y = glm::vec4(prev_origin_, texel_y);
-    push.extent_decay_dt = glm::vec4(EXTENT_METRES, HEIGHT_METRES,
-                                     1.0f / MEMORY_SECONDS, ctx.delta_time);
-    push.wind_fraction = glm::vec4(wind, WIND_FRACTION);
-    push.res_count = glm::uvec4(RESOLUTION_XZ, RESOLUTION_Y, source_count_, 0);
-    push.tuning = glm::vec4(SPREAD_PER_SECOND, WAKE_WIDTH,
-                            SWIRL_METRES_PER_SECOND, CARVE_PER_SECOND);
-    push.time = elapsed_;
-    push.buoyancy = BUOYANCY_METRES_PER_SECOND;
-    push.vortex_strength = vortex_strength_;
-    push.compression = compression_;
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_,
-                            0, 1, &set, 0, nullptr);
-    vkCmdPushConstants(cmd, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push), &push);
+    // A storage buffer holds at least one source, even in a frame with none.
+    const auto sources = cmd.transient(std::span(sources_.data(), std::max(source_count_, 1U)));
+    cmd.set_pipeline(pipeline_);
+    cmd.bind({{"SourceBuffer", gpu::storage(sources)},
+              {"density_prev", gpu::sampled(fields_[read], sampler_)},
+              {"density_out", gpu::storage(fields_[write])}});
+    cmd.push(PushConstants{
+        .origin_texel = glm::vec4(origin_, texel_xz),
+        .prev_origin_texel_y = glm::vec4(prev_origin_, texel_y),
+        .extent_decay_dt = glm::vec4(EXTENT_METRES, HEIGHT_METRES, 1.0f / MEMORY_SECONDS,
+                                     ctx.delta_time),
+        .wind_fraction = glm::vec4(wind, WIND_FRACTION),
+        .res_count = glm::uvec4(RESOLUTION_XZ, RESOLUTION_Y, source_count_, 0),
+        .tuning = glm::vec4(SPREAD_PER_SECOND, WAKE_WIDTH, SWIRL_METRES_PER_SECOND,
+                            CARVE_PER_SECOND),
+        .time = elapsed_,
+        .buoyancy = BUOYANCY_METRES_PER_SECOND,
+        .vortex_strength = vortex_strength_,
+        .compression = compression_,
+    });
     const uint32_t groups_xz = (RESOLUTION_XZ + 3) / 4;
     const uint32_t groups_y = (RESOLUTION_Y + 3) / 4;
-    vkCmdDispatch(cmd, groups_xz, groups_y, groups_xz);
+    cmd.dispatch(groups_xz, groups_y, groups_xz);
     first_frame_ = false;
     elapsed_ += ctx.delta_time;
     // Settled once nothing has moved for as long as a disturbance lasts: by
