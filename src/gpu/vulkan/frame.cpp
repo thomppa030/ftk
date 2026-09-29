@@ -259,7 +259,10 @@ Result<> Device::end_frame(Frame& frame) {
         if (!f.submissions.empty()) {
             waits.push_back(semaphore_at(self.queue_timelines[1], reached.back(),
                                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
-        } else if (f.acquired != VK_NULL_HANDLE) {
+        }
+        // A swapchain image no list drew still has to be acquired before
+        // the frame signals it rendered.
+        if (!acquire_waited && f.acquired != VK_NULL_HANDLE) {
             waits.push_back(semaphore_at(f.acquired, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
         }
         SmallVector<VkSemaphoreSubmitInfo, 4> signals;

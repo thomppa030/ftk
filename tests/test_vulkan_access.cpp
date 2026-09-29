@@ -7,7 +7,7 @@ using namespace fjell::gpu;
 
 namespace {
 
-constexpr int ACCESS_COUNT = static_cast<int>(Access::clear) + 1;
+constexpr int ACCESS_COUNT = static_cast<int>(Access::present) + 1;
 
 } // namespace
 

@@ -113,6 +113,7 @@ fjell_library(gpu
         gpu/vulkan/native.cpp
         gpu/vulkan/pipeline.cpp
         gpu/vulkan/render_encoder.cpp
+        gpu/vulkan/swapchain.cpp
         gpu/vulkan/translate.cpp
         gpu/vulkan/transitions.cpp
         gpu/vulkan/zones.cpp
@@ -133,6 +134,7 @@ fjell_library(gpu
         gpu/release_queue.hpp
         gpu/sampler.hpp
         gpu/shader.hpp
+        gpu/swapchain.hpp
         gpu/texture.hpp
         gpu/transient_memory.hpp
         gpu/transition.hpp

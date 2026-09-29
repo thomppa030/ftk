@@ -65,6 +65,10 @@ enum class Access : uint8_t {
     copy_dst,
     /// Written by `clear` (a texture) or `fill` (a buffer).
     clear,
+
+    /// Shown in a window: what a swapchain image is left in to be presented,
+    /// and what an acquired one waits for before it is drawn into again.
+    present,
 };
 
 template <>
@@ -131,6 +135,7 @@ using AccessSet = Flags<Access>;
         case Access::copy_src:
         case Access::copy_dst:
         case Access::clear:
+        case Access::present:
             return true;
         default:
             return false;
@@ -160,8 +165,9 @@ using AccessSet = Flags<Access>;
 }
 
 /// What a texture must be made able to do to be used this way: nothing for
-/// an access that does not apply to textures, and nothing for a copy or a
-/// clear, which every texture allows.
+/// an access that does not apply to textures, nothing for a copy or a clear,
+/// which every texture allows, and nothing for present, which only a
+/// swapchain's images are, made for it.
 [[nodiscard]] constexpr TextureUses texture_use(Access a) noexcept {
     switch (a) {
         case Access::color_attachment:

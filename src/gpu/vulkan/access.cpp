@@ -81,6 +81,13 @@ ImageScope image_scope(Access access, bool depth) {
         case Access::clear:
             return {VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_CLEAR_BIT,
                     VK_ACCESS_2_TRANSFER_WRITE_BIT};
+        // The presentation engine's read is ordered by semaphores, not by
+        // memory access: a frame waits for its image to be acquired at the
+        // colour output stage, so that is the stage a barrier after present
+        // waits on, and the stage a barrier before it names.
+        case Access::present:
+            return {VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_2_NONE};
         default:
             return {};
     }
