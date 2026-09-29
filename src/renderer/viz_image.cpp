@@ -1,7 +1,7 @@
 #include "renderer/viz_image.hpp"
 
 #include "core/log.hpp"
-#include "gpu/device.hpp"
+#include <gpu/device.hpp>
 #include "gpu/vulkan/native.hpp"
 #include "renderer/pass_builder.hpp"
 
