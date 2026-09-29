@@ -393,6 +393,10 @@ gpu::BindGroup GpuContext::bindless_group(VkDescriptorSet set) {
     return adopted_group(bindless_groups_, shared_layouts_.bindless, set);
 }
 
+gpu::BindGroup GpuContext::meshlets_group(VkDescriptorSet set) {
+    return adopted_group(meshlets_groups_, shared_layouts_.meshlets, set);
+}
+
 void GpuContext::finalize_descriptors() {
     auto vk_device = core_.vk_device();
 
@@ -476,6 +480,7 @@ PassResources GpuContext::pass_resources() const {
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
     res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
+    res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
     res.samples = gpu::vulkan::from_vk(res.sample_count);
     res.allocator = core_.allocator();
     res.pipeline_cache = vk_pipeline_cache_;

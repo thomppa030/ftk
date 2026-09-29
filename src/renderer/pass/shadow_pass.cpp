@@ -184,8 +184,12 @@ Result<> ShadowPass::create(Device& /*device*/, const PassResources& resources) 
         .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
         .depth_format = DEPTH_FORMAT,
     };
-    if (auto made = casters_.create(*device_, "shaders/shadow.vert", "shaders/depth_only.frag", state,
-                                    resources.globals, resources.bindless, resources.draw_data,
+    if (auto made = casters_.create(*device_,
+                                    {.vertex = "shaders/shadow.vert", .fragment = "shaders/depth_only.frag"},
+                                    state,
+                                    {.globals = resources.globals,
+                                     .bindless = resources.bindless,
+                                     .draw_data = resources.draw_data},
                                     "shadow");
         !made) {
         return made;

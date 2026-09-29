@@ -12,6 +12,16 @@
 
 namespace fjell {
 
+/// A depth-only pipeline's shaders, named as the build compiled them. A
+/// vertex pipeline gives `vertex`; a mesh pipeline gives `task` and `mesh`.
+/// A material's own stage takes the place of `vertex` or of `mesh`.
+struct DepthVariantShaders {
+    const char* vertex{nullptr};
+    const char* task{nullptr};
+    const char* mesh{nullptr};
+    const char* fragment{nullptr};
+};
+
 /// What a depth-only pipeline is made of besides its shaders.
 struct DepthVariantState {
     gpu::VertexLayout vertex_layout{};
@@ -21,29 +31,49 @@ struct DepthVariantState {
     gpu::Samples samples{gpu::Samples::x1};
 };
 
-/// A depth-only pass's vertex pipelines over the batch's static draws: its
-/// own default, and one for each material shader with a vertex stage of its
-/// own (a displacement), built from that shader's compiled depth or shadow
-/// vertex stage on the same state. The default shaders read the globals and
-/// the draw data; a material's vertex stage reads its material too, so its
-/// pipelines also name the bindless table.
+/// The engine's shared layouts a depth-only pipeline binds: the globals and
+/// the draw data, the meshlets for a mesh pipeline, and the bindless table
+/// for a material's own stage, which reads its material.
+struct DepthVariantLayouts {
+    gpu::SharedLayout globals{};
+    gpu::SharedLayout bindless{};
+    gpu::SharedLayout draw_data{};
+    gpu::SharedLayout meshlets{};
+};
+
+/// A depth-only pass's pipelines over the batch's static draws: its own
+/// default, and one for each material shader with a stage of its own (a
+/// displacement), built from that shader's compiled stage on the same state.
 class DepthVariants {
 public:
-    /// `vertex` and `fragment` name shaders the build compiled.
-    Result<> create(gpu::Device& device, const char* vertex, const char* fragment,
-                    const DepthVariantState& state, gpu::SharedLayout globals,
-                    gpu::SharedLayout bindless, gpu::SharedLayout draw_data, std::string name);
+    /// The pipeline a range of material shader `pipeline_id` draws with.
+    struct Variant {
+        gpu::GraphicsPipeline pipeline{};
+        /// The material's own stage: its pipeline names the bindless table.
+        bool custom{false};
+    };
+
+    Result<> create(gpu::Device& device, const DepthVariantShaders& shaders,
+                    const DepthVariantState& state, const DepthVariantLayouts& layouts,
+                    std::string name);
     void destroy();
 
     /// Builds, or builds again, the pipeline for material shader
-    /// `pipeline_id` from its compiled vertex stage at `spirv_path`. A
-    /// failure is logged, and the shader draws with what it had.
+    /// `pipeline_id` from its compiled stage at `spirv_path`. A failure is
+    /// logged, and the shader draws with what it had.
     void register_custom(uint32_t pipeline_id, const std::string& spirv_path);
     /// Forgets every material shader's pipeline: they draw with the default.
     void clear_custom();
 
+    [[nodiscard]] Variant variant(uint32_t pipeline_id) const {
+        const auto custom = custom_.find(pipeline_id);
+        return custom != custom_.end() ? Variant{custom->second, true} : Variant{default_, false};
+    }
+    [[nodiscard]] bool has_custom(uint32_t pipeline_id) const { return custom_.contains(pipeline_id); }
+
     /// Draws the batch's static draws range by range, each with its material
-    /// shader's pipeline or the default. `bind(custom)` runs after every
+    /// shader's pipeline or the default: a vertex pipeline's indexed draws
+    /// from the batch's indirect commands. `bind(custom)` runs after every
     /// pipeline change to bind what the pipeline reads: the bindless table
     /// too when `custom`.
     template <typename Bind>
@@ -52,13 +82,11 @@ public:
         const gpu::Buffer commands = batch.shared_indirect_buffer(frame_index);
         gpu::GraphicsPipeline bound{};
         for (const auto& range : batch.pipeline_ranges(frame_index)) {
-            const auto custom = custom_.find(range.pipeline_id);
-            const bool is_custom = custom != custom_.end();
-            const gpu::GraphicsPipeline needed = is_custom ? custom->second.get() : default_.get();
-            if (needed != bound) {
-                pass.set_pipeline(needed);
-                bind(is_custom);
-                bound = needed;
+            const Variant needed = variant(range.pipeline_id);
+            if (needed.pipeline != bound) {
+                pass.set_pipeline(needed.pipeline);
+                bind(needed.custom);
+                bound = needed.pipeline;
             }
             pass.draw_indexed_indirect(
                 gpu::BufferRange(commands, uint64_t{range.first_draw} * sizeof(gpu::DrawIndexedArgs),
@@ -68,12 +96,13 @@ public:
     }
 
 private:
+    [[nodiscard]] gpu::GraphicsPipelineDesc description(const DepthVariantShaders& shaders,
+                                                        bool custom, std::string_view name) const;
+
     gpu::Device* device_{nullptr};
-    const char* fragment_{nullptr};
+    DepthVariantShaders shaders_{};
     DepthVariantState state_{};
-    gpu::SharedLayout globals_{};
-    gpu::SharedLayout bindless_{};
-    gpu::SharedLayout draw_data_{};
+    DepthVariantLayouts layouts_{};
     std::string name_;
     gpu::Owned<gpu::GraphicsPipeline> default_;
     std::unordered_map<uint32_t, gpu::Owned<gpu::GraphicsPipeline>> custom_;

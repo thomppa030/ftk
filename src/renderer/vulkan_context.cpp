@@ -409,6 +409,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // faults the device rather than drawing nothing.
     if (passes_.has("meshlet_cull") && runs_pass(view.viewport_graph, "meshlet_cull")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
+        if (ctx.meshlet_set != VK_NULL_HANDLE) ctx.meshlets = gpu_.meshlets_group(ctx.meshlet_set);
+        ctx.gpu_driven_commands = meshlet_instance_pass()->indirect_buffer(current_frame_);
         ctx.gpu_driven_indirect = gpu::vulkan::native_buffer(
             gpu_device(), meshlet_instance_pass()->indirect_buffer(current_frame_));
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
@@ -1096,6 +1098,7 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
     res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
+    res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
     res.samples = gpu::vulkan::from_vk(res.sample_count);
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
@@ -1801,11 +1804,13 @@ void VulkanContext::sync_custom_depth_pipelines() {
 
     // Registered afresh, so a shader that no longer displaces its vertices
     // falls back to the pass's own pipeline.
+    auto* msd = passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth");
+    if (msd) msd->clear_custom_depth();
+    depth_prepass().clear_custom_depth();
     shadow_pass().clear_custom_shadows();
     for (uint32_t id = 0; id < pc->shader_count(); ++id) {
         if (!pc->has_custom_vertex(id)) continue;
 
-        auto* msd = passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth");
         const auto& depth_mesh = pc->depth_mesh_spv(id);
         if (msd && !depth_mesh.empty()) {
             msd->register_custom_depth(id, depth_mesh);

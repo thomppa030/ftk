@@ -52,9 +52,10 @@ struct PassResources {
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
-    /// The scene colour's format and the sample count above as the GPU
-    /// interface names them, for pipelines it builds.
+    /// The scene colour's and depth's formats and the sample count above as
+    /// the GPU interface names them, for pipelines it builds.
     gpu::Format scene_color_format{gpu::Format::undefined};
+    gpu::Format scene_depth_format{gpu::Format::undefined};
     gpu::Samples samples{gpu::Samples::x1};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
@@ -132,10 +133,16 @@ struct FrameContext {
     IndirectBatch* indirect_batch{nullptr};
     MegaBuffer* mega_buffer{nullptr};
     VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
+    /// That set as the GPU interface binds it; unset, like the set, when this
+    /// viewport's graph runs no meshlet cull.
+    gpu::BindGroup meshlets{};
     PipelineCache* pipeline_cache{nullptr};
 
     // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
     VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
+    /// Those commands as the GPU interface knows them: one
+    /// gpu::DrawMeshTasksArgs per pipeline bin.
+    gpu::Buffer gpu_driven_commands{};
     uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
 
     // Per-viewport post-process images

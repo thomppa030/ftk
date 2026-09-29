@@ -160,6 +160,19 @@ public:
     [[nodiscard]] VkBuffer mesh_count_buffer(uint32_t frame_index) const {
         return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
     }
+    /// The mesh-shader draw commands, one gpu::DrawMeshTasksArgs per static
+    /// draw, and each pipeline range's draw count, as the GPU interface knows
+    /// them.
+    [[nodiscard]] gpu::Buffer shared_mesh_indirect_buffer(uint32_t frame_index) const {
+        return mesh_indirect_buffers_[frame_index] ? mesh_indirect_buffers_[frame_index]->shared() : gpu::Buffer{};
+    }
+    [[nodiscard]] gpu::Buffer shared_mesh_count_buffer(uint32_t frame_index) const {
+        return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->shared() : gpu::Buffer{};
+    }
+    /// The most task groups any of those commands asks for.
+    [[nodiscard]] uint32_t most_mesh_task_groups(uint32_t frame_index) const {
+        return most_mesh_task_groups_[frame_index];
+    }
 
     [[nodiscard]] VkBuffer pipeline_bin_buffer(uint32_t frame_index) const {
         return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
@@ -284,6 +297,7 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_meshlet_instances_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> most_mesh_task_groups_{};
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> pipeline_bin_buffers_;
 

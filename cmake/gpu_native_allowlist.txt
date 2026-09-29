@@ -57,15 +57,10 @@ src/renderer/offscreen_pass.cpp
 src/renderer/offscreen_pass.hpp
 src/renderer/pass/ddgi_pass.cpp
 src/renderer/pass/ddgi_pass.hpp
-src/renderer/pass/depth_pipeline.hpp
-src/renderer/pass/depth_prepass.cpp
-src/renderer/pass/depth_prepass.hpp
 src/renderer/pass/depth_viz_pass.hpp
 src/renderer/pass/gtao_pass.cpp
 src/renderer/pass/gtao_pass.hpp
 src/renderer/pass/light_viz_pass.hpp
-src/renderer/pass/mesh_shader_depth_pass.cpp
-src/renderer/pass/mesh_shader_depth_pass.hpp
 src/renderer/pass/meshlet_viz_pass.cpp
 src/renderer/pass/meshlet_viz_pass.hpp
 src/renderer/pass/motion_field_pass.cpp

@@ -60,6 +60,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_indirect_buffers_[frame_index]->map();
+    mesh_indirect_buffers_[frame_index]->share(gpu_);
 
     // Count buffer: one uint32_t per pipeline range
     uint32_t max_ranges = std::max(new_cap, 64u);
@@ -71,6 +72,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_count_buffers_[frame_index]->map();
+    mesh_count_buffers_[frame_index]->share(gpu_);
 
     retire(std::move(pipeline_bin_buffers_[frame_index]));
     pipeline_bin_buffers_[frame_index] = std::make_unique<Buffer>(
@@ -620,6 +622,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
 
     // Populate mesh shader indirect dispatch buffers
+    most_mesh_task_groups_[frame_index] = 0;
     uint32_t opaque_count = opaque_counts_[frame_index];
     if (opaque_count > 0) {
         auto* mesh_cmds = static_cast<VkDrawMeshTasksIndirectCommandEXT*>(
@@ -627,12 +630,15 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         auto* counts = static_cast<uint32_t*>(
             mesh_count_buffers_[frame_index]->mapped());
 
+        uint32_t most_groups = 0;
         for (uint32_t i = 0; i < opaque_count; ++i) {
             uint32_t mc = staged_draw_data_[i].meshlet_count;
             mesh_cmds[i].groupCountX = (mc + 31) / 32;
             mesh_cmds[i].groupCountY = 1;
             mesh_cmds[i].groupCountZ = 1;
+            most_groups = std::max(most_groups, mesh_cmds[i].groupCountX);
         }
+        most_mesh_task_groups_[frame_index] = most_groups;
 
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             counts[r] = ranges[r].draw_count;

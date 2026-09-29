@@ -15,6 +15,7 @@ namespace fjell::gpu {
 static_assert(sizeof(DrawIndexedArgs) == sizeof(VkDrawIndexedIndirectCommand) &&
               offsetof(DrawIndexedArgs, vertex_offset) == offsetof(VkDrawIndexedIndirectCommand, vertexOffset) &&
               offsetof(DrawIndexedArgs, first_instance) == offsetof(VkDrawIndexedIndirectCommand, firstInstance));
+static_assert(sizeof(DrawMeshTasksArgs) == sizeof(VkDrawMeshTasksIndirectCommandEXT));
 
 namespace {
 

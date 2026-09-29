@@ -175,6 +175,8 @@ public:
 
     /// The bindless set as the GPU interface binds it, the same way.
     [[nodiscard]] gpu::BindGroup bindless_group(VkDescriptorSet set);
+    /// A meshlet set as the GPU interface binds it, the same way.
+    [[nodiscard]] gpu::BindGroup meshlets_group(VkDescriptorSet set);
 
     /// Hands the GPU interface the draw data layout, which the scene gatherer
     /// owns and makes after this context.
@@ -217,6 +219,7 @@ private:
     AdoptedGroups global_groups_;
     AdoptedGroups draw_data_groups_;
     AdoptedGroups bindless_groups_;
+    AdoptedGroups meshlets_groups_;
 
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;

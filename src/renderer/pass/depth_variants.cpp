@@ -6,28 +6,35 @@
 
 namespace fjell {
 
-Result<> DepthVariants::create(gpu::Device& device, const char* vertex, const char* fragment,
-                               const DepthVariantState& state, gpu::SharedLayout globals,
-                               gpu::SharedLayout bindless, gpu::SharedLayout draw_data,
+gpu::GraphicsPipelineDesc DepthVariants::description(const DepthVariantShaders& shaders, bool custom,
+                                                     std::string_view name) const {
+    gpu::GraphicsPipelineDesc desc{
+        .vertex_layout = state_.vertex_layout,
+        .raster = state_.raster,
+        .depth = state_.depth,
+        .depth_format = state_.depth_format,
+        .samples = state_.samples,
+        .name = name,
+    };
+    if (shaders.vertex != nullptr) desc.vertex = shaders.vertex;
+    if (shaders.task != nullptr) desc.task = shaders.task;
+    if (shaders.mesh != nullptr) desc.mesh = shaders.mesh;
+    if (shaders.fragment != nullptr) desc.fragment = shaders.fragment;
+    desc.shared = {layouts_.globals, layouts_.draw_data};
+    if (shaders.mesh != nullptr) desc.shared.push_back(layouts_.meshlets);
+    if (custom) desc.shared.push_back(layouts_.bindless);
+    return desc;
+}
+
+Result<> DepthVariants::create(gpu::Device& device, const DepthVariantShaders& shaders,
+                               const DepthVariantState& state, const DepthVariantLayouts& layouts,
                                std::string name) {
     device_ = &device;
-    fragment_ = fragment;
+    shaders_ = shaders;
     state_ = state;
-    globals_ = globals;
-    bindless_ = bindless;
-    draw_data_ = draw_data;
+    layouts_ = layouts;
     name_ = std::move(name);
-    FJELL_TRY(default_, device.create(gpu::GraphicsPipelineDesc{
-                            .vertex = vertex,
-                            .fragment = fragment,
-                            .vertex_layout = state.vertex_layout,
-                            .raster = state.raster,
-                            .depth = state.depth,
-                            .depth_format = state.depth_format,
-                            .samples = state.samples,
-                            .shared = {globals, draw_data},
-                            .name = name_,
-                        }));
+    FJELL_TRY(default_, device.create(description(shaders_, false, name_)));
     return {};
 }
 
@@ -38,23 +45,20 @@ void DepthVariants::destroy() {
 
 void DepthVariants::register_custom(uint32_t pipeline_id, const std::string& spirv_path) {
     if (device_ == nullptr) return;
-    auto vertex = gpu::read_spirv(spirv_path);
-    if (!vertex) {
-        FJELL_GFX_ERROR("{}: {}", name_, vertex.error());
+    auto stage = gpu::read_spirv(spirv_path);
+    if (!stage) {
+        FJELL_GFX_ERROR("{}: {}", name_, stage.error());
         return;
     }
     const std::string name = name_ + " for shader " + std::to_string(pipeline_id);
-    auto built = device_->create(gpu::GraphicsPipelineDesc{
-        .vertex = std::span<const uint32_t>(*vertex),
-        .fragment = fragment_,
-        .vertex_layout = state_.vertex_layout,
-        .raster = state_.raster,
-        .depth = state_.depth,
-        .depth_format = state_.depth_format,
-        .samples = state_.samples,
-        .shared = {globals_, bindless_, draw_data_},
-        .name = name,
-    });
+    gpu::GraphicsPipelineDesc desc = description(shaders_, true, name);
+    // The material's stage in place of the pass's own.
+    if (shaders_.mesh != nullptr) {
+        desc.mesh = std::span<const uint32_t>(*stage);
+    } else {
+        desc.vertex = std::span<const uint32_t>(*stage);
+    }
+    auto built = device_->create(desc);
     if (!built) {
         FJELL_GFX_ERROR("{}: {}", name, built.error());
         return;
