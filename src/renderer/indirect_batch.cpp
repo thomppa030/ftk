@@ -97,6 +97,7 @@ void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t coun
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     instance_transform_buffers_[frame_index]->map();
+    instance_transform_buffers_[frame_index]->share(gpu_);
 
     // GPU-only buffer for per-instance culled output (written by InstanceCullPass)
     retire(std::move(visible_instance_buffers_[frame_index]));
@@ -124,6 +125,7 @@ void IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     instanced_draw_buffers_[frame_index]->map();
+    instanced_draw_buffers_[frame_index]->share(gpu_);
 
     instanced_draw_capacities_[frame_index] = new_cap;
 }

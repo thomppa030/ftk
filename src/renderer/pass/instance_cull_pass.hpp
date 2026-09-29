@@ -1,14 +1,8 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/gpu/descriptor.hpp"
-#include "renderer/renderer_constants.hpp"
-
-#include <vulkan/vulkan.h>
-
-#include <array>
-#include <cstdint>
-#include <memory>
 
 namespace fjell {
 
@@ -37,13 +31,7 @@ private:
     BufferImport transforms_{};
     BufferImport commands_{};
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-
-    std::unique_ptr<DescriptorSetLayout> set_layout_;
-    std::unique_ptr<DescriptorPool> pool_;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
+    gpu::Owned<gpu::ComputePipeline> pipeline_;
 };
 
 } // namespace fjell

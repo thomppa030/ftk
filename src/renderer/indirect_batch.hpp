@@ -168,6 +168,12 @@ public:
                    ? instance_transform_buffers_[frame_index]->handle()
                    : VK_NULL_HANDLE;
     }
+    /// The instance transforms as the GPU interface knows them.
+    [[nodiscard]] gpu::Buffer shared_instance_transform_buffer(uint32_t frame_index) const {
+        return instance_transform_buffers_[frame_index]
+                   ? instance_transform_buffers_[frame_index]->shared()
+                   : gpu::Buffer{};
+    }
     [[nodiscard]] VkDeviceSize instance_transform_size(uint32_t frame_index) const {
         return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
     }
@@ -194,6 +200,12 @@ public:
         return instanced_draw_buffers_[frame_index]
                    ? instanced_draw_buffers_[frame_index]->handle()
                    : VK_NULL_HANDLE;
+    }
+    /// The instanced draws as the GPU interface knows them.
+    [[nodiscard]] gpu::Buffer shared_instanced_draw_buffer(uint32_t frame_index) const {
+        return instanced_draw_buffers_[frame_index]
+                   ? instanced_draw_buffers_[frame_index]->shared()
+                   : gpu::Buffer{};
     }
     [[nodiscard]] VkDeviceSize instanced_draw_size(uint32_t frame_index) const {
         return static_cast<VkDeviceSize>(instanced_draw_counts_[frame_index]) * sizeof(GpuInstancedDraw);
