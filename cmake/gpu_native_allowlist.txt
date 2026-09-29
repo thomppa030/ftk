@@ -74,7 +74,6 @@ src/renderer/pass/meshlet_viz_pass.cpp
 src/renderer/pass/meshlet_viz_pass.hpp
 src/renderer/pass/motion_field_pass.cpp
 src/renderer/pass/motion_field_pass.hpp
-src/renderer/pass/normal_pass.cpp
 src/renderer/pass/normal_pass.hpp
 src/renderer/pass/opaque_pass.cpp
 src/renderer/pass/opaque_pass.hpp

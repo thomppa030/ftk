@@ -129,6 +129,7 @@ add_executable(fjell
     renderer/pass/normal_pass.cpp
     renderer/pass/overdraw_pass.cpp
     renderer/pass/uv_viz_pass.cpp
+    renderer/pass/viz_meshes.cpp
     renderer/pass/wireframe_pass.cpp
     renderer/pass/scene_sdf_pass.cpp
     renderer/pass/opaque_pass.cpp
