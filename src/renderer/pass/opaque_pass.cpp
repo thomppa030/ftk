@@ -77,10 +77,11 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
                  gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
                  gpu::Access::indirect_read);
-    // The selection outline is drawn through the vertex path, which reads
-    // the transforms the instance cull kept.
+    // The selection outline is drawn through the vertex path, from the
+    // batch's indirect commands, with the transforms the instance cull kept.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
                  gpu::Access::storage_buffer_read_vertex);
+    builder.read(builder.import_named_buffer(ctx, "batch_indirect"), gpu::Access::indirect_read);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {
@@ -277,7 +278,7 @@ void OpaquePass::record(const FrameContext& ctx) {
 }
 
 void OpaquePass::draw_outline(const FrameContext& ctx) {
-    if (ctx.selected_id == 0 || !ctx.scene) return;
+    if (ctx.selected_id == 0 || !ctx.scene || !ctx.indirect_batch || !ctx.mega_buffer) return;
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
     if (!obj) return;
@@ -327,18 +328,17 @@ void OpaquePass::draw_outline(const FrameContext& ctx) {
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
 
-    // Find the draw index for this object in the draw data SSBO
-    uint32_t draw_index = 0;
-    bool found = false;
-    for (const auto& dc : ctx.queue->commands()) {
-        if (dc.node_id == ctx.selected_id) { found = true; break; }
-        draw_index++;
-    }
-    if (!found) return;
-
-    // Draw with firstInstance = draw_index so gl_BaseInstance reads the right DrawData
+    // The node's own draws from the batch's indirect commands: the entries
+    // and LOD it drew the node with, each firstInstance naming its draw data,
+    // and the instance counts the instance cull left.
     ctx.mega_buffer->bind(ctx.cmd);
-    mesh->model->draw(ctx.cmd, draw_index);
+    const VkBuffer commands = ctx.indirect_batch->indirect_buffer(ctx.frame_index);
+    constexpr uint32_t stride = sizeof(VkDrawIndexedIndirectCommand);
+    for (const auto& draws : ctx.indirect_batch->node_draws(ctx.frame_index)) {
+        if (draws.node_id != ctx.selected_id) continue;
+        vkCmdDrawIndexedIndirect(ctx.cmd, commands, VkDeviceSize{draws.first_draw} * stride,
+                                 draws.draw_count, stride);
+    }
 }
 
 } // namespace fjell

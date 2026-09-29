@@ -99,6 +99,19 @@ public:
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
+    /// The static draws one opaque command's node got in a build: that many
+    /// indirect commands and draw data entries from `first_draw` on.
+    struct NodeDraws {
+        uint32_t node_id{0};
+        uint32_t first_draw{0};
+        uint32_t draw_count{0};
+    };
+    /// The static draws the build for this frame slot made, command by
+    /// command; a command culled whole or drawn skinned has none.
+    [[nodiscard]] const std::vector<NodeDraws>& node_draws(uint32_t frame_index) const {
+        return node_draws_[frame_index];
+    }
+
     /// The LOD of `model` placed by `world` that the last build draws, as it
     /// picks one for each opaque draw: from the model's projected size seen
     /// from that build's camera. `model.lod_count()` when it is too small to
@@ -259,6 +272,8 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_indirect_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_count_buffers_;
+    std::array<std::vector<NodeDraws>, MAX_FRAMES_IN_FLIGHT> node_draws_;
+
     // What the last build picked LODs from: its camera, and its projection's
     // vertical scale (0 without a projection, which picks LOD 0).
     glm::vec3 lod_camera_pos_{0.0f};

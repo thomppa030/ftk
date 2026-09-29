@@ -199,6 +199,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         spline_segment_counts_[frame_index] = 0;
         pipeline_ranges_[frame_index].clear();
         skinned_draw_indices_[frame_index].clear();
+        node_draws_[frame_index].clear();
         return;
     }
 
@@ -243,6 +244,20 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     ranges.clear();
     ranges.reserve(16);
 
+    auto& node_draws = node_draws_[frame_index];
+    node_draws.clear();
+    // Notes the draws one command made, however the loop body leaves it:
+    // the instanced and spline paths end their command with `continue`.
+    struct NoteNodeDraws {
+        std::vector<NodeDraws>& out;
+        uint32_t node_id;
+        uint32_t first_draw;
+        const uint32_t& next_draw;
+        ~NoteNodeDraws() {
+            if (next_draw > first_draw) out.push_back({node_id, first_draw, next_draw - first_draw});
+        }
+    };
+
     uint32_t current_pipeline = UINT32_MAX;
     bool current_skinned = false;
     uint32_t range_start = 0;
@@ -260,6 +275,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     for (const auto& dc : opaque_commands) {
         if (dc.skinned) continue; // skinned draws appended after static draws
+        const NoteNodeDraws note{node_draws, dc.node_id, draw_index, draw_index};
 
         // Ensure the pipeline range reflects the current draw's pipeline before
         // we emit any sub-draws (instanced or not).
