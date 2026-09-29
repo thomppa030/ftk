@@ -5,10 +5,10 @@
 // ── DDGI probe trace (ray queries) ─────────────────────────────────────
 // One invocation per probe ray: x is the ray, y the probe within this
 // frame's update batch. Each ray stores its radiance and distance in the
-// batch's radiance rows: a hit returns the sun where it reaches the hit and
-// the probe field's own irradiance there (one more bounce each frame), a miss
-// the blurred sky at the full trace distance, and a buried probe a negative
-// distance.
+// batch's radiance rows: a hit returns the sun and one local light where they
+// reach the hit and the probe field's own irradiance there (one more bounce
+// each frame), a miss the blurred sky at the full trace distance, and a
+// buried probe a negative distance.
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
@@ -40,7 +40,7 @@ layout(push_constant) uniform PushConstants {
     vec3 light_color;
     float max_trace_dist;
     vec3 sdf_volume_min;
-    float pad_pc0;
+    uint random_seed;         // changes every frame: which local light a hit takes
     vec3 sdf_volume_max;
     float pad_pc1;
 };
@@ -61,6 +61,10 @@ layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
 #define FJELL_RT_INDEX_BINDING    7
 #define FJELL_RT_INSTANCE_BINDING 8
 #include "fjell_rt_hit.glsl"
+
+// The point and spot lights that reach the grid (binding 12).
+#define FJELL_DDGI_LIGHTS_BINDING 12
+#include "fjell_ddgi_lights.glsl"
 
 // A probe counts as buried only this far inside a surface, so probes resting
 // near a wall (sdf ~ 0) are left alone while ones truly embedded are caught.
@@ -90,8 +94,9 @@ float sample_scene_sdf(vec3 world_pos) {
     return texture(scene_sdf, uvw).r;
 }
 
-// What a probe ray brings back: radiance in xyz, distance in w.
-vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
+// What a probe ray brings back: radiance in xyz, distance in w. `u`, uniform
+// in [0, 1), picks the local light a hit takes.
+vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax, float u) {
     rayQueryEXT q;
     // Light reaches a probe through glass.
     rayQueryInitializeEXT(q, tlas, gl_RayFlagsOpaqueEXT, RT_MASK_OPAQUE,
@@ -137,6 +142,17 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
         radiance = albedo * light_color * light_intensity * NdotL;
     }
 
+    // One point or spot light, picked in proportion to what each gives the
+    // hit and scaled by the chance of the pick, where nothing stands between
+    // it and the hit. Its shadow ray stops short of the light, which has no
+    // surface of its own.
+    DdgiLightPick pick = ddgi_pick_light(world_pos, N, u);
+    if (pick.index >= 0
+        && unoccluded(world_pos + N * SHADOW_RAY_OFFSET, pick.light.to_light,
+                      max(pick.light.distance - 2.0 * SHADOW_RAY_OFFSET, 0.0))) {
+        radiance += albedo * pick.light.incident;
+    }
+
     // Indirect bounce: the irradiance feeding this trace was gathered last
     // frame, so reflecting it off the hit surface here adds one more bounce
     // each frame and settles toward a full multi-bounce solution.
@@ -180,6 +196,12 @@ void main() {
     // Ray direction: jittered spherical Fibonacci
     vec3 direction = normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
 
-    vec4 result = trace_probe_ray(ray_origin, direction, 0.01, max_trace_dist);
+    // A number of its own for every ray of every probe, and a new one every
+    // frame, so each probe hit samples a different light each time it is traced.
+    uint h = fjell_hash(uint(probe_index) * uint(ddgi.probe_rays) + uint(ray_index));
+    h = fjell_hash(h ^ random_seed);
+    float u = float(h >> 8u) * (1.0 / 16777216.0);
+
+    vec4 result = trace_probe_ray(ray_origin, direction, 0.01, max_trace_dist, u);
     imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset), result);
 }

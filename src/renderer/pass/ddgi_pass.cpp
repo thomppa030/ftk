@@ -35,6 +35,23 @@ static_assert(DdgiConfig{}.irradiance_side_length <= DdgiPass::MAX_ATLAS_SIDE
                   && DdgiConfig{}.visibility_side_length <= DdgiPass::MAX_ATLAS_SIDE,
               "the probe update keeps a probe's whole tile in shared memory");
 
+namespace {
+
+// ddgi_light_select.comp's push constants: the box every probe ray stays
+// inside, which a light has to reach to go on the list.
+struct LightSelectPushConstants {
+    glm::vec3 reach_min;
+    float pad0;
+    glm::vec3 reach_max;
+    float pad1;
+};
+
+// The light select runs one invocation per slot of the world light buffer.
+constexpr uint32_t LIGHT_SELECT_GROUP = 64;
+static_assert(MAX_DDGI_LIGHTS % LIGHT_SELECT_GROUP == 0);
+
+} // namespace
+
 // ── Images ──────────────────────────────────────────────────────────────
 
 static void compute_atlas_dims(const DdgiConfig& config,
@@ -141,6 +158,14 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
         ubo->map();
     }
 
+    // Light list, one per frame in flight, filled on the GPU
+    for (auto& list : light_list) {
+        list = std::make_unique<Buffer>(
+            allocator, DDGI_LIGHT_LIST_BYTES,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_AUTO);
+    }
+
     // Indirect output (screen-res or half-res)
     uint32_t out_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
     uint32_t out_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
@@ -177,6 +202,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
         rt_trace_set.fill(VK_NULL_HANDLE);
         update_set.fill(VK_NULL_HANDLE);
         sample_set.fill(VK_NULL_HANDLE);
+        light_select_set.fill(VK_NULL_HANDLE);
     }
 
     destroy_img(radiance_view, radiance_image, radiance_memory);
@@ -188,6 +214,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 
     probe_status_buffer.reset();
     for (auto& ubo : constants_ubo) ubo.reset();
+    for (auto& list : light_list) list.reset();
 }
 
 void DdgiPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
@@ -538,6 +565,47 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
             return make_error("Failed to create DDGI sample irradiance pipeline");
     }
 
+    // ── Light select: the lights that reach the grid, out of the world light
+    // buffer the global set binds (set 0) into this slot's list (set 1) ──
+    {
+        const VkDescriptorSetLayoutBinding list_binding{
+            0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        VkDescriptorSetLayoutCreateInfo list_layout_ci{};
+        list_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        list_layout_ci.bindingCount = 1;
+        list_layout_ci.pBindings = &list_binding;
+        if (vkCreateDescriptorSetLayout(vk_device_, &list_layout_ci, nullptr, &light_select_set_layout_) != VK_SUCCESS) {
+            return make_error("Failed to create DDGI light select set layout");
+        }
+
+        const VkPushConstantRange select_push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightSelectPushConstants)};
+        const std::array select_set_layouts = {resources.global_set_layout, light_select_set_layout_};
+        VkPipelineLayoutCreateInfo select_layout_ci{};
+        select_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        select_layout_ci.setLayoutCount = static_cast<uint32_t>(select_set_layouts.size());
+        select_layout_ci.pSetLayouts = select_set_layouts.data();
+        select_layout_ci.pushConstantRangeCount = 1;
+        select_layout_ci.pPushConstantRanges = &select_push;
+        if (vkCreatePipelineLayout(vk_device_, &select_layout_ci, nullptr, &light_select_pipeline_layout_) != VK_SUCCESS) {
+            return make_error("Failed to create DDGI light select pipeline layout");
+        }
+
+        auto select_spirv = read_spirv(base_path::resolve("shaders/ddgi_light_select.comp.spv"));
+        VkShaderModule select_mod = create_shader_module(vk_device_, select_spirv);
+        VkComputePipelineCreateInfo select_ci{};
+        select_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        select_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        select_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        select_ci.stage.module = select_mod;
+        select_ci.stage.pName = "main";
+        select_ci.layout = light_select_pipeline_layout_;
+        VkResult select_result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &select_ci,
+                                                          nullptr, &light_select_pipeline_);
+        vkDestroyShaderModule(vk_device_, select_mod, nullptr);
+        if (select_result != VK_SUCCESS)
+            return make_error("Failed to create DDGI light select pipeline");
+    }
+
     FJELL_GFX_DEBUG("DDGI pass created (SDF trace + probe update + sample pipelines)");
 
     // ── RT trace pipeline (optional): compute, tracing with ray queries ──
@@ -556,8 +624,9 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         // binding 9:  irradiance atlas (for multi-bounce GI at the hit)
         // binding 10: visibility atlas (for multi-bounce GI at the hit)
         // binding 11: scene SDF (burial test)
+        // binding 12: light list (the local lights at a hit)
         const VkShaderStageFlags rt_stages = VK_SHADER_STAGE_COMPUTE_BIT;
-        std::array<VkDescriptorSetLayoutBinding, 12> rt_bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 13> rt_bindings{};
         rt_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, rt_stages, nullptr};
         rt_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, rt_stages, nullptr};
         rt_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, rt_stages, nullptr};
@@ -570,9 +639,10 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         rt_bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
         rt_bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
         rt_bindings[11] = {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
+        rt_bindings[12] = {12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
 
         // Enable UPDATE_AFTER_BIND on bindings updated every frame
-        std::array<VkDescriptorBindingFlags, 12> rt_bind_flags{};
+        std::array<VkDescriptorBindingFlags, 13> rt_bind_flags{};
         rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
         rt_bind_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // vertex buffer
         rt_bind_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // index buffer
@@ -650,14 +720,17 @@ void DdgiPass::destroy() {
     safe_destroy(vkDestroyPipeline, probe_update_pipeline_);
     safe_destroy(vkDestroyPipeline, sample_pipeline_);
     safe_destroy(vkDestroyPipeline, rt_trace_pipeline_);
+    safe_destroy(vkDestroyPipeline, light_select_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, rt_trace_pipeline_layout_);
+    safe_destroy(vkDestroyPipelineLayout, light_select_pipeline_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, rt_trace_set_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, light_select_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
 
     vk_device_ = VK_NULL_HANDLE;
@@ -838,6 +911,52 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo[ctx.frame_index]->mapped(), &constants, sizeof(constants));
 }
 
+void DdgiPass::record_light_select(const FrameContext& ctx, Images& imgs) {
+    FJELL_PROFILE_SCOPE_N("ddgi_light_select");
+    FJELL_GPU_ZONE(ctx, "DDGI Light Select");
+    const VkBuffer list = imgs.light_list[ctx.frame_index]->handle();
+
+    auto list_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                            VkAccessFlags2 dst_access) {
+        VkBufferMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        b.srcStageMask = src_stage;
+        b.srcAccessMask = src_access;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = dst_access;
+        b.buffer = list;
+        b.offset = 0;
+        b.size = VK_WHOLE_SIZE;
+        VkDependencyInfo d{};
+        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        d.bufferMemoryBarrierCount = 1;
+        d.pBufferMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(ctx.cmd, &d);
+    };
+
+    // The count starts at zero and the select appends after it. Without the
+    // global set there is no light buffer to read, and the list stays empty.
+    vkCmdFillBuffer(ctx.cmd, list, 0, sizeof(uint32_t), 0);
+    list_barrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                 VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+
+    if (ctx.global_descriptor_set != VK_NULL_HANDLE) {
+        const std::array sets = {ctx.global_descriptor_set, imgs.light_select_set[ctx.frame_index]};
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, light_select_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, light_select_pipeline_layout_,
+                                0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
+        const AABB reach = trace_reach_bounds();
+        const LightSelectPushConstants push{reach.min, 0.0f, reach.max, 0.0f};
+        vkCmdPushConstants(ctx.cmd, light_select_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(push), &push);
+        vkCmdDispatch(ctx.cmd, MAX_DDGI_LIGHTS / LIGHT_SELECT_GROUP, 1, 1);
+    }
+
+    // The tracer reads what the select wrote.
+    list_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                 VK_ACCESS_2_SHADER_READ_BIT);
+}
+
 void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (ctx.environment != nullptr) {
         const auto& sun = ctx.environment->primary;
@@ -884,20 +1003,20 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
-        // Three sets per frame slot without RT (trace, update, sample),
-        // holding 11 samplers, 5 storage images and 3 storage buffers
-        // between them. With RT, one RT trace set per slot on top; each adds
-        // 1 UBO, 5 samplers, 1 storage image, 4 storage buffers and 1
-        // acceleration structure.
+        // Four sets per frame slot without RT (trace, update, sample, light
+        // select), holding 11 samplers, 5 storage images and 4 storage
+        // buffers between them. With RT, one RT trace set per slot on top;
+        // each adds 1 UBO, 5 samplers, 1 storage image, 5 storage buffers
+        // and 1 acceleration structure.
         constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
         constexpr uint32_t RT_SLOTS = MAX_FRAMES_IN_FLIGHT;
-        uint32_t max_sets = has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS;
+        uint32_t max_sets = has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS;
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS};
         pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u * SLOTS + 5u * RT_SLOTS : 11u * SLOTS};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 5u * SLOTS + RT_SLOTS : 5u * SLOTS};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 3u * SLOTS + 4u * RT_SLOTS : 3u * SLOTS};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 4u * SLOTS + 5u * RT_SLOTS : 4u * SLOTS};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -910,15 +1029,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
-        // Slot s owns layouts[3s..3s+2]; the RT sets follow.
-        std::array<VkDescriptorSetLayout, 3 * SLOTS + RT_SLOTS> layouts{};
+        // Slot s owns layouts[4s..4s+3]; the RT sets follow.
+        std::array<VkDescriptorSetLayout, 4 * SLOTS + RT_SLOTS> layouts{};
         for (uint32_t s = 0; s < SLOTS; ++s) {
-            layouts[3 * s + 0] = trace_set_layout_;
-            layouts[3 * s + 1] = update_set_layout_;
-            layouts[3 * s + 2] = sample_set_layout_;
+            layouts[4 * s + 0] = trace_set_layout_;
+            layouts[4 * s + 1] = update_set_layout_;
+            layouts[4 * s + 2] = sample_set_layout_;
+            layouts[4 * s + 3] = light_select_set_layout_;
         }
-        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[3 * SLOTS + s] = rt_trace_set_layout_;
-        std::array<VkDescriptorSet, 3 * SLOTS + RT_SLOTS> sets{};
+        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[4 * SLOTS + s] = rt_trace_set_layout_;
+        std::array<VkDescriptorSet, 4 * SLOTS + RT_SLOTS> sets{};
 
         VkDescriptorSetAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -928,12 +1048,13 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
         for (uint32_t s = 0; s < SLOTS; ++s) {
-            imgs.trace_set[s] = sets[3 * s + 0];
-            imgs.update_set[s] = sets[3 * s + 1];
-            imgs.sample_set[s] = sets[3 * s + 2];
+            imgs.trace_set[s] = sets[4 * s + 0];
+            imgs.update_set[s] = sets[4 * s + 1];
+            imgs.sample_set[s] = sets[4 * s + 2];
+            imgs.light_select_set[s] = sets[4 * s + 3];
         }
         if (has_rt) {
-            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[3 * SLOTS + s];
+            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[4 * SLOTS + s];
         }
         imgs.images_need_init = true;
     }
@@ -1051,6 +1172,21 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             }
         }
 
+        // Light select: each slot's set writes that slot's list
+        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
+            VkDescriptorBufferInfo list_info{};
+            list_info.buffer = imgs.light_list[s]->handle();
+            list_info.range = VK_WHOLE_SIZE;
+            VkWriteDescriptorSet list_write{};
+            list_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            list_write.dstSet = imgs.light_select_set[s];
+            list_write.dstBinding = 0;
+            list_write.descriptorCount = 1;
+            list_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            list_write.pBufferInfo = &list_info;
+            vkUpdateDescriptorSets(vk_device_, 1, &list_write, 0, nullptr);
+        }
+
         // Write RT trace descriptors (static bindings only — TLAS updated
         // per-frame), the same into every slot's set.
         if (imgs.rt_trace_set[0] != VK_NULL_HANDLE) {
@@ -1092,11 +1228,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_sdf.imageView = sdf_view;
             rt_sdf.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            // Write bindings 0, 2-5, 9-11 (skip 1=TLAS, 6-8=buffers, updated per-frame)
+            // Write bindings 0, 2-5, 9-12 (skip 1=TLAS, 6-8=buffers, updated per-frame)
             for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
             VkDescriptorSet rt_set = imgs.rt_trace_set[s];
             rt_ubo.buffer = imgs.constants_ubo[s]->handle();
-            std::array<VkWriteDescriptorSet, 8> rtw{};
+            VkDescriptorBufferInfo rt_lights{};
+            rt_lights.buffer = imgs.light_list[s]->handle();
+            rt_lights.range = VK_WHOLE_SIZE;
+            std::array<VkWriteDescriptorSet, 9> rtw{};
             for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = rt_set; w.descriptorCount = 1; }
             rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
             rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
@@ -1106,6 +1245,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rtw[5].dstBinding = 9; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[5].pImageInfo = &rt_irradiance;
             rtw[6].dstBinding = 10; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[6].pImageInfo = &rt_visibility;
             rtw[7].dstBinding = 11; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_sdf;
+            rtw[8].dstBinding = 12; rtw[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[8].pBufferInfo = &rt_lights;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
             }
@@ -1278,6 +1418,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
+    // The lights that reach the grid, for the tracer to pick from at its hits.
+    if (use_rt) record_light_select(ctx, imgs);
+
     if (use_rt) {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_rt");
         FJELL_GPU_ZONE(ctx, "DDGI Trace RT");
@@ -1319,6 +1462,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.light_color = light_color_;
         rt_push.max_trace_dist = MAX_TRACE_DIST;
         rt_push.sdf_volume_min = sdf_volume_min_;
+        rt_push.random_seed = frame_counter_;
         rt_push.sdf_volume_max = sdf_volume_max_;
         const uint32_t rays = static_cast<uint32_t>(config_.probe_rays);
         const uint32_t probes = static_cast<uint32_t>(constants->probe_update_count);

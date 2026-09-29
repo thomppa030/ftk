@@ -1,0 +1,81 @@
+#version 460
+
+// ── DDGI light select ──────────────────────────────────────────────────
+// One invocation per slot of the world light buffer, its point lights first,
+// then its spots. Every light whose sphere reaches the probe grid's reach box
+// is copied into DDGI's light list, in the form the probe tracers read
+// (fjell_ddgi_lights.glsl). The list's count is zeroed before this runs.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "fjell_global_ubo.glsl"
+#include "fjell_gpu_types.glsl"
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+layout(set = 0, binding = 2) readonly buffer LightBuffer {
+    GpuPointLight point_lights[1024];
+    GpuSpotLight spot_lights[1024];
+};
+
+layout(set = 1, binding = 0) buffer DdgiLightList {
+    uint ddgi_light_count;
+    uint ddgi_light_list_pad0;
+    uint ddgi_light_list_pad1;
+    uint ddgi_light_list_pad2;
+    DdgiLight ddgi_lights[];
+};
+
+layout(push_constant) uniform PushConstants {
+    vec3 reach_min;           // the box every probe ray stays inside
+    float pad_pc0;
+    vec3 reach_max;
+    float pad_pc1;
+};
+
+// Whether a light's sphere touches the reach box.
+bool reaches(vec3 center, float radius) {
+    vec3 nearest = clamp(center, reach_min, reach_max);
+    vec3 d = nearest - center;
+    return dot(d, d) <= radius * radius;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint point_count = ubo.tile_info.z;
+    uint spot_count = ubo.tile_info.w;
+
+    DdgiLight light;
+    light.pad0 = 0.0;
+    light.pad1 = 0.0;
+    if (i < 1024u) {
+        if (i >= point_count) return;
+        GpuPointLight pl = point_lights[i];
+        light.position = pl.position_radius.xyz;
+        light.radius = pl.position_radius.w;
+        light.color = pl.color_intensity.rgb;
+        light.intensity = pl.color_intensity.a;
+        light.direction = vec3(0.0);
+        light.cos_inner = 1.0;
+        light.cos_outer = -1.0;
+        light.is_spot = 0u;
+    } else {
+        uint si = i - 1024u;
+        if (si >= spot_count) return;
+        GpuSpotLight sl = spot_lights[si];
+        light.position = sl.position_radius.xyz;
+        light.radius = sl.position_radius.w;
+        light.color = sl.color_intensity.rgb;
+        light.intensity = sl.color_intensity.a;
+        light.direction = sl.direction_inner_cos.xyz;
+        light.cos_inner = sl.direction_inner_cos.w;
+        light.cos_outer = sl.outer_cos;
+        light.is_spot = 1u;
+    }
+
+    // A light that gives nothing, or reaches no probe ray, is left out.
+    if (light.intensity <= 0.0 || light.radius <= 0.0 || !reaches(light.position, light.radius)) {
+        return;
+    }
+    ddgi_lights[atomicAdd(ddgi_light_count, 1u)] = light;
+}

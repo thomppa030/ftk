@@ -160,6 +160,29 @@ struct GpuDdgiConstants {
     float pad3{0.0f};
 };
 
+/// One point or spot light as DDGI's tracers read it, mirrored by
+/// `DdgiLight` in shaders/include/fjell_gpu_types.glsl. The GPU writes
+/// these, copying the lights that reach the probe grid out of the world light
+/// buffer; the CPU only sizes the list.
+struct GpuDdgiLight {
+    glm::vec3 position;
+    float radius;
+    glm::vec3 color;
+    float intensity;
+    glm::vec3 direction;
+    float cos_inner;
+    float cos_outer;
+    uint32_t is_spot;
+    float pad0;
+    float pad1;
+};
+static_assert(sizeof(GpuDdgiLight) == 64);
+
+/// DDGI's light list: a count, padded to 16 bytes, then the lights. Holds
+/// every point and spot light the world light buffer can.
+inline constexpr uint32_t MAX_DDGI_LIGHTS = 2048;
+inline constexpr uint64_t DDGI_LIGHT_LIST_BYTES = 16 + uint64_t{MAX_DDGI_LIGHTS} * sizeof(GpuDdgiLight);
+
 struct PbrPushConstants {
     glm::mat4 model;
     uint32_t material_id{0};

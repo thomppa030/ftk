@@ -83,4 +83,19 @@ struct RtInstanceData {
 // through them; reflection rays stop at them.
 #define RT_MASK_TRANSPARENT 0x02u
 
+// One point or spot light as DDGI's tracers read it (fjell_ddgi_lights.glsl).
+// Mirrors fjell::GpuDdgiLight (renderer/uniform_types.hpp).
+struct DdgiLight {
+    vec3 position;       // world position
+    float radius;        // nothing past this lights
+    vec3 color;
+    float intensity;
+    vec3 direction;      // a spot's world direction, the way it shines
+    float cos_inner;     // a spot's full-strength cone
+    float cos_outer;     // a spot's outer cone, where it fades to nothing
+    uint is_spot;        // 0 for a point light
+    float pad0;
+    float pad1;
+};
+
 #endif // FJELL_GPU_TYPES_GLSL

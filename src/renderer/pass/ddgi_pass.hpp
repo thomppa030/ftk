@@ -188,6 +188,11 @@ public:
         // frame's grid origin or batch cursor.
         std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> constants_ubo;
 
+        // The point and spot lights that reach the grid, as the tracers read
+        // them (DDGI_LIGHT_LIST_BYTES): filled on the GPU each frame by the
+        // light select, so one per frame in flight too.
+        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_list;
+
         // Indirect output: screen-res or half-res, R16G16B16A16_SFLOAT
         VkImage indirect_image{VK_NULL_HANDLE};
         VmaAllocation indirect_memory{VK_NULL_HANDLE};
@@ -252,6 +257,7 @@ public:
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rt_trace_set{};  // RT trace
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> update_set{};
         std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sample_set{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> light_select_set{};
 
         void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
@@ -333,7 +339,9 @@ public:
         glm::vec3 light_color;
         float max_trace_dist;
         glm::vec3 sdf_volume_min;
-        float pad0;
+        /// Changes every frame, so a probe hit takes a different local light
+        /// each time it is traced.
+        uint32_t random_seed;
         glm::vec3 sdf_volume_max;
         float pad1;
     };
@@ -354,6 +362,9 @@ public:
 
 private:
     void update_constants(Images& imgs, const FrameContext& ctx);
+    /// Fills this slot's light list with the lights that reach the grid, from
+    /// the world light buffer the global set binds.
+    void record_light_select(const FrameContext& ctx, Images& imgs);
 
     Device* device_{nullptr};
     VkDevice vk_device_{VK_NULL_HANDLE};
@@ -381,6 +392,11 @@ private:
     VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline sample_pipeline_{VK_NULL_HANDLE};
+
+    // The light select: set 0 is the global set, set 1 the slot's list.
+    VkDescriptorSetLayout light_select_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout light_select_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline light_select_pipeline_{VK_NULL_HANDLE};
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     /// Bumped by refit_grid(). Each viewport compares this against the

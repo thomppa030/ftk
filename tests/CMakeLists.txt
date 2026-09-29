@@ -204,6 +204,7 @@ add_executable(fjell-tests
     test_lut_asset.cpp
     test_post_effects.cpp
     test_ddgi.cpp
+    test_ddgi_lights.cpp
     test_rt_hit.cpp
     test_rt_instance.cpp
     test_surface_asset.cpp
