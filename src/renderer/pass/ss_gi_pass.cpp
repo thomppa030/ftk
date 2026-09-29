@@ -728,8 +728,10 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
 
             if (ctx.mega_buffer) {
-                VkDescriptorBufferInfo vert_info{ctx.mega_buffer->vertex_buffer_handle(), 0, VK_WHOLE_SIZE};
-                VkDescriptorBufferInfo idx_info{ctx.mega_buffer->index_buffer_handle(), 0, VK_WHOLE_SIZE};
+                VkDescriptorBufferInfo vert_info{
+                    gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer()), 0, VK_WHOLE_SIZE};
+                VkDescriptorBufferInfo idx_info{
+                    gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer()), 0, VK_WHOLE_SIZE};
                 std::array<VkWriteDescriptorSet, 2> bw{};
                 for (auto& w : bw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.trace_set[s]; w.descriptorCount = 1; }
                 bw[0].dstBinding = 6; bw[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; bw[0].pBufferInfo = &vert_info;

@@ -99,10 +99,6 @@ src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
 src/renderer/resource_registry.hpp
-src/renderer/resources/mega_buffer.cpp
-src/renderer/resources/mega_buffer.hpp
-src/renderer/resources/meshlet_buffer.cpp
-src/renderer/resources/meshlet_buffer.hpp
 src/renderer/resources/meshlet_descriptor.cpp
 src/renderer/resources/meshlet_descriptor.hpp
 src/renderer/resources/model.cpp

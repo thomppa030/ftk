@@ -15,18 +15,25 @@ namespace fjell {
 
 class MeshletBuffer;
 class MegaBuffer;
+namespace gpu {
+class Device;
+}
 
 class MeshletDescriptor {
 public:
     MeshletDescriptor() = default;
 
-    void create(VkDevice device, VmaAllocator allocator = VK_NULL_HANDLE);
+    /// `gpu` is the device the buffers bound here were made by.
+    void create(VkDevice device, gpu::Device& gpu, VmaAllocator allocator = VK_NULL_HANDLE);
     void destroy();
 
+    /// Binds the meshlets and the mega buffer's vertices into the frame
+    /// slot's set, and the meshlet cull's visible instances, or a stand-in
+    /// while there are none.
     void update(const MeshletBuffer& meshlet_buf, const MegaBuffer& mega_buf,
                 uint32_t frame_index,
-                VkBuffer visible_buffer = VK_NULL_HANDLE,
-                VkDeviceSize visible_size = 0);
+                gpu::Buffer visible_buffer = {},
+                uint64_t visible_size = 0);
 
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
@@ -41,6 +48,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    gpu::Device* gpu_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::array<VkDescriptorSetLayoutBinding, 6> layout_bindings_{};

@@ -182,8 +182,8 @@ std::vector<Blas> AccelStructureManager::build_blases(std::span<const MegaMeshEn
     constexpr VkDeviceSize AS_OFFSET_ALIGNMENT = 256;
     auto align_up = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
 
-    VkDeviceAddress vertex_addr = buffer_address(mega.vertex_buffer_handle());
-    VkDeviceAddress index_addr = buffer_address(mega.index_buffer_handle());
+    VkDeviceAddress vertex_addr = buffer_address(gpu::vulkan::native_buffer(gpu_, mega.vertex_buffer()));
+    VkDeviceAddress index_addr = buffer_address(gpu::vulkan::native_buffer(gpu_, mega.index_buffer()));
     VkDeviceSize as_total = 0;
     VkDeviceSize scratch_total = 0;
 

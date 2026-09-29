@@ -513,9 +513,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     bool has_meshlet_passes = passes_.has("meshlet_cull");
     if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
         gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
-                                    gpu::vulkan::native_buffer(gpu_device(),
-                                        meshlet_instance_pass()->visible_buffer(current_frame_)),
-                                    meshlet_instance_pass()->visible_buffer_size(current_frame_));
+                                         meshlet_instance_pass()->visible_buffer(current_frame_),
+                                         meshlet_instance_pass()->visible_buffer_size(current_frame_));
     }
 
     current_ctx_ = build_frame_context(cmd, view, scene, dt, selected_id, pp);
@@ -567,7 +566,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     passes_.register_resources_all(resource_registry_);
     if (gpu_.meshlet_buffer()) {
         resource_registry_.register_buffer("meshlet_bounds", {
-            gpu_.meshlet_buffer()->shared_bounds_buffer(),
+            gpu_.meshlet_buffer()->bounds_buffer(),
             gpu_.meshlet_buffer()->bounds_buffer_size()});
     }
 

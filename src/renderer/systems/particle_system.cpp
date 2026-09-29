@@ -50,6 +50,16 @@ bool draws_in(const ParticleSystem::EmitterGpu& em, const FrameContext& ctx) {
     return em.active && em.visible && ctx.scene != nullptr && em.scene_id == ctx.scene->id();
 }
 
+// Sets the mega buffer's vertices and 32-bit indices, which mesh particles
+// draw from.
+void bind_mega_buffer(const FrameContext& ctx) {
+    const VkBuffer vertices = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer());
+    const VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vertices, &offset);
+    vkCmdBindIndexBuffer(ctx.cmd, gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer()), 0,
+                         VK_INDEX_TYPE_UINT32);
+}
+
 } // namespace
 
 // Sub-emitter events a parent may report per frame; matches the GLSL define.
@@ -1981,7 +1991,7 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     }
 
     if (any_mesh && ctx.mega_buffer) {
-        ctx.mega_buffer->bind(ctx.cmd);
+        bind_mega_buffer(ctx);
 
         current_pipeline = VK_NULL_HANDLE;
         current_layout = render_layout_;
@@ -2115,7 +2125,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
         }
 
         if (mesh && ctx.mega_buffer) {
-            ctx.mega_buffer->bind(ctx.cmd);
+            bind_mega_buffer(ctx);
             // See record_render's mesh loop — same compacted-instance
             // indirect draw, just in the opaque pass.
             vkCmdDrawIndexedIndirect(ctx.cmd, mesh_indirect_buffer_->handle(),

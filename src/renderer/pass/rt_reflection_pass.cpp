@@ -834,12 +834,14 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         static_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         static_writes[0].pBufferInfo = &refl_ubo_info;
 
-        VkDescriptorBufferInfo vert_info{ctx.mega_buffer->vertex_buffer_handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo vert_info{
+            gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer()), 0, VK_WHOLE_SIZE};
         static_writes[1].dstBinding = 7;
         static_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         static_writes[1].pBufferInfo = &vert_info;
 
-        VkDescriptorBufferInfo idx_info{ctx.mega_buffer->index_buffer_handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo idx_info{
+            gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer()), 0, VK_WHOLE_SIZE};
         static_writes[2].dstBinding = 8;
         static_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         static_writes[2].pBufferInfo = &idx_info;

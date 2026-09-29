@@ -2,14 +2,17 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
 #include <array>
 
 namespace fjell {
 
-void MeshletDescriptor::create(VkDevice device, VmaAllocator allocator) {
+void MeshletDescriptor::create(VkDevice device, gpu::Device& gpu, VmaAllocator allocator) {
     device_ = device;
+    gpu_ = &gpu;
     allocator_ = allocator;
 
     // Set 3 layout: 6 SSBO bindings for meshlet data
@@ -62,33 +65,23 @@ void MeshletDescriptor::destroy() {
 void MeshletDescriptor::update(const MeshletBuffer& meshlet_buf,
                                const MegaBuffer& mega_buf,
                                uint32_t frame_index,
-                               VkBuffer visible_buffer,
-                               VkDeviceSize visible_size) {
+                               gpu::Buffer visible_buffer,
+                               uint64_t visible_size) {
     std::array<VkDescriptorBufferInfo, 6> buffer_infos{};
-
-    buffer_infos[0].buffer = meshlet_buf.meshlet_buffer();
-    buffer_infos[0].offset = 0;
-    buffer_infos[0].range = std::max(meshlet_buf.meshlet_buffer_size(), VkDeviceSize{16});
-
-    buffer_infos[1].buffer = meshlet_buf.bounds_buffer();
-    buffer_infos[1].offset = 0;
-    buffer_infos[1].range = std::max(meshlet_buf.bounds_buffer_size(), VkDeviceSize{16});
-
-    buffer_infos[2].buffer = meshlet_buf.vertex_index_buffer();
-    buffer_infos[2].offset = 0;
-    buffer_infos[2].range = std::max(meshlet_buf.vertex_index_buffer_size(), VkDeviceSize{16});
-
-    buffer_infos[3].buffer = meshlet_buf.triangle_buffer();
-    buffer_infos[3].offset = 0;
-    buffer_infos[3].range = std::max(meshlet_buf.triangle_buffer_size(), VkDeviceSize{16});
-
-    buffer_infos[4].buffer = mega_buf.vertex_buffer_handle();
-    buffer_infos[4].offset = 0;
-    buffer_infos[4].range = std::max(mega_buf.vertex_buffer_size(), VkDeviceSize{16});
+    // Each bound up to what is uploaded, and never empty.
+    const auto whole = [&](gpu::Buffer buffer, uint64_t size) {
+        return VkDescriptorBufferInfo{gpu::vulkan::native_buffer(*gpu_, buffer), 0,
+                                      std::max<VkDeviceSize>(size, 16)};
+    };
+    buffer_infos[0] = whole(meshlet_buf.meshlet_buffer(), meshlet_buf.meshlet_buffer_size());
+    buffer_infos[1] = whole(meshlet_buf.bounds_buffer(), meshlet_buf.bounds_buffer_size());
+    buffer_infos[2] = whole(meshlet_buf.vertex_index_buffer(), meshlet_buf.vertex_index_buffer_size());
+    buffer_infos[3] = whole(meshlet_buf.triangle_buffer(), meshlet_buf.triangle_buffer_size());
+    buffer_infos[4] = whole(mega_buf.vertex_buffer(), mega_buf.vertex_buffer_size());
 
     // Binding 5: visible instances (from GPU-driven pipeline, or dummy if unavailable)
-    if (visible_buffer != VK_NULL_HANDLE && visible_size > 0) {
-        buffer_infos[5].buffer = visible_buffer;
+    if (visible_buffer.valid() && visible_size > 0) {
+        buffer_infos[5].buffer = gpu::vulkan::native_buffer(*gpu_, visible_buffer);
         buffer_infos[5].offset = 0;
         buffer_infos[5].range = visible_size;
     } else {

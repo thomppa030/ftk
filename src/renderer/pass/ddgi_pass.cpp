@@ -1694,11 +1694,11 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // buffer its own set still points at.
     if (imgs.rt_trace_set[ctx.frame_index] != VK_NULL_HANDLE && ctx.mega_buffer) {
         VkDescriptorBufferInfo verts_info{};
-        verts_info.buffer = ctx.mega_buffer->vertex_buffer_handle();
+        verts_info.buffer = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer());
         verts_info.range = VK_WHOLE_SIZE;
 
         VkDescriptorBufferInfo indices_info{};
-        indices_info.buffer = ctx.mega_buffer->index_buffer_handle();
+        indices_info.buffer = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer());
         indices_info.range = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet verts_write{};

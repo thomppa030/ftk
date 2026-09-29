@@ -3,51 +3,50 @@
 #include "gpu/device.hpp"
 #include "core/log.hpp"
 
+#include <stdexcept>
+
 namespace fjell {
 
 namespace {
 
-constexpr VkBufferUsageFlags MEGA_VERTEX_USAGE =
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+// Vertices and indices are drawn from, read by the meshlet and ray-tracing
+// shaders as storage, and built into acceleration structures by address.
+constexpr gpu::BufferUses MEGA_USE = gpu::BufferUse::storage | gpu::BufferUse::acceleration_input |
+                                     gpu::BufferUse::device_address;
 
-constexpr VkBufferUsageFlags MEGA_INDEX_USAGE =
-    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-    VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+gpu::Owned<gpu::Buffer> make_growable(gpu::Device& gpu, uint64_t size, uint64_t reserve,
+                                      gpu::BufferUses use, std::string_view name) {
+    auto made = gpu.create(gpu::BufferDesc{.size = size, .reserve = reserve, .use = use, .name = name});
+    if (!made) throw std::runtime_error(made.error());
+    return std::move(*made);
+}
 
 } // namespace
 
-MegaBuffer::MegaBuffer(Device& device, VmaAllocator allocator,
-                       UploadContext& upload, gpu::Device& gpu)
+MegaBuffer::MegaBuffer(gpu::Device& gpu)
     : gpu_{gpu}
-    , vertex_buffer_{device, allocator, upload, gpu, MEGA_VERTEX_USAGE,
-                     INITIAL_VERTEX_SIZE, MAX_VERTEX_SIZE, "mega_vertex"}
-    , index_buffer_{device, allocator, upload, gpu, MEGA_INDEX_USAGE,
-                    INITIAL_INDEX_SIZE, MAX_INDEX_SIZE, "mega_index"} {
-    vertex_buffer_.share();
-    index_buffer_.share();
+    , vertices_{make_growable(gpu, INITIAL_VERTEX_SIZE, MAX_VERTEX_SIZE,
+                              MEGA_USE | gpu::BufferUse::vertex, "mega_vertex")}
+    , indices_{make_growable(gpu, INITIAL_INDEX_SIZE, MAX_INDEX_SIZE,
+                             MEGA_USE | gpu::BufferUse::index, "mega_index")} {
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
-                   vertex_buffer_.capacity() / (1024 * 1024),
-                   index_buffer_.capacity() / (1024 * 1024));
+                   gpu_.size(vertices_) / (1024 * 1024), gpu_.size(indices_) / (1024 * 1024));
 }
 
 MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
                                   const std::vector<uint32_t>& indices) {
-    VkDeviceSize vertex_size = vertices.size() * sizeof(Vertex);
-    VkDeviceSize index_size = indices.size() * sizeof(uint32_t);
+    const uint64_t vertex_byte_offset = vertex_buffer_size();
+    const uint64_t index_byte_offset = index_buffer_size();
 
-    VkDeviceSize vertex_byte_offset = static_cast<VkDeviceSize>(vertex_offset_) * sizeof(Vertex);
-    VkDeviceSize index_byte_offset = static_cast<VkDeviceSize>(index_offset_) * sizeof(uint32_t);
+    auto grown = gpu_.grow(vertices_, vertex_byte_offset + vertices.size() * sizeof(Vertex));
+    if (grown) grown = gpu_.grow(indices_, index_byte_offset + indices.size() * sizeof(uint32_t));
+    if (!grown) {
+        FJELL_GFX_ERROR("Mesh not added to the mega buffer: {}", grown.error());
+        return {};
+    }
 
-    vertex_buffer_.ensure_capacity(vertex_byte_offset + vertex_size);
-    index_buffer_.ensure_capacity(index_byte_offset + index_size);
-
-    gpu_.upload().to_buffer(vertex_buffer_.shared(), vertex_byte_offset, vertices);
-    gpu_.upload().to_buffer(index_buffer_.shared(), index_byte_offset, indices);
+    gpu_.upload().to_buffer(vertices_, vertex_byte_offset, vertices);
+    gpu_.upload().to_buffer(indices_, index_byte_offset, indices);
 
     MegaMeshEntry entry{};
     entry.vertex_offset = vertex_offset_;
@@ -64,21 +63,17 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
 void MegaBuffer::update_vertices(const MegaMeshEntry& entry,
                                  const std::vector<Vertex>& vertices) {
     if (entry.vertex_count == 0 || vertices.size() != entry.vertex_count) return;
-    const VkDeviceSize byte_offset =
-        static_cast<VkDeviceSize>(entry.vertex_offset) * sizeof(Vertex);
-    gpu_.upload().to_buffer(vertex_buffer_.shared(), byte_offset, vertices);
+    const uint64_t byte_offset = uint64_t{entry.vertex_offset} * sizeof(Vertex);
+    gpu_.upload().to_buffer(vertices_, byte_offset, vertices);
 }
 
 void MegaBuffer::bind(gpu::RenderEncoder& pass) const {
-    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_.shared()));
-    pass.set_index_buffer(gpu::BufferRange(index_buffer_.shared()), gpu::IndexType::u32);
+    pass.set_vertex_buffer(gpu::BufferRange(vertices_));
+    pass.set_index_buffer(gpu::BufferRange(indices_), gpu::IndexType::u32);
 }
 
-void MegaBuffer::bind(VkCommandBuffer cmd) const {
-    VkBuffer buffers[] = {vertex_buffer_.handle()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd, index_buffer_.handle(), 0, VK_INDEX_TYPE_UINT32);
+uint32_t MegaBuffer::generation() const {
+    return gpu_.generation(vertices_) + gpu_.generation(indices_);
 }
 
 } // namespace fjell
