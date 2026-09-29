@@ -58,6 +58,7 @@ struct TextureDesc {
     /// Depth of a 3D texture; 1 for any other.
     uint32_t depth{1};
     /// Layers of a 2D array; a cube always has six, any other kind one.
+    /// More than one on any other kind is refused.
     uint32_t layers{1};
     uint32_t mips{1};
     Samples samples{Samples::x1};

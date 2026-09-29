@@ -305,6 +305,13 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     if (desc.format == Format::undefined) {
         return make_error(described("Texture", desc.name) + " has no format");
     }
+    // Layers belong to a 2D array; a cube has its six whatever it is told.
+    const bool layers_fit = desc.kind == TextureKind::tex2d_array || desc.layers == 1 ||
+                            (desc.kind == TextureKind::cube && desc.layers == 6);
+    if (!layers_fit) {
+        return make_error(described("Texture", desc.name) + " asks for " + std::to_string(desc.layers) +
+                          " layers but is not a 2D array");
+    }
 
     TextureInfo info;
     info.kind = desc.kind;
