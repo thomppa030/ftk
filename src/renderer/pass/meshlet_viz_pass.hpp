@@ -1,12 +1,15 @@
 #pragma once
 
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
-
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
+#include "renderer/viz_image.hpp"
 
 namespace fjell {
 
+// The meshlet view: every meshlet of the batch's static meshes in a colour of
+// its own, drawn from the batch's per-draw mesh commands with a depth of its
+// own.
 class MeshletVizPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
@@ -14,37 +17,17 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    void invalidate_imgui_texture();
-    void resize(uint32_t width, uint32_t height);
+    [[nodiscard]] VkDescriptorSet imgui_texture() { return viz_image_.imgui_texture(); }
+    void invalidate_imgui_texture() { viz_image_.invalidate_imgui_texture(); }
+    void resize(uint32_t width, uint32_t height) { viz_image_.resize(width, height); }
 
 private:
-    void create_image(uint32_t width, uint32_t height);
-    void destroy_image();
-
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-
-    VkImage image_{VK_NULL_HANDLE};
-    VmaAllocation memory_{VK_NULL_HANDLE};
-    VkImageView view_{VK_NULL_HANDLE};
-    VkImage depth_image_{VK_NULL_HANDLE};
-    VmaAllocation depth_memory_{VK_NULL_HANDLE};
-    VkImageView depth_view_{VK_NULL_HANDLE};
-    VkFormat depth_format_{VK_FORMAT_UNDEFINED};
-    VkSampler sampler_{VK_NULL_HANDLE};
-    VkExtent2D extent_{};
-    VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
-
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout meshlet_layout_{VK_NULL_HANDLE};
-    PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
-    PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count_{nullptr};
-    bool rendered_once_{false};
+    VizImage viz_image_;
+    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    /// The scene's depth format, for the view's own depth.
+    gpu::Format depth_format_{gpu::Format::undefined};
 };
 
 } // namespace fjell

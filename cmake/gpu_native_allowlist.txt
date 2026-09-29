@@ -61,7 +61,6 @@ src/renderer/pass/depth_viz_pass.hpp
 src/renderer/pass/gtao_pass.cpp
 src/renderer/pass/gtao_pass.hpp
 src/renderer/pass/light_viz_pass.hpp
-src/renderer/pass/meshlet_viz_pass.cpp
 src/renderer/pass/meshlet_viz_pass.hpp
 src/renderer/pass/motion_field_pass.cpp
 src/renderer/pass/motion_field_pass.hpp
