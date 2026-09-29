@@ -36,7 +36,7 @@ struct RtInstanceOut {
     uint material_id;
     uint first_index;
     uint vertex_offset;
-    uint pad;
+    uint flags;
 };
 layout(std430, set = 0, binding = 3) writeonly buffer RtInstanceBuffer {
     RtInstanceOut rt_instances[];
@@ -87,6 +87,6 @@ void main() {
     rt.material_id = material_id;
     rt.first_index = first_index;
     rt.vertex_offset = vertex_offset;
-    rt.pad = 0u;
+    rt.flags = 0u;
     rt_instances[idx] = rt;
 }

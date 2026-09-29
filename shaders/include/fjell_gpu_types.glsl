@@ -66,7 +66,12 @@ struct RtInstanceData {
     uint material_id;
     uint first_index;
     uint vertex_offset;
-    uint pad;
+    uint flags;          // RT_INSTANCE_* bits
 };
+
+// RtInstanceData::flags: the instance's material draws both sides of its
+// surfaces, so a ray reaching either side has hit the surface's front.
+// Mirrors fjell::RT_INSTANCE_TWO_SIDED (renderer/accel_structure.hpp).
+#define RT_INSTANCE_TWO_SIDED 1u
 
 #endif // FJELL_GPU_TYPES_GLSL

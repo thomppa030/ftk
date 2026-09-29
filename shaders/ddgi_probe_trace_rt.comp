@@ -93,7 +93,19 @@ vec4 trace_probe_ray(vec3 origin, vec3 direction, float tmin, float tmax) {
         return vec4(0.0, 0.0, 0.0, hit.t);
     }
 
+    // A ray reaching a surface from the side its normal faces away from has
+    // hit the back of it. On a one-sided surface that means the probe sits
+    // inside or behind geometry: the ray records a negative distance and no
+    // light, and the update counts it toward moving the probe out or
+    // switching it off. A two-sided surface is lit from whichever side the
+    // ray came.
     vec3 N = rt_surface_normal(surface);
+    if (dot(N, direction) > 0.0) {
+        if (!surface.two_sided) {
+            return vec4(0.0, 0.0, 0.0, -hit.t);
+        }
+        N = -N;
+    }
     vec2 uv = rt_surface_uv(surface);
     vec3 albedo = rt_surface_albedo(surface, uv);
 

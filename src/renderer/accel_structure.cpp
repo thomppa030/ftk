@@ -371,6 +371,7 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
         rt_inst.material_id = src.material_id;
         rt_inst.first_index = src.blas->first_index;
         rt_inst.vertex_offset = src.blas->vertex_offset;
+        rt_inst.flags = src.two_sided ? RT_INSTANCE_TWO_SIDED : 0U;
         rt_instances.push_back(rt_inst);
     }
 

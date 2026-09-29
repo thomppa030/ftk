@@ -27,8 +27,13 @@ struct GpuRtInstance {
     uint32_t material_id;
     uint32_t first_index;    // into global index buffer
     uint32_t vertex_offset;  // into global vertex buffer
-    uint32_t pad;
+    uint32_t flags;          // RT_INSTANCE_* bits
 };
+
+/// GpuRtInstance::flags: the instance's material draws both sides of its
+/// surfaces, so a ray reaching either side has hit the surface's front.
+/// RT_INSTANCE_TWO_SIDED in fjell_gpu_types.glsl.
+inline constexpr uint32_t RT_INSTANCE_TWO_SIDED = 1U;
 
 /// One bottom-level acceleration structure (BLAS) over one mesh entry, so
 /// gl_PrimitiveID in a hit shader indexes that entry's triangles from
@@ -110,6 +115,9 @@ public:
         glm::mat4 transform{1.0F};
         uint32_t material_id{0};
         const Blas* blas{nullptr};
+        /// The material draws both sides (its shader culls no faces, or
+        /// the front ones), so neither side is a back face to a ray.
+        bool two_sided{false};
     };
 
     /// How far into the world a pass's rays travel, so the TLAS is built to

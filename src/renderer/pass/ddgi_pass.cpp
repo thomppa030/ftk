@@ -8,6 +8,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/render_queue.hpp"
@@ -1479,6 +1480,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                     inst.transform = dc.push.model;
                     inst.material_id = dc.push.material_id;
                     inst.blas = &blases[i];
+                    inst.two_sided = ctx.pipeline_cache != nullptr
+                                  && ctx.pipeline_cache->cull(dc.pipeline_id) != gpu::Cull::back;
                     host_instances.push_back(inst);
                 }
             };

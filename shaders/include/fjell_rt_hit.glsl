@@ -66,6 +66,7 @@ struct RtSurface {
     uvec3 vertices;          // the triangle's vertices, as indices into vertex_data
     vec3 weights;            // the barycentric weight of each
     mat4x3 object_to_world;
+    bool two_sided;          // either side of the surface is its front
 };
 
 // Resolves a hit to its material and vertices. Returns false when a read it
@@ -97,6 +98,7 @@ bool rt_resolve_hit(RtHit hit, out RtSurface surface) {
     surface.weights = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y,
                            hit.barycentrics.x, hit.barycentrics.y);
     surface.object_to_world = hit.object_to_world;
+    surface.two_sided = (inst.flags & RT_INSTANCE_TWO_SIDED) != 0u;
     return true;
 }
 
