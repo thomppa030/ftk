@@ -95,6 +95,16 @@ VkImageUsageFlags to_vk(TextureUses uses) {
     return flags;
 }
 
+VkImageUsageFlags to_vk(TextureUses uses, Format format) {
+    VkImageUsageFlags flags = to_vk(uses);
+    const FormatKind format_kind = kind(format);
+    if (uses.has(TextureUse::sampled) &&
+        (format_kind == FormatKind::depth || format_kind == FormatKind::depth_stencil)) {
+        flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+    return flags;
+}
+
 VkBufferUsageFlags to_vk(BufferUses uses) {
     VkBufferUsageFlags flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     uses.for_each([&](BufferUse use) {
