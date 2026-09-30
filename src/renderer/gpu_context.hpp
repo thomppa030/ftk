@@ -46,7 +46,7 @@ public:
     [[nodiscard]] const GpuCore& core() const { return core_; }
 
     [[nodiscard]] Window& window() { return core_.window(); }
-    [[nodiscard]] const std::string& gpu_name() const { return core_.device().gpu_name(); }
+    [[nodiscard]] const std::string& gpu_name() const { return core_.gpu_device().name(); }
     [[nodiscard]] Device& device_ref() { return core_.device(); }
 
     // ── Swapchain ───────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ public:
     // ── Command infrastructure ──────────────────────────────────────────
 
     [[nodiscard]] bool async_compute_supported() const {
-        return core_.device().async_compute_supported();
+        return core_.gpu_device().caps().async_compute;
     }
 
     // ── Deferred destruction ────────────────────────────────────────────
@@ -112,7 +112,7 @@ public:
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] gpu::Samples msaa_samples() const { return msaa_samples_; }
-    [[nodiscard]] bool ray_tracing_supported() const { return core_.device().ray_tracing_supported(); }
+    [[nodiscard]] bool ray_tracing_supported() const { return core_.gpu_device().caps().ray_queries; }
 
     // ── Stats ───────────────────────────────────────────────────────────
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }

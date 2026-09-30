@@ -75,7 +75,7 @@ void GpuContext::init_pipelines() {
             .globals = shared_layouts_.globals,
             .bindless = shared_layouts_.bindless,
             .draw_data = shared_layouts_.draw_data,
-            .meshlets = core_.device().mesh_shader_supported() ? shared_layouts_.meshlets
+            .meshlets = core_.gpu_device().caps().mesh_shaders ? shared_layouts_.meshlets
                                                                 : gpu::SharedLayout{},
         });
 }

@@ -139,7 +139,7 @@ VulkanContext::VulkanContext(Window& window)
     view_config_.ddgi = true;
     view_config_.ss_gi = true;
     view_config_.taa = true;
-    view_config_.rt_reflection = gpu_.device_ref().ray_tracing_supported();
+    view_config_.rt_reflection = gpu_.ray_tracing_supported();
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
@@ -222,7 +222,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     // RT mode requires hardware support; fall back to ScreenSpace when unavailable
     // so a project authored on an RT-capable machine still renders on others.
     auto requested_mode = s.ssr.mode;
-    if (requested_mode == RenderSettings::Ssr::Mode::RayTraced && !gpu_.device_ref().ray_tracing_supported()) {
+    if (requested_mode == RenderSettings::Ssr::Mode::RayTraced && !gpu_.ray_tracing_supported()) {
         requested_mode = RenderSettings::Ssr::Mode::ScreenSpace;
     }
     ssr_pass().set_mode(requested_mode);
@@ -542,7 +542,7 @@ void VulkanContext::render_scene_to(gpu::CommandList& cmd, const ViewportRenderR
     // them in. A preview's are graphics passes, and the graph must sync them
     // as such.
     const bool async_available = async_compute_enabled_
-                              && gpu_.device_ref().async_compute_supported()
+                              && gpu_.async_compute_supported()
                               && current_ctx_.async_compute != nullptr;
     bool any_async = render_pipeline_.execute(
         cmd, target, target.samples(), active_sources_,

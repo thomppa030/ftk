@@ -175,6 +175,7 @@ Device::Impl::Impl(GpuCore& gpu_core)
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
+    name = gpu_core.device().gpu_name();
     caps.mesh_shaders = gpu_core.device().mesh_shader_supported();
     caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
@@ -683,6 +684,10 @@ void Device::set_shader_locator(ShaderLocator locator) {
 
 const Caps& Device::caps() const {
     return impl_->caps;
+}
+
+const std::string& Device::name() const {
+    return impl_->name;
 }
 
 const TextureInfo& Device::info(Texture texture) const {
