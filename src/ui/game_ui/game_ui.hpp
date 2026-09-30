@@ -32,7 +32,6 @@
 namespace fjell {
 
 class Device;
-class BindlessTextures;
 class FontLibrary;
 class Input;
 class PipelineCache;
@@ -66,7 +65,6 @@ public:
     /// frames using them are done.
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
-                BindlessTextures& bindless,
                 FontLibrary& fonts,
                 PipelineCache* fjsl_pipelines,
                 gpu::Device& gpu,
@@ -110,7 +108,7 @@ public:
                 VkExtent2D extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR + scene MSAA). Call after create().
-    void create_world_pipelines(Device& device, const PassResources& resources);
+    void create_world_pipelines(const PassResources& resources);
 
     /// Record worldspace draw commands with push constants. prev_mvp is last
     /// frame's mvp for this same widget, for the velocity attachment.
@@ -236,7 +234,6 @@ private:
 
     ResourceManager* resource_manager_{nullptr};
     const class Project* project_{nullptr};
-    BindlessTextures* bindless_{nullptr};
 
 #ifndef NDEBUG
     std::unique_ptr<UiWatcher> watcher_;

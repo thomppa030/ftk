@@ -651,7 +651,7 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
     }
 }
 
-void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources& resources) {
+void UiRenderer::create_world_pipelines(const PassResources& resources) {
     // Worldspace gets its own set 2 layout instead of sharing quad_set_layout_:
     // it needs a third binding (the previous-frame mvp UBO, for the velocity
     // attachment) that the screen-space pipelines have no use for and would

@@ -25,12 +25,10 @@ namespace fjell {
 
 void GameUi::create(Device& device, VmaAllocator allocator,
                     const PassResources& resources,
-                    BindlessTextures& bindless,
                     FontLibrary& fonts,
                     PipelineCache* fjsl_pipelines,
                     gpu::Device& gpu,
                     VkFormat output_format) {
-    bindless_ = &bindless;
     fonts_ = &fonts;
     renderer_.create(device, allocator, resources, fjsl_pipelines, gpu, output_format);
 }
@@ -448,8 +446,8 @@ void GameUi::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescripto
     renderer_.record(cmd, global_set, bindless_set, extent, frame_index);
 }
 
-void GameUi::create_world_pipelines(Device& device, const PassResources& resources) {
-    renderer_.create_world_pipelines(device, resources);
+void GameUi::create_world_pipelines(const PassResources& resources) {
+    renderer_.create_world_pipelines(resources);
 }
 
 void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,

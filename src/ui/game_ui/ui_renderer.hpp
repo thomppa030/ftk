@@ -80,7 +80,7 @@ public:
                 VkExtent2D extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR format + scene MSAA). Call after create().
-    void create_world_pipelines(Device& device, const PassResources& resources);
+    void create_world_pipelines(const PassResources& resources);
 
     /// Record worldspace draw commands with push constants. prev_mvp is last
     /// frame's mvp for this same widget (proj * view * world_transform, all

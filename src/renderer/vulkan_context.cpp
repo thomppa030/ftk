@@ -1111,9 +1111,9 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
     res.samples = gpu::vulkan::from_vk(res.sample_count);
 
-    ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
+    ui.create(gpu_.device_ref(), gpu_.allocator(), res,
               *font_library_, gpu_.pipeline_cache(), gpu_device(), output_format);
-    if (world) ui.create_world_pipelines(gpu_.device_ref(), res);
+    if (world) ui.create_world_pipelines(res);
 }
 
 void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
