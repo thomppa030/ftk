@@ -9,7 +9,8 @@
 // pinched the surface is here, which is where whitecaps belong, WAVE_HEIGHT,
 // how far this point was lifted above the flat sea, WAVE_DIR, which way
 // the sea travels, which is what tells a leading face from a trailing one,
-// and WAKE, the foam on the crests of whatever has moved through it. It
+// WAKE, the foam on the crests of whatever has moved through it, and
+// BREAKING, how hard the sea is breaking on the ground under it. It
 // writes ALBEDO, ALPHA and the rest exactly as a spatial shader does. light()
 // works as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
 // by its material, and saying otherwise is a parse error rather than code
@@ -116,6 +117,7 @@ layout(location = 4) in vec4 frag_clip_pos;
 layout(location = 5) in vec4 frag_prev_clip_pos;
 layout(location = 6) in float frag_wave_lift;
 layout(location = 7) in float frag_crest;
+layout(location = 8) in float frag_breaking;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
@@ -185,6 +187,7 @@ vec3 LIGHT_DIR;
 vec3 LIGHT_COLOR;
 float LIGHT_INTENSITY;
 float CREST;
+float BREAKING;
 float WAVE_HEIGHT;
 vec2 WAVE_DIR;
 float WAVE_DIR_STRENGTH;
@@ -280,6 +283,14 @@ void main() {
     // and was measured at 14% of the water pass, which is not a trade a
     // stylized sea needs: hard-edged foam hides the difference.
     CREST = frag_crest;
+
+    // How much of its height the sea has lost to breaking on the ground
+    // under it: 0 where the water is deep enough to carry every wave, rising
+    // through the surf to 1 at the waterline. What a surf zone foams on.
+    // CREST cannot be: breaking takes height off faster than the shallows
+    // shorten the waves, so the pinch that makes whitecaps falls toward the
+    // beach while the water is at its whitest.
+    BREAKING = frag_breaking;
 
     // How far the waves lifted this point above the flat sea. Negative in a
     // trough.
