@@ -382,8 +382,9 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (buffer_id == UINT32_MAX) { continue; }
         const bool structure = buffers_[buffer_id].structure.valid();
         if (structure ? !gpu::applies_to_acceleration(acc.access) : !gpu::applies_to_buffer(acc.access)) {
-            FJELL_GFX_WARN("FrameGraph: pass '{}' declares an access the graph has no scope for "
-                           "on {}.", name.c_str(), structure ? "an acceleration structure" : "a buffer");
+            FJELL_GFX_WARN("FrameGraph: pass '{}' declares {} on {}, which has no such access; "
+                           "the use is left out.", name.c_str(), gpu::access_name(acc.access),
+                           structure ? "an acceleration structure" : "a buffer");
             continue;
         }
         pass.buffer_uses.push_back(BufferUse{
@@ -395,7 +396,11 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     }
 
     for (const auto& acc : builder.texture_accesses()) {
-        if (!gpu::applies_to_texture(acc.access)) { continue; }
+        if (!gpu::applies_to_texture(acc.access)) {
+            FJELL_GFX_WARN("FrameGraph: pass '{}' declares {} on a texture, which has no such access; "
+                           "the use is left out.", name.c_str(), gpu::access_name(acc.access));
+            continue;
+        }
         if (acc.handle.id >= handle_to_image_id.size()) {
             FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' accesses "
                            "texture handle {} which was not imported in this builder.",

@@ -2,11 +2,15 @@
 // that answers textures' shapes from a table and keeps every batch the graph
 // would record, beside markers for the passes as they run.
 
+#include "core/log.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/pass_builder.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <spdlog/sinks/callback_sink.h>
 
+#include <memory>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -115,6 +119,32 @@ private:
     std::unordered_map<uint32_t, TextureShape> shapes_;
     std::vector<Entry> log_;
     uint32_t next_{1};
+};
+
+// The renderer's warnings while it lives, kept here instead of the terminal
+// so a test that provokes them passes quietly.
+class Warnings {
+public:
+    Warnings() {
+        auto& sinks = log::renderer()->sinks();
+        kept_ = std::move(sinks);
+        sinks = {std::make_shared<spdlog::sinks::callback_sink_mt>(
+            [this](const spdlog::details::log_msg& message) {
+                if (message.level == spdlog::level::warn) {
+                    lines_.emplace_back(message.payload.data(), message.payload.size());
+                }
+            })};
+    }
+    ~Warnings() { log::renderer()->sinks() = std::move(kept_); }
+
+    Warnings(const Warnings&) = delete;
+    Warnings& operator=(const Warnings&) = delete;
+
+    [[nodiscard]] const std::vector<std::string>& lines() const { return lines_; }
+
+private:
+    std::vector<spdlog::sink_ptr> kept_;
+    std::vector<std::string> lines_;
 };
 
 } // namespace
@@ -380,4 +410,27 @@ TEST_CASE("An acceleration structure is traced after its build, apart from buffe
     REQUIRE(rebuild.size() == 1);
     CHECK(rebuild[0].structure == tlas);
     CHECK(rebuild[0].wait_for == (Access::acceleration_build | Access::acceleration_trace_compute));
+}
+
+TEST_CASE("A use declared with an access its resource lacks is left out and warned of",
+          "[framegraph]") {
+    GraphRun run;
+    const gpu::Texture t = run.texture();
+    const gpu::Buffer b = run.buffer();
+    Warnings warnings;
+    run.begin();
+    run.pass("wrong", [&](PassBuilder& p) {
+        p.read(p.import("t", t), Access::uniform_read);
+        p.read(p.import("b", b), Access::sampled_fragment);
+    });
+    run.execute();
+
+    CHECK(run.between("", "").empty());
+    REQUIRE(warnings.lines().size() == 2);
+    CHECK(warnings.lines()[0] ==
+          "FrameGraph: pass 'wrong' declares sampled_fragment on a buffer, which has no such "
+          "access; the use is left out.");
+    CHECK(warnings.lines()[1] ==
+          "FrameGraph: pass 'wrong' declares uniform_read on a texture, which has no such "
+          "access; the use is left out.");
 }
