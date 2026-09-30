@@ -1,6 +1,7 @@
 #include "ui/icon_cache.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "ui/imgui_layer.hpp"
@@ -125,6 +126,7 @@ void IconCache::forget_context(void* context) {
 
 IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h,
                                             const std::string& debug_name) {
+    FJELL_PROFILE_SCOPE_N("icon_upload");
     VkDeviceSize image_size = static_cast<VkDeviceSize>(w) * h * 4;
 
     // Staging buffer
