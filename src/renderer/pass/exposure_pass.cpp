@@ -78,18 +78,18 @@ void ExposurePass::record(const FrameContext& ctx) {
               {"HistogramBuffer", gpu::storage(histogram)}});
 
     // Pass 1: count every pixel into the bins.
-    cmd.push(ExposurePushConstants{.width = extent.width,
-                                   .height = extent.height,
+    cmd.push(ExposurePushConstants{.width = extent.x,
+                                   .height = extent.y,
                                    .min_log_lum = min_log_lum_,
                                    .inv_log_range = inv_log_range,
                                    .pass_id = 0});
-    cmd.dispatch((extent.width + 15) / 16, (extent.height + 15) / 16, 1);
+    cmd.dispatch((extent.x + 15) / 16, (extent.y + 15) / 16, 1);
 
     // Pass 2: reduce the bins to the average, once every count is in.
     cmd.barrier(histogram, gpu::Access::storage_buffer_read_write_compute,
                 gpu::Access::storage_buffer_read_write_compute);
-    cmd.push(ExposurePushConstants{.width = extent.width,
-                                   .height = extent.height,
+    cmd.push(ExposurePushConstants{.width = extent.x,
+                                   .height = extent.y,
                                    .min_log_lum = min_log_lum_,
                                    .inv_log_range = inv_log_range,
                                    .pass_id = 1});

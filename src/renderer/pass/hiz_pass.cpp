@@ -100,8 +100,8 @@ void HizPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     active_images_ = imgs;
     if (!imgs || !ctx.target) return;
     const auto extent = ctx.target->extent();
-    if (extent.width == 0 || extent.height == 0) return;
-    imgs->resize(*device_, extent.width, extent.height);
+    if (extent.x == 0 || extent.y == 0) return;
+    imgs->resize(*device_, extent.x, extent.y);
 }
 
 void HizPass::register_resources(ResourceRegistry& registry) {
@@ -115,7 +115,7 @@ void HizPass::register_resources(ResourceRegistry& registry) {
 
 void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
     const auto extent = ctx.target->extent();
-    if (extent.width == 0 || extent.height == 0 || imgs.mip_count == 0) return;
+    if (extent.x == 0 || extent.y == 0 || imgs.mip_count == 0) return;
 
     // The graph has every mip of the pyramid written as storage. Each mip
     // is reduced from the one before, depth for the first, and handed to
@@ -124,8 +124,8 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
     // MSAA the first mip reduces the multisampled depth itself.
     auto& cmd = ctx.commands();
     const bool msaa = ctx.target->samples() != gpu::Samples::x1;
-    uint32_t src_w = extent.width;
-    uint32_t src_h = extent.height;
+    uint32_t src_w = extent.x;
+    uint32_t src_h = extent.y;
     for (uint32_t mip = 0; mip < imgs.mip_count; ++mip) {
         const uint32_t dst_w = std::max(imgs.width >> mip, 1U);
         const uint32_t dst_h = std::max(imgs.height >> mip, 1U);

@@ -238,8 +238,8 @@ void GtaoTracePass::record_trace(const FrameContext& ctx, Images& g) {
         .max_pixel_radius = 128.0F,
         .viewport_width = g.extent.x,
         .viewport_height = g.extent.y,
-        .full_viewport_width = target_extent.width,
-        .full_viewport_height = target_extent.height,
+        .full_viewport_width = target_extent.x,
+        .full_viewport_height = target_extent.y,
     });
     cmd.dispatch((g.extent.x + TILE_SIZE - 1) / TILE_SIZE, (g.extent.y + TILE_SIZE - 1) / TILE_SIZE, 1);
 }

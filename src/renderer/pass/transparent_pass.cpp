@@ -49,7 +49,7 @@ void TransparentPass::record(const FrameContext& ctx) {
     // transparents.
     if (ctx.world_ui_callback && ctx.playing) {
         const auto extent = target->extent();
-        ctx.world_ui_callback(pass, ctx.globals, ctx.bindless, glm::uvec2(extent.width, extent.height),
+        ctx.world_ui_callback(pass, ctx.globals, ctx.bindless, glm::uvec2(extent.x, extent.y),
                               ctx.frame_index);
     }
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {

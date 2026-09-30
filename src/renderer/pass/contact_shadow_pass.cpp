@@ -141,7 +141,7 @@ void ContactShadowPass::record(const FrameContext& ctx) {
     cmd.bind(ctx.globals);
     cmd.bind({{"contact_out", gpu::storage(shadow_)}});
     cmd.push(ContactShadowPush{
-        .viewport_size = glm::uvec2(extent.width, extent.height),
+        .viewport_size = glm::uvec2(extent.x, extent.y),
         .max_distance = max_distance_,
         .thickness = thickness_,
         .step_count = static_cast<uint32_t>(std::max(step_count_, 4)),
@@ -149,8 +149,8 @@ void ContactShadowPass::record(const FrameContext& ctx) {
         .pad0 = 0.0f,
         .pad1 = 0.0f,
     });
-    const uint32_t groups_x = (extent.width + TILE_SIZE - 1) / TILE_SIZE;
-    const uint32_t groups_y = (extent.height + TILE_SIZE - 1) / TILE_SIZE;
+    const uint32_t groups_x = (extent.x + TILE_SIZE - 1) / TILE_SIZE;
+    const uint32_t groups_y = (extent.y + TILE_SIZE - 1) / TILE_SIZE;
     cmd.dispatch(groups_x, groups_y, 1);
     ++frame_counter_;
 }

@@ -37,9 +37,9 @@ void LightCullPass::record(const FrameContext& ctx) {
     const auto extent = ctx.target->extent();
     cmd.set_pipeline(pipeline_);
     cmd.bind(ctx.globals);
-    cmd.push(glm::uvec2(extent.width, extent.height));
-    const uint32_t groups_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
-    const uint32_t groups_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    cmd.push(glm::uvec2(extent.x, extent.y));
+    const uint32_t groups_x = (extent.x + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    const uint32_t groups_y = (extent.y + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     cmd.dispatch(groups_x, groups_y, 1);
 }
 

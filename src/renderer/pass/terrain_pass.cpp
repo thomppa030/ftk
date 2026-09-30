@@ -406,7 +406,7 @@ void TerrainPass::draw(gpu::RenderEncoder& pass, const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_terrain");
     auto zone = ctx.commands().zone("Terrain");
     const auto extent = ctx.target->extent();
-    const glm::uvec2 size{extent.width, extent.height};
+    const glm::uvec2 size{extent.x, extent.y};
     draw_terrain_nodes(pass, ctx, Variant::color, 0, size);
 
     // Patch grid overlay, drawn per node that asks for it. A second walk
@@ -433,7 +433,7 @@ void TerrainPass::draw_depth(gpu::RenderEncoder& pass, const FrameContext& ctx) 
 
     FJELL_PROFILE_SCOPE_N("record_terrain_depth");
     const auto extent = ctx.target->extent();
-    draw_terrain_nodes(pass, ctx, Variant::depth, 0, {extent.width, extent.height});
+    draw_terrain_nodes(pass, ctx, Variant::depth, 0, {extent.x, extent.y});
 }
 
 } // namespace fjell

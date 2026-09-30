@@ -5,6 +5,7 @@
 #include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -43,7 +44,7 @@ public:
 
     void resize(uint32_t width, uint32_t height);
 
-    [[nodiscard]] VkExtent2D extent() const { return extent_; }
+    [[nodiscard]] glm::uvec2 extent() const { return extent_; }
     [[nodiscard]] gpu::Samples samples() const { return samples_; }
     /// The colour target as ImGui shows it; made on first ask, and let go
     /// with the target or its resize once the frames drawing it are done.
@@ -121,7 +122,7 @@ private:
     std::string name_;
     /// Linear, clamped: how ImGui samples the colour target.
     gpu::Sampler sampler_{};
-    VkExtent2D extent_{};
+    glm::uvec2 extent_{0, 0};
     Textures textures_;
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
 };

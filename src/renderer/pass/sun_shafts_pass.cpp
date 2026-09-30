@@ -64,7 +64,7 @@ void dispatch(gpu::CommandList& cmd, glm::uvec2 extent) {
 
 glm::uvec2 size_of(const OffscreenPass& target) {
     const auto extent = target.extent();
-    return {extent.width, extent.height};
+    return {extent.x, extent.y};
 }
 
 } // namespace

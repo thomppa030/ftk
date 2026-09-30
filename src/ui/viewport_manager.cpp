@@ -273,8 +273,8 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         float pad_y = 0.0f;
         if (panel.offscreen && panel.size.x > 0 && panel.size.y > 0) {
             auto extent = panel.offscreen->extent();
-            float tex_aspect = static_cast<float>(extent.width) /
-                               std::max(static_cast<float>(extent.height), 1.0f);
+            float tex_aspect = static_cast<float>(extent.x) /
+                               std::max(static_cast<float>(extent.y), 1.0f);
             float panel_aspect = panel.size.x / std::max(panel.size.y, 1.0f);
             if (tex_aspect > panel_aspect) {
                 img_h = img_w / tex_aspect;

@@ -24,7 +24,7 @@ OffscreenPass::~OffscreenPass() {
 }
 
 void OffscreenPass::resize(uint32_t width, uint32_t height) {
-    if (extent_.width == width && extent_.height == height) return;
+    if (extent_.x == width && extent_.y == height) return;
     release_imgui_texture();
     create(width, height);
 }

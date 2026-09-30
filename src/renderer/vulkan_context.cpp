@@ -771,7 +771,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& projection,
                                           const glm::vec3& camera_position,
                                           const EnvironmentState& environment,
-                                          Scene* scene, VkExtent2D extent,
+                                          Scene* scene, glm::uvec2 extent,
                                           PostProcessResources& pp) {
     FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
 
@@ -782,10 +782,10 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     glm::mat4 jittered_projection = projection;
     float jx = 0.0f;
     float jy = 0.0f;
-    if (taa_enabled && extent.width > 0 && extent.height > 0) {
+    if (taa_enabled && extent.x > 0 && extent.y > 0) {
         int idx = static_cast<int>((history.taa_frame_count++) % 16) + 1; // 1-based, 16-sample cycle
-        jx = (halton(idx, 2) - 0.5f) / static_cast<float>(extent.width);
-        jy = (halton(idx, 3) - 0.5f) / static_cast<float>(extent.height);
+        jx = (halton(idx, 2) - 0.5f) / static_cast<float>(extent.x);
+        jy = (halton(idx, 3) - 0.5f) / static_cast<float>(extent.y);
         // Apply jitter as a translation in clip space (NDC offset).
         // Perspective: w = -view_z, so column 2 produces a constant NDC shift after divide.
         // Orthographic: w = 1, so the same column scales with view-space z (depth-dependent
@@ -865,8 +865,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.debug_light_channel = debug_light_channel_;
 
     // Forward+ tile info
-    uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
-    uint32_t tiles_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    uint32_t tiles_x = (extent.x + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    uint32_t tiles_y = (extent.y + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
     ubo.inv_projection = glm::inverse(jittered_projection);
     ubo.inv_view_proj = glm::inverse(jittered_projection * view);
@@ -1104,7 +1104,7 @@ void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
 
 void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                                         OffscreenPass& target, uint32_t frame_index) {
-    const VkExtent2D extent = target.extent();
+    const glm::uvec2 extent = target.extent();
     const bool msaa = target.samples() != gpu::Samples::x1;
 
     // Whatever the target held is cleared: nothing of it is kept.
@@ -1131,7 +1131,7 @@ void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecor
                                            .resolve = msaa ? gpu::TextureView(target.color_texture())
                                                            : gpu::TextureView{}}}});
         record_fn(pass, gpu_.global_bindings().group(frame_index), gpu_.bindless_textures().group(frame_index),
-                  glm::uvec2(extent.width, extent.height), frame_index);
+                  extent, frame_index);
     }
 
     // ImGui shows it.

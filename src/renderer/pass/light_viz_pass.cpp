@@ -49,8 +49,8 @@ void LightVizPass::record(const FrameContext& ctx) {
     pass.bind({{"TileLightData", gpu::storage(tile_buffer_)}});
     const auto target_extent = ctx.target->extent();
     pass.push(LightVizPush{
-        .tiles_x = (target_extent.width + 15) / 16,
-        .tiles_y = (target_extent.height + 15) / 16,
+        .tiles_x = (target_extent.x + 15) / 16,
+        .tiles_y = (target_extent.y + 15) / 16,
         .mode = mode_,
     });
     pass.draw(3);

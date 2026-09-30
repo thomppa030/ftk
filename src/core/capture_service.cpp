@@ -127,8 +127,8 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     // PostPass::Images::resize → destroy → invalidate_imgui_texture.
     // wait_idle ensures no in-flight CB references them.
     if (panel->offscreen) {
-        if (panel->offscreen->extent().width != request_.width
-                || panel->offscreen->extent().height != request_.height) {
+        if (panel->offscreen->extent().x != request_.width
+                || panel->offscreen->extent().y != request_.height) {
             vk.wait_idle();
             panel->offscreen->resize(request_.width, request_.height);
             vk.default_pp().resize(request_.width, request_.height);

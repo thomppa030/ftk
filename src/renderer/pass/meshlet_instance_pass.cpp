@@ -248,8 +248,8 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
               {"CulledCounter", gpu::storage(culled_count)},
               {"BinSegments", gpu::storage(cmd.transient(segments))}});
     cmd.push(CullPush{
-        .viewport_width = extent.width,
-        .viewport_height = extent.height,
+        .viewport_width = extent.x,
+        .viewport_height = extent.y,
         .hiz_mip_count = hiz_mips,
         .is_second_pass = static_cast<uint32_t>(which),
         .first_command = set.command,

@@ -595,7 +595,7 @@ void FogMediumPass::record(const FrameContext& ctx) {
         cmd.barrier(line, gpu::Access::storage_write_compute, gpu::Access::storage_read_compute);
     }
 
-    PushConstants push = make_push(*imgs, extent.width, extent.height);
+    PushConstants push = make_push(*imgs, extent.x, extent.y);
     const auto bind = [&](gpu::ComputePipeline pipeline) {
         cmd.set_pipeline(pipeline);
         cmd.bind(ctx.globals);
@@ -732,7 +732,7 @@ void FogLightPass::record(const FrameContext& ctx) {
     cmd.bind(ctx.bindless);
     cmd.bind({{"fog_medium", gpu::storage(medium)},
               {"scatter_volume", gpu::storage(imgs->scatter_volumes[imgs->cur_index()])}});
-    cmd.push(core_->make_push(*imgs, extent.width, extent.height));
+    cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), grid.z);
 }
 
@@ -783,7 +783,7 @@ void FogTemporalPass::record(const FrameContext& ctx) {
     cmd.bind(ctx.globals);
     cmd.bind({{"scatter_volume", gpu::storage(imgs->scatter_volumes[imgs->cur_index()])},
               {"history_volume", gpu::sampled(imgs->scatter_volumes[imgs->prev_index()], core_->fog_sampler())}});
-    cmd.push(core_->make_push(*imgs, extent.width, extent.height));
+    cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), grid.z);
 }
 
@@ -835,7 +835,7 @@ void FogIntegratePass::record(const FrameContext& ctx) {
     cmd.set_pipeline(core_->integrate_pipeline());
     cmd.bind({{"scatter_volume", gpu::sampled(imgs->scatter_volumes[imgs->cur_index()], core_->fog_sampler())},
               {"integrated_volume", gpu::storage(integrated)}});
-    cmd.push(core_->make_push(*imgs, extent.width, extent.height));
+    cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), 1);
 }
 
@@ -897,8 +897,8 @@ void FogCompositePass::record(const FrameContext& ctx) {
     cmd.bind({{"integrated_volume", gpu::sampled(integrated, core_->fog_sampler())},
               {"depth_texture", gpu::sampled(composite_depth, core_->fog_sampler())},
               {"scene_color", gpu::storage(ctx.target->color_texture())}});
-    cmd.push(core_->make_push(*imgs, extent.width, extent.height));
-    cmd.dispatch(tiles(extent.width), tiles(extent.height), 1);
+    cmd.push(core_->make_push(*imgs, extent.x, extent.y));
+    cmd.dispatch(tiles(extent.x), tiles(extent.y), 1);
 
     // Advance ping-pong + frame counter after composite (the last node in
     // the fog chain). Next frame's light step will write the new cur_index().

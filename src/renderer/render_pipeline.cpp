@@ -127,7 +127,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     // ── Per-frame DeclareContext ──────────────────────────────────────
     DeclareContext decl_ctx;
-    decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
+    decl_ctx.viewport_extent = {target.extent().x, target.extent().y};
     decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
     decl_ctx.scene_id        = ctx.scene != nullptr ? ctx.scene->id() : 0;

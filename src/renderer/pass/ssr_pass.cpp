@@ -105,7 +105,7 @@ void SsrCore::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     const bool in_graph = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
     if (in_graph && screen_space_active() && ctx.target != nullptr) {
         const auto ext = ctx.target->extent();
-        ensure_prev_frame(ext.width, ext.height);
+        ensure_prev_frame(ext.x, ext.y);
     }
 }
 
@@ -178,8 +178,8 @@ void SsrTracePass::record(const FrameContext& ctx) {
               {"prev_color", gpu::sampled(prev_frame(), linear_sampler())},
               {"ssr_output", gpu::storage(ssr_out)}});
     cmd.push(TracePushConstants{
-        .viewport_width = extent.width,
-        .viewport_height = extent.height,
+        .viewport_width = extent.x,
+        .viewport_height = extent.y,
         .hiz_mip_count = hiz->mip_count,
         .max_steps = max_steps(),
         .max_distance = max_distance(),
@@ -187,8 +187,8 @@ void SsrTracePass::record(const FrameContext& ctx) {
         .intensity = intensity(),
         .pad = 0.0f,
     });
-    cmd.dispatch((extent.width + TILE_SIZE - 1) / TILE_SIZE,
-                 (extent.height + TILE_SIZE - 1) / TILE_SIZE, 1);
+    cmd.dispatch((extent.x + TILE_SIZE - 1) / TILE_SIZE,
+                 (extent.y + TILE_SIZE - 1) / TILE_SIZE, 1);
 }
 
 // ── SsrCompositePass ────────────────────────────────────────────────────────
@@ -271,14 +271,14 @@ void SsrCompositePass::record(const FrameContext& ctx) {
               {"mr_texture", gpu::sampled(mr, nearest)},
               {"rt_reflection_texture", gpu::sampled(rt, nearest)}});
     cmd.push(CompositePushConstants{
-        .viewport_width = extent.width,
-        .viewport_height = extent.height,
+        .viewport_width = extent.x,
+        .viewport_height = extent.y,
         .intensity = core_->intensity(),
         .source = (core_->ray_traced_active() && rt_ready) ? 1U : 0U,
         .passthrough = debug_passthrough ? 1U : 0U,
     });
-    cmd.dispatch((extent.width + TILE_SIZE - 1) / TILE_SIZE,
-                 (extent.height + TILE_SIZE - 1) / TILE_SIZE, 1);
+    cmd.dispatch((extent.x + TILE_SIZE - 1) / TILE_SIZE,
+                 (extent.y + TILE_SIZE - 1) / TILE_SIZE, 1);
 }
 
 // ── SsrHistoryPass ──────────────────────────────────────────────────────────
@@ -315,7 +315,7 @@ void SsrHistoryPass::record(const FrameContext& ctx) {
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SSR History");
     const auto extent = ctx.target->extent();
-    core_->copy_prev_frame(cmd, ctx.target->color_texture(), {extent.width, extent.height});
+    core_->copy_prev_frame(cmd, ctx.target->color_texture(), {extent.x, extent.y});
 }
 
 } // namespace fjell

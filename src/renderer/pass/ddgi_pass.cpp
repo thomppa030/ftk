@@ -389,8 +389,8 @@ GpuDdgiConstants DdgiPass::update_constants(Images& imgs, const FrameContext& ct
 
     constants.camera_position = ctx.camera_position;
     constants.inv_view_proj = ctx.inv_view_proj;
-    constants.resolution = glm::vec2(ctx.target ? ctx.target->extent().width : 1920,
-                                     ctx.target ? ctx.target->extent().height : 1080);
+    constants.resolution = glm::vec2(ctx.target ? ctx.target->extent().x : 1920,
+                                     ctx.target ? ctx.target->extent().y : 1080);
 
     const std::span<std::byte> slot = ctx.device->mapped(imgs.constants[ctx.frame_index]);
     std::memcpy(slot.data(), &constants, sizeof(constants));

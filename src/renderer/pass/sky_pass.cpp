@@ -214,8 +214,8 @@ void SkyPass::record(const FrameContext& ctx) {
             uint32_t sky_material_id;
             uint32_t face_size;   // the cubemap variant's; unused by the fragment
         } push{
-            static_cast<float>(target->extent().width),
-            static_cast<float>(target->extent().height),
+            static_cast<float>(target->extent().x),
+            static_cast<float>(target->extent().y),
             fjsl_material_id_,
             0u,
         };
@@ -243,8 +243,8 @@ void SkyPass::record(const FrameContext& ctx) {
     } push{
         glm::vec4(has_backdrop ? ctx.backdrop->top : top_color_, 1.0f),
         glm::vec4(has_backdrop ? ctx.backdrop->bottom : bottom_color_, 1.0f),
-        static_cast<float>(target->extent().width),
-        static_cast<float>(target->extent().height),
+        static_cast<float>(target->extent().x),
+        static_cast<float>(target->extent().y),
         static_cast<float>(has_backdrop ? Mode::Gradient : mode_),
         atm_rayleigh_scale_,
         atm_mie_scale_,

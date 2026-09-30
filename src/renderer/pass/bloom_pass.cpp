@@ -58,7 +58,7 @@ Mip resolve_mip(const FrameContext& ctx, uint32_t idx) {
     if (!texture.valid()) { return {}; }
     const auto extent = ctx.target->extent();
     const uint32_t div = 1U << (idx + 1);
-    return {texture, std::max(1U, extent.width / div), std::max(1U, extent.height / div)};
+    return {texture, std::max(1U, extent.x / div), std::max(1U, extent.y / div)};
 }
 
 // One fullscreen draw into `dst`, sampling `source`.

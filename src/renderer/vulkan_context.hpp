@@ -402,7 +402,7 @@ private:
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
                              const EnvironmentState &environment, Scene *scene,
-                             VkExtent2D extent, PostProcessResources &pp);
+                             glm::uvec2 extent, PostProcessResources &pp);
 
   // `view.global_set` overrides the per-frame global descriptor set bound for
   // the frame (used by previews that own a private set); null = per-frame set.
