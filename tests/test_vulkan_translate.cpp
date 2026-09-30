@@ -3,7 +3,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <set>
+#include <span>
 #include <vector>
 
 using namespace fjell::gpu;
@@ -147,28 +149,49 @@ TEST_CASE("attachment operations, depth resolves and index types map", "[gpu]") 
     CHECK(vulkan::to_vk(IndexType::u32) == VK_INDEX_TYPE_UINT32);
 }
 
-TEST_CASE("the engine vertex's layout matches its Vulkan description", "[gpu]") {
-    const VertexLayout layout = fjell::Vertex::layout();
-    const auto binding = fjell::Vertex::get_binding_description();
-    const auto attributes = fjell::Vertex::get_attribute_descriptions();
-    CHECK(layout.stride == binding.stride);
-    REQUIRE(layout.attributes.size() == attributes.size());
-    for (size_t i = 0; i < attributes.size(); ++i) {
-        CHECK(layout.attributes[i].location == attributes[i].location);
-        CHECK(vulkan::to_vk(layout.attributes[i].format) == attributes[i].format);
-        CHECK(layout.attributes[i].offset == attributes[i].offset);
+namespace {
+
+// What a vertex attribute is to Vulkan: its location, format and offset.
+struct VkAttribute {
+    uint32_t location;
+    VkFormat format;
+    uint32_t offset;
+};
+
+void check_layout(const VertexLayout& layout, uint32_t stride, std::span<const VkAttribute> expected) {
+    CHECK(layout.stride == stride);
+    REQUIRE(layout.attributes.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        CHECK(layout.attributes[i].location == expected[i].location);
+        CHECK(vulkan::to_vk(layout.attributes[i].format) == expected[i].format);
+        CHECK(layout.attributes[i].offset == expected[i].offset);
     }
 }
 
-TEST_CASE("the skinned vertex's layout matches its Vulkan description", "[gpu]") {
-    const VertexLayout layout = fjell::SkinnedVertex::layout();
-    const auto binding = fjell::SkinnedVertex::get_binding_description();
-    const auto attributes = fjell::SkinnedVertex::get_attribute_descriptions();
-    CHECK(layout.stride == binding.stride);
-    REQUIRE(layout.attributes.size() == attributes.size());
-    for (size_t i = 0; i < attributes.size(); ++i) {
-        CHECK(layout.attributes[i].location == attributes[i].location);
-        CHECK(vulkan::to_vk(layout.attributes[i].format) == attributes[i].format);
-        CHECK(layout.attributes[i].offset == attributes[i].offset);
-    }
+} // namespace
+
+TEST_CASE("the engine vertex's layout reaches Vulkan as the shaders read it", "[gpu]") {
+    using fjell::Vertex;
+    const VkAttribute expected[] = {
+        {0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
+        {1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
+        {2, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, tex_coord)},
+        {3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
+        {4, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, tangent)},
+    };
+    check_layout(Vertex::layout(), sizeof(Vertex), expected);
+}
+
+TEST_CASE("the skinned vertex's layout reaches Vulkan as the shaders read it", "[gpu]") {
+    using fjell::SkinnedVertex;
+    const VkAttribute expected[] = {
+        {0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(SkinnedVertex, position)},
+        {1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(SkinnedVertex, color)},
+        {2, VK_FORMAT_R32G32_SFLOAT, offsetof(SkinnedVertex, tex_coord)},
+        {3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(SkinnedVertex, normal)},
+        {4, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(SkinnedVertex, tangent)},
+        {5, VK_FORMAT_R32G32B32A32_UINT, offsetof(SkinnedVertex, bone_ids)},
+        {6, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(SkinnedVertex, bone_weights)},
+    };
+    check_layout(SkinnedVertex::layout(), sizeof(SkinnedVertex), expected);
 }

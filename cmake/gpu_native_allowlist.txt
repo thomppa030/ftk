@@ -27,7 +27,6 @@ src/renderer/gpu_context.hpp
 src/renderer/pass/render_pass.hpp
 src/renderer/render_pipeline.cpp
 src/renderer/render_pipeline.hpp
-src/renderer/resources/vertex.hpp
 src/renderer/vulkan_context.cpp
 src/renderer/vulkan_context.hpp
 tests/library_link/gpu.cpp
