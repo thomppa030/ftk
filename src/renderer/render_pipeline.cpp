@@ -15,6 +15,7 @@
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include "scene/scene.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "core/log.hpp"
@@ -129,6 +130,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
     decl_ctx.msaa_samples    = gpu::vulkan::from_vk(msaa);
     decl_ctx.frame_index     = frame_index;
+    decl_ctx.scene_id        = ctx.scene != nullptr ? ctx.scene->id() : 0;
     decl_ctx.active_sources  = active_sources;
     decl_ctx.grid_shown      = ctx.show_grid;
     decl_ctx.debug_lines     = ctx.debug_draw != nullptr && !ctx.debug_draw->empty();

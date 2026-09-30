@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gpu/acceleration.hpp>
+
 #include <glm/mat4x4.hpp>
 
 #include <cstdint>
@@ -46,10 +48,9 @@ inline constexpr uint32_t RT_MASK_TRANSPARENT = 0x02U;
 /// because the count is not known until the GPU has culled them.
 struct RtInstance {
     glm::mat4 transform{1.0F};
-    /// The BLAS, by value: a BLAS the mega-buffer's growth forces a rebuild
-    /// of is retired, not freed, so its address stays good for the frame
-    /// that listed it.
-    uint64_t blas_address{0};
+    /// The bottom level: a structure made anew is another handle, so a list
+    /// naming it differs from one built before.
+    gpu::AccelerationStructure blas{};
     uint32_t first_index{0};
     uint32_t vertex_offset{0};
     uint32_t material_id{0};

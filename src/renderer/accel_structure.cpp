@@ -1,46 +1,28 @@
 #include "renderer/accel_structure.hpp"
-#include "gpu/vulkan/native.hpp"
+
+#include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "renderer/components/terrain_component.hpp"
-#include "renderer/gpu/upload_context.hpp"
-#include "renderer/gpu/vk_check.hpp"
-#include "renderer/indirect_batch.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/particle_system.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "scene/scene.hpp"
-#include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+
+#include <gpu/command_list.hpp>
+#include <gpu/device.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
-#include <array>
-#include <cstring>
 #include <cmath>
+#include <cstring>
 #include <span>
+#include <string>
 
 namespace fjell {
-
-// Acceleration-structure buffers (BLAS/TLAS) get a DEDICATED VkDeviceMemory
-// block. An in-flight vkCmdTraceRays reads the TLAS and every BLAS by raw
-// device address — references Vulkan's command-buffer resource tracking does
-// NOT see. With a sub-allocating allocator, the memory of a buffer that is
-// freed/retired (e.g. a grown per-frame TLAS or instance buffer) can be handed
-// to a new allocation and written while a *previous* frame's trace still reads
-// an AS built over adjacent memory in the same block — corrupting AS contents,
-// so fixed-function traversal dereferences a synthesized garbage address and
-// the device is lost. (This was the "spawn-storm" device loss: reproduced with
-// two networked instances, fixed deterministically by this dedicated alloc.)
-// Dedicated memory keeps each AS buffer's block off the sub-allocation pool, so
-// it can never be aliased/reused under a live trace.
-static VmaAllocationCreateFlags as_dedicated_flag() {
-    return VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-}
 
 namespace {
 
@@ -50,96 +32,110 @@ struct ParticleTlasPush {
     uint32_t particle_count;
     uint32_t material_id;
     float particle_size;
-    uint32_t blas_addr_lo;
-    uint32_t blas_addr_hi;
+    uint32_t blas_reference_lo;
+    uint32_t blas_reference_hi;
     uint32_t first_index;
     uint32_t vertex_offset;
     uint32_t mask;
 };
 
+// The triangles of one mesh entry, as a BLAS is built from them.
+gpu::Triangles entry_triangles(const MegaMeshEntry& entry, const MegaBuffer& mega) {
+    return {
+        .vertices = gpu::BufferRange(mega.vertex_buffer(), uint64_t{entry.vertex_offset} * sizeof(Vertex),
+                                     uint64_t{entry.vertex_count} * sizeof(Vertex)),
+        .vertex_stride = sizeof(Vertex),
+        .vertex_count = entry.vertex_count,
+        .indices = gpu::BufferRange(mega.index_buffer(), uint64_t{entry.first_index} * sizeof(uint32_t),
+                                    uint64_t{entry.index_count} * sizeof(uint32_t)),
+        .triangle_count = entry.index_count / 3,
+    };
+}
+
+// Whether a transform places anything a TLAS can hold. A just-spawned
+// networked object can reach the render queue before its world matrix is
+// computed (NaN or zero), and a broken instance transform makes the driver
+// build a malformed TLAS that faults on traversal, losing the device. Such
+// an instance is left out this frame and appears the next.
+bool placeable(const glm::mat4& m) {
+    const bool finite = std::isfinite(m[0][0]) && std::isfinite(m[1][1]) && std::isfinite(m[2][2]) &&
+                        std::isfinite(m[3][0]) && std::isfinite(m[3][1]) && std::isfinite(m[3][2]);
+    // A zero upper-left 3x3 is zero scale: an invalid box.
+    const float scale = std::abs(m[0][0]) + std::abs(m[1][1]) + std::abs(m[2][2]) + std::abs(m[0][1]) +
+                        std::abs(m[0][2]) + std::abs(m[1][0]) + std::abs(m[1][2]) + std::abs(m[2][0]) +
+                        std::abs(m[2][1]);
+    return finite && scale >= 1e-12F;
+}
+
+// A listed instance as an instance record's source: the transform's three
+// rows, the material as the custom index.
+gpu::AccelerationInstance record_of(const RtInstance& instance) {
+    const glm::mat4& m = instance.transform;
+    gpu::AccelerationInstance record{};
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            record.transform[static_cast<size_t>(row * 4 + column)] = m[column][row];
+        }
+    }
+    record.custom_index = instance.material_id;
+    record.mask = static_cast<uint8_t>(instance.mask);
+    record.structure = instance.blas;
+    return record;
+}
+
 } // namespace
 
-AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator allocator,
-                                             VkCommandPool command_pool, VkQueue queue,
-                                             UploadContext& upload, gpu::Device& gpu)
-    : device_{device}
-    , vk_device_{device.handle()}
-    , allocator_{allocator}
-    , command_pool_{command_pool}
-    , queue_{queue}
-    , upload_{upload}
-    , gpu_{gpu} {
-    // Query scratch buffer alignment requirement
-    VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
-    as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
-    VkPhysicalDeviceProperties2 props2{};
-    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    props2.pNext = &as_props;
-    vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
-    scratch_alignment_ = as_props.minAccelerationStructureScratchOffsetAlignment;
-}
-
-AccelStructureManager::~AccelStructureManager() {
-    vkDeviceWaitIdle(vk_device_);
-
-    // Destroy particle TLAS compute resources
-    if (particle_tlas_pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk_device_, particle_tlas_pipeline_, nullptr);
-    }
-    if (particle_tlas_pipe_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk_device_, particle_tlas_pipe_layout_, nullptr);
-    }
-    if (particle_tlas_set_layout_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(vk_device_, particle_tlas_set_layout_, nullptr);
-    }
-
-    auto destroy_fn = device_.destroy_accel_struct_fn();
-    for (auto& [id, scene] : scenes_) {
-        if (scene.particle_pool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(vk_device_, scene.particle_pool, nullptr);
-        }
-        for (auto& frame : scene.frames) {
-            if (frame.tlas_handle != VK_NULL_HANDLE && destroy_fn) {
-                destroy_fn(vk_device_, frame.tlas_handle, nullptr);
-            }
-        }
-    }
-    if (destroy_fn) {
-        for (auto& [model, blases] : blas_map_) {
-            for (Blas& blas : blases) {
-                if (blas.handle != VK_NULL_HANDLE) {
-                    destroy_fn(vk_device_, blas.handle, nullptr);
-                }
-            }
-        }
-        for (auto& [key, blas] : entry_blas_map_) {
-            if (blas.handle != VK_NULL_HANDLE) {
-                destroy_fn(vk_device_, blas.handle, nullptr);
-            }
-        }
+AccelStructureManager::AccelStructureManager(gpu::Device& device) : device_(device) {
+    auto made = device_.create(gpu::ComputePipelineDesc{
+        .shader = "shaders/particle_tlas_build.comp",
+        .name = "particle_tlas_build",
+    });
+    if (made) {
+        particle_pipeline_ = std::move(*made);
+    } else {
+        FJELL_GFX_ERROR("Mesh particles are left out of ray tracing: {}", made.error());
     }
 }
 
-VkDeviceAddress AccelStructureManager::buffer_address(VkBuffer buffer) const {
-    VkBufferDeviceAddressInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-    info.buffer = buffer;
-    return device_.get_buffer_device_address_fn()(vk_device_, &info);
+void AccelStructureManager::declare_trace(PassBuilder& builder, const DeclareContext& ctx) {
+    builder.read(builder.import_named_acceleration(ctx, TLAS_NAME), gpu::Access::acceleration_trace_compute);
+    builder.read(builder.import_named_buffer(ctx, INSTANCES_NAME), gpu::Access::storage_buffer_read_compute);
+}
+
+std::vector<Blas> AccelStructureManager::make_blases(std::span<const MegaMeshEntry> entries,
+                                                      const MegaBuffer& mega) {
+    std::vector<Blas> out(entries.size());
+    // Every structure of the batch shares one allocation, so a model with
+    // many submeshes still costs one.
+    std::vector<gpu::AccelerationStructureDesc> descs;
+    std::vector<size_t> made_for;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (entries[i].index_count < 3) continue;
+        descs.push_back({.triangles = entry_triangles(entries[i], mega), .name = "blas"});
+        made_for.push_back(i);
+    }
+    if (descs.empty()) return out;
+
+    auto made = device_.create(descs);
+    if (!made) {
+        FJELL_GFX_ERROR("Ray tracing leaves a mesh out: {}", made.error());
+        return out;
+    }
+    for (size_t k = 0; k < made_for.size(); ++k) {
+        const MegaMeshEntry& entry = entries[made_for[k]];
+        Blas& blas = out[made_for[k]];
+        blas.structure = std::move((*made)[k]);
+        blas.first_index = entry.first_index;
+        blas.vertex_offset = entry.vertex_offset;
+        pending_builds_.push_back({blas.structure, descs[k].triangles});
+    }
+    return out;
 }
 
 void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& mega) {
-    auto it = blas_map_.find(model);
-    if (it != blas_map_.end()) {
-        // Up to date — the mega-buffer hasn't moved since these BLASes baked
-        // their vertex/index device addresses.
-        if (it->second.front().mega_generation == mega.generation()) return;
-        // Stale: the mega-buffer reallocated (new device address). The baked
-        // addresses now dangle; retire and rebuild against the current buffer.
-        // In-flight frames may still trace against the old BLASes — keep
-        // them alive until their fences signal.
-        for (Blas& blas : it->second) retire_blas(std::move(blas));
-        blas_map_.erase(it);
-    }
+    // A BLAS keeps nothing of the buffers it was built from, so the
+    // mega-buffer moving to grow leaves it whole.
+    if (blas_map_.contains(model)) return;
 
     // LOD 0 only: rays want the highest-quality geometry regardless of what
     // the raster path picked for this frame.
@@ -147,31 +143,23 @@ void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& me
     if (lods.empty()) return;
     std::span<const MegaMeshEntry> all = model->mega_entries();
     if (lods[0].first_mega_entry + lods[0].mega_entry_count > all.size()) return;
-    auto built = build_blases(all.subspan(lods[0].first_mega_entry, lods[0].mega_entry_count), mega);
-    if (!built.empty()) blas_map_[model] = std::move(built);
-}
-
-void AccelStructureManager::retire_blas(Blas blas) {
-    ++blas_generation_;
-    gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
-                              doomed = std::move(blas)]() mutable {
-        if (doomed.handle != VK_NULL_HANDLE) {
-            destroy_fn(dev, doomed.handle, nullptr);
-        }
-        doomed.buffer.reset();
-    });
+    auto made = make_blases(all.subspan(lods[0].first_mega_entry, lods[0].mega_entry_count), mega);
+    if (!made.empty()) blas_map_[model] = std::move(made);
 }
 
 void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEntry& entry,
                                               const MegaBuffer& mega, bool geometry_changed) {
     if (auto it = entry_blas_map_.find(key); it != entry_blas_map_.end()) {
-        if (it->second.mega_generation == mega.generation() && !geometry_changed) return;
-        retire_blas(std::move(it->second));
+        if (!geometry_changed) return;
+        // Made anew rather than built over: a frame still tracing the old
+        // one keeps it until it is done.
+        const gpu::AccelerationStructure old = it->second.structure;
+        std::erase_if(pending_builds_, [old](const PendingBuild& build) { return build.blas == old; });
         entry_blas_map_.erase(it);
     }
-    auto built = build_blases(std::span<const MegaMeshEntry>{&entry, 1}, mega);
-    if (!built.empty() && built.front().handle != VK_NULL_HANDLE) {
-        entry_blas_map_[key] = std::move(built.front());
+    auto made = make_blases(std::span<const MegaMeshEntry>{&entry, 1}, mega);
+    if (!made.empty() && made.front().structure) {
+        entry_blas_map_[key] = std::move(made.front());
     }
 }
 
@@ -186,202 +174,31 @@ std::span<const Blas> AccelStructureManager::model_blases(const Model* model) co
     return it->second;
 }
 
-std::vector<Blas> AccelStructureManager::build_blases(std::span<const MegaMeshEntry> entries,
-                                                      const MegaBuffer& mega) {
-    std::vector<Blas> out(entries.size());
-    for (Blas& blas : out) blas.mega_generation = mega.generation();
-
-    // Every structure of the batch shares one buffer and one scratch region,
-    // so a model with many submeshes still costs one dedicated allocation.
-    struct Pending {
-        size_t entry;
-        VkAccelerationStructureGeometryKHR geom{};
-        VkAccelerationStructureBuildGeometryInfoKHR info{};
-        VkAccelerationStructureBuildRangeInfoKHR range{};
-        VkAccelerationStructureBuildSizesInfoKHR sizes{};
-        VkDeviceSize as_offset{0};
-        VkDeviceSize scratch_offset{0};
-    };
-    std::vector<Pending> pending;
-    pending.reserve(entries.size());
-
-    // Acceleration structures inside a buffer must start on a 256-byte
-    // boundary; scratch regions on the device's own alignment.
-    constexpr VkDeviceSize AS_OFFSET_ALIGNMENT = 256;
-    auto align_up = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
-
-    VkDeviceAddress vertex_addr = buffer_address(gpu::vulkan::native_buffer(gpu_, mega.vertex_buffer()));
-    VkDeviceAddress index_addr = buffer_address(gpu::vulkan::native_buffer(gpu_, mega.index_buffer()));
-    VkDeviceSize as_total = 0;
-    VkDeviceSize scratch_total = 0;
-
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const MegaMeshEntry& entry = entries[i];
-        if (entry.index_count == 0) continue;
-
-        Pending p{};
-        p.entry = i;
-
-        VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
-        triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-        triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-        triangles.vertexData.deviceAddress = vertex_addr + entry.vertex_offset * sizeof(Vertex);
-        triangles.vertexStride = sizeof(Vertex);
-        // maxVertex is the highest vertex INDEX the build may read (count - 1).
-        // Using index_count here made the driver scan ~3-6x past this mesh's
-        // vertices into neighbouring mega-buffer data (or past the mapped end),
-        // building a malformed BLAS that faults on TLAS traversal.
-        triangles.maxVertex = entry.vertex_count > 0 ? entry.vertex_count - 1 : 0;
-        triangles.indexType = VK_INDEX_TYPE_UINT32;
-        triangles.indexData.deviceAddress = index_addr + entry.first_index * sizeof(uint32_t);
-
-        p.geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-        p.geom.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-        p.geom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-        p.geom.geometry.triangles = triangles;
-
-        p.range.primitiveCount = entry.index_count / 3;
-
-        p.info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        p.info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        p.info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-        p.info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        p.info.geometryCount = 1;
-        p.info.pGeometries = &p.geom;
-
-        p.sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        device_.get_accel_struct_build_sizes_fn()(
-            vk_device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-            &p.info, &p.range.primitiveCount, &p.sizes);
-
-        p.as_offset = align_up(as_total, AS_OFFSET_ALIGNMENT);
-        as_total = p.as_offset + p.sizes.accelerationStructureSize;
-        p.scratch_offset = align_up(scratch_total, scratch_alignment_);
-        scratch_total = p.scratch_offset + p.sizes.buildScratchSize;
-
-        pending.push_back(p);
-    }
-    if (pending.empty()) return out;
-
-    // The build's one-shot submit reads the mega buffer without waiting the
-    // upload timeline — settle any batched geometry uploads first.
-    upload_.wait_all();
-
-    auto buffer = std::make_shared<Buffer>(
-        allocator_, as_total,
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO, as_dedicated_flag());
-    Buffer scratch{allocator_, scratch_total,
-                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                   VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_};
-    VkDeviceAddress scratch_addr = buffer_address(scratch.handle());
-
-    std::vector<VkAccelerationStructureBuildGeometryInfoKHR> infos;
-    std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> ranges;
-    infos.reserve(pending.size());
-    ranges.reserve(pending.size());
-
-    for (Pending& p : pending) {
-        // The vector is final now, so the geometry pointer can be taken.
-        p.info.pGeometries = &p.geom;
-
-        VkAccelerationStructureCreateInfoKHR create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-        create_info.buffer = buffer->handle();
-        create_info.offset = p.as_offset;
-        create_info.size = p.sizes.accelerationStructureSize;
-        create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-        Blas& blas = out[p.entry];
-        vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &blas.handle),
-                 "Failed to create BLAS");
-
-        VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
-        addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-        addr_info.accelerationStructure = blas.handle;
-        blas.device_address = device_.get_accel_struct_device_address_fn()(vk_device_, &addr_info);
-        blas.buffer = buffer;
-        blas.first_index = entries[p.entry].first_index;
-        blas.vertex_offset = entries[p.entry].vertex_offset;
-
-        p.info.dstAccelerationStructure = blas.handle;
-        p.info.scratchData.deviceAddress = scratch_addr + p.scratch_offset;
-        infos.push_back(p.info);
-        ranges.push_back(&p.range);
-    }
-
-    // Build on GPU via one-shot command buffer
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vk_check(vkAllocateCommandBuffers(vk_device_, &alloc_info, &cmd),
-             "Failed to allocate BLAS build command buffer");
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin), "Failed to begin BLAS build");
-
-    device_.cmd_build_accel_structs_fn()(cmd, static_cast<uint32_t>(infos.size()),
-                                         infos.data(), ranges.data());
-
-    vk_check(vkEndCommandBuffer(cmd), "Failed to end BLAS build");
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE), "Failed to submit BLAS build");
-    vkQueueWaitIdle(queue_);
-    vkFreeCommandBuffers(vk_device_, command_pool_, 1, &cmd);
-
-    FJELL_GFX_DEBUG("BLAS batch built: {} structures, {}KB", pending.size(), as_total / 1024);
-    return out;
-}
-
 void AccelStructureManager::begin_frame(uint64_t frame_serial) {
     frame_serial_ = frame_serial;
 
     // A scene nothing has prepared for a few frames (a scene loaded over it,
-    // a preview closed) gives its structures back. The frames that may still
-    // trace them are what retire_scene waits for.
-    for (auto it = scenes_.begin(); it != scenes_.end();) {
-        if (it->second.prepared_serial + MAX_FRAMES_IN_FLIGHT + 1 < frame_serial_) {
-            retire_scene(std::move(it->second));
-            it = scenes_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void AccelStructureManager::retire_scene(SceneTlas scene) {
-    gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
-                              doomed = std::move(scene)]() mutable {
-        for (auto& frame : doomed.frames) {
-            if (frame.tlas_handle != VK_NULL_HANDLE && destroy_fn) {
-                destroy_fn(dev, frame.tlas_handle, nullptr);
-            }
-        }
-        if (doomed.particle_pool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(dev, doomed.particle_pool, nullptr);
-        }
+    // a preview closed) gives its structures back, once the frames that may
+    // still trace them are done.
+    std::erase_if(scenes_, [&](const auto& entry) {
+        return entry.second.prepared_serial + MAX_FRAMES_IN_FLIGHT + 1 < frame_serial_;
     });
 }
 
 void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const DrawCommand> surfaces,
                                           const PipelineCache* pipelines,
-                                          const ParticleSystem* particles, MegaBuffer& mega) {
+                                          const ParticleSystem* particles, MegaBuffer& mega,
+                                          uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("rt_prepare_scene");
     SceneTlas& st = scenes_[scene.id()];
     st.prepared_serial = frame_serial_;
     st.host_instances.clear();
     st.particle_emitters.clear();
+    st.instance_count = 0;
+
+    const auto list = [&st](RtInstance instance) {
+        if (placeable(instance.transform)) st.host_instances.push_back(instance);
+    };
 
     // One instance per submesh a surface draws, each over that submesh's own
     // BLAS, so a hit reports the triangle against the material and index
@@ -395,18 +212,18 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
         const bool two_sided = pipelines != nullptr
                             && pipelines->cull(dc.pipeline_id) != gpu::Cull::back;
         for (uint32_t i = 0; i < blases.size(); ++i) {
-            if (blases[i].handle == VK_NULL_HANDLE) continue;
+            if (!blases[i].structure) continue;
             if (!dc.model->entry_uses_slot(lods[0].first_mega_entry + i, dc.material_slot)) continue;
 
             RtInstance inst{};
             inst.transform = dc.push.model;
             inst.material_id = dc.push.material_id;
-            inst.blas_address = blases[i].device_address;
+            inst.blas = blases[i].structure;
             inst.first_index = blases[i].first_index;
             inst.vertex_offset = blases[i].vertex_offset;
             inst.mask = rt_instance_mask(dc.transparent);
             inst.two_sided = two_sided;
-            st.host_instances.push_back(inst);
+            list(inst);
         }
     }
 
@@ -419,17 +236,9 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
         terrain.upload_ray_mesh(mega);
         if (!terrain.ray_mesh_uploaded()) continue;
         // A sculpt moves the ground the rays trace against. The mesh keeps
-        // its place in the buffer — same grid, new heights — so the BLAS is
-        // still valid memory describing triangles that have moved, and has
-        // to be rebuilt over them.
+        // its place in the buffer — same grid, new heights — and its new
+        // vertices land before this frame's builds, as every upload does.
         const bool moved = terrain.refresh_ray_mesh(mega);
-        if (moved) {
-            // The new vertices are a batched copy that would not be
-            // submitted until the frame ends, while the build below submits
-            // and waits on its own queue — it would read the heights the
-            // sculpt replaced.
-            upload_.wait_all();
-        }
         ensure_blas_entry(&terrain, terrain.ray_mesh_entry(), mega, moved);
         const Blas* blas = find_blas(&terrain);
         if (blas == nullptr) continue;
@@ -447,17 +256,18 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
         // layer, which is the ground where nothing has been painted or
         // sloped into another.
         inst.material_id = terrain.layer_material_id(0);
-        inst.blas_address = blas->device_address;
+        inst.blas = blas->structure;
         inst.first_index = blas->first_index;
         inst.vertex_offset = blas->vertex_offset;
         inst.mask = RT_MASK_OPAQUE;
-        st.host_instances.push_back(inst);
+        list(inst);
     }
 
     // Mesh particles: their instances are written on the GPU from the
     // simulated particles, over one BLAS per mesh shape.
-    if (particles != nullptr) {
-        particle_ssbo_ = particles->particle_buffer_handle();
+    uint32_t particle_room = 0;
+    particle_state_ = particles != nullptr ? particles->particle_buffer() : gpu::Buffer{};
+    if (particle_state_.valid() && particle_pipeline_) {
         for (const auto& em : particles->emitters()) {
             if (!em.active || !em.is_mesh || em.scene_id != scene.id()) continue;
             const auto* shape_key = reinterpret_cast<const void*>(
@@ -471,466 +281,195 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
             info.max_particles = em.max_particles;
             info.material_id = em.mesh_material_id;
             info.avg_particle_size = 1.0F;
-            info.blas_address = blas->device_address;
+            info.blas_reference = device_.instance_reference(blas->structure);
             info.first_index = blas->first_index;
             info.vertex_offset = blas->vertex_offset;
             info.mask = rt_instance_mask(em.blend_mode != ParticleBlendMode::opaque);
             st.particle_emitters.push_back(info);
+            particle_room += em.max_particles;
         }
     }
+
+    const uint32_t count = static_cast<uint32_t>(st.host_instances.size()) + particle_room;
+    if (count == 0) return;
+    if (reserve(st.frames[frame_index], count)) st.instance_count = count;
+}
+
+bool AccelStructureManager::reserve(FrameTlas& frame, uint32_t count) {
+    if (frame.tlas && frame.capacity >= count) return true;
+    // Grown with room to spare, so a scene gaining a few instances a frame
+    // is not made anew each time. The old ones stay with the frames still
+    // tracing them.
+    const uint32_t capacity = std::max(count, frame.capacity + frame.capacity / 2);
+    auto tlas = device_.create(gpu::AccelerationStructureDesc{
+        .instances = capacity, .use = gpu::AccelerationUse::rebuilt, .name = "tlas"});
+    auto instances = device_.create(gpu::BufferDesc{
+        .size = uint64_t{capacity} * device_.instance_record_size(),
+        .use = gpu::BufferUse::acceleration_input | gpu::BufferUse::storage,
+        .memory = gpu::Memory::upload,
+        .name = "tlas instances",
+    });
+    auto rt_data = device_.create(gpu::BufferDesc{
+        .size = uint64_t{capacity} * sizeof(GpuRtInstance),
+        .use = gpu::BufferUse::storage,
+        .memory = gpu::Memory::upload,
+        .name = "rt instance data",
+    });
+    auto counter = device_.create(gpu::BufferDesc{
+        .size = sizeof(uint32_t), .use = gpu::BufferUse::storage, .name = "particle instance count"});
+    if (!tlas || !instances || !rt_data || !counter) {
+        FJELL_GFX_ERROR("Ray tracing has no TLAS for {} instances: {}", count,
+                        !tlas ? tlas.error()
+                              : !instances ? instances.error()
+                                           : !rt_data ? rt_data.error() : counter.error());
+        return false;
+    }
+    frame.tlas = std::move(*tlas);
+    frame.instances = std::move(*instances);
+    frame.rt_instance_data = std::move(*rt_data);
+    frame.particle_counter = std::move(*counter);
+    frame.capacity = capacity;
+    frame.reusable = false;
+    return true;
 }
 
 uint32_t AccelStructureManager::record_build(gpu::CommandList& commands, uint64_t scene_id,
                                              uint32_t frame_index) {
+    using gpu::Access;
+
+    // Every BLAS made since the last build, whichever scene lists it, so
+    // none waits on a scene's TLAS for its first build.
+    if (!pending_builds_.empty()) {
+        std::vector<gpu::AccelerationStructure> built;
+        built.reserve(pending_builds_.size());
+        for (const PendingBuild& pending : pending_builds_) {
+            commands.build(pending.blas, pending.triangles);
+            built.push_back(pending.blas);
+        }
+        pending_builds_.clear();
+        commands.barrier(built, Access::acceleration_build, Access::acceleration_build_input);
+    }
+
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end()) return 0;
     SceneTlas& st = it->second;
-    if (st.prepared_serial != frame_serial_) return 0;
+    if (st.prepared_serial != frame_serial_ || st.instance_count == 0) return 0;
     FrameTlas& frame = st.frames[frame_index];
     if (frame.current_serial == frame_serial_) return 0;
-    if (frame.reusable && frame.built_blas_generation == blas_generation_
-        && frame.built_from == st.host_instances && st.particle_emitters.empty()) {
+    if (frame.reusable && frame.built_from == st.host_instances && st.particle_emitters.empty()) {
         frame.current_serial = frame_serial_;
         return frame.instance_count;
     }
-    return build_tlas(gpu::vulkan::native_command_buffer(commands), st, frame);
+    return build_tlas(commands, st, frame);
 }
 
-VkAccelerationStructureKHR AccelStructureManager::tlas(uint64_t scene_id,
-                                                       uint32_t frame_index) const {
-    auto it = scenes_.find(scene_id);
-    if (it == scenes_.end()) return VK_NULL_HANDLE;
-    const FrameTlas& frame = it->second.frames[frame_index];
-    return frame.current_serial == frame_serial_ ? frame.tlas_handle : VK_NULL_HANDLE;
-}
-
-VkBuffer AccelStructureManager::instance_data_buffer(uint64_t scene_id,
-                                                     uint32_t frame_index) const {
-    auto it = scenes_.find(scene_id);
-    if (it == scenes_.end()) return VK_NULL_HANDLE;
-    const FrameTlas& frame = it->second.frames[frame_index];
-    if (frame.current_serial != frame_serial_ || !frame.rt_instance_data) return VK_NULL_HANDLE;
-    return frame.rt_instance_data->handle();
-}
-
-uint32_t AccelStructureManager::build_tlas(VkCommandBuffer cmd, SceneTlas& scene,
+uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas& scene,
                                            FrameTlas& frame) {
-    const std::vector<RtInstance>& host_instances = scene.host_instances;
-    const std::vector<ParticleEmitterInfo>& particle_emitters = scene.particle_emitters;
+    using gpu::Access;
+    const std::vector<RtInstance>& listed = scene.host_instances;
+    const auto scene_count = static_cast<uint32_t>(listed.size());
+    const uint32_t record_size = device_.instance_record_size();
 
-    // Build instance array + per-instance data for hit shader
-    std::vector<VkAccelerationStructureInstanceKHR> instances;
+    // The listed instances' records at the front, and beside each the data
+    // the hit code reads by the instance's index: the two must agree in
+    // count and order. Written by the CPU, seen by work submitted after.
+    std::vector<gpu::AccelerationInstance> records;
     std::vector<GpuRtInstance> rt_instances;
-    instances.reserve(host_instances.size());
-    rt_instances.reserve(host_instances.size());
-
-    for (const auto& src : host_instances) {
-        if (src.blas_address == 0) continue;
-
-        // Skip instances with a non-finite or degenerate transform. A just-
-        // spawned networked object can reach the render queue before its world
-        // matrix is computed (NaN/zero), and a broken instance transform makes
-        // the driver build a malformed TLAS that faults on traversal (the
-        // bisect-confirmed spawn-storm device loss — both RT pipelines fault
-        // identically inside AS traversal). Drop it this frame; it appears next.
-        const glm::mat4& m = src.transform;
-        bool finite = std::isfinite(m[0][0]) && std::isfinite(m[1][1]) && std::isfinite(m[2][2])
-                   && std::isfinite(m[3][0]) && std::isfinite(m[3][1]) && std::isfinite(m[3][2]);
-        // Degenerate (all-zero) upper-left 3x3 = zero scale → invalid AABB.
-        float scale_mag = std::abs(m[0][0]) + std::abs(m[1][1]) + std::abs(m[2][2])
-                        + std::abs(m[0][1]) + std::abs(m[0][2]) + std::abs(m[1][0])
-                        + std::abs(m[1][2]) + std::abs(m[2][0]) + std::abs(m[2][1]);
-        if (!finite || scale_mag < 1e-12F) continue;
-
-        VkAccelerationStructureInstanceKHR instance{};
-
-        // Convert glm::mat4 to VkTransformMatrixKHR (3x4 row-major)
-        instance.transform.matrix[0][0] = m[0][0]; instance.transform.matrix[0][1] = m[1][0]; instance.transform.matrix[0][2] = m[2][0]; instance.transform.matrix[0][3] = m[3][0];
-        instance.transform.matrix[1][0] = m[0][1]; instance.transform.matrix[1][1] = m[1][1]; instance.transform.matrix[1][2] = m[2][1]; instance.transform.matrix[1][3] = m[3][1];
-        instance.transform.matrix[2][0] = m[0][2]; instance.transform.matrix[2][1] = m[1][2]; instance.transform.matrix[2][2] = m[2][2]; instance.transform.matrix[2][3] = m[3][2];
-
-        instance.instanceCustomIndex = src.material_id;
-        instance.mask = src.mask;
-        instance.instanceShaderBindingTableRecordOffset = 0;
-        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        instance.accelerationStructureReference = src.blas_address;
-
-        instances.push_back(instance);
-
-        GpuRtInstance rt_inst{};
-        rt_inst.material_id = src.material_id;
-        rt_inst.first_index = src.first_index;
-        rt_inst.vertex_offset = src.vertex_offset;
-        rt_inst.flags = src.two_sided ? RT_INSTANCE_TWO_SIDED : 0U;
-        rt_instances.push_back(rt_inst);
+    records.reserve(listed.size());
+    rt_instances.reserve(listed.size());
+    for (const RtInstance& instance : listed) {
+        records.push_back(record_of(instance));
+        rt_instances.push_back({.material_id = instance.material_id,
+                                .first_index = instance.first_index,
+                                .vertex_offset = instance.vertex_offset,
+                                .flags = instance.two_sided ? RT_INSTANCE_TWO_SIDED : 0U});
+    }
+    device_.write_instances(device_.mapped(frame.instances), records);
+    if (!rt_instances.empty()) {
+        std::memcpy(device_.mapped(frame.rt_instance_data).data(), rt_instances.data(),
+                    rt_instances.size() * sizeof(GpuRtInstance));
     }
 
-    uint32_t scene_count = static_cast<uint32_t>(instances.size());
+    // Mesh particles, written by the GPU after the listed ones: their count
+    // is known only once it has culled the dead. The rest of their room is
+    // records naming nothing, which no ray hits, and zeroed hit data.
+    const uint32_t particle_room = scene.instance_count - scene_count;
+    if (particle_room > 0) {
+        const gpu::BufferRange particle_records(frame.instances, uint64_t{scene_count} * record_size,
+                                                uint64_t{particle_room} * record_size);
+        const gpu::BufferRange particle_data(frame.rt_instance_data, uint64_t{scene_count} * sizeof(GpuRtInstance),
+                                             uint64_t{particle_room} * sizeof(GpuRtInstance));
+        commands.fill(particle_records, 0);
+        commands.fill(particle_data, 0);
+        // They append after the listed instances.
+        commands.fill(frame.particle_counter, scene_count);
+        commands.barrier(particle_records, Access::clear, Access::storage_buffer_write_compute);
+        commands.barrier(particle_data, Access::clear, Access::storage_buffer_write_compute);
+        commands.barrier(frame.particle_counter, Access::clear, Access::storage_buffer_read_write_compute);
 
-    // Count max particle instances for combined buffer sizing
-    uint32_t max_particle_instances = 0;
-    for (const auto& pe : particle_emitters) {
-        max_particle_instances += pe.max_particles;
-    }
-
-    if (scene_count == 0 && max_particle_instances == 0) return 0;
-
-    uint32_t total_instance_count = scene_count + max_particle_instances;
-    VkDeviceSize total_instance_size = static_cast<VkDeviceSize>(total_instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
-
-    // Combined instance buffer: scene instances (host-written) + particle instances (GPU-written)
-    // Must be created before compute dispatch so the shader can write particle instances into it
-    if (!frame.instance_buffer || total_instance_size > frame.instance_buffer->size()) {
-        // Retire (don't inline-free): an RT pass recorded earlier in THIS frame
-        // already bound the old buffer; freeing now is a GPU use-after-free.
-        if (frame.instance_buffer) gpu::vulkan::retire(gpu_, std::move(frame.instance_buffer));
-        frame.instance_buffer = std::make_unique<Buffer>(
-            allocator_, total_instance_size,
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    }
-
-    // Write scene instances at the start (host memcpy to mapped memory)
-    if (!instances.empty()) {
-        frame.instance_buffer->write(instances.data(),
-                                     instances.size() * sizeof(VkAccelerationStructureInstanceKHR));
-    }
-
-    // Barrier: host write of scene instances → must be visible to BOTH the
-    // particle compute pass AND the TLAS build. Previously gated on
-    // (max_particle_instances > 0), so a scene-only frame built the TLAS over
-    // not-yet-visible host writes → malformed TLAS → GPU traversal fault. Run it
-    // unconditionally whenever scene instances were written, and cover the AS
-    // build as a destination stage.
-    if (!instances.empty()) {
-        VkMemoryBarrier2 host_bar{};
-        host_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        host_bar.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        host_bar.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
-        host_bar.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT
-                              | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-                              | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        host_bar.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT
-                               | VK_ACCESS_2_SHADER_READ_BIT
-                               | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-        VkDependencyInfo host_dep{};
-        host_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        host_dep.memoryBarrierCount = 1;
-        host_dep.pMemoryBarriers = &host_bar;
-        vkCmdPipelineBarrier2(cmd, &host_dep);
-    }
-
-    // Per-instance data (closest-hit reads rt_instances[gl_InstanceID]) must be
-    // 1:1 with the TLAS instance buffer in BOTH count and order. Scene entries
-    // [0..scene_count) were pushed in lockstep with the scene instances above.
-    // The particle region [scene_count..total) is written by the SAME compute
-    // pass that compacts particle TLAS instances (at the same compacted idx), so
-    // it must be sized for the full extent and bound to that pass. Sizing it to
-    // the host vector (scene-only here) + a static per-emitter pre-fill is what
-    // desynced gl_InstanceID from the geometry offsets (GPU READ_INVALID).
-    VkDeviceSize rt_inst_size =
-        static_cast<VkDeviceSize>(total_instance_count) * sizeof(GpuRtInstance);
-    if (!frame.rt_instance_data || rt_inst_size > frame.rt_instance_data->size()) {
-        if (frame.rt_instance_data) gpu::vulkan::retire(gpu_, std::move(frame.rt_instance_data));
-        frame.rt_instance_data = std::make_unique<Buffer>(
-            allocator_, rt_inst_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    }
-    // Host-write the scene entries; the particle region is GPU-written below.
-    if (scene_count > 0) {
-        frame.rt_instance_data->write(rt_instances.data(),
-                                      static_cast<VkDeviceSize>(scene_count) * sizeof(GpuRtInstance));
-    }
-
-    // ── Dispatch compute shader for per-particle TLAS instances ──
-    if (max_particle_instances > 0 && particle_tlas_pipeline_ != VK_NULL_HANDLE && particle_ssbo_ != VK_NULL_HANDLE) {
-        if (scene.particle_pool == VK_NULL_HANDLE) {
-            // The scene's own sets, one per frame slot: two scenes built in
-            // one frame each bind their own buffers, and rewriting a set a
-            // recorded dispatch still uses would invalidate it.
-            VkDescriptorPoolSize pool_size{};
-            pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            pool_size.descriptorCount = 4 * MAX_FRAMES_IN_FLIGHT;
-            VkDescriptorPoolCreateInfo pool_ci{};
-            pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-            pool_ci.poolSizeCount = 1;
-            pool_ci.pPoolSizes = &pool_size;
-            vk_check(vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &scene.particle_pool),
-                     "Failed to create particle TLAS descriptor pool");
-
-            std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-            layouts.fill(particle_tlas_set_layout_);
-            std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sets{};
-            VkDescriptorSetAllocateInfo alloc_info{};
-            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            alloc_info.descriptorPool = scene.particle_pool;
-            alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-            alloc_info.pSetLayouts = layouts.data();
-            vk_check(vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data()),
-                     "Failed to allocate particle TLAS descriptor sets");
-            for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) scene.frames[i].particle_set = sets[i];
+        commands.set_pipeline(particle_pipeline_);
+        commands.bind({{"ParticleBuffer", gpu::storage(particle_state_)},
+                       {"InstanceBuffer", gpu::storage(frame.instances)},
+                       {"CounterBuffer", gpu::storage(frame.particle_counter)},
+                       {"RtInstanceBuffer", gpu::storage(frame.rt_instance_data)}});
+        for (const ParticleEmitterInfo& pe : scene.particle_emitters) {
+            commands.push(ParticleTlasPush{
+                .particle_offset = pe.base_offset,
+                .particle_count = pe.max_particles,
+                .material_id = pe.material_id,
+                .particle_size = pe.avg_particle_size,
+                .blas_reference_lo = static_cast<uint32_t>(pe.blas_reference & 0xFFFFFFFFU),
+                .blas_reference_hi = static_cast<uint32_t>(pe.blas_reference >> 32),
+                .first_index = pe.first_index,
+                .vertex_offset = pe.vertex_offset,
+                .mask = pe.mask,
+            });
+            commands.dispatch((pe.max_particles + 63) / 64, 1, 1);
         }
-        if (!frame.particle_counter) {
-            frame.particle_counter = std::make_unique<Buffer>(
-                allocator_, sizeof(uint32_t),
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
-        }
-
-        // Zero-fill the particle portion of the instance buffer so unused slots have
-        // accelerationStructureReference=0 (TLAS build skips instances with null AS ref).
-        VkDeviceSize particle_offset_bytes = static_cast<VkDeviceSize>(scene_count) * sizeof(VkAccelerationStructureInstanceKHR);
-        VkDeviceSize particle_size_bytes = static_cast<VkDeviceSize>(max_particle_instances) * sizeof(VkAccelerationStructureInstanceKHR);
-        vkCmdFillBuffer(cmd, frame.instance_buffer->handle(), particle_offset_bytes, particle_size_bytes, 0);
-
-        // Zero the particle region of rt_instance_data too — the compute pass
-        // fills only live-particle slots; unused slots must read as zero (a
-        // null hit never reaches them, but keeps the buffer well-defined).
-        VkDeviceSize rt_particle_off = static_cast<VkDeviceSize>(scene_count) * sizeof(GpuRtInstance);
-        VkDeviceSize rt_particle_size = static_cast<VkDeviceSize>(max_particle_instances) * sizeof(GpuRtInstance);
-        vkCmdFillBuffer(cmd, frame.rt_instance_data->handle(), rt_particle_off, rt_particle_size, 0);
-
-        // Initialize counter to scene_count so particles write after scene instances
-        vkCmdFillBuffer(cmd, frame.particle_counter->handle(), 0, sizeof(uint32_t), scene_count);
-
-        // Barrier: transfer fills → compute read/write
-        VkMemoryBarrier2 fill_bar{};
-        fill_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        fill_bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        fill_bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        fill_bar.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        fill_bar.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        VkDependencyInfo fill_dep{};
-        fill_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        fill_dep.memoryBarrierCount = 1;
-        fill_dep.pMemoryBarriers = &fill_bar;
-        vkCmdPipelineBarrier2(cmd, &fill_dep);
-
-        // Update descriptors for this frame
-        VkDescriptorBufferInfo particle_buf_info{};
-        particle_buf_info.buffer = particle_ssbo_;
-        particle_buf_info.range = VK_WHOLE_SIZE;
-
-        VkDescriptorBufferInfo inst_buf_info{};
-        inst_buf_info.buffer = frame.instance_buffer->handle();
-        inst_buf_info.range = VK_WHOLE_SIZE;
-
-        VkDescriptorBufferInfo counter_buf_info{};
-        counter_buf_info.buffer = frame.particle_counter->handle();
-        counter_buf_info.range = VK_WHOLE_SIZE;
-
-        VkDescriptorBufferInfo rt_buf_info{};
-        rt_buf_info.buffer = frame.rt_instance_data->handle();
-        rt_buf_info.range = VK_WHOLE_SIZE;
-
-        std::array<VkWriteDescriptorSet, 4> writes{};
-        for (auto& w : writes) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = frame.particle_set; w.descriptorCount = 1; }
-        writes[0].dstBinding = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[0].pBufferInfo = &particle_buf_info;
-        writes[1].dstBinding = 1; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[1].pBufferInfo = &inst_buf_info;
-        writes[2].dstBinding = 2; writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[2].pBufferInfo = &counter_buf_info;
-        writes[3].dstBinding = 3; writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[3].pBufferInfo = &rt_buf_info;
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, particle_tlas_pipeline_);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, particle_tlas_pipe_layout_,
-                                0, 1, &frame.particle_set, 0, nullptr);
-
-        for (const auto& pe : particle_emitters) {
-            if (pe.blas_address == 0) continue;
-
-            ParticleTlasPush push{};
-            push.particle_offset = pe.base_offset;
-            push.particle_count = pe.max_particles;
-            push.material_id = pe.material_id;
-            push.particle_size = pe.avg_particle_size;
-            push.blas_addr_lo = static_cast<uint32_t>(pe.blas_address & 0xFFFFFFFF);
-            push.blas_addr_hi = static_cast<uint32_t>(pe.blas_address >> 32);
-            push.first_index = pe.first_index;
-            push.vertex_offset = pe.vertex_offset;
-            push.mask = pe.mask;
-
-            vkCmdPushConstants(cmd, particle_tlas_pipe_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(push), &push);
-            vkCmdDispatch(cmd, (pe.max_particles + 63) / 64, 1, 1);
-        }
-
-        // Barrier: compute write → AS build read (instances) AND the tracers'
-        // compute read of rt_instance_data at a hit, by instance index.
-        VkMemoryBarrier2 comp_bar{};
-        comp_bar.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        comp_bar.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        comp_bar.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        comp_bar.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
-                              | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        comp_bar.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR
-                               | VK_ACCESS_2_SHADER_READ_BIT;
-        VkDependencyInfo comp_dep{};
-        comp_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        comp_dep.memoryBarrierCount = 1;
-        comp_dep.pMemoryBarriers = &comp_bar;
-        vkCmdPipelineBarrier2(cmd, &comp_dep);
+        // The build reads the records the particles wrote; the hit data
+        // is ordered for the tracers by the graph.
+        commands.barrier(particle_records, Access::storage_buffer_write_compute,
+                         Access::acceleration_build_input);
     }
 
-    // rt_instance_data was allocated + scene-written above; particle entries are
-    // GPU-written by the compute pass. (Old code re-wrote it from the host
-    // vector here, which only held scene + a static particle pre-fill — the
-    // source of the gl_InstanceID/geometry desync. Removed.)
+    commands.build(frame.tlas, gpu::BufferRange(frame.instances, 0, uint64_t{scene.instance_count} * record_size),
+                   scene.instance_count);
 
-    // TLAS geometry
-    VkAccelerationStructureGeometryInstancesDataKHR instances_data{};
-    instances_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-    instances_data.data.deviceAddress = buffer_address(frame.instance_buffer->handle());
-
-    VkAccelerationStructureGeometryKHR tlas_geom{};
-    tlas_geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-    tlas_geom.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-    tlas_geom.geometry.instances = instances_data;
-
-    VkAccelerationStructureBuildGeometryInfoKHR build_info{};
-    build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-    build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-    build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-    build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-    build_info.geometryCount = 1;
-    build_info.pGeometries = &tlas_geom;
-
-    uint32_t instance_count = total_instance_count;
-
-    VkAccelerationStructureBuildSizesInfoKHR sizes{};
-    sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-    device_.get_accel_struct_build_sizes_fn()(
-        vk_device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-        &build_info, &instance_count, &sizes);
-
-    // Recreate TLAS buffer if needed
-    if (!frame.tlas_buffer || sizes.accelerationStructureSize > frame.tlas_buffer->size()) {
-        // Retire the old TLAS handle + backing buffer instead of destroying
-        // inline — an RT pass earlier in this frame bound this slot's TLAS.
-        gpu::vulkan::defer(gpu_, [dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
-                                  handle = frame.tlas_handle,
-                                  buffer = std::move(frame.tlas_buffer)]() mutable {
-            if (handle != VK_NULL_HANDLE && destroy_fn) destroy_fn(dev, handle, nullptr);
-            buffer.reset();
-        });
-        frame.tlas_handle = VK_NULL_HANDLE;
-
-        frame.tlas_buffer = std::make_unique<Buffer>(
-            allocator_, sizes.accelerationStructureSize,
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_AUTO, as_dedicated_flag());
-
-        VkAccelerationStructureCreateInfoKHR create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-        create_info.buffer = frame.tlas_buffer->handle();
-        create_info.size = sizes.accelerationStructureSize;
-        create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-
-        vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &frame.tlas_handle),
-                 "Failed to create TLAS");
-    }
-
-    // Scratch buffer (must meet minAccelerationStructureScratchOffsetAlignment)
-    if (!frame.tlas_scratch || sizes.buildScratchSize > frame.tlas_scratch->size()) {
-        frame.tlas_scratch = std::make_unique<Buffer>(
-            allocator_, sizes.buildScratchSize,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_);
-    }
-
-    build_info.dstAccelerationStructure = frame.tlas_handle;
-    build_info.scratchData.deviceAddress = buffer_address(frame.tlas_scratch->handle());
-
-    VkAccelerationStructureBuildRangeInfoKHR range{};
-    range.primitiveCount = instance_count;
-    const VkAccelerationStructureBuildRangeInfoKHR* range_ptr = &range;
-
-    device_.cmd_build_accel_structs_fn()(cmd, 1, &build_info, &range_ptr);
-
-    // Barrier: TLAS build → traversal by ray queries from compute
-    VkMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
-
-    frame.built_from = host_instances;
-    frame.built_blas_generation = blas_generation_;
-    frame.reusable = particle_emitters.empty();
-    frame.instance_count = total_instance_count;
+    frame.built_from = listed;
+    frame.reusable = scene.particle_emitters.empty();
+    frame.instance_count = scene.instance_count;
     frame.current_serial = frame_serial_;
-    return total_instance_count;
+    return scene.instance_count;
 }
 
-void AccelStructureManager::create_particle_tlas_pipeline(VkPipelineCache pipeline_cache) {
-    // Descriptor set layout: 4 storage buffers
-    // binding 0: ParticleBuffer  (read-only)
-    // binding 1: InstanceBuffer  (write-only, combined TLAS instances)
-    // binding 2: CounterBuffer   (read-write, atomic counter)
-    // binding 3: RtInstanceBuffer(write-only, per-instance geometry for hit shader)
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
-    for (uint32_t i = 0; i < bindings.size(); ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+gpu::AccelerationStructure AccelStructureManager::prepared_tlas(uint64_t scene_id,
+                                                                uint32_t frame_index) const {
+    auto it = scenes_.find(scene_id);
+    if (it == scenes_.end() || it->second.prepared_serial != frame_serial_ ||
+        it->second.instance_count == 0) {
+        return {};
     }
+    return it->second.frames[frame_index].tlas;
+}
 
-    VkDescriptorSetLayoutCreateInfo set_ci{};
-    set_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    set_ci.bindingCount = static_cast<uint32_t>(bindings.size());
-    set_ci.pBindings = bindings.data();
-    vk_check(vkCreateDescriptorSetLayout(vk_device_, &set_ci, nullptr, &particle_tlas_set_layout_),
-             "Failed to create particle TLAS descriptor set layout");
+gpu::Buffer AccelStructureManager::prepared_instances(uint64_t scene_id, uint32_t frame_index) const {
+    if (!prepared_tlas(scene_id, frame_index).valid()) return {};
+    return scenes_.at(scene_id).frames[frame_index].rt_instance_data;
+}
 
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(ParticleTlasPush);
+gpu::AccelerationStructure AccelStructureManager::tlas(uint64_t scene_id, uint32_t frame_index) const {
+    auto it = scenes_.find(scene_id);
+    if (it == scenes_.end()) return {};
+    const FrameTlas& frame = it->second.frames[frame_index];
+    return frame.current_serial == frame_serial_ ? gpu::AccelerationStructure(frame.tlas)
+                                                 : gpu::AccelerationStructure{};
+}
 
-    VkPipelineLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_ci.setLayoutCount = 1;
-    layout_ci.pSetLayouts = &particle_tlas_set_layout_;
-    layout_ci.pushConstantRangeCount = 1;
-    layout_ci.pPushConstantRanges = &push_range;
-    vk_check(vkCreatePipelineLayout(vk_device_, &layout_ci, nullptr, &particle_tlas_pipe_layout_),
-             "Failed to create particle TLAS pipeline layout");
-
-    // Load shader and create compute pipeline
-    auto spirv = read_spirv(base_path::resolve("shaders/particle_tlas_build.comp.spv"));
-    VkShaderModule module = create_shader_module(vk_device_, spirv);
-
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = module;
-    stage.pName = "main";
-
-    VkComputePipelineCreateInfo pipe_ci{};
-    pipe_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipe_ci.stage = stage;
-    pipe_ci.layout = particle_tlas_pipe_layout_;
-    vk_check(vkCreateComputePipelines(vk_device_, pipeline_cache, 1, &pipe_ci, nullptr, &particle_tlas_pipeline_),
-             "Failed to create particle TLAS compute pipeline");
-    vkDestroyShaderModule(vk_device_, module, nullptr);
-
-    FJELL_GFX_DEBUG("Particle TLAS compute pipeline created");
+gpu::Buffer AccelStructureManager::instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const {
+    auto it = scenes_.find(scene_id);
+    if (it == scenes_.end()) return {};
+    const FrameTlas& frame = it->second.frames[frame_index];
+    return frame.current_serial == frame_serial_ ? gpu::Buffer(frame.rt_instance_data) : gpu::Buffer{};
 }
 
 } // namespace fjell

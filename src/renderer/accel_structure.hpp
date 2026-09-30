@@ -1,19 +1,16 @@
 #pragma once
 
-#include "renderer/frustum.hpp"
-#include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/device.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/rt_instance.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-
-#include "renderer/renderer_constants.hpp"
+#include <gpu/acceleration.hpp>
+#include <gpu/buffer.hpp>
+#include <gpu/owned.hpp>
+#include <gpu/pipeline.hpp>
 
 #include <array>
 #include <cstdint>
-#include <memory>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -22,50 +19,51 @@ namespace fjell {
 
 class Model;
 class ParticleSystem;
+class PassBuilder;
 class PipelineCache;
 class Scene;
+struct DeclareContext;
 struct DrawCommand;
-struct GpuDrawData;
 
-/// One bottom-level acceleration structure (BLAS) over one mesh entry, so
-/// gl_PrimitiveID in a hit shader indexes that entry's triangles from
-/// first_index and a TLAS instance carries exactly one material.
-struct Blas {
-    VkAccelerationStructureKHR handle{VK_NULL_HANDLE};
-    // Shared by every BLAS built in the same batch: a model's submeshes live
-    // in one buffer at 256-byte offsets rather than one allocation each.
-    std::shared_ptr<Buffer> buffer;
-    VkDeviceAddress device_address{0};
-    uint32_t first_index{0};    // the entry's first_index in MegaBuffer
-    uint32_t vertex_offset{0};  // the entry's vertex_offset in MegaBuffer
-    // MegaBuffer::generation() when this BLAS baked its absolute vertex/index
-    // device addresses. If the mega-buffer later grows (new device address),
-    // this goes stale and the BLAS must be rebuilt before the TLAS references
-    // it — otherwise traceRay dereferences freed memory (GPU READ_INVALID).
-    uint32_t mega_generation{0};
-};
-
-class UploadContext;
 namespace gpu {
 class CommandList;
 class Device;
 }
+
+/// One bottom-level acceleration structure (BLAS) over one mesh entry, so a
+/// hit's primitive index counts that entry's triangles from first_index and
+/// a TLAS instance carries exactly one material.
+struct Blas {
+    gpu::Owned<gpu::AccelerationStructure> structure;
+    uint32_t first_index{0};    // the entry's first_index in MegaBuffer
+    uint32_t vertex_offset{0};  // the entry's vertex_offset in MegaBuffer
+};
 
 /// The ray tracing acceleration structures every tracer shares: a BLAS per
 /// mesh, and each frame one TLAS per scene over what that scene's rays can
 /// reach.
 ///
 /// A frame goes: begin_frame(), then prepare_scene() for the scene the frame
-/// renders (on the CPU, before anything is recorded), then record_build()
-/// from the graph, once per scene however many viewports render it, before
-/// any pass traces. Tracers then ask for the scene's TLAS, which exists only
-/// if it was built this frame.
+/// renders (on the CPU, before anything is declared or recorded), which
+/// makes the structures the frame needs; then record_build() from the
+/// `rt_scene` pass, once per scene however many viewports render it, which
+/// builds the BLASes made since and the scene's TLAS. The pass declares the
+/// TLAS and the instance table as its writes (`TLAS_NAME`, `INSTANCES_NAME`)
+/// and the tracers as their reads, so the graph orders every trace after the
+/// build.
 class AccelStructureManager {
 public:
-    AccelStructureManager(Device& device, VmaAllocator allocator,
-                          VkCommandPool command_pool, VkQueue queue,
-                          UploadContext& upload, gpu::Device& gpu);
-    ~AccelStructureManager();
+    /// What `rt_scene` exports the scene's TLAS and its instance table
+    /// under, for the tracers to declare their reads by.
+    static constexpr const char* TLAS_NAME = "rt_scene_tlas";
+    static constexpr const char* INSTANCES_NAME = "rt_scene_instances";
+
+    explicit AccelStructureManager(gpu::Device& device);
+
+    /// Declares a tracer's reads of the scene's TLAS and the hit data beside
+    /// it, which order its traces after `rt_scene`'s build: what every pass
+    /// that traces declares.
+    static void declare_trace(PassBuilder& builder, const DeclareContext& ctx);
 
     AccelStructureManager(const AccelStructureManager&) = delete;
     AccelStructureManager& operator=(const AccelStructureManager&) = delete;
@@ -78,10 +76,8 @@ public:
         uint32_t max_particles;
         uint32_t material_id;
         float avg_particle_size;
-        // The particle mesh's BLAS, by value: a BLAS the mega-buffer's
-        // growth forces a rebuild of is retired, not freed, so its address
-        // stays good for the frame that was prepared against it.
-        VkDeviceAddress blas_address;
+        // What instance records name the particle mesh's BLAS by.
+        uint64_t blas_reference;
         uint32_t first_index;
         uint32_t vertex_offset;
         /// RT_MASK_* of the emitter's particles, by how they are drawn.
@@ -93,110 +89,103 @@ public:
     /// back.
     void begin_frame(uint64_t frame_serial);
 
-    /// Makes ready, on the CPU, everything `scene`'s rays can hit this frame:
-    /// the BLAS of each surface in `surfaces` (its surfaces within every
-    /// tracer's reach, from SceneGatherer::gather_rt()), its terrain's ray
-    /// mesh, its mesh particles, and the TLAS instances over them. Blocks on
-    /// BLAS builds, so it runs before the frame is recorded.
+    /// Makes ready, on the CPU, everything `scene`'s rays can hit this frame
+    /// in frame slot `frame_index`: a BLAS for each surface in `surfaces`
+    /// (its surfaces within every tracer's reach, from
+    /// SceneGatherer::gather_rt()), its terrain's ray mesh and its mesh
+    /// particles, and a TLAS large enough for the instances over them. New
+    /// BLASes wait for record_build(); nothing here waits for the GPU.
     void prepare_scene(const Scene& scene, std::span<const DrawCommand> surfaces,
                        const PipelineCache* pipelines, const ParticleSystem* particles,
-                       MegaBuffer& mega);
+                       MegaBuffer& mega, uint32_t frame_index);
 
-    /// Records the build of what prepare_scene() made ready for `scene_id`,
-    /// once per frame: the first viewport to get here builds it and the rest
-    /// trace what it built. A frame slot whose TLAS was built from exactly
-    /// this is not built again. Returns how many instances the TLAS holds,
-    /// 0 when there is none or this frame's was already recorded.
+    /// Records the builds of the BLASes made since the last, then of what
+    /// prepare_scene() made ready for `scene_id`, once per frame: the first
+    /// viewport to get here builds it and the rest trace what it built. A
+    /// frame slot whose TLAS was built from exactly this is not built again.
+    /// Returns how many instances the TLAS holds, 0 when there is none or
+    /// this frame's was already recorded.
     uint32_t record_build(gpu::CommandList& commands, uint64_t scene_id, uint32_t frame_index);
 
-    /// This frame's TLAS for `scene_id`, or VK_NULL_HANDLE when there is none:
-    /// no tracer asked, nothing was in reach, or it is not built yet.
-    [[nodiscard]] VkAccelerationStructureKHR tlas(uint64_t scene_id, uint32_t frame_index) const;
+    /// The TLAS prepare_scene() made ready this frame for `scene_id`, and
+    /// the instance table beside it: what `rt_scene` declares it writes.
+    /// Invalid when the scene was not prepared this frame or nothing is in
+    /// reach.
+    [[nodiscard]] gpu::AccelerationStructure prepared_tlas(uint64_t scene_id, uint32_t frame_index) const;
+    [[nodiscard]] gpu::Buffer prepared_instances(uint64_t scene_id, uint32_t frame_index) const;
+
+    /// This frame's TLAS for `scene_id`, invalid when there is none: no
+    /// tracer asked, nothing was in reach, or it is not built yet.
+    [[nodiscard]] gpu::AccelerationStructure tlas(uint64_t scene_id, uint32_t frame_index) const;
     /// The GpuRtInstance records the hit code reads beside that TLAS, one per
     /// instance in instance order.
-    [[nodiscard]] VkBuffer instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const;
-
-    /// Create compute pipeline for particle → TLAS extraction (call once).
-    void create_particle_tlas_pipeline(VkPipelineCache pipeline_cache);
+    [[nodiscard]] gpu::Buffer instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const;
 
 private:
-    /// Build or retrieve the BLASes for a Model: one per LOD 0 mesh entry.
+    /// Makes the BLASes for a Model, one per LOD 0 mesh entry, to be built
+    /// by the next record_build().
     void ensure_blas(const Model* model, const MegaBuffer& mega);
 
-    /// Build or retrieve BLAS from a raw MegaMeshEntry (terrain, particle
-    /// mesh primitives). Uses the entry pointer as the map key.
+    /// Makes a BLAS for a raw MegaMeshEntry (terrain, particle mesh
+    /// primitives), keyed by `key`.
     ///
-    /// `geometry_changed` forces a rebuild for geometry whose vertices were
-    /// overwritten in place — sculpted terrain. Nothing has moved, so the
-    /// structure still points at valid memory and the mega-buffer generation
-    /// has not changed, but it describes triangles that are no longer where
-    /// they were.
+    /// `geometry_changed` makes it anew for geometry whose vertices were
+    /// overwritten in place — sculpted terrain: the structure describes
+    /// triangles that are no longer where they were, and a frame still
+    /// tracing it must keep the old one.
     void ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega,
                            bool geometry_changed = false);
 
-    /// Get BLAS for a raw entry key (nullptr if not built).
+    /// Get BLAS for a raw entry key (nullptr if not made).
     [[nodiscard]] const Blas* find_blas(const void* key) const;
 
     /// A model's BLASes, parallel to its LOD 0 mega entries: element i covers
     /// entry lod_levels()[0].first_mega_entry + i, and an entry without
-    /// triangles holds a null handle. Empty until ensure_blas has run. Models
-    /// keep their own map, keyed by Model* and rebuilt when the mega-buffer
-    /// moves, separate from find_blas's mesh-entry map.
+    /// triangles holds an empty one. Empty until ensure_blas has run.
     [[nodiscard]] std::span<const Blas> model_blases(const Model* model) const;
 
-    VkDeviceAddress buffer_address(VkBuffer buffer) const;
+    /// Makes one BLAS per entry, sharing one allocation, each waiting for
+    /// the next record_build(). The result is parallel to `entries`; an entry
+    /// without triangles yields an empty one.
+    [[nodiscard]] std::vector<Blas> make_blases(std::span<const MegaMeshEntry> entries,
+                                                const MegaBuffer& mega);
 
-    // Build one BLAS per entry in a single buffer with a single submit. The
-    // result is parallel to `entries`; an entry without triangles yields a
-    // Blas with a null handle. Blocks until the GPU has finished building.
-    [[nodiscard]] std::vector<Blas> build_blases(std::span<const MegaMeshEntry> entries,
-                                                 const MegaBuffer& mega);
-
-    // Destroys a stale BLAS once the frames that may trace it are done.
-    void retire_blas(Blas blas);
-
-    // Bumped whenever a BLAS is retired. Once freed, its address may be
-    // handed to another BLAS, so no TLAS built before may be reused.
-    uint64_t blas_generation_{0};
-
-    Device& device_;
-    VkDevice vk_device_;
-    VmaAllocator allocator_;
-    VkCommandPool command_pool_;
-    VkQueue queue_;
-    UploadContext& upload_;
-    /// Keeps what a rebuild replaces alive until the frames using it are
-    /// done: an RT pass recorded earlier in the same frame may already have
-    /// bound it, so freeing it inline is a dangling read (DEVICE_LOST).
-    gpu::Device& gpu_;
-    VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
+    gpu::Device& device_;
 
     std::unordered_map<const Model*, std::vector<Blas>> blas_map_;
     std::unordered_map<const void*, Blas> entry_blas_map_;
 
-    // Particle → TLAS compute pipeline, shared by every scene
-    VkDescriptorSetLayout particle_tlas_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout particle_tlas_pipe_layout_{VK_NULL_HANDLE};
-    VkPipeline particle_tlas_pipeline_{VK_NULL_HANDLE};
-    VkBuffer particle_ssbo_{VK_NULL_HANDLE};  // the particle system's state
+    /// BLASes made and not yet built, with the triangles each is built
+    /// from.
+    struct PendingBuild {
+        gpu::AccelerationStructure blas;
+        gpu::Triangles triangles;
+    };
+    std::vector<PendingBuild> pending_builds_;
+
+    /// Writes the mesh particles' instances, shared by every scene; invalid
+    /// when it could not be made, and particles are left out.
+    gpu::Owned<gpu::ComputePipeline> particle_pipeline_;
+    gpu::Buffer particle_state_{};  // the particle system's state
 
     // One frame slot's TLAS for one scene. Each slot has its own, so a frame
     // still tracing never sees the next frame's build.
     struct FrameTlas {
-        VkAccelerationStructureKHR tlas_handle{VK_NULL_HANDLE};
-        std::unique_ptr<Buffer> tlas_buffer;
-        std::unique_ptr<Buffer> tlas_scratch;
-        std::unique_ptr<Buffer> instance_buffer;
-        std::unique_ptr<Buffer> rt_instance_data;
-        // Where the particle compute appends its instances, and the set that
-        // binds this slot's buffers to it.
-        std::unique_ptr<Buffer> particle_counter;
-        VkDescriptorSet particle_set{VK_NULL_HANDLE};
+        gpu::Owned<gpu::AccelerationStructure> tlas;
+        /// The instances `tlas` was made for, and what the buffers hold
+        /// room for.
+        uint32_t capacity{0};
+        /// The instance records the TLAS is built from, written by the CPU
+        /// and, for particles, by the GPU.
+        gpu::Owned<gpu::Buffer> instances;
+        /// The GpuRtInstance records the hit code reads, in instance order.
+        gpu::Owned<gpu::Buffer> rt_instance_data;
+        /// Where the particle compute appends its instances.
+        gpu::Owned<gpu::Buffer> particle_counter;
         // What the TLAS was built from. It still holds while the scene lists
-        // the same instances over the same BLASes; never after a build with
-        // particles, whose instances the GPU writes anew each frame.
+        // the same instances; never after a build with particles, whose
+        // instances the GPU writes anew each frame.
         std::vector<RtInstance> built_from;
-        uint64_t built_blas_generation{0};
         bool reusable{false};
         uint32_t instance_count{0};
         // The last frame this slot's TLAS was built for or found to hold
@@ -207,21 +196,24 @@ private:
     // What one scene's rays can hit, as prepare_scene() left it for the
     // build.
     struct SceneTlas {
+        /// The instances listed on the CPU, their transforms checked.
         std::vector<RtInstance> host_instances;
         std::vector<ParticleEmitterInfo> particle_emitters;
+        /// Instances the TLAS holds this frame at most: the listed ones and
+        /// room for every particle.
+        uint32_t instance_count{0};
         uint64_t prepared_serial{0};
-        // The scene's own sets for the particle compute, made the first
-        // time it has mesh particles.
-        VkDescriptorPool particle_pool{VK_NULL_HANDLE};
         std::array<FrameTlas, MAX_FRAMES_IN_FLIGHT> frames{};
     };
 
-    // Builds `scene`'s TLAS into `frame` from its prepared instances.
-    // Returns the instances built, 0 when there was nothing to build.
-    uint32_t build_tlas(VkCommandBuffer cmd, SceneTlas& scene, FrameTlas& frame);
-    // Gives a scene's structures back once the frames that may trace them
-    // are done.
-    void retire_scene(SceneTlas scene);
+    /// Makes `frame`'s TLAS and buffers large enough for `count` instances,
+    /// keeping them when they already are. False when they could not be
+    /// made, which is reported.
+    [[nodiscard]] bool reserve(FrameTlas& frame, uint32_t count);
+
+    // Records the build of `scene`'s TLAS into `frame` from its prepared
+    // instances. Returns the instances built.
+    uint32_t build_tlas(gpu::CommandList& commands, SceneTlas& scene, FrameTlas& frame);
 
     std::unordered_map<uint64_t, SceneTlas> scenes_;
     uint64_t frame_serial_{0};

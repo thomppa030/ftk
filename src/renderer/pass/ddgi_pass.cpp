@@ -1404,7 +1404,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // pass, before any tracer.
     const VkAccelerationStructureKHR tlas =
         accel_manager_ != nullptr && ctx.scene != nullptr
-            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            ? gpu::vulkan::native_acceleration(*ctx.device, accel_manager_->tlas(ctx.scene->id(), ctx.frame_index))
             : VK_NULL_HANDLE;
 
     // Keep vertex/index buffer descriptors current (MegaBuffer may
@@ -1483,7 +1483,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         // Per-instance data (material + geometry offsets)
         VkDescriptorBufferInfo inst_data_info{};
-        inst_data_info.buffer = accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index);
+        inst_data_info.buffer = gpu::vulkan::native_buffer(*ctx.device, accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index));
         inst_data_info.range = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet inst_write{};
@@ -1654,6 +1654,10 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, gpu::Access::sampled_compute);
     builder.read(normal, gpu::Access::sampled_compute);
+    // The ray-traced tracer traces the scene the rt_scene pass built.
+    if (config_.enabled && backend_ == DdgiBackend::ray_traced) {
+        AccelStructureManager::declare_trace(builder, ctx);
+    }
     // Probe rays that miss read the sky, in either tracer's compute shader.
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
         builder.read(sky, gpu::Access::sampled_compute);

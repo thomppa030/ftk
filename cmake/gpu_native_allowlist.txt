@@ -14,8 +14,6 @@ src/core/engine.cpp
 src/core/play_controller.cpp
 src/core/play_controller.hpp
 src/core/profiler.hpp
-src/renderer/accel_structure.cpp
-src/renderer/accel_structure.hpp
 src/renderer/bindless.cpp
 src/renderer/bindless.hpp
 src/renderer/debug_draw.cpp

@@ -1,36 +1,25 @@
 #version 460
 
 #include "include/particle_common.glsl"
+// The instance records' layout is the GPU backend's.
+#include "fjell_instance_record.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-
-// VkAccelerationStructureInstanceKHR layout (64 bytes)
-// transform: 3x4 float matrix (48 bytes)
-// instanceCustomIndex_mask: uint (24 + 8 bits)
-// instanceShaderBindingTableRecordOffset_flags: uint (24 + 8 bits)
-// accelerationStructureReference: uint64 (8 bytes)
-
-struct TlasInstance {
-    float transform[12]; // 3x4 row-major
-    uint custom_index_and_mask;
-    uint sbt_offset_and_flags;
-    uvec2 accel_struct_ref; // uint64 as two uint32s
-};
 
 layout(std430, set = 0, binding = 0) readonly buffer ParticleBuffer {
     Particle particles[];
 };
 
 layout(std430, set = 0, binding = 1) writeonly buffer InstanceBuffer {
-    TlasInstance instances[];
+    InstanceRecord instances[];
 };
 
 layout(std430, set = 0, binding = 2) buffer CounterBuffer {
     uint instance_count;
 };
 
-// Per-instance data the closest-hit shaders read by gl_InstanceID. MUST be
-// written at the SAME compacted idx as instances[idx] so TLAS slot and
+// Per-instance data the tracers read at a hit, by the instance's index. MUST
+// be written at the SAME compacted idx as instances[idx] so TLAS slot and
 // rt_instances slot describe the same particle (matches GpuRtInstance: 4 uints).
 struct RtInstanceOut {
     uint material_id;
@@ -47,7 +36,7 @@ layout(push_constant) uniform PushConstants {
     uint particle_count;   // max_particles for this emitter
     uint material_id;
     float particle_size;   // average size for transform scale
-    uvec2 blas_address;    // device address of the mesh BLAS (uint64 as two uint32s)
+    uvec2 blas_reference;  // what instance records name the mesh's bottom level by
     uint first_index;      // emitter BLAS geometry offsets (for rt_instances)
     uint vertex_offset;
     uint mask;             // RT_MASK_* of the emitter's particles
@@ -65,25 +54,17 @@ void main() {
 
     uint idx = atomicAdd(instance_count, 1);
 
-    // Build 3x4 transform matrix: translate + uniform scale
+    // Translation and uniform scale.
     float s = p.size;
-    TlasInstance inst;
-    inst.transform[0]  = s;   inst.transform[1]  = 0.0; inst.transform[2]  = 0.0; inst.transform[3]  = p.position.x;
-    inst.transform[4]  = 0.0; inst.transform[5]  = s;   inst.transform[6]  = 0.0; inst.transform[7]  = p.position.y;
-    inst.transform[8]  = 0.0; inst.transform[9]  = 0.0; inst.transform[10] = s;   inst.transform[11] = p.position.z;
-
-    // instanceCustomIndex (24 bits) | mask (8 bits)
-    inst.custom_index_and_mask = (material_id & 0xFFFFFF) | (mask << 24);
-
-    // SBT offset (24 bits) | flags (8 bits) — disable culling
-    inst.sbt_offset_and_flags = (0 & 0xFFFFFF) | (0x04 << 24); // VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT
-
-    inst.accel_struct_ref = blas_address;
+    float transform[12] = float[12](s,   0.0, 0.0, p.position.x,
+                                    0.0, s,   0.0, p.position.y,
+                                    0.0, 0.0, s,   p.position.z);
+    InstanceRecord inst = instance_record(transform, material_id, mask, blas_reference);
 
     instances[idx] = inst;
 
-    // Write per-instance geometry data at the SAME idx so the hit shader's
-    // rt_instances[gl_InstanceID] resolves to THIS particle's mesh.
+    // Write per-instance geometry data at the SAME idx so a hit's
+    // rt_instances[instance] resolves to THIS particle's mesh.
     RtInstanceOut rt;
     rt.material_id = material_id;
     rt.first_index = first_index;

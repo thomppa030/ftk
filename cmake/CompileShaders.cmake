@@ -21,6 +21,11 @@ function(fjell_find_glslc)
     endif()
 endfunction()
 
+# GLSL the GPU backend owns: what shaders write in a layout the backend
+# defines, such as the instance records a top-level acceleration structure is
+# built from. Every shader may include it.
+set(FJELL_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/gpu/vulkan/glsl")
+
 function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     fjell_find_glslc()
     file(GLOB_RECURSE SHADERS
@@ -35,7 +40,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     )
 
     # Collect include files so shaders recompile when includes change
-    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl")
+    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl" "${FJELL_BACKEND_GLSL_DIR}/*.glsl")
 
     foreach(SHADER ${SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
@@ -46,6 +51,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
             COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
             COMMAND ${GLSLC} --target-env=vulkan1.3
                     -I ${SHADER_DIR}/include
+                    -I ${FJELL_BACKEND_GLSL_DIR}
                     ${SHADER} -o ${SPIRV_OUTPUT}
             DEPENDS ${SHADER} ${SHADER_INCLUDES}
             COMMENT "Compiling shader: ${SHADER_NAME}"

@@ -159,8 +159,9 @@ public:
         uint32_t mesh_material_id{0}; // resolved material for mesh particles
     };
     [[nodiscard]] const std::vector<EmitterGpu>& emitters() const { return emitters_; }
-    [[nodiscard]] VkBuffer particle_buffer_handle() const {
-        return mega_particle_buffer_ ? mega_particle_buffer_->handle() : VK_NULL_HANDLE;
+    /// Every emitter's simulated particles; invalid before the first.
+    [[nodiscard]] gpu::Buffer particle_buffer() const {
+        return mega_particle_buffer_ ? mega_particle_buffer_->shared() : gpu::Buffer{};
     }
 
     void set_sdf_bounds(const glm::vec3& vol_min, const glm::vec3& vol_max) {

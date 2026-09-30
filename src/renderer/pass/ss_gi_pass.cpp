@@ -512,6 +512,7 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         if (auto out = builder.import_named_optional(ctx, "ss_gi_output"); out.valid()) {
             builder.write(out, gpu::Access::storage_write_compute);
         }
+        AccelStructureManager::declare_trace(builder, ctx);
     }
 }
 
@@ -524,7 +525,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // no tracer's reach held anything.
     const VkAccelerationStructureKHR tlas =
         accel_manager_ != nullptr && ctx.scene != nullptr
-            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            ? gpu::vulkan::native_acceleration(*ctx.device, accel_manager_->tlas(ctx.scene->id(), ctx.frame_index))
             : VK_NULL_HANDLE;
     if (tlas == VK_NULL_HANDLE) return;
     if (!ctx.target) return;
@@ -755,7 +756,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         tlas_write.pNext = &tlas_write_as;
 
         VkDescriptorBufferInfo inst_info{
-            accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index), 0, VK_WHOLE_SIZE};
+            gpu::vulkan::native_buffer(*ctx.device, accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index)), 0, VK_WHOLE_SIZE};
         VkWriteDescriptorSet inst_write{};
         inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         inst_write.dstSet = imgs.trace_set[ctx.frame_index];

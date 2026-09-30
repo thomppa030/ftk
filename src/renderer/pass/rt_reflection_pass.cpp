@@ -632,6 +632,7 @@ void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     builder.has_side_effects();
 
     if (ray_traced_active()) {
+        AccelStructureManager::declare_trace(builder, ctx);
         auto depth = builder.import_named(ctx, "depth");
         auto normal = builder.import_named(ctx, "normal");
         auto mr = builder.import_named(ctx, "mr");
@@ -703,7 +704,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     // no tracer's reach held anything.
     const VkAccelerationStructureKHR tlas =
         accel_manager_ != nullptr && ctx.scene != nullptr
-            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            ? gpu::vulkan::native_acceleration(*ctx.device, accel_manager_->tlas(ctx.scene->id(), ctx.frame_index))
             : VK_NULL_HANDLE;
     if (tlas == VK_NULL_HANDLE) return;
     auto* ddgi_imgs = ctx.pp_resources->ddgi();
@@ -804,7 +805,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
         // RT instance data SSBO.
         VkDescriptorBufferInfo inst_info{
-            accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index), 0, VK_WHOLE_SIZE};
+            gpu::vulkan::native_buffer(*ctx.device, accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index)), 0, VK_WHOLE_SIZE};
 
         // TLAS.
         VkWriteDescriptorSetAccelerationStructureKHR tlas_as{};

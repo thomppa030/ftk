@@ -87,13 +87,9 @@ VulkanContext::VulkanContext(Window& window)
     }
     loaded_graph_ = std::move(*graph_result);
 
-    // Create acceleration structure manager for DDGI RT backend
-    if (gpu_.device_ref().ray_tracing_supported()) {
-        accel_manager_ = std::make_unique<AccelStructureManager>(
-            gpu_.device_ref(), gpu_.allocator(),
-            gpu_.command_pool(), gpu_.graphics_queue(),
-            gpu_.upload_context(), gpu_device());
-        accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
+    // The acceleration structures every ray tracer shares.
+    if (gpu_device().caps().ray_queries) {
+        accel_manager_ = std::make_unique<AccelStructureManager>(gpu_device());
         if (auto* rt_scene = passes_.try_get<RtScenePass>("rt_scene")) {
             rt_scene->set_accel_manager(accel_manager_.get());
         }
@@ -476,7 +472,7 @@ void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>
 
     gatherer_.gather_rt(*scene, reach);
     accel_manager_->prepare_scene(*scene, gatherer_.rt_commands(), gpu_.pipeline_cache(),
-                                  particle_system_, *gpu_.mega_buffer());
+                                  particle_system_, *gpu_.mega_buffer(), current_frame_);
 }
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest& view,
