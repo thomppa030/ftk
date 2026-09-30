@@ -52,6 +52,16 @@ using glm::mix;
 using glm::normalize;
 using glm::transpose;
 
+// The float overloads of <cmath>, brought in rather than defined here: MSVC
+// declares them in the global namespace itself.
+using std::abs;
+using std::cos;
+using std::exp;
+using std::floor;
+using std::pow;
+using std::sin;
+using std::sqrt;
+
 /// Only marks an index as varying across invocations on the GPU.
 template <typename T> T nonuniformEXT(T index) { return index; }
 
@@ -59,18 +69,11 @@ inline float max(float a, float b) { return std::max(a, b); }
 inline float min(float a, float b) { return std::min(a, b); }
 inline unsigned int min(unsigned int a, unsigned int b) { return std::min(a, b); }
 inline float clamp(float v, float lo, float hi) { return std::clamp(v, lo, hi); }
-inline float sqrt(float v) { return std::sqrt(v); }
 inline vec3 sqrt(vec3 v) { return glm::sqrt(v); }
-inline float cos(float v) { return std::cos(v); }
-inline float sin(float v) { return std::sin(v); }
-inline float abs(float v) { return std::abs(v); }
-inline float floor(float v) { return std::floor(v); }
 inline float fract(float v) { return v - std::floor(v); }
 inline float mod(float x, float y) { return x - y * std::floor(x / y); }
-inline float pow(float a, float b) { return std::pow(a, b); }
 inline vec3 pow(vec3 a, vec3 b) { return glm::pow(a, b); }
 inline float mix(float a, float b, float t) { return a + (b - a) * t; }
-inline float exp(float v) { return std::exp(v); }
 inline float inversesqrt(float v) { return 1.0f / std::sqrt(v); }
 inline float smoothstep(float e0, float e1, float x) {
     float t = std::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
