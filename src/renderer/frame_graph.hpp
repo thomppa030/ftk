@@ -83,8 +83,8 @@ struct TrackedImage {
     // Transient resources declared through PassBuilder::create(). For
     // C2 (lifetime analysis + bin-packing bookkeeping) these hold only
     // the TextureDesc for matching; C3.1 added VMA-backed allocation,
-    // C3.2 registers the view under `name` into ResourceRegistry so
-    // passes can read it through ctx.registry->image_view(name).
+    // C3.2 registers the texture under `name` into ResourceRegistry so
+    // passes can read it through ctx.texture(name).
     bool virtual_resource{false};
     TextureDesc desc{};
     std::string name;
