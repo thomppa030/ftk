@@ -260,7 +260,6 @@ Device::Impl::~Impl() {
     });
     for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
     shared_layouts.for_each([&](SharedLayout, SharedRecord& record) {
-        if (!record.owned) return;
         for (VkDescriptorPool pool : record.pools) vkDestroyDescriptorPool(device, pool, nullptr);
         vkDestroyDescriptorSetLayout(device, record.layout, nullptr);
     });

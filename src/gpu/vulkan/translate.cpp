@@ -364,19 +364,6 @@ VkIndexType to_vk(IndexType type) {
     return VK_INDEX_TYPE_UINT32;
 }
 
-std::optional<BindingKind> from_vk(VkDescriptorType type) {
-    switch (type) {
-        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:             return BindingKind::uniform_buffer;
-        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:             return BindingKind::storage_buffer;
-        case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:     return BindingKind::sampled_texture;
-        case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:              return BindingKind::texture;
-        case VK_DESCRIPTOR_TYPE_SAMPLER:                    return BindingKind::sampler;
-        case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:              return BindingKind::storage_texture;
-        case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: return BindingKind::acceleration_structure;
-        default:                                            return std::nullopt;
-    }
-}
-
 VkImageLayout sampled_layout(Format format) {
     switch (kind(format)) {
         case FormatKind::depth:

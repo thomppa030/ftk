@@ -80,20 +80,6 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 [[nodiscard]] VkPipelineLayout native_layout(Device& device, ComputePipeline pipeline);
 [[nodiscard]] VkPipelineLayout native_layout(Device& device, GraphicsPipeline pipeline);
 
-/// Hands the device one of the engine's shared set layouts: its bindings,
-/// read from the Vulkan description it was made from, and the set most
-/// shaders declare it at. Pipelines that name the returned handle take it at
-/// the set it fits. The layout stays the engine's, which keeps it while
-/// pipelines naming it are made.
-[[nodiscard]] SharedLayout share_layout(Device& device, std::string name, uint32_t usual_set,
-                                        VkDescriptorSetLayout layout,
-                                        std::span<const VkDescriptorSetLayoutBinding> bindings);
-
-/// A handle to one of the engine's descriptor sets of a shared layout, for
-/// binding where a pipeline names that layout. The device never writes or
-/// frees it; the engine keeps it alive at least as long as the handle.
-[[nodiscard]] Owned<BindGroup> adopt_group(Device& device, SharedLayout shared, VkDescriptorSet set);
-
 /// The VkDescriptorSet behind a bind group; null when the handle finds none.
 /// For a shared group the device made, taking the set counts as binding it in
 /// the frame recording: an update writes a new version rather than a set that

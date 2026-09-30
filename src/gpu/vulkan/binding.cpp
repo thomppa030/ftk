@@ -363,7 +363,7 @@ std::string Device::Impl::shared_at(const PipelineRecord& pipeline, uint32_t set
     for (const auto& [shared, taken] : pipeline.layout.shared_sets) {
         if (taken == set) {
             return "set " + std::to_string(set) + " is the shared '" +
-                   shared_layouts.get(shared)->desc.name + "', bound through the engine's shared group";
+                   shared_layouts.get(shared)->desc.name + "', bound through a group of that layout";
         }
     }
     return {};
@@ -410,7 +410,6 @@ Result<SharedLayout> Device::create(const SharedLayoutDesc& desc) {
 
     Impl::SharedRecord record;
     record.desc = desc;
-    record.owned = true;
     auto& bindings = record.desc.bindings;
     std::ranges::sort(bindings, {}, &ShaderBinding::binding);
     for (size_t i = 0; i < bindings.size(); ++i) {
@@ -477,10 +476,6 @@ Result<Owned<BindGroup>> Device::create(const SharedGroupDesc& desc) {
     const std::string what = named("Shared group", desc.name);
     Impl::SharedRecord* shared = self.shared_layouts.get(desc.layout);
     if (shared == nullptr) return make_error(what + ": the shared layout does not exist");
-    if (!shared->owned) {
-        return make_error(what + ": the shared '" + shared->desc.name +
-                          "' is the engine's, whose sets it makes itself");
-    }
 
     auto state = std::make_unique<Impl::SharedGroupState>();
     state->contents.resize(shared->first.back() + shared->desc.bindings.back().count);
@@ -522,9 +517,6 @@ Result<> Device::update(BindGroup group, std::span<const BindEntry> entries) {
     Impl::GroupRecord* record = self.groups.get(group);
     if (record == nullptr) return make_error("Updating a bind group that no longer exists");
     if (record->state) return update_shared(self, *record, entries);
-    if (record->pool == VK_NULL_HANDLE) {
-        return make_error("A shared group is written by the engine that owns it");
-    }
     auto placed = place(record->bindings, entries);
     if (!placed) return std::unexpected(placed.error());
     if (auto present = self.check_resources(*placed); !present) return present;
@@ -546,7 +538,7 @@ Result<> Device::update(BindGroup group, std::span<const BindEntry> entries) {
 void release(Device& device, BindGroup group) {
     Device::Impl& self = device.impl();
     auto record = self.groups.take(group);
-    if (!record.has_value() || record->pool == VK_NULL_HANDLE) return;
+    if (!record.has_value()) return;
     self.release_later([dev = self.device, pool = record->pool, set = record->set] {
         vkFreeDescriptorSets(dev, pool, 1, &set);
     });
