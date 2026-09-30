@@ -162,7 +162,6 @@ fjell_library(gpu
         renderer/gpu/upload_context.hpp
         renderer/gpu/vk_check.hpp
         renderer/gpu/vk_utils.hpp
-        renderer/gpu/vma_image.hpp
         renderer/gpu/window.hpp
     LINKS
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan

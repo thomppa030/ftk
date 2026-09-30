@@ -68,12 +68,6 @@ public:
     /// Restore the previously active ImGui context.
     void deactivate();
 
-    /// Fires with the ImGui context pointer just before it is destroyed, so
-    /// caches keyed on that pointer can drop their entries. A context's address
-    /// can be reused by the next one, which makes stale entries dangerous
-    /// rather than merely wasteful.
-    static Delegate<void(void*)> on_context_destroyed;
-
 private:
     void setup_style();
     /// Show the cursor ImGui wants while this layer's window has the mouse.
