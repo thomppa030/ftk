@@ -606,6 +606,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
 void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     const EnvironmentState& environment, Scene* scene,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
+    FJELL_PROFILE_SCOPE_N("render_preview");
     if (!req.target) return;
     if (!req.global_group.valid()) {
         FJELL_GFX_ERROR("A preview needs a global set of its own "
@@ -680,9 +681,12 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         FJELL_GFX_CRITICAL("render_preview vkQueueSubmit failed: VkResult={}", static_cast<int>(r));
         if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview submit");
     }
-    if (VkResult r = vkQueueWaitIdle(gpu_.graphics_queue()); r != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("render_preview vkQueueWaitIdle failed: VkResult={}", static_cast<int>(r));
-        if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview wait idle");
+    {
+        FJELL_PROFILE_SCOPE_N("render_preview_wait");
+        if (VkResult r = vkQueueWaitIdle(gpu_.graphics_queue()); r != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("render_preview vkQueueWaitIdle failed: VkResult={}", static_cast<int>(r));
+            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview wait idle");
+        }
     }
 
     vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
@@ -1104,6 +1108,7 @@ void VulkanContext::advance_scene_particles(const Scene& scene, float dt) {
 }
 
 void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
+    FJELL_PROFILE_SCOPE_N("render_game_ui_preview");
     if (!ui.loaded()) return;
 
     auto vk = gpu_.device();

@@ -9,6 +9,7 @@
 #include "animation/animator_component.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "core/project.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -548,7 +549,10 @@ protected:
             FJELL_CORE_ERROR("UI thumbnail: {}", readback.error());
             return false;
         }
-        readback->wait();
+        {
+            FJELL_PROFILE_SCOPE_N("thumbnail_readback_wait");
+            readback->wait();
+        }
         const uint8_t* read = readback->pixels().data();
 
         constexpr uint32_t SIZE = AssetThumbnailRenderer::SIZE;
@@ -756,6 +760,7 @@ void AssetThumbnailRenderer::invalidate(const std::string& path) {
 }
 
 void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
+    FJELL_PROFILE_SCOPE_N("thumbnail_tick");
     if (!deps.vulkan_context || !deps.resource_manager || !deps.icon_cache || !deps.thread_pool) return;
 
     ++ticks_;
@@ -938,7 +943,10 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
         FJELL_CORE_ERROR("Scene thumbnail: {}", readback.error());
         return false;
     }
-    readback->wait();
+    {
+        FJELL_PROFILE_SCOPE_N("thumbnail_readback_wait");
+        readback->wait();
+    }
     out->width = readback->width();
     out->height = readback->height();
     const auto pixels = readback->pixels();
