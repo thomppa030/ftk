@@ -103,10 +103,6 @@ VkImageAspectFlags native_aspect(Device& device, Texture texture) {
     return record != nullptr ? record->aspect : VkImageAspectFlags{VK_IMAGE_ASPECT_COLOR_BIT};
 }
 
-void use_pipeline_cache(Device& device, VkPipelineCache cache) {
-    device.impl().pipeline_cache = cache;
-}
-
 VkPipeline native_pipeline(Device& device, ComputePipeline pipeline) {
     const auto* record = device.impl().compute_pipelines.get(pipeline);
     return record != nullptr ? record->pipeline : VK_NULL_HANDLE;

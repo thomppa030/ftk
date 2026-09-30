@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <span>
@@ -201,6 +202,12 @@ public:
     /// How shaders named by path are found. Without one, a path is opened as
     /// given, relative to the working directory.
     void set_shader_locator(ShaderLocator locator);
+
+    /// Keeps what the device learns building pipelines in `file`: pipelines
+    /// built from now on start from what earlier runs left there, and the
+    /// device writes it back when it goes. Without one nothing is kept
+    /// between runs. A file that does not read starts empty.
+    void set_pipeline_cache_file(const std::filesystem::path& file);
 
     /// Starts the next frame: waits until the GPU has finished the frame
     /// that last used its slot, frees that slot's lists and one-frame
