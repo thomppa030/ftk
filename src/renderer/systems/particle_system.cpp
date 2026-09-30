@@ -358,6 +358,8 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     VkShaderModule mesh_vert_mod = load("shaders/particle_mesh.vert.spv");
     VkShaderModule frag_mod = load("shaders/particle.frag.spv");
     VkShaderModule lit_frag_mod = load("shaders/particle_lit.frag.spv");
+    VkShaderModule opaque_frag_mod = load("shaders/particle_opaque.frag.spv");
+    VkShaderModule opaque_lit_frag_mod = load("shaders/particle_opaque_lit.frag.spv");
     VkShaderModule dist_frag_mod = load("shaders/particle_distortion.frag.spv");
 
     auto release_modules = [&]() {
@@ -550,10 +552,10 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     out.mesh_alpha = make_draw({mesh_vert_mod, frag_mod, render_layout_, &mesh_vertex_input, LIST, Blend::alpha, "mesh alpha"});
     out.mesh_lit_additive = make_draw({mesh_vert_mod, lit_frag_mod, render_lit_layout_, &mesh_vertex_input, LIST, Blend::additive, "mesh lit additive"});
     out.mesh_lit_alpha = make_draw({mesh_vert_mod, lit_frag_mod, render_lit_layout_, &mesh_vertex_input, LIST, Blend::alpha, "mesh lit alpha"});
-    out.opaque = make_draw({vert_mod, frag_mod, render_opaque_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque"});
-    out.opaque_lit = make_draw({vert_mod, lit_frag_mod, render_opaque_lit_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque lit"});
-    out.mesh_opaque = make_draw({mesh_vert_mod, frag_mod, render_opaque_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque"});
-    out.mesh_opaque_lit = make_draw({mesh_vert_mod, lit_frag_mod, render_opaque_lit_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque lit"});
+    out.opaque = make_draw({vert_mod, opaque_frag_mod, render_opaque_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque"});
+    out.opaque_lit = make_draw({vert_mod, opaque_lit_frag_mod, render_opaque_lit_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque lit"});
+    out.mesh_opaque = make_draw({mesh_vert_mod, opaque_frag_mod, render_opaque_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque"});
+    out.mesh_opaque_lit = make_draw({mesh_vert_mod, opaque_lit_frag_mod, render_opaque_lit_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque lit"});
 
     // ── Distortion: one R16G16 attachment, offsets summed, single-sampled ──
     {
@@ -2064,8 +2066,8 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
     FJELL_GPU_ZONE(ctx, "Particles: Opaque");
 
     VkDescriptorSet frame_set = render_sets_[region_];
-    // No depth descriptor update needed — binding 1 is partially bound,
-    // and the opaque shader never accesses depth_tex (frag_is_mesh guard).
+    // The opaque shaders read no depth: they blend nothing, so they have no
+    // soft fade, and they write the depth this pass draws into.
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
