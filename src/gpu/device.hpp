@@ -189,7 +189,8 @@ public:
     /// Fills a persistent group anew, safe at any time: commands recorded
     /// after it bind the new resources, those recorded before keep the old.
     /// A shared group's entries replace only what they name, and the rest
-    /// stays; several updates between two binds of it cost one new version.
+    /// stays; an entry naming what the group already holds costs nothing, and
+    /// several updates between two binds of it cost one new version.
     /// Not called while another thread binds the same group.
     /// @return nothing, or which entry is wrong, in which case the group keeps
     ///         what it held.

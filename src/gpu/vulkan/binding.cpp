@@ -165,6 +165,21 @@ Result<> update_shared(Device::Impl& self, Device::Impl::GroupRecord& record,
     auto changes = split_changes(self, shared, *placed);
     if (!changes) return std::unexpected(changes.error());
 
+    // What the group already holds is not written again: a caller setting a
+    // binding every frame costs nothing while it stays the same, and makes no
+    // new version while a frame reads the set.
+    const auto& contents = record.state->contents;
+    SharedChanges needed;
+    needed.written.set = changes->written.set;
+    for (const PlacedEntry& entry : changes->written.entries) {
+        if (contents[content_index(shared, entry)] != entry.resource) needed.written.entries.push_back(entry);
+    }
+    for (const PlacedEntry& entry : changes->emptied) {
+        if (contents[content_index(shared, entry)]) needed.emptied.push_back(entry);
+    }
+    if (needed.written.entries.empty() && needed.emptied.empty()) return {};
+    *changes = std::move(needed);
+
     // The current set is written in place while no frame the GPU has yet to
     // finish binds it: before any bind, or once the last frame binding it is
     // done.
