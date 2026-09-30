@@ -9,6 +9,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -59,12 +60,20 @@ public:
     void update(const UiNode& root, float viewport_width, float viewport_height,
                 float frame_scale, uint32_t frame_index);
 
-    /// Upload shaped text glyphs to the text SSBO.
+    /// Adds the glyphs shaped for `text_node`, placed in `layout_node`'s box
+    /// (the element the text belongs to), to this frame's text. They paint
+    /// where the text node sits in the tree.
     void update_text(const std::vector<PositionedGlyph>& glyphs,
-                     const UiNode& source_node,
+                     const UiNode& text_node, const UiNode& layout_node,
                      uint32_t atlas_index, float pixel_range,
                      float viewport_width, float viewport_height,
                      uint32_t frame_index);
+
+    /// Puts this frame's quads and text in the order record() and
+    /// record_world() paint them: tree order, so a node covers what came
+    /// before it, text included, and its children cover it. Call once
+    /// update() and every update_text() of the frame are done.
+    void build_runs(uint32_t frame_index);
 
     /// Record draw commands into the command buffer (quads + text).
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
@@ -93,12 +102,19 @@ private:
         glm::vec2 shadow_params; // blur_radius, spread
         uint32_t texture_id;     // bindless texture index (0 = none)
         uint32_t material_id;    // material SSBO index (UINT32_MAX = none)
-        float z_layer;           // depth ordering (0 = far, 1 = near)
-        uint32_t quad_flags;     // bitfield: bit 0 = opaque
+        uint32_t pad0{0};        // keep `state` on 16 bytes, where std430 puts it
+        uint32_t pad1{0};
         glm::vec4 state;         // FILL, HOVER, ACTIVE, FOCUS for shader_type ui
         glm::vec4 bar;           // FILL_TARGET, FILL_VELOCITY, FILL_AGITATION, unused
     };
+    // Mirrored by `UiQuad` in shaders/include/fjell_ui_common.glsl (std430).
     static_assert(sizeof(GpuUiQuad) == 176);
+    static_assert(offsetof(GpuUiQuad, viewport_size) == 112);
+    static_assert(offsetof(GpuUiQuad, shadow_params) == 120);
+    static_assert(offsetof(GpuUiQuad, texture_id) == 128);
+    static_assert(offsetof(GpuUiQuad, material_id) == 132);
+    static_assert(offsetof(GpuUiQuad, state) == 144);
+    static_assert(offsetof(GpuUiQuad, bar) == 160);
 
     struct GpuUiGlyph {
         glm::vec4 rect;          // x, y, w, h (pixels)
@@ -118,26 +134,39 @@ private:
         uint32_t pipeline_id{UINT32_MAX}; // PipelineCache entry of a ui material, else none
     };
 
-    void collect_quads(const UiNode& node, std::vector<CollectedQuad>& quads,
-                       float viewport_width, float viewport_height);
-
-    // Draw group: a contiguous range of quads drawn with one scissor and one
-    // pipeline. Runs break on either changing.
-    struct ClipGroup {
-        glm::vec4 clip_rect;  // x, y, w, h in pixels
-        uint32_t pipeline_id{UINT32_MAX}; // ui material pipeline, or none for the fixed fill
-        uint32_t first_vertex;
-        uint32_t vertex_count;
+    // What the UI paints, in tree order: a quad (its index in the frame's
+    // quads), or the text of a text node, whose glyphs update_text() adds.
+    struct PaintItem {
+        const UiNode* text_node{nullptr};  // null for a quad
+        uint32_t quad{0};
     };
 
-    // Build contiguous draw groups from a range of quads
-    static std::vector<ClipGroup> build_clip_groups(const CollectedQuad* quads,
-                                                     uint32_t first_quad,
-                                                     uint32_t quad_count);
+    void collect_quads(const UiNode& node, std::vector<CollectedQuad>& quads,
+                       std::vector<PaintItem>& items,
+                       float viewport_width, float viewport_height);
 
-    // Per-frame clip groups for opaque and transparent passes
-    std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> opaque_groups_;
-    std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> transparent_groups_;
+    // A run painted in one draw: quads sharing a pipeline and a scissor, or
+    // glyphs, which clip in their own shader.
+    struct PaintRun {
+        bool text{false};
+        glm::vec4 clip_rect{0.0f};         // quads: x, y, w, h in layout pixels
+        uint32_t pipeline_id{UINT32_MAX};  // quads: ui material pipeline, or none for the fixed fill
+        uint32_t first{0};                 // first quad or glyph
+        uint32_t count{0};
+    };
+
+    // The glyphs one text node added this frame.
+    struct GlyphRange {
+        uint32_t first{0};
+        uint32_t count{0};
+    };
+
+    // Per frame: the quads as collected, what paints in which order, the
+    // glyphs of each text node, and the runs build_runs() made of them.
+    std::array<std::vector<CollectedQuad>, MAX_FRAMES_IN_FLIGHT> collected_;
+    std::array<std::vector<PaintItem>, MAX_FRAMES_IN_FLIGHT> paint_items_;
+    std::array<std::unordered_map<const UiNode*, GlyphRange>, MAX_FRAMES_IN_FLIGHT> glyph_ranges_;
+    std::array<std::vector<PaintRun>, MAX_FRAMES_IN_FLIGHT> runs_;
 
     // Pipelines built for one `shader_type ui;` PipelineCache entry, in the
     // two shapes the fixed quad pipelines come in. Rebuilt when the entry's
@@ -167,15 +196,13 @@ private:
     // Quad pipelines
     VkDescriptorSetLayout quad_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};           // transparent quads (blend ON, depth write OFF)
-    VkPipeline opaque_pipeline_{VK_NULL_HANDLE};    // opaque quads (blend OFF, depth write ON)
+    VkPipeline pipeline_{VK_NULL_HANDLE};           // quads, blended
 
     // Text pipeline (shares layout)
     VkPipeline text_pipeline_{VK_NULL_HANDLE};
 
     // Worldspace pipelines (HDR + scene MSAA, with push constants)
     VkPipelineLayout world_layout_{VK_NULL_HANDLE};
-    VkPipeline world_opaque_pipeline_{VK_NULL_HANDLE};
     VkPipeline world_transparent_pipeline_{VK_NULL_HANDLE};
     VkPipeline world_text_pipeline_{VK_NULL_HANDLE};
 
@@ -198,6 +225,8 @@ private:
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
     VkFormat color_format_{VK_FORMAT_UNDEFINED};
+    // The scene's depth, which world UI tests against and never writes.
+    // Screen UI has none: it paints in tree order.
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
 
     // Per-frame counts
@@ -206,7 +235,6 @@ private:
     // maps layout space onto the target through viewport_size; scissors are
     // set in target pixels and need the same factor.
     std::array<float, MAX_FRAMES_IN_FLIGHT> frame_scales_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> text_counts_{};
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;

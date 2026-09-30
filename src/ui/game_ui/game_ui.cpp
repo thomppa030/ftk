@@ -399,6 +399,9 @@ void GameUi::update(float viewport_width, float viewport_height,
         FJELL_PROFILE_SCOPE_N("ui_shape_text");
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
+
+    // 9. Quads and text in the order they paint
+    renderer_.build_runs(frame_index);
 }
 
 void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
@@ -416,7 +419,7 @@ void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport
         const auto& fa = font_for(layout_node->style);
         auto shaped = TextShaper::shape(node.text_content, fa,
                                         font_size, max_width, line_height);
-        renderer_.update_text(shaped.glyphs, *layout_node,
+        renderer_.update_text(shaped.glyphs, node, *layout_node,
                               fa.atlas_bindless_index(),
                               fa.pixel_range(),
                               viewport_width, viewport_height, frame_index);

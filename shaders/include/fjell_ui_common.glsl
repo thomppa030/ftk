@@ -17,8 +17,8 @@ struct UiQuad {
     vec2 shadow_params; // blur_radius, spread
     uint texture_id;    // bindless texture index (0 = none)
     uint material_id;   // material SSBO index (UINT32_MAX = none)
-    float z_layer;      // depth ordering (0 = far, 1 = near)
-    uint quad_flags;    // bitfield: bit 0 = opaque
+    uint pad0;          // mirrors UiRenderer::GpuUiQuad, which pads `state`
+    uint pad1;          // onto 16 bytes as std430 does
     vec4 state;         // FILL, HOVER, ACTIVE, FOCUS for shader_type ui
     vec4 bar;           // FILL_TARGET, FILL_VELOCITY, FILL_AGITATION, unused
 };

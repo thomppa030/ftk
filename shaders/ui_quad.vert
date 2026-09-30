@@ -23,5 +23,5 @@ void main() {
     vec2 pos = q.rect.xy + uv * q.rect.zw;
     vec2 ndc = (pos / q.viewport_size) * 2.0 - 1.0;
 
-    gl_Position = vec4(ndc, q.z_layer, 1.0);
+    gl_Position = vec4(ndc, 0.0, 1.0);
 }

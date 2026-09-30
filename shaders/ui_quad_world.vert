@@ -48,10 +48,9 @@ void main() {
     // Scale from pixels to world units
     local /= pixels_per_unit;
 
-    // Small Z offset for quad ordering within the UI panel
-    float z = q.z_layer * 0.001;
-
-    vec4 local_pos = vec4(local, z, 1.0);
+    // On the panel's plane: quads paint in tree order, so none needs to sit
+    // in front of another.
+    vec4 local_pos = vec4(local, 0.0, 1.0);
     gl_Position = mvp * local_pos;
     frag_clip_pos = gl_Position;
     frag_prev_clip_pos = prev_mvp * local_pos;
