@@ -2,7 +2,7 @@
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
-#include "renderer/gpu/image.hpp"
+#include "gpu/upload.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/fjterrain_io.hpp"
 
@@ -35,11 +35,11 @@ constexpr std::array<uint8_t, 4> UNPAINTED_WEIGHT = {255, 0, 0, 0};
 TerrainAsset::~TerrainAsset() = default;
 
 gpu::Texture TerrainAsset::height_texture() const {
-    return height_image_ ? height_image_->shared() : gpu::Texture{};
+    return height_texture_;
 }
 
 gpu::Texture TerrainAsset::patch_bounds_texture() const {
-    return patch_bounds_image_ ? patch_bounds_image_->shared() : gpu::Texture{};
+    return patch_bounds_texture_;
 }
 
 void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x,
@@ -81,7 +81,7 @@ void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count
 }
 
 void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
-    if (!patch_bounds_image_ || patch_bounds_generation_ == edit_generation_) return;
+    if (!patch_bounds_texture_ || patch_bounds_generation_ == edit_generation_) return;
 
     const uint32_t patches = patches_per_side();
     const uint32_t quads = data_.patch_quads();
@@ -118,7 +118,7 @@ void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
                   &texels[static_cast<size_t>(row) * w * 2]);
     }
 
-    upload.to_texture(patch_bounds_image_->shared(), {.x = px0, .y = pz0, .width = w, .height = h},
+    upload.to_texture(patch_bounds_texture_, {.x = px0, .y = pz0, .width = w, .height = h},
                       std::as_bytes(std::span(texels)),
                       {.before = BOUNDS_READ, .after = BOUNDS_READ});
 
@@ -126,7 +126,7 @@ void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
 }
 
 gpu::Texture TerrainAsset::weight_texture() const {
-    return weight_image_ ? weight_image_->shared() : gpu::Texture{};
+    return weight_texture_;
 }
 
 const std::string& TerrainAsset::layer_material_path(uint32_t layer) const {
@@ -222,8 +222,7 @@ void TerrainAsset::set_layer_material(uint32_t layer, Material* material) {
     if (layer < FJTERRAIN_MAX_LAYERS) layer_materials_[layer] = material;
 }
 
-Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
-    const std::string& path, VmaAllocator allocator, gpu::Device& gpu) {
+Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path, gpu::Device& gpu) {
     auto parsed = load_fjterrain(path);
     if (!parsed) {
         return make_error(parsed.error());
@@ -258,18 +257,22 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
                     asset->ray_indices_.size() / 3,
                     static_cast<double>(asset->ray_vertices_.size() * sizeof(Vertex) +
                                         asset->ray_indices_.size() * sizeof(uint32_t)) / 1e6);
-    auto image = Image::create(allocator, samples, samples, VK_FORMAT_R16_UNORM,
-                               VK_IMAGE_TILING_OPTIMAL,
-                               VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                   VK_IMAGE_USAGE_SAMPLED_BIT,
-                               VMA_MEMORY_USAGE_AUTO, 1);
-    if (!image) {
-        return make_error("terrain: " + image.error());
-    }
-    asset->height_image_ = std::make_unique<Image>(std::move(*image));
-    asset->height_image_->share(gpu);
+    // The three textures a terrain samples, filled by uploads from here on.
+    auto make = [&gpu](gpu::Format format, uint32_t side,
+                       std::string_view name) -> Result<gpu::Owned<gpu::Texture>> {
+        auto made = gpu.create(gpu::TextureDesc{
+            .format = format,
+            .width = side,
+            .height = side,
+            .use = gpu::TextureUse::sampled,
+            .name = name,
+        });
+        if (!made) return make_error("terrain: " + made.error());
+        return std::move(*made);
+    };
+    FJELL_TRY(asset->height_texture_, make(gpu::Format::r16_unorm, samples, "terrain_height"));
     gpu::Upload& upload = gpu.upload();
-    upload.to_texture(asset->height_image_->shared(), {}, std::as_bytes(std::span(texels)),
+    upload.to_texture(asset->height_texture_, {}, std::as_bytes(std::span(texels)),
                       {.after = HEIGHT_READ});
 
     // Per-patch height bounds, one texel per patch. Built here from the same
@@ -280,17 +283,9 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
             asset->patch_bounds_texels_.resize(static_cast<size_t>(patches) * patches * 2);
             asset->compute_patch_bounds(0, 0, patches, patches);
 
-            auto bounds_image = Image::create(allocator, patches, patches,
-                                              VK_FORMAT_R16G16_UNORM, VK_IMAGE_TILING_OPTIMAL,
-                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                                  VK_IMAGE_USAGE_SAMPLED_BIT,
-                                              VMA_MEMORY_USAGE_AUTO, 1);
-            if (!bounds_image) {
-                return make_error("terrain: " + bounds_image.error());
-            }
-            asset->patch_bounds_image_ = std::make_unique<Image>(std::move(*bounds_image));
-            asset->patch_bounds_image_->share(gpu);
-            upload.to_texture(asset->patch_bounds_image_->shared(), {},
+            FJELL_TRY(asset->patch_bounds_texture_,
+                      make(gpu::Format::rg16_unorm, patches, "terrain_patch_bounds"));
+            upload.to_texture(asset->patch_bounds_texture_, {},
                               std::as_bytes(std::span(asset->patch_bounds_texels_)),
                               {.after = BOUNDS_READ});
         }
@@ -314,17 +309,8 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
         const size_t weight_size = static_cast<size_t>(side) * side * 4;
         asset->weight_side_ = side;
 
-        auto weight_image = Image::create(allocator, side, side, VK_FORMAT_R8G8B8A8_UNORM,
-                                          VK_IMAGE_TILING_OPTIMAL,
-                                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                              VK_IMAGE_USAGE_SAMPLED_BIT,
-                                          VMA_MEMORY_USAGE_AUTO, 1);
-        if (!weight_image) {
-            return make_error("terrain: " + weight_image.error());
-        }
-        asset->weight_image_ = std::make_unique<Image>(std::move(*weight_image));
-        asset->weight_image_->share(gpu);
-        upload.to_texture(asset->weight_image_->shared(), {},
+        FJELL_TRY(asset->weight_texture_, make(gpu::Format::rgba8_unorm, side, "terrain_weights"));
+        upload.to_texture(asset->weight_texture_, {},
                           std::as_bytes(std::span(weight_bytes, weight_size)),
                           {.after = WEIGHT_READ});
     }
@@ -457,7 +443,7 @@ void TerrainAsset::copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
 void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                                  const float* heights, gpu::Upload& upload) {
     const uint32_t samples = data_.sample_count();
-    if (heights == nullptr || !height_image_ || x >= samples || z >= samples) return;
+    if (heights == nullptr || !height_texture_ || x >= samples || z >= samples) return;
     const uint32_t x_end = std::min(x + size_x, samples);
     const uint32_t z_end = std::min(z + size_z, samples);
     const uint32_t w = x_end - x;
@@ -478,7 +464,7 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
         }
     }
 
-    upload.to_texture(height_image_->shared(), {.x = x, .y = z, .width = w, .height = h},
+    upload.to_texture(height_texture_, {.x = x, .y = z, .width = w, .height = h},
                       std::as_bytes(std::span(texels)),
                       {.before = HEIGHT_READ, .after = HEIGHT_READ});
 
@@ -539,7 +525,7 @@ void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
 void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                                  const uint8_t* rgba, gpu::Upload& upload) {
     const uint32_t side = weight_side_;
-    if (rgba == nullptr || !weight_image_ || x >= side || z >= side) return;
+    if (rgba == nullptr || !weight_texture_ || x >= side || z >= side) return;
     const uint32_t x_end = std::min(x + size_x, side);
     const uint32_t z_end = std::min(z + size_z, side);
     const uint32_t w = x_end - x;
@@ -562,7 +548,7 @@ void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32
         std::copy(src, src + (static_cast<size_t>(w) * 4), &texels[static_cast<size_t>(row) * w * 4]);
     }
 
-    upload.to_texture(weight_image_->shared(), {.x = x, .y = z, .width = w, .height = h},
+    upload.to_texture(weight_texture_, {.x = x, .y = z, .width = w, .height = h},
                       std::as_bytes(std::span(texels)),
                       {.before = WEIGHT_READ, .after = WEIGHT_READ});
 

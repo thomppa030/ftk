@@ -80,8 +80,6 @@ src/renderer/resources/model.cpp
 src/renderer/resources/model.hpp
 src/renderer/resources/resource_manager.cpp
 src/renderer/resources/resource_manager.hpp
-src/renderer/resources/terrain_asset.cpp
-src/renderer/resources/terrain_asset.hpp
 src/renderer/resources/texture.cpp
 src/renderer/resources/texture.hpp
 src/renderer/resources/vertex.hpp

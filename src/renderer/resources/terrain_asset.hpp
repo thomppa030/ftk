@@ -1,13 +1,13 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/owned.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
 
 #include <algorithm>
 #include <array>
@@ -17,7 +17,6 @@
 
 namespace fjell {
 
-class Image;
 class Material;
 
 namespace gpu {
@@ -45,8 +44,8 @@ public:
     TerrainAsset& operator=(TerrainAsset&&) = delete;
 
     /// Load a .fjterrain and upload its heights as a single-channel texture.
-    [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(
-        const std::string& path, VmaAllocator allocator, gpu::Device& gpu);
+    [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(const std::string& path,
+                                                                    gpu::Device& gpu);
 
     [[nodiscard]] const FjTerrainData& data() const { return data_; }
     [[nodiscard]] const std::string& path() const { return path_; }
@@ -334,12 +333,12 @@ private:
     /// A consumer further behind than this is handed the whole field.
     static constexpr uint32_t EDIT_HISTORY = 64;
     std::array<SampleRect, EDIT_HISTORY> edit_history_{};
-    std::unique_ptr<Image> height_image_;
-    std::unique_ptr<Image> weight_image_;
-    std::unique_ptr<Image> patch_bounds_image_;
+    gpu::Owned<gpu::Texture> height_texture_;
+    gpu::Owned<gpu::Texture> weight_texture_;
+    gpu::Owned<gpu::Texture> patch_bounds_texture_;
     /// Two unorm16 per patch, min then max, row-major over the patch grid.
     std::vector<uint16_t> patch_bounds_texels_;
-    /// The edit generation `patch_bounds_image_` is current as of.
+    /// The edit generation `patch_bounds_texture_` is current as of.
     uint32_t patch_bounds_generation_{0};
     /// The edit generation the ray mesh was built from.
     uint32_t ray_mesh_generation_{0};
