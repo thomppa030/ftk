@@ -2,7 +2,8 @@
 
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
-#include <vulkan/vulkan.h>
+#include "gpu/format.hpp"
+
 
 namespace fjell {
 
@@ -14,7 +15,7 @@ namespace fjell {
 // project (no "render" key in its JSON) renders identically to before.
 struct RenderSettings {
     // ── Quality ──
-    VkSampleCountFlagBits msaa_samples{VK_SAMPLE_COUNT_4_BIT};
+    gpu::Samples msaa_samples{gpu::Samples::x4};
 
     // ── Global Illumination ──
     struct Ddgi {

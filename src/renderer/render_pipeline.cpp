@@ -85,7 +85,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
 }
 
 bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
-                              VkSampleCountFlagBits msaa, uint32_t active_sources,
+                              gpu::Samples msaa, uint32_t active_sources,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index, ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
@@ -128,7 +128,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // ── Per-frame DeclareContext ──────────────────────────────────────
     DeclareContext decl_ctx;
     decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
-    decl_ctx.msaa_samples    = gpu::vulkan::from_vk(msaa);
+    decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
     decl_ctx.scene_id        = ctx.scene != nullptr ? ctx.scene->id() : 0;
     decl_ctx.active_sources  = active_sources;
@@ -158,7 +158,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         decl_ctx.volumetric_fog_enabled = fog != nullptr && fog->enabled() && integrates;
     }
 
-    const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
+    const bool has_msaa = (msaa != gpu::Samples::x1);
 
     // The surface depth is the scene depth with the sea laid over it, written
     // by the water as it draws. Where no water draws there is no such image

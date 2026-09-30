@@ -24,7 +24,7 @@ struct SceneViewportConfig {
     uint32_t width{512};
     uint32_t height{512};
     PostProcessConfig pp_config{};
-    VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
+    gpu::Samples samples{gpu::Samples::x1};
     bool expose_hdr{false};    // true = HDR color (R16F), false = tonemapped LDR (sRGB)
     bool skip_shadows{true};
 

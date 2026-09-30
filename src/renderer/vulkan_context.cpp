@@ -589,7 +589,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
                               && gpu_.device_ref().async_compute_supported()
                               && current_ctx_.async_compute_cmd != VK_NULL_HANDLE;
     bool any_async = render_pipeline_.execute(
-        cmd, target, target.sample_count(), active_sources_,
+        cmd, target, target.samples(), active_sources_,
         pool, gpu_.secondary_pools(), current_frame_,
         resource_registry_, passes_, pp, current_ctx_,
         async_available,
@@ -1067,14 +1067,13 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.device = &gpu_.core().gpu_device();
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.sample_count = gpu_.msaa_samples();
     res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
     res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
     res.scene_mr_format = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT);
     res.scene_normal_format = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT);
     res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
     res.scene_distortion_format = gpu::vulkan::from_vk(OffscreenPass::DISTORTION_FORMAT);
-    res.samples = gpu::vulkan::from_vk(res.sample_count);
+    res.samples = gpu_.msaa_samples();
 
     ui.create(res, *font_library_, gpu_.pipeline_cache(), gpu::vulkan::from_vk(output_format));
     if (world) ui.create_world_pipelines(res);
@@ -1153,7 +1152,7 @@ void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
 void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                                         OffscreenPass& target, uint32_t frame_index) {
     const VkExtent2D extent = target.extent();
-    const bool msaa = target.sample_count() != VK_SAMPLE_COUNT_1_BIT;
+    const bool msaa = target.samples() != gpu::Samples::x1;
 
     // Whatever the target held is cleared: nothing of it is kept.
     cmd.barrier(target.msaa_color_texture(), {}, gpu::Access::color_attachment);

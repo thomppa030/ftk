@@ -510,7 +510,7 @@ protected:
         if (!target_ || target_->extent().width != frame_w || target_->extent().height != frame_h) {
             target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
                                                       vk.allocator(), frame_w, frame_h,
-                                                      VK_SAMPLE_COUNT_1_BIT);
+                                                      gpu::Samples::x1);
         }
         return {frame_w, frame_h};
     }

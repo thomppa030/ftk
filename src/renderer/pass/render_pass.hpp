@@ -48,9 +48,8 @@ struct PassResources {
     gpu::Device* device{nullptr};
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
-    VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
-    /// The scene colour's and depth's formats and the sample count above as
-    /// the GPU interface names them, for pipelines it builds.
+    /// The scene colour's and depth's formats as the GPU interface names
+    /// them, for pipelines it builds.
     gpu::Format scene_color_format{gpu::Format::undefined};
     gpu::Format scene_depth_format{gpu::Format::undefined};
     /// The scene's other targets, which surfaces write beside colour:

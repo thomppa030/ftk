@@ -42,7 +42,7 @@ struct ViewportPanel {
 
 class ViewportManager {
 public:
-    void init(Device& device, VmaAllocator allocator, VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_1_BIT);
+    void init(Device& device, VmaAllocator allocator, gpu::Samples msaa_samples = gpu::Samples::x1);
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
 
@@ -96,7 +96,7 @@ private:
 
     Device* device_{nullptr};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
+    gpu::Samples msaa_samples_{gpu::Samples::x1};
     std::vector<ViewportPanel> panels_;
     int next_id_{1};
     int active_id_{0};

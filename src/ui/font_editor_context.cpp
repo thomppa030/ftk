@@ -354,7 +354,7 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
         preview_target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
                                                           vk.allocator(),
                                                           preview_width_, preview_height_,
-                                                          VK_SAMPLE_COUNT_1_BIT);
+                                                          gpu::Samples::x1);
     }
     if (atlas != nullptr) sample_generation_ = atlas->generation();
     load_font_sample(*preview_ui_, recipe_abs_path_, sample_text_, sample_size_, atlas);

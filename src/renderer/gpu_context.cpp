@@ -103,11 +103,8 @@ GpuContext::GpuContext(Window& window)
     }
     shared_layouts_.meshlets = meshlet_descriptor_.layout();
 
-    // Query and clamp MSAA sample count
-    auto max_samples = core_.device().max_msaa_samples();
-    msaa_samples_ = static_cast<VkSampleCountFlagBits>(
-        std::min(static_cast<uint32_t>(VK_SAMPLE_COUNT_4_BIT),
-                 static_cast<uint32_t>(max_samples)));
+    // Four samples where the GPU has them.
+    msaa_samples_ = std::min(gpu::Samples::x4, core_.gpu_device().caps().max_samples);
     FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
 
 
@@ -125,7 +122,7 @@ void GpuContext::init_pipelines() {
             .normal = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT),
             .velocity = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT),
             .depth = gpu::vulkan::from_vk(depth_format),
-            .samples = gpu::vulkan::from_vk(msaa_samples_),
+            .samples = msaa_samples_,
         },
         PipelineCache::SharedLayouts{
             .globals = shared_layouts_.globals,
@@ -290,14 +287,13 @@ PassResources GpuContext::pass_resources() const {
     res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
     res.depth_format = core_.device().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.sample_count = msaa_samples_;
     res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
     res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
     res.scene_mr_format = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT);
     res.scene_normal_format = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT);
     res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
     res.scene_distortion_format = gpu::vulkan::from_vk(OffscreenPass::DISTORTION_FORMAT);
-    res.samples = gpu::vulkan::from_vk(res.sample_count);
+    res.samples = msaa_samples_;
     res.allocator = core_.allocator();
     res.pipeline_cache = vk_pipeline_cache_;
     res.command_pool = core_.command_pool();

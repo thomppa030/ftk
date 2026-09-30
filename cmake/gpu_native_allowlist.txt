@@ -60,8 +60,6 @@ src/renderer/post_process_resources.cpp
 src/renderer/post_process_resources.hpp
 src/renderer/render_pipeline.cpp
 src/renderer/render_pipeline.hpp
-src/renderer/render_settings.cpp
-src/renderer/render_settings.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/scene_viewport.cpp
 src/renderer/scene_viewport.hpp

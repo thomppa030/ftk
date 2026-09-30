@@ -10,9 +10,8 @@
 namespace fjell {
 
 OffscreenPass::OffscreenPass(Device& device, gpu::Device& gpu, VmaAllocator allocator,
-                             uint32_t width, uint32_t height,
-                             VkSampleCountFlagBits samples)
-    : device_{device}, gpu_{gpu}, allocator_{allocator}, msaa_samples_{samples} {
+                             uint32_t width, uint32_t height, gpu::Samples samples)
+    : device_{device}, gpu_{gpu}, allocator_{allocator}, msaa_samples_{gpu::vulkan::to_vk(samples)} {
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;

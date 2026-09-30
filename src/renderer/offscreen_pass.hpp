@@ -21,8 +21,7 @@ public:
     /// `gpu` is the GPU interface's device, which is handed every image
     /// made here as a texture.
     OffscreenPass(Device& device, gpu::Device& gpu, VmaAllocator allocator,
-                  uint32_t width, uint32_t height,
-                  VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+                  uint32_t width, uint32_t height, gpu::Samples samples = gpu::Samples::x1);
     ~OffscreenPass();
 
     OffscreenPass(const OffscreenPass&) = delete;
@@ -68,7 +67,6 @@ public:
     /// The resolve target alone, null at one sample, for the scope that fills it.
     [[nodiscard]] VkImageView resolve_water_depth_view() const { return resolve_water_depth_view_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
-    [[nodiscard]] VkSampleCountFlagBits sample_count() const { return msaa_samples_; }
     [[nodiscard]] gpu::Samples samples() const { return gpu::vulkan::from_vk(msaa_samples_); }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     [[nodiscard]] VkDescriptorSet depth_imgui_texture();

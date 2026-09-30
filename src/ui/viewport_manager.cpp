@@ -16,7 +16,7 @@
 
 namespace fjell {
 
-void ViewportManager::init(Device& device, VmaAllocator allocator, VkSampleCountFlagBits msaa_samples) {
+void ViewportManager::init(Device& device, VmaAllocator allocator, gpu::Samples msaa_samples) {
     device_ = &device;
     allocator_ = allocator;
     msaa_samples_ = msaa_samples;

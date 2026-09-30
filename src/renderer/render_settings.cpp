@@ -16,21 +16,18 @@
 
 namespace fjell {
 
-// Serialize VkSampleCountFlagBits as the raw sample count (1/2/4/8/…).
-// Keeps the JSON human-readable and keeps us honest about the values
-// we actually store.
-static uint32_t sample_count_to_u32(VkSampleCountFlagBits b) {
-    return static_cast<uint32_t>(b);
+// A sample count is stored as the number itself (1/2/4/8), which keeps the
+// JSON human-readable; anything else reads as the default, four.
+static uint32_t sample_count_to_u32(gpu::Samples samples) {
+    return static_cast<uint32_t>(samples);
 }
 
-static VkSampleCountFlagBits sample_count_from_u32(uint32_t v) {
+static gpu::Samples sample_count_from_u32(uint32_t v) {
     switch (v) {
-        case 1:  return VK_SAMPLE_COUNT_1_BIT;
-        case 2:  return VK_SAMPLE_COUNT_2_BIT;
-        case 4:  return VK_SAMPLE_COUNT_4_BIT;
-        case 8:  return VK_SAMPLE_COUNT_8_BIT;
-        case 16: return VK_SAMPLE_COUNT_16_BIT;
-        default: return VK_SAMPLE_COUNT_4_BIT;
+        case 1: return gpu::Samples::x1;
+        case 2: return gpu::Samples::x2;
+        case 8: return gpu::Samples::x8;
+        default: return gpu::Samples::x4;
     }
 }
 

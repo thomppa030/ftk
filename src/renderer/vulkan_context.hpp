@@ -155,7 +155,7 @@ public:
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
   /// The GPU interface's device.
   [[nodiscard]] gpu::Device &gpu_device() { return gpu_.core().gpu_device(); }
-  [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
+  [[nodiscard]] gpu::Samples msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
   [[nodiscard]] bool async_compute_supported() const { return gpu_.async_compute_supported(); }
   /// The project's choice; whether a frame actually uses the compute queue

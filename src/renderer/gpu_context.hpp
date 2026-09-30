@@ -137,7 +137,7 @@ public:
     [[nodiscard]] gpu::Sampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
-    [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
+    [[nodiscard]] gpu::Samples msaa_samples() const { return msaa_samples_; }
     [[nodiscard]] bool ray_tracing_supported() const { return core_.device().ray_tracing_supported(); }
 
     // ── Stats ───────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ private:
     gpu::Owned<gpu::Texture> unoccluded_;
     gpu::Sampler gi_fallback_sampler_{};
 
-    VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
+    gpu::Samples msaa_samples_{gpu::Samples::x1};
     std::unique_ptr<RenderStats> render_stats_;
 
 };

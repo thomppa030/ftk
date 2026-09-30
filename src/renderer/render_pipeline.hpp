@@ -110,7 +110,7 @@ public:
     /// caller uses this to decide whether to submit it and wait on its
     /// timeline semaphore.
     [[nodiscard]] bool execute(VkCommandBuffer cmd, OffscreenPass& target,
-                               VkSampleCountFlagBits msaa, uint32_t active_sources,
+                               gpu::Samples msaa, uint32_t active_sources,
                                ThreadPool& pool, ThreadCommandPools& secondary_pools,
                                uint32_t frame_index, ResourceRegistry& registry,
                                PassRegistry& passes, PostProcessResources* pp_resources,
