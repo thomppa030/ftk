@@ -1,18 +1,17 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <span>
 #include <vector>
 
@@ -61,7 +60,10 @@ private:
     uint32_t count{0};
   };
 
-  void record_runs(const FrameContext &ctx, std::span<const SpriteRun> runs);
+  void record_runs(const FrameContext &ctx, gpu::RenderEncoder &pass,
+                   std::span<const SpriteRun> runs);
+  /// Sets `pipeline` and binds what every sprite pipeline reads.
+  void use(const FrameContext &ctx, gpu::RenderEncoder &pass, gpu::GraphicsPipeline pipeline);
 
   struct GpuSprite {
     glm::vec3 position;       // 12
@@ -90,30 +92,18 @@ private:
   static_assert(offsetof(GpuSprite, metallic) == 72);
   static_assert(offsetof(GpuSprite, emission) == 76);
 
-  VkDevice device_{VK_NULL_HANDLE};
-  VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-  VmaAllocator allocator_{VK_NULL_HANDLE};
+  gpu::Device *gpu_{nullptr};
 
-  // Pipeline (one per bucket; same layout, different shader pair + state)
-  VkDescriptorSetLayout sprite_set_layout_{VK_NULL_HANDLE};
-  VkPipelineLayout layout_{VK_NULL_HANDLE};
-  std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
+  // One pipeline per bucket, the same bindings, a different shader pair and
+  // state.
+  std::array<gpu::Owned<gpu::GraphicsPipeline>, static_cast<size_t>(Bucket::Count)> pipelines_;
   // Depth-only pipeline used in the depth prepass. Draws the same lit-opaque
   // sprite range, but writes only depth (no color attachments). Lets lit-flat
   // sprites contribute to Hi-Z, contact shadows, and SS-GI neighbour reads.
-  VkPipeline depth_pipeline_{VK_NULL_HANDLE};
+  gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
 
-  // Double-buffered SSBOs
-  std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> sprite_ssbos_;
-  std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sprite_sets_{};
-  VkDescriptorPool pool_{VK_NULL_HANDLE};
-
-  // Cached layouts from PassResources
-  VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-  VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
-  VkFormat color_format_{VK_FORMAT_UNDEFINED};
-  VkFormat depth_format_{VK_FORMAT_UNDEFINED};
-  VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
+  /// The frame slot's sprites, written by update() and read by its frame.
+  std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> sprite_buffers_;
 
   // Per frame, into that frame's SSBO, which holds the transparent sprites
   // and then the opaque ones: the transparent ones as runs in layer order,
@@ -122,7 +112,7 @@ private:
   std::array<SpriteRun, MAX_FRAMES_IN_FLIGHT> opaque_range_{};
 
   static constexpr uint32_t MAX_SPRITES = 4096;
-  static constexpr VkDeviceSize SSBO_SIZE = MAX_SPRITES * sizeof(GpuSprite);
+  static constexpr uint64_t SPRITE_BUFFER_SIZE = MAX_SPRITES * sizeof(GpuSprite);
 
   // Reusable per-frame scratch (avoid heap allocs every frame)
   struct SortEntry {

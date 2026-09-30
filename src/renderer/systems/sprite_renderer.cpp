@@ -1,9 +1,8 @@
 #include "renderer/systems/sprite_renderer.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/offscreen_pass.hpp"
+#include "gpu/device.hpp"
+#include "gpu/render_encoder.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/texture.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "renderer/frustum.hpp"
 #include "core/base_path.hpp"
@@ -15,288 +14,84 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <stdexcept>
 
 namespace fjell {
 
-void SpriteRenderer::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    global_set_layout_ = resources.global_set_layout;
-    bindless_set_layout_ = resources.material_set_layout; // bindless textures layout
-    color_format_ = resources.color_format;
-    depth_format_ = resources.depth_format;
-    sample_count_ = resources.sample_count;
+void SpriteRenderer::create(Device& /*device*/, const PassResources& resources) {
+    gpu_ = resources.device;
+    gpu::Device& gpu = *gpu_;
 
-    // Sprite SSBO descriptor set layout (set 2, binding 0)
-    VkDescriptorSetLayoutBinding ssbo_binding{};
-    ssbo_binding.binding = 0;
-    ssbo_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ssbo_binding.descriptorCount = 1;
-    ssbo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 1;
-    layout_ci.pBindings = &ssbo_binding;
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &sprite_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sprite set layout");
-    }
-
-    // Pipeline layout: set 0 = global, set 1 = bindless textures, set 2 = sprite SSBO
-    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, sprite_set_layout_};
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 3;
-    pipe_layout_ci.pSetLayouts = sets;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sprite pipeline layout");
-    }
-
-    // Build all three bucket pipelines. Shared state first, then per-bucket
-    // overrides for shader pair, depth-write, and blend.
-    auto unlit_vert = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.vert.spv")));
-    auto unlit_frag = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.frag.spv")));
-    auto lit_vert   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_lit.vert.spv")));
-    auto lit_frag   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_lit.frag.spv")));
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = 2;
-    dynamic_state.pDynamicStates = dynamic_states;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = sample_count_;
-
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 4;
-    rendering_info.pColorAttachmentFormats = color_formats;
-    rendering_info.depthAttachmentFormat = depth_format_;
-
-    auto build_pipeline = [&](VkShaderModule vmod, VkShaderModule fmod,
-                              bool depth_write, bool alpha_blend,
-                              VkPipeline& out) {
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vmod;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = fmod;
-        stages[1].pName = "main";
-
-        VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-        depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depth_stencil.depthTestEnable = VK_TRUE;
-        depth_stencil.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
-        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-        VkPipelineColorBlendAttachmentState color_blend{};
-        color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        if (alpha_blend) {
-            color_blend.blendEnable = VK_TRUE;
-            color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            color_blend.colorBlendOp = VK_BLEND_OP_ADD;
-            color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
-        } else {
-            color_blend.blendEnable = VK_FALSE;
-        }
-
-        // Lit pipelines write the full GBuffer (color, MR, normal); unlit
-        // pipelines mask MR/normal/velocity to keep zeroes in the GBuffer
-        // (matches the existing unlit behaviour).
-        const bool write_gbuffer = (vmod == lit_vert);
-
-        VkPipelineColorBlendAttachmentState mr_blend{};
-        mr_blend.colorWriteMask = write_gbuffer
-            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT)
-            : 0;
-        mr_blend.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState normal_blend{};
-        normal_blend.colorWriteMask = write_gbuffer
-            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT)
-            : 0;
-        normal_blend.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState velocity_blend{};
-        velocity_blend.colorWriteMask = 0;
-        velocity_blend.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState blend_attachments[] = {color_blend, mr_blend, normal_blend, velocity_blend};
-
-        VkPipelineColorBlendStateCreateInfo color_blending{};
-        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 4;
-        color_blending.pAttachments = blend_attachments;
-
-        VkGraphicsPipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        ci.pNext = &rendering_info;
-        ci.stageCount = 2;
-        ci.pStages = stages;
-        ci.pVertexInputState = &vertex_input;
-        ci.pInputAssemblyState = &input_assembly;
-        ci.pViewportState = &viewport_state;
-        ci.pRasterizationState = &rasterizer;
-        ci.pMultisampleState = &multisampling;
-        ci.pDepthStencilState = &depth_stencil;
-        ci.pColorBlendState = &color_blending;
-        ci.pDynamicState = &dynamic_state;
-        ci.layout = layout_;
-
-        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &out) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create sprite pipeline");
-        }
+    // The scene's four colour targets: colour, metallic/roughness, normal and
+    // motion. Lit sprites write the surface beside the colour; unlit ones
+    // leave it alone, and nothing writes motion.
+    auto targets = [&](gpu::Blend colour_blend, bool surface) {
+        const gpu::ChannelMask surface_channels =
+            surface ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
+        return std::vector<gpu::ColorTarget>{
+            {resources.scene_color_format, colour_blend},
+            {resources.scene_mr_format, gpu::Blend::none, surface_channels},
+            {resources.scene_normal_format, gpu::Blend::none, surface_channels},
+            {resources.scene_velocity_format, gpu::Blend::none, gpu::ChannelMask{}},
+        };
     };
+    auto make = [&](gpu::GraphicsPipelineDesc desc) {
+        desc.depth_format = resources.scene_depth_format;
+        desc.samples = resources.samples;
+        desc.shared = {resources.globals, resources.bindless};
+        auto made = gpu.create(desc);
+        if (!made) throw std::runtime_error("Sprites: " + made.error());
+        return std::move(*made);
+    };
+    // Transparent sprites blend over the scene, depth tested but not
+    // written; lit-flat ones are opaque and occlude.
+    pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)] = make({
+        .vertex = "shaders/sprite.vert",
+        .fragment = "shaders/sprite.frag",
+        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .color = targets(gpu::Blend::alpha, false),
+        .name = "sprite",
+    });
+    pipelines_[static_cast<size_t>(Bucket::LitTransparent)] = make({
+        .vertex = "shaders/sprite_lit.vert",
+        .fragment = "shaders/sprite_lit.frag",
+        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .color = targets(gpu::Blend::alpha, true),
+        .name = "sprite_lit_billboard",
+    });
+    pipelines_[static_cast<size_t>(Bucket::LitOpaque)] = make({
+        .vertex = "shaders/sprite_lit.vert",
+        .fragment = "shaders/sprite_lit.frag",
+        .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
+        .color = targets(gpu::Blend::none, true),
+        .name = "sprite_lit_flat",
+    });
+    // The lit vertex shader with a tiny alpha-discard fragment, depth only.
+    depth_pipeline_ = make({
+        .vertex = "shaders/sprite_lit.vert",
+        .fragment = "shaders/sprite_depth.frag",
+        .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+        .name = "sprite_depth",
+    });
 
-    build_pipeline(unlit_vert, unlit_frag, /*depth_write=*/false, /*alpha_blend=*/true,
-                   pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)]);
-    build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/false, /*alpha_blend=*/true,
-                   pipelines_[static_cast<size_t>(Bucket::LitTransparent)]);
-    build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/true,  /*alpha_blend=*/false,
-                   pipelines_[static_cast<size_t>(Bucket::LitOpaque)]);
-
-    // Depth-only pipeline: no color attachments, depth write on. Reuses the
-    // lit vertex shader and a tiny alpha-discard fragment.
-    {
-        auto depth_frag = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_depth.frag.spv")));
-
-        VkPipelineShaderStageCreateInfo depth_stages[2]{};
-        depth_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        depth_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        depth_stages[0].module = lit_vert;
-        depth_stages[0].pName = "main";
-        depth_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        depth_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        depth_stages[1].module = depth_frag;
-        depth_stages[1].pName = "main";
-
-        VkPipelineDepthStencilStateCreateInfo depth_ds{};
-        depth_ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depth_ds.depthTestEnable = VK_TRUE;
-        depth_ds.depthWriteEnable = VK_TRUE;
-        depth_ds.depthCompareOp = VK_COMPARE_OP_LESS;
-
-        VkPipelineColorBlendStateCreateInfo no_blend{};
-        no_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        no_blend.attachmentCount = 0;
-
-        VkPipelineRenderingCreateInfo depth_rendering{};
-        depth_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-        depth_rendering.colorAttachmentCount = 0;
-        depth_rendering.depthAttachmentFormat = depth_format_;
-
-        VkGraphicsPipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        ci.pNext = &depth_rendering;
-        ci.stageCount = 2;
-        ci.pStages = depth_stages;
-        ci.pVertexInputState = &vertex_input;
-        ci.pInputAssemblyState = &input_assembly;
-        ci.pViewportState = &viewport_state;
-        ci.pRasterizationState = &rasterizer;
-        ci.pMultisampleState = &multisampling;
-        ci.pDepthStencilState = &depth_ds;
-        ci.pColorBlendState = &no_blend;
-        ci.pDynamicState = &dynamic_state;
-        ci.layout = layout_;
-
-        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &depth_pipeline_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create sprite depth pipeline");
-        }
-        vkDestroyShaderModule(device_, depth_frag, nullptr);
-    }
-
-    vkDestroyShaderModule(device_, unlit_vert, nullptr);
-    vkDestroyShaderModule(device_, unlit_frag, nullptr);
-    vkDestroyShaderModule(device_, lit_vert, nullptr);
-    vkDestroyShaderModule(device_, lit_frag, nullptr);
-
-    // Descriptor pool for 2 sprite SSBO sets
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-    VkDescriptorPoolCreateInfo desc_pool_ci{};
-    desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    desc_pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-    desc_pool_ci.poolSizeCount = 1;
-    desc_pool_ci.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sprite descriptor pool");
-    }
-
-    // Double-buffered SSBOs + descriptor sets
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        sprite_ssbos_[i] = std::make_unique<Buffer>(
-            allocator_, SSBO_SIZE,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        sprite_ssbos_[i]->map();
-
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = pool_;
-        alloc.descriptorSetCount = 1;
-        alloc.pSetLayouts = &sprite_set_layout_;
-        if (vkAllocateDescriptorSets(device_, &alloc, &sprite_sets_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate sprite descriptor set");
-        }
-
-        VkDescriptorBufferInfo buf_info{sprite_ssbos_[i]->handle(), 0, SSBO_SIZE};
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = sprite_sets_[i];
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo = &buf_info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    for (auto& buffer : sprite_buffers_) {
+        auto made = gpu.create(gpu::BufferDesc{
+            .size = SPRITE_BUFFER_SIZE,
+            .use = gpu::BufferUse::storage,
+            .memory = gpu::Memory::upload,
+            .name = "sprites",
+        });
+        if (!made) throw std::runtime_error("Sprites: " + made.error());
+        buffer = std::move(*made);
     }
 
     FJELL_GFX_DEBUG("Sprite renderer created");
 }
 
 void SpriteRenderer::destroy() {
-    auto safe_destroy = [&](auto& handle, auto destroy_fn) {
-        if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
-    };
-
-    for (auto& ssbo : sprite_ssbos_) ssbo.reset();
-    safe_destroy(pool_, vkDestroyDescriptorPool);
-    for (auto& pipe : pipelines_) safe_destroy(pipe, vkDestroyPipeline);
-    safe_destroy(depth_pipeline_, vkDestroyPipeline);
-    safe_destroy(layout_, vkDestroyPipelineLayout);
-    safe_destroy(sprite_set_layout_, vkDestroyDescriptorSetLayout);
+    for (auto& buffer : sprite_buffers_) buffer.reset();
+    for (auto& pipeline : pipelines_) pipeline.reset();
+    depth_pipeline_.reset();
 }
 
 void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
@@ -342,38 +137,30 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void SpriteRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
+void SpriteRenderer::use(const FrameContext& ctx, gpu::RenderEncoder& pass,
+                         gpu::GraphicsPipeline pipeline) {
+    pass.set_pipeline(pipeline);
+    pass.bind(ctx.globals);
+    pass.bind(ctx.bindless);
+    pass.bind({{"SpriteBuffer", gpu::storage(sprite_buffers_[ctx.frame_index])}});
+}
+
+void SpriteRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     FJELL_PROFILE_SCOPE_N("sprite_record_depth");
     const SpriteRun& range = opaque_range_[ctx.frame_index];
     if (range.count == 0) return;
-
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, depth_pipeline_);
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    VkDescriptorSet sets[] = {ctx.global_descriptor_set, ctx.bindless_set, sprite_sets_[ctx.frame_index]};
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 3, sets, 0, nullptr);
-
-    vkCmdDraw(ctx.cmd, range.count * 6, 1, range.first * 6, 0);
+    use(ctx, pass, depth_pipeline_);
+    pass.draw(range.count * 6, 1, range.first * 6, 0);
 }
 
-void SpriteRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
-    record_runs(ctx, std::span(&opaque_range_[ctx.frame_index], 1));
+void SpriteRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+    record_runs(ctx, pass, std::span(&opaque_range_[ctx.frame_index], 1));
 }
 
-void SpriteRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
+void SpriteRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     // Unlit sprites and lit billboards blend in one list in layer order,
     // switching pipeline where one kind follows the other.
-    record_runs(ctx, transparent_runs_[ctx.frame_index]);
+    record_runs(ctx, pass, transparent_runs_[ctx.frame_index]);
 }
 
 void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
@@ -473,7 +260,7 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
     opaque = {Bucket::LitOpaque, 0, 0};
 
     if (count > 0) {
-        auto* dst = static_cast<GpuSprite*>(sprite_ssbos_[frame_index]->mapped());
+        auto* dst = reinterpret_cast<GpuSprite*>(gpu_->mapped(sprite_buffers_[frame_index]).data());
         for (uint32_t i = 0; i < count; ++i) {
             dst[i] = sprites[sort_entries[i].index];
         }
@@ -491,36 +278,21 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
     }
 }
 
-void SpriteRenderer::record_runs(const FrameContext& ctx, std::span<const SpriteRun> runs) {
+void SpriteRenderer::record_runs(const FrameContext& ctx, gpu::RenderEncoder& pass,
+                                 std::span<const SpriteRun> runs) {
     FJELL_PROFILE_SCOPE_N("sprite_record_runs");
-    if (std::ranges::all_of(runs, [](const SpriteRun& run) { return run.count == 0; })) return;
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    VkDescriptorSet sets[] = {ctx.global_descriptor_set, ctx.bindless_set, sprite_sets_[ctx.frame_index]};
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 3, sets, 0, nullptr);
-
-    VkPipeline bound = VK_NULL_HANDLE;
+    gpu::GraphicsPipeline bound{};
     for (const SpriteRun& run : runs) {
         if (run.count == 0) continue;
-        const VkPipeline wanted = pipelines_[static_cast<size_t>(run.bucket)];
+        const gpu::GraphicsPipeline wanted = pipelines_[static_cast<size_t>(run.bucket)];
         if (wanted != bound) {
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            use(ctx, pass, wanted);
             bound = wanted;
         }
         // Each sprite is 6 vertices. The vertex shader keys off
-        // gl_VertexIndex / 6 to look up the sprite in the SSBO; firstVertex
-        // shifts that onto the run without reuploading anything.
-        vkCmdDraw(ctx.cmd, run.count * 6, 1, run.first * 6, 0);
+        // gl_VertexIndex / 6 to look up the sprite in the buffer; the first
+        // vertex shifts that onto the run without reuploading anything.
+        pass.draw(run.count * 6, 1, run.first * 6, 0);
     }
 }
 

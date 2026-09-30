@@ -74,8 +74,6 @@ src/renderer/scene_viewport.cpp
 src/renderer/scene_viewport.hpp
 src/renderer/systems/particle_system.cpp
 src/renderer/systems/particle_system.hpp
-src/renderer/systems/sprite_renderer.cpp
-src/renderer/systems/sprite_renderer.hpp
 src/renderer/viewport_source.hpp
 src/renderer/viz_image.cpp
 src/renderer/viz_image.hpp
