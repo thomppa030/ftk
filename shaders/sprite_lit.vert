@@ -5,23 +5,7 @@
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
-struct Sprite {
-    vec3  position;
-    uint  flags;        // bit 0: flat, bit 1: flip_h, bit 2: lit
-    vec2  size;
-    uint  texture_index;
-    float opacity;
-    vec4  tint;
-    vec4  uv_rect;
-    uint  normal_index;
-    float roughness;
-    float metallic;
-    float emission;
-};
-
-layout(std430, set = 2, binding = 0) readonly buffer SpriteBuffer {
-    Sprite sprites[];
-};
+#include "fjell_sprite.glsl"
 
 layout(location = 0) out vec2 frag_uv;
 layout(location = 1) out flat uint frag_tex_index;

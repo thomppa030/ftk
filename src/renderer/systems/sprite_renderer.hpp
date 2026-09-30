@@ -10,6 +10,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -67,7 +68,19 @@ private:
     float metallic;           // 4
     float emission;           // 4
   };
+  // Mirrored by `Sprite` in shaders/include/fjell_sprite.glsl (std430),
+  // which every sprite vertex shader includes.
   static_assert(sizeof(GpuSprite) == 80);
+  static_assert(offsetof(GpuSprite, flags) == 12);
+  static_assert(offsetof(GpuSprite, size) == 16);
+  static_assert(offsetof(GpuSprite, texture_index) == 24);
+  static_assert(offsetof(GpuSprite, opacity) == 28);
+  static_assert(offsetof(GpuSprite, tint) == 32);
+  static_assert(offsetof(GpuSprite, uv_rect) == 48);
+  static_assert(offsetof(GpuSprite, normal_index) == 64);
+  static_assert(offsetof(GpuSprite, roughness) == 68);
+  static_assert(offsetof(GpuSprite, metallic) == 72);
+  static_assert(offsetof(GpuSprite, emission) == 76);
 
   VkDevice device_{VK_NULL_HANDLE};
   VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
