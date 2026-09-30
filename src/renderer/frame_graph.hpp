@@ -21,12 +21,16 @@
 namespace fjell {
 
 namespace gpu {
+class CommandList;
+class Frame;
+}
+
+namespace gpu {
 class Device;
 }
 
 class PassBuilder;
 class ThreadPool;
-class ThreadCommandPools;
 
 // Subresource range tracked by the frame graph: a part of an image with a
 // state of its own. A count of gpu::TextureView::REST reaches to the last.
@@ -281,8 +285,7 @@ public:
     [[nodiscard]] bool execute(VkCommandBuffer graphics_pre,
                                VkCommandBuffer graphics_post,
                                VkCommandBuffer async_compute,
-                               ThreadPool* pool, ThreadCommandPools* cmd_pools,
-                               uint32_t frame_index);
+                               ThreadPool* pool, gpu::Frame* frame);
 
     // Compute per-image lifetime (first/last pass index, unioned image
     // usage flags) over the currently submitted pass list. Indices point
@@ -453,7 +456,7 @@ private:
     uint64_t frame_serial_{0};
 
     // Reusable scratch, so a run allocates nothing on its hot path.
-    std::vector<VkCommandBuffer> secondaries_scratch_;
+    std::vector<gpu::CommandList*> parallel_scratch_;
     std::vector<gpu::Transition> transitions_scratch_;
     std::vector<BufferUse> merged_buffers_scratch_;
     std::vector<uint32_t> handle_to_buffer_scratch_;

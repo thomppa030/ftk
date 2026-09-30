@@ -273,6 +273,11 @@ Device::Impl::~Impl() {
         for (VkCommandPool pool : slot->impl.pools) {
             if (pool != VK_NULL_HANDLE) vkDestroyCommandPool(device, pool, nullptr);
         }
+        for (const auto& [thread, pools] : slot->impl.parallel_pools) {
+            for (VkCommandPool pool : pools.pools) {
+                if (pool != VK_NULL_HANDLE) vkDestroyCommandPool(device, pool, nullptr);
+            }
+        }
     }
     frame_sets.destroy();
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);

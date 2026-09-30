@@ -9,6 +9,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell::gpu {
@@ -44,6 +47,18 @@ struct Frame::Impl {
     std::array<size_t, QUEUES> used{};
 
     std::vector<std::unique_ptr<FrameList>> lists;
+
+    /// What `parallel_commands` hands out: a pool per thread and queue, since
+    /// a pool is used by one thread at a time, made when a thread first
+    /// asks and reset with the slot, and the lists made from them.
+    struct ThreadPools {
+        std::array<VkCommandPool, QUEUES> pools{};
+        std::array<std::vector<VkCommandBuffer>, QUEUES> buffers;
+        std::array<size_t, QUEUES> used{};
+    };
+    std::mutex parallel_mutex;
+    std::unordered_map<std::thread::id, ThreadPools> parallel_pools;
+    std::vector<std::unique_ptr<FrameList>> parallel_lists;
 
     struct Submission {
         CommandList* list{nullptr};

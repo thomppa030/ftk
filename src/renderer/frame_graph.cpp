@@ -1,7 +1,7 @@
 #include "renderer/frame_graph.hpp"
 #include "gpu/vulkan/access.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/thread_command_pools.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
@@ -1025,10 +1025,10 @@ gpu::TextureView FrameGraph::image_range(const TrackedImage& img, const Subresou
 bool FrameGraph::execute(VkCommandBuffer graphics_pre,
                           VkCommandBuffer graphics_post,
                           VkCommandBuffer async_compute,
-                          ThreadPool* pool, ThreadCommandPools* cmd_pools,
-                          uint32_t frame_index) {
+                          ThreadPool* pool, gpu::Frame* frame) {
     FJELL_PROFILE_SCOPE_N("frame_graph_execute");
-    bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
+    // Parallel lists come from the frame of a real device.
+    bool can_parallelize = pool && frame && device_host_for_ != nullptr && pool->thread_count() > 0;
     bool recorded_async = false;
 
     // Pre-scan for the first async-compute pass. Every graphics pass at
@@ -1088,40 +1088,27 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
             emit_barriers_for_pass(cb_for(passes_[p], p), passes_[p]);
         }
 
-        secondaries_scratch_.resize(group_size);
-        auto& secondaries = secondaries_scratch_;
+        parallel_scratch_.resize(group_size);
+        auto& recorded = parallel_scratch_;
 
-        // A command pool may be used by one thread at a time. A chunk runs on
-        // one thread, so its passes record into buffers from the pool its
-        // chunk id names.
+        // Each pass records on whichever thread takes it, into a list of that
+        // thread's.
         pool->parallel_for(0, static_cast<uint32_t>(group_size), 1,
-            [&](uint32_t chunk, uint32_t first, uint32_t last) {
+            [&](uint32_t /*chunk*/, uint32_t first, uint32_t last) {
                 for (uint32_t p = first; p < last; ++p) {
-                    VkCommandBuffer secondary = cmd_pools->allocate_secondary(chunk, frame_index);
-
-                    VkCommandBufferInheritanceInfo inheritance{};
-                    inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-
-                    VkCommandBufferBeginInfo begin_info{};
-                    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                    begin_info.pInheritanceInfo = &inheritance;
-
-                    vk_check(vkBeginCommandBuffer(secondary, &begin_info),
-                             "Failed to begin a parallel pass's command buffer");
-                    passes_[group_begin + p].execute(secondary);
-                    vk_check(vkEndCommandBuffer(secondary),
-                             "Failed to end a parallel pass's command buffer");
-                    secondaries[p] = secondary;
+                    gpu::CommandList& list = frame->parallel_commands(gpu::Queue::graphics);
+                    passes_[group_begin + p].execute(gpu::vulkan::native_command_buffer(list));
+                    recorded[p] = &list;
                 }
             });
 
         // Parallel groups are graphics-only (depth_prepass + shadow are
-        // the only current users). Pick the first pass's CB; a mixed-
-        // queue parallel group isn't supported — we'd need separate
-        // execute_commands into each CB.
-        vkCmdExecuteCommands(cb_for(passes_[group_begin], group_begin),
-                              static_cast<uint32_t>(group_size), secondaries.data());
+        // the only current users), played in the first pass's list; a
+        // mixed-queue group would need one play per list.
+        {
+            gpu::vulkan::CommandBufferList host(*device_host_for_, cb_for(passes_[group_begin], group_begin));
+            host.list().execute(recorded);
+        }
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
             apply_final_states(passes_[p]);
