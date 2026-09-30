@@ -984,9 +984,11 @@ void AssetThumbnailRenderer::finish_reads(const Deps& deps) {
         if (!flight.capture.read.ready()) return false;
         const auto texels = flight.capture.read.pixels();
         Pixels read{flight.capture.read.width(), flight.capture.read.height(), {texels.begin(), texels.end()}};
-        (void)deps.thread_pool->submit([inbox = inbox_, path = std::move(flight.path), render = flight.render,
+        // The cache file's path is taken before the asset's is moved away.
+        (void)deps.thread_pool->submit([inbox = inbox_, cached = cache_path(flight.path),
+                                        path = std::move(flight.path), render = flight.render,
                                         newest = flight.newest, centre = flight.capture.centre,
-                                        cached = cache_path(flight.path), read = std::move(read)]() mutable {
+                                        read = std::move(read)]() mutable {
             Pixels thumbnail = centre ? centred(read) : std::move(read);
             std::error_code ec;
             fs::create_directories(cached.parent_path(), ec);
