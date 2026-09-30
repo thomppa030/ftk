@@ -1697,6 +1697,11 @@ void VulkanContext::sync_custom_depth_pipelines() {
 // ── Scene Viewports ──────────────────────────────────────────────────────
 
 uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config) {
+    // A name already taken is replaced, and the old viewport goes the way
+    // destroy takes it: its images outlive the frames sampling them, and its
+    // table entry is emptied.
+    if (scene_viewports_.contains(config.name)) destroy_scene_viewport(config.name);
+
     uint32_t bindless_idx =
         gpu_.bindless_textures().reserve_index(gpu_device().sampler({.address = gpu::Address::clamp}));
 
