@@ -13,7 +13,6 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"
-#include "renderer/gpu/thread_command_pools.hpp"
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -59,8 +58,6 @@ public:
     [[nodiscard]] const gpu::Swapchain& swapchain() const { return *swapchain_; }
 
     // ── Command infrastructure ──────────────────────────────────────────
-    [[nodiscard]] ThreadCommandPools& secondary_pools() { return secondary_pools_; }
-    void ensure_secondary_pools(uint32_t thread_count);
 
     [[nodiscard]] bool async_compute_supported() const {
         return core_.device().async_compute_supported();
@@ -154,8 +151,6 @@ private:
     GpuCore core_;
     std::unique_ptr<gpu::Swapchain> swapchain_;
 
-    ThreadCommandPools secondary_pools_;
-    bool secondary_pools_initialized_{false};
 
     // Descriptors
     GlobalBindings global_bindings_;

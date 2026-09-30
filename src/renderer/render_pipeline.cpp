@@ -14,7 +14,6 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/transient_image_pool.hpp"
-#include "renderer/gpu/thread_command_pools.hpp"
 #include "scene/scene.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
@@ -86,7 +85,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
 
 bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               gpu::Samples msaa, uint32_t active_sources,
-                              ThreadPool& pool, ThreadCommandPools& secondary_pools,
+                              ThreadPool& pool, gpu::Frame& frame,
                               uint32_t frame_index, ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
                               const FrameContext& ctx,
@@ -745,7 +744,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // renderer) cause FrameGraph to fold everything back into the
     // graphics CB — same as single-CB behavior.
     return graph.execute(cmd, ctx.graphics_post_cmd, ctx.async_compute_cmd,
-                         &pool, &secondary_pools, frame_index);
+                         &pool, &frame);
 }
 
 } // namespace fjell

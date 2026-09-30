@@ -108,6 +108,46 @@ CommandList& Frame::commands(Queue queue) {
     return impl_->lists.back()->list;
 }
 
+CommandList& Frame::parallel_commands(Queue queue) {
+    Device::Impl& device = device_->impl();
+    if (queue == Queue::compute && !device.caps.async_compute) queue = Queue::graphics;
+    const size_t q = queue_index(queue);
+
+    // The map's elements stay where they are as it grows, so this thread's
+    // pools are its own to use once found.
+    Frame::Impl::ThreadPools* mine = nullptr;
+    {
+        std::lock_guard lock(impl_->parallel_mutex);
+        mine = &impl_->parallel_pools[std::this_thread::get_id()];
+    }
+    if (mine->pools[q] == VK_NULL_HANDLE) mine->pools[q] = make_pool(device.device, device.families[q]);
+    if (mine->used[q] == mine->buffers[q].size()) {
+        VkCommandBufferAllocateInfo allocate{};
+        allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocate.commandPool = mine->pools[q];
+        allocate.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+        allocate.commandBufferCount = 1;
+        VkCommandBuffer made{VK_NULL_HANDLE};
+        vk_check(vkAllocateCommandBuffers(device.device, &allocate, &made),
+                 "Failed to allocate a parallel list's command buffer");
+        mine->buffers[q].push_back(made);
+    }
+    VkCommandBuffer cb = mine->buffers[q][mine->used[q]++];
+    VkCommandBufferInheritanceInfo inheritance{};
+    inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin.pInheritanceInfo = &inheritance;
+    vk_check(vkBeginCommandBuffer(cb, &begin), "Failed to begin a parallel list's command buffer");
+
+    auto made = std::make_unique<FrameList>(*device_, cb, queue);
+    made->impl.parallel_open = true;
+    std::lock_guard lock(impl_->parallel_mutex);
+    impl_->parallel_lists.push_back(std::move(made));
+    return impl_->parallel_lists.back()->list;
+}
+
 void Frame::submit(CommandList& list, const SubmitDesc& desc) {
     Device::Impl& device = device_->impl();
     const bool ours = std::ranges::any_of(
@@ -169,6 +209,15 @@ Frame& Device::begin_frame() {
     }
     frame.used = {};
     frame.lists.clear();
+    for (auto& [thread, pools] : frame.parallel_pools) {
+        for (VkCommandPool pool : pools.pools) {
+            if (pool != VK_NULL_HANDLE) {
+                vk_check(vkResetCommandPool(self.device, pool, 0), "Failed to reset a parallel list pool");
+            }
+        }
+        pools.used = {};
+    }
+    frame.parallel_lists.clear();
     frame.submissions.clear();
     frame.acquired = VK_NULL_HANDLE;
     frame.rendered = VK_NULL_HANDLE;

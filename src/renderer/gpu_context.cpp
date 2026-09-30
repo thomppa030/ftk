@@ -157,7 +157,6 @@ GpuContext::~GpuContext() {
     pipeline_cache_.reset();
 
 
-    secondary_pools_.destroy();
 
     // The swapchain goes next, once the GPU is idle, then GpuCore: the
     // command pool, the device, the allocator, in that order.
@@ -252,14 +251,6 @@ void GpuContext::reset_view_bindings(uint32_t slot) {
         {"contact_shadow", unoccluded},
     };
     global_bindings_.set(slot, entries);
-}
-
-void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
-    if (!secondary_pools_initialized_ && thread_count > 0) {
-        secondary_pools_.create(core_.vk_device(), core_.graphics_family(),
-                                thread_count + 1);
-        secondary_pools_initialized_ = true;
-    }
 }
 
 FrameDescriptorCache& GpuContext::descriptor_cache() {

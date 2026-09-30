@@ -1,6 +1,7 @@
 #include "gpu/vulkan/command_list_impl.hpp"
 
 #include "gpu/vulkan/translate.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -210,6 +211,10 @@ void CommandList::execute(std::span<CommandList* const> recorded_in_parallel) {
         if (list->impl_->rendering) {
             device_->impl().report_once("A command list plays one whose render scope is open");
             return;
+        }
+        if (list->impl_->parallel_open) {
+            vk_check(vkEndCommandBuffer(list->impl_->cb), "Failed to end a list recorded on another thread");
+            list->impl_->parallel_open = false;
         }
         recorded.push_back(list->impl_->cb);
     }

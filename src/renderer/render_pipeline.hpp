@@ -17,7 +17,9 @@ class PassRegistry;
 class PostProcessResources;
 class RenderPass;
 class ThreadPool;
-class ThreadCommandPools;
+namespace gpu {
+class Frame;
+}
 struct FrameContext;
 
 /// Execution phases for render passes. Each phase has a base order value;
@@ -111,7 +113,7 @@ public:
     /// timeline semaphore.
     [[nodiscard]] bool execute(VkCommandBuffer cmd, OffscreenPass& target,
                                gpu::Samples msaa, uint32_t active_sources,
-                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
+                               ThreadPool& pool, gpu::Frame& frame,
                                uint32_t frame_index, ResourceRegistry& registry,
                                PassRegistry& passes, PostProcessResources* pp_resources,
                                const FrameContext& ctx,

@@ -63,6 +63,12 @@ public:
     /// compute queue needs `Caps::async_compute`.
     [[nodiscard]] CommandList& commands(Queue queue);
 
+    /// A list for another thread to record whole passes into (no render
+    /// scope open across its end), played in one of the frame's lists for
+    /// `queue` by `CommandList::execute`. Any thread may ask; the list is
+    /// recorded by the thread that asked for it.
+    [[nodiscard]] CommandList& parallel_commands(Queue queue);
+
     /// Queues `list` to go to the GPU when the frame ends, after the lists
     /// submitted before it on its queue and after `desc.after`. A list that
     /// is never submitted records for nothing.

@@ -2358,7 +2358,7 @@ void Engine::run() {
         }
 
         // Phase 3: Wait for frame slot — GPU is done with this slot after this
-        if (!vulkan_context_->begin_frame(thread_pool_)) continue;
+        if (!vulkan_context_->begin_frame()) continue;
 
         // A capture's read taken in an earlier frame is written out once
         // that frame has finished.

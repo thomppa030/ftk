@@ -549,7 +549,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
                               && current_ctx_.async_compute_cmd != VK_NULL_HANDLE;
     bool any_async = render_pipeline_.execute(
         cmd, target, target.samples(), active_sources_,
-        pool, gpu_.secondary_pools(), current_frame_,
+        pool, *frame_, current_frame_,
         resource_registry_, passes_, pp, current_ctx_,
         async_available,
         viewport_graph);
@@ -1107,7 +1107,7 @@ void VulkanContext::submit_and_present() {
     }
 }
 
-bool VulkanContext::begin_frame(ThreadPool& pool) {
+bool VulkanContext::begin_frame() {
     FJELL_PROFILE_SCOPE_N("begin_frame");
 
     // Clean slate for async tracking. render_scene_to sets this when
@@ -1133,12 +1133,6 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     font_library_->poll();
 
     if (accel_manager_) accel_manager_->begin_frame(frame_serial_);
-
-    // Lazy-init per-thread command pools (needs thread count from pool)
-    gpu_.ensure_secondary_pools(pool.thread_count());
-    if (pool.thread_count() > 0) {
-        gpu_.secondary_pools().reset_frame(current_frame_);
-    }
 
     // The frame's first graphics list waits for the image where it writes
     // colour. Without one (the window changed size, and the swapchain was

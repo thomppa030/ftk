@@ -76,7 +76,7 @@ public:
         }
     }
 
-    void execute() { (void)graph_.execute(nullptr, nullptr, nullptr, nullptr, nullptr, 0); }
+    void execute() { (void)graph_.execute(nullptr, nullptr, nullptr, nullptr, nullptr); }
 
     // The batches recorded after the pass `after` ran and before `before`
     // did; an empty name is the run's start or end.

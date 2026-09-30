@@ -32,6 +32,9 @@ struct CommandList::Impl {
 
     /// While a render scope is open: the list records nothing itself.
     bool rendering{false};
+    /// A list recorded on another thread (`Frame::parallel_commands`), still
+    /// recording until it is played.
+    bool parallel_open{false};
     /// What the open scope draws to, which a graphics pipeline must match.
     std::array<Format, MAX_COLOR_TARGETS> target_colors{};
     uint32_t target_color_count{0};

@@ -94,7 +94,7 @@ public:
   /// After this returns, the GPU is done with this frame slot — safe to
   /// destroy/resize pass resources. Returns false if the swapchain was
   /// recreated and the frame should be skipped.
-  bool begin_frame(ThreadPool &pool);
+  bool begin_frame();
 
   /// Record commands for the current frame. Call after begin_frame() and
   /// after any resize/ImGui work.
