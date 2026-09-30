@@ -52,8 +52,10 @@ jobs:
       - name: Configure
         run: cmake --preset debug
 
+      # Keeps going past a file that fails, so one run lists every file
+      # that does rather than only the first.
       - name: Build
-        run: cmake --build --preset debug
+        run: cmake --build --preset debug -- -k 0
 
       - name: Bake engine fonts
         run: ./build/tools/fjimport/fjimport engine_assets/fonts/Inter.fjfont
@@ -102,8 +104,10 @@ jobs:
       - name: Configure
         run: cmake --preset debug
 
+      # Keeps going past a file that fails, so one run lists every file
+      # that does rather than only the first.
       - name: Build
-        run: cmake --build --preset debug
+        run: cmake --build --preset debug -- -k 0
 
       - name: Bake engine fonts
         run: build\tools\fjimport\fjimport.exe engine_assets\fonts\Inter.fjfont
