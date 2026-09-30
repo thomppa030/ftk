@@ -110,9 +110,8 @@ void DrawDataDescriptor::update(gpu::Buffer buffer, uint64_t size, uint32_t fram
     write(0, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
-void DrawDataDescriptor::update_bones(VkBuffer buffer, VkDeviceSize size,
-                                      uint32_t frame_index) {
-    write(1, buffer, size, frame_index);
+void DrawDataDescriptor::update_bones(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
+    write(1, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
 }
 
 void DrawDataDescriptor::update_instance_transforms(gpu::Buffer buffer, uint64_t size,

@@ -1,69 +1,48 @@
 #include "animation/bone_buffer.hpp"
 
+#include "core/log.hpp"
+#include "gpu/device.hpp"
+
+#include <algorithm>
 #include <cstring>
 
 namespace fjell {
 
-BoneBuffer::BoneBuffer(VkDevice device, VmaAllocator allocator)
-    : device_(device), allocator_(allocator) {
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        buffers_[i] = std::make_unique<Buffer>(
-            allocator_,
-            INITIAL_CAPACITY * sizeof(glm::mat4),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        buffers_[i]->map();
-        capacities_[i] = INITIAL_CAPACITY;
-    }
+BoneBuffer::BoneBuffer(gpu::Device& gpu) : gpu_(gpu) {
+    matrices_.reserve(INITIAL_CAPACITY);
 }
 
-void BoneBuffer::begin_frame(uint32_t frame_index) {
-    offsets_[frame_index] = 0;
+void BoneBuffer::begin_frame() {
+    matrices_.clear();
 }
 
-uint32_t BoneBuffer::upload(const std::vector<glm::mat4>& skin_matrices,
-                            uint32_t frame_index) {
-    auto count = static_cast<uint32_t>(skin_matrices.size());
-    uint32_t offset = offsets_[frame_index];
-
-    ensure_capacity(frame_index, offset + count);
-
-    auto* dst = static_cast<char*>(buffers_[frame_index]->mapped());
-    std::memcpy(dst + offset * sizeof(glm::mat4),
-                skin_matrices.data(),
-                count * sizeof(glm::mat4));
-
-    offsets_[frame_index] += count;
+uint32_t BoneBuffer::upload(const std::vector<glm::mat4>& skin_matrices) {
+    const auto offset = static_cast<uint32_t>(matrices_.size());
+    matrices_.insert(matrices_.end(), skin_matrices.begin(), skin_matrices.end());
     return offset;
 }
 
-void BoneBuffer::ensure_capacity(uint32_t frame_index, uint32_t required) {
-    if (required <= capacities_[frame_index]) return;
-
-    uint32_t new_cap = capacities_[frame_index];
-    while (new_cap < required) {
-        new_cap *= 2;
+void BoneBuffer::end_frame(uint32_t frame_index) {
+    if (matrices_.empty()) return;
+    auto& buffer = buffers_[frame_index];
+    uint64_t& capacity = capacities_[frame_index];
+    if (!buffer || matrices_.size() > capacity) {
+        uint64_t wanted = std::max<uint64_t>(capacity, INITIAL_CAPACITY);
+        while (wanted < matrices_.size()) wanted *= 2;
+        auto made = gpu_.create(gpu::BufferDesc{
+            .size = wanted * sizeof(glm::mat4),
+            .use = gpu::BufferUse::storage,
+            .memory = gpu::Memory::upload,
+            .name = "bone_matrices",
+        });
+        if (!made) {
+            FJELL_GFX_ERROR("{}", made.error());
+            return;
+        }
+        buffer = std::move(*made);
+        capacity = wanted;
     }
-
-    auto new_buf = std::make_unique<Buffer>(
-        allocator_,
-        new_cap * sizeof(glm::mat4),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    new_buf->map();
-
-    // Copy existing data
-    if (offsets_[frame_index] > 0) {
-        std::memcpy(new_buf->mapped(),
-                    buffers_[frame_index]->mapped(),
-                    offsets_[frame_index] * sizeof(glm::mat4));
-    }
-
-    buffers_[frame_index] = std::move(new_buf);
-    capacities_[frame_index] = new_cap;
+    std::memcpy(gpu_.mapped(buffer).data(), matrices_.data(), byte_size());
 }
 
 } // namespace fjell

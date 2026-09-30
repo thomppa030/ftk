@@ -118,8 +118,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 }
 
 void Engine::init_subsystems() {
-    animation_subsystem_ = add_subsystem<AnimationSubsystem>(
-        vulkan_context_->device(), vulkan_context_->allocator());
+    animation_subsystem_ = add_subsystem<AnimationSubsystem>(vulkan_context_->gpu_device());
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
     environment_subsystem_ = add_subsystem<EnvironmentSubsystem>();
     script_subsystem_    = add_subsystem<ScriptSubsystem>();

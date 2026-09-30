@@ -7,8 +7,8 @@
 
 namespace fjell {
 
-AnimationSystem::AnimationSystem(VkDevice device, VmaAllocator allocator)
-    : bone_buffer_{device, allocator} {
+AnimationSystem::AnimationSystem(gpu::Device& gpu)
+    : bone_buffer_{gpu} {
 }
 
 void AnimationSystem::update(Scene& scene, float dt) {
@@ -32,7 +32,7 @@ void AnimationSystem::update(Scene& scene, float dt) {
 
 void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("anim_upload_bones");
-    bone_buffer_.begin_frame(frame_index);
+    bone_buffer_.begin_frame();
 
     // Clear only previously active entries (O(active) instead of O(max_id))
     for (uint32_t id : active_ids_) {
@@ -59,7 +59,7 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
 
         auto* anim = obj->components.get<AnimatorComponent>();
         if (anim && anim->drives_pose()) {
-            uint32_t offset = bone_buffer_.upload(anim->skin_matrices(), frame_index);
+            uint32_t offset = bone_buffer_.upload(anim->skin_matrices());
             bone_offsets_[id] = offset;
             bone_counts_[id] = anim->bone_count();
         } else {
@@ -67,7 +67,7 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
             if (bind_pose_cache_.size() < num_joints) {
                 bind_pose_cache_.resize(num_joints, glm::mat4(1.0f));
             }
-            uint32_t offset = bone_buffer_.upload(bind_pose_cache_, frame_index);
+            uint32_t offset = bone_buffer_.upload(bind_pose_cache_);
             bone_offsets_[id] = offset;
             bone_counts_[id] = num_joints;
         }
@@ -75,6 +75,7 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
         active_ids_.push_back(id);
         bone_entry_count_++;
     }
+    bone_buffer_.end_frame(frame_index);
 }
 
 uint32_t AnimationSystem::bone_offset_for(uint32_t node_id) const {

@@ -10,8 +10,8 @@ namespace fjell {
 
 class AnimationSubsystem : public Subsystem {
 public:
-    AnimationSubsystem(VkDevice device, VmaAllocator allocator)
-        : system_{device, allocator} {}
+    explicit AnimationSubsystem(gpu::Device& gpu)
+        : system_{gpu} {}
 
     [[nodiscard]] std::string_view name() const override { return "Animation"; }
 

@@ -5,11 +5,6 @@
 # no Vulkan left, so the list only shrinks. The one time files are added is
 # the commit that teaches the check a new pattern, and then only the files
 # already using it.
-src/animation/animation_subsystem.hpp
-src/animation/animation_system.cpp
-src/animation/animation_system.hpp
-src/animation/bone_buffer.cpp
-src/animation/bone_buffer.hpp
 src/core/engine.cpp
 src/core/play_controller.cpp
 src/core/play_controller.hpp

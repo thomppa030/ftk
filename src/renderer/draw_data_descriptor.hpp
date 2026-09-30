@@ -29,7 +29,7 @@ public:
     // Each binds the first `size` bytes of a buffer into the frame slot's
     // set; nothing while the buffer is unset or `size` is 0.
     void update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
-    void update_bones(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
+    void update_bones(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
     void update_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
     void update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
     void update_spline_segments(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
