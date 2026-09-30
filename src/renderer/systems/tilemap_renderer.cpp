@@ -17,7 +17,7 @@
 
 namespace fjell {
 
-void TilemapRenderer::create(Device& /*device*/, const PassResources& resources) {
+void TilemapRenderer::create(const PassResources& resources) {
     gpu_ = resources.device;
     gpu::Device& gpu = *gpu_;
 

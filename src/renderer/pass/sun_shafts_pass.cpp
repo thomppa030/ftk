@@ -113,7 +113,7 @@ void SunShaftsPass::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t
 
 // ── SunShaftsPass ──────────────────────────────────────────────────────────
 
-Result<> SunShaftsPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> SunShaftsPass::create(const PassResources& resources) {
     device_ = resources.device;
     sampler_ = device_->sampler({.filter = gpu::Filter::linear,
                                  .mip_filter = gpu::Filter::nearest,
@@ -274,7 +274,7 @@ void SunShaftsPass::record(const FrameContext& ctx) {
 
 // ── SunShaftsResolvePass ───────────────────────────────────────────────────
 
-Result<> SunShaftsResolvePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SunShaftsResolvePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -336,7 +336,7 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
 
 // ── SunShaftsCompositePass ─────────────────────────────────────────────────
 
-Result<> SunShaftsCompositePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SunShaftsCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 

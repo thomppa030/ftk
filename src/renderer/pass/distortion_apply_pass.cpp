@@ -7,7 +7,7 @@
 
 namespace fjell {
 
-Result<> DistortionApplyPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> DistortionApplyPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     sampler_ = device.sampler({.filter = gpu::Filter::linear,
                                .mip_filter = gpu::Filter::nearest,

@@ -19,7 +19,7 @@ struct LightVizPush {
 
 } // namespace
 
-Result<> LightVizPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> LightVizPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, gpu::Format::rgba8_srgb, mode_ == 0 ? "viz_light_heatmap" : "viz_light_grid");
     FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{

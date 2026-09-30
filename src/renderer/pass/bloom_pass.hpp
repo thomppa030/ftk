@@ -55,7 +55,7 @@ constexpr uint32_t BLOOM_MIP_COUNT = 5;
 
 class BloomCore : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
 
     void set_threshold(float t) { threshold_ = t; }
@@ -95,7 +95,7 @@ public:
     explicit BloomDsPass(uint32_t mip_index)
         : mip_index_(mip_index), zone_name_("Bloom Ds" + std::to_string(mip_index)) {}
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -116,7 +116,7 @@ public:
     explicit BloomUsPass(uint32_t dst_mip)
         : dst_mip_(dst_mip), zone_name_("Bloom Us" + std::to_string(dst_mip)) {}
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

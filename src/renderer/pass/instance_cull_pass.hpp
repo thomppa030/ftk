@@ -16,7 +16,7 @@ namespace fjell {
 // Mesh-shader path is unaffected — it culls per meshlet in meshlet_cull.comp.
 class InstanceCullPass : public RenderPass {
 public:
-    [[nodiscard]] Result<> create(Device& device, const PassResources& resources) override;
+    [[nodiscard]] Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

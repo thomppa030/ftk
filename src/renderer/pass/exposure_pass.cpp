@@ -26,7 +26,7 @@ constexpr uint64_t AVERAGE_OFFSET = 256 * sizeof(uint32_t);
 
 } // namespace
 
-Result<> ExposurePass::create(Device& /*device*/, const PassResources& resources) {
+Result<> ExposurePass::create(const PassResources& resources) {
     device_ = resources.device;
     sampler_ = device_->sampler({.filter = gpu::Filter::linear,
                                  .mip_filter = gpu::Filter::nearest,

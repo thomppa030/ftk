@@ -215,7 +215,7 @@ void DdgiPass::Images::remake(gpu::Device& gpu, const DdgiConfig& config,
 
 // ── DdgiPass ────────────────────────────────────────────────────────────
 
-Result<> DdgiPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> DdgiPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
 
     // Linear sampler for the SDF, the atlases and the screen

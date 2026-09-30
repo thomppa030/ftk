@@ -137,7 +137,7 @@ gpu::GraphicsPipelineDesc sky_pipeline(const PassResources& resources, gpu::Shad
 
 } // namespace
 
-Result<> SkyPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> SkyPass::create(const PassResources& resources) {
     cached_resources_ = resources;
     FJELL_TRY(pipeline_, resources.device->create(
                              sky_pipeline(resources, "shaders/sky.frag", {resources.globals}, "sky")));

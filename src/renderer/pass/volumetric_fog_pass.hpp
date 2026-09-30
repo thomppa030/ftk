@@ -109,7 +109,7 @@ public:
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
     };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -329,7 +329,7 @@ public:
 
 class FogLightPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -342,7 +342,7 @@ private:
 
 class FogTemporalPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -355,7 +355,7 @@ private:
 
 class FogIntegratePass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -368,7 +368,7 @@ private:
 
 class FogCompositePass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

@@ -117,7 +117,7 @@ void FogCore::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t scree
 
 // ── FogCore ─────────────────────────────────────────────────────────────────
 
-Result<> FogCore::create(Device& /*device*/, const PassResources& resources) {
+Result<> FogCore::create(const PassResources& resources) {
     gpu_device_ = resources.device;
     globals_ = resources.globals;
     bindless_layout_ = resources.bindless;
@@ -662,7 +662,7 @@ void FogMediumPass::record(const FrameContext& ctx) {
 
 // ── FogLightPass ────────────────────────────────────────────────────────────
 
-Result<> FogLightPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> FogLightPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -733,7 +733,7 @@ void FogLightPass::record(const FrameContext& ctx) {
 
 // ── FogTemporalPass ─────────────────────────────────────────────────────────
 
-Result<> FogTemporalPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> FogTemporalPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -784,7 +784,7 @@ void FogTemporalPass::record(const FrameContext& ctx) {
 
 // ── FogIntegratePass ────────────────────────────────────────────────────────
 
-Result<> FogIntegratePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> FogIntegratePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -836,7 +836,7 @@ void FogIntegratePass::record(const FrameContext& ctx) {
 
 // ── FogCompositePass ────────────────────────────────────────────────────────
 
-Result<> FogCompositePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> FogCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 

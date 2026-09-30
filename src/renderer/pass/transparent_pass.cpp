@@ -14,7 +14,7 @@
 
 namespace fjell {
 
-Result<> TransparentPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> TransparentPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

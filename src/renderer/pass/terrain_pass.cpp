@@ -43,7 +43,7 @@ constexpr gpu::Depth COLOR_DEPTH{.test = true, .write = false,
 
 } // namespace
 
-Result<> TerrainPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> TerrainPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
 

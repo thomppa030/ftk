@@ -27,7 +27,7 @@ struct ContactShadowPush {
 
 } // namespace
 
-Result<> ContactShadowPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> ContactShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     // How the surfaces read the mask through the global set.
     sampler_ = device_->sampler({.filter = gpu::Filter::linear,

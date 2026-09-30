@@ -154,7 +154,7 @@ void ShadowPass::update_cascades(const glm::mat4& view, const glm::mat4& project
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> ShadowPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> ShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     written_ = false;
     FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{

@@ -34,7 +34,7 @@ public:
     static constexpr uint32_t ATLAS_SIZE = LOCAL_SHADOW_ATLAS_SIZE;
     static constexpr gpu::Format DEPTH_FORMAT = gpu::Format::d32_float;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

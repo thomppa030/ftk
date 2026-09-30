@@ -14,14 +14,13 @@
 
 namespace fjell {
 
-class Device;
 class Project;
 class ResourceManager;
 class Scene;
 
 class TilemapRenderer : public RenderSubsystem {
 public:
-    void create(Device& device, const PassResources& resources) override;
+    void create(const PassResources& resources) override;
     void destroy() override;
 
     // RenderSubsystem lifecycle

@@ -81,7 +81,7 @@ constexpr gpu::Access COMPUTE = gpu::Access::storage_buffer_read_write_compute;
 
 } // namespace
 
-void ParticleSystem::create(Device& /*device*/, const PassResources& resources) {
+void ParticleSystem::create(const PassResources& resources) {
     gpu_device_ = resources.device;
     targets_ = resources;
     gpu::Device& gpu = *gpu_device_;

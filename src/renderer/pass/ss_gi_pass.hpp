@@ -97,7 +97,7 @@ public:
         void fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth);
     };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -175,7 +175,7 @@ private:
 /// has read the last one.
 class SsGiDepthHistoryPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;

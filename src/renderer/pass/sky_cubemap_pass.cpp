@@ -40,7 +40,7 @@ uint32_t groups(uint32_t size) {
 
 } // namespace
 
-Result<> SkyCubemapPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> SkyCubemapPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
     gpu::Device& device = *device_;

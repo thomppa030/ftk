@@ -92,7 +92,7 @@ VulkanContext::VulkanContext(Window& window)
 
     // Create render subsystems
     auto add_subsystem = [&](auto sys) {
-        sys->create(gpu_.device_ref(), pass_resources);
+        sys->create(pass_resources);
         render_subsystems_.push_back(std::move(sys));
     };
 

@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> DebugPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> DebugPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     overlay_.create(device);
 

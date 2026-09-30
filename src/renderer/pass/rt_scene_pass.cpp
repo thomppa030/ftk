@@ -8,7 +8,7 @@
 
 namespace fjell {
 
-Result<> RtScenePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> RtScenePass::create(const PassResources& /*resources*/) {
     return {};
 }
 

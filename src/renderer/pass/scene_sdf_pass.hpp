@@ -24,7 +24,6 @@
 
 namespace fjell {
 
-class Device;
 class Model;
 class TerrainAsset;
 struct PassResources;
@@ -86,7 +85,7 @@ public:
     static constexpr const char* INDEX_NAME = "scene_sdf_index";
     static constexpr const char* SLICE_NAME = "scene_sdf_slice";
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;

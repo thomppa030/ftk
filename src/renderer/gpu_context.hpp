@@ -47,7 +47,6 @@ public:
 
     [[nodiscard]] Window& window() { return core_.window(); }
     [[nodiscard]] const std::string& gpu_name() const { return core_.gpu_device().name(); }
-    [[nodiscard]] Device& device_ref() { return core_.device(); }
 
     // ── Swapchain ───────────────────────────────────────────────────────
     /// What the main window shows.

@@ -68,7 +68,7 @@ constexpr gpu::Access REST = gpu::Access::sampled_compute;
 
 // ── create ─────────────────────────────────────────────────────────────
 
-Result<> RtReflectionPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> RtReflectionPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     linear_sampler_ = device.sampler({.filter = gpu::Filter::linear,
                                       .mip_filter = gpu::Filter::nearest,

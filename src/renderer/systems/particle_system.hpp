@@ -82,12 +82,11 @@ struct ParticleComputePush {
 };
 static_assert(sizeof(ParticleComputePush) == 20);
 
-class Device;
 class Scene;
 
 class ParticleSystem : public RenderSubsystem {
 public:
-    void create(Device& device, const PassResources& resources) override;
+    void create(const PassResources& resources) override;
     void destroy() override;
     void recreate_pipelines();
 

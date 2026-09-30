@@ -24,7 +24,7 @@ class ContactShadowPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;

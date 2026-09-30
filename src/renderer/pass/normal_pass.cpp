@@ -18,7 +18,7 @@ constexpr gpu::Format NORMAL_FORMAT = gpu::Format::rgba16_float;
 
 } // namespace
 
-Result<> NormalPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> NormalPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, NORMAL_FORMAT, "viz_normals");
     // Its own single-sample image and no depth: meshes land in draw order.

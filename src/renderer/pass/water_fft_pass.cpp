@@ -33,7 +33,7 @@ constexpr gpu::AccessSet SURFACE_READS = gpu::Access::sampled_mesh | gpu::Access
 
 } // namespace
 
-Result<> WaterFftPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> WaterFftPass::create(const PassResources& resources) {
     gpu_device_ = resources.device;
     gpu::Device& device = *gpu_device_;
 

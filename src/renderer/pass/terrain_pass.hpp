@@ -68,7 +68,7 @@ static_assert(offsetof(TerrainPushConstants, layer_uv_scales) == 80);
 /// of its own: they call `draw_depth`, `draw_shadow` and `draw`.
 class TerrainPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;

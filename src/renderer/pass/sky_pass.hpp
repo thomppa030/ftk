@@ -28,7 +28,7 @@ struct ShaderMetadata;
 // using reverse depth test so it only fills pixels with no geometry.
 class SkyPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;

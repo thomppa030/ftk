@@ -31,7 +31,7 @@ public:
     /// with the bias, it keeps acne off lit surfaces.
     static constexpr gpu::Cull CASTER_CULL = gpu::Cull::front;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

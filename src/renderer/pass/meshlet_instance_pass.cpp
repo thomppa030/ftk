@@ -62,7 +62,7 @@ gpu::BufferRange at_least_one_word(gpu::Buffer buffer, uint64_t size) {
 
 } // namespace
 
-Result<> MeshletInstancePass::create(Device& /*device*/, const PassResources& resources) {
+Result<> MeshletInstancePass::create(const PassResources& resources) {
     device_ = resources.device;
     FJELL_TRY(expand_pipeline_, device_->create(gpu::ComputePipelineDesc{
                                     .shader = "shaders/meshlet_expand.comp",

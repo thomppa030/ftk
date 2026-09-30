@@ -8,7 +8,7 @@ namespace fjell {
 // and distortion passes can sample it without feedback loops.
 class ScreenColorCopyPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

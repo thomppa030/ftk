@@ -57,7 +57,7 @@ public:
     /// breaks into eddies rather than softening into a band.
     static constexpr float SWIRL_METRES_PER_SECOND = 0.6f;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;

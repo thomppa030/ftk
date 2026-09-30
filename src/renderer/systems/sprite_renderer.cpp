@@ -19,7 +19,7 @@
 
 namespace fjell {
 
-void SpriteRenderer::create(Device& /*device*/, const PassResources& resources) {
+void SpriteRenderer::create(const PassResources& resources) {
     gpu_ = resources.device;
     gpu::Device& gpu = *gpu_;
 

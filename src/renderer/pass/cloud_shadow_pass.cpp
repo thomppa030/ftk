@@ -23,7 +23,7 @@ struct CloudShadowPush {
 
 } // namespace
 
-Result<> CloudShadowPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> CloudShadowPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     // Linear sampling across the map: a texel is two metres of ground and
     // the shadow edge should not show it.

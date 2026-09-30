@@ -60,7 +60,7 @@ constexpr gpu::AccessSet SAMPLED = gpu::Access::sampled_fragment | gpu::Access::
 
 } // namespace
 
-Result<> SceneSdfPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> SceneSdfPass::create(const PassResources& resources) {
     device_ = resources.device;
 
     const auto volume_desc = [&](gpu::Format format, float empty, std::string_view name) {

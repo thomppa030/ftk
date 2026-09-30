@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> OverdrawPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> OverdrawPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, gpu::Format::rgba8_srgb, "viz_overdraw");
     // Every fragment of every mesh adds its share, nothing culled or depth

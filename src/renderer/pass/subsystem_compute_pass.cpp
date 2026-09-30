@@ -6,7 +6,7 @@
 
 namespace fjell {
 
-Result<> SubsystemComputePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SubsystemComputePass::create(const PassResources& /*resources*/) {
     return {};
 }
 

@@ -14,7 +14,7 @@
 
 namespace fjell {
 
-Result<> MotionFieldPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> MotionFieldPass::create(const PassResources& resources) {
     device_ = resources.device;
     FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
                              .shader = "shaders/motion_field.comp",

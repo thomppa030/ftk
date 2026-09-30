@@ -17,13 +17,12 @@
 
 namespace fjell {
 
-class Device;
 class ResourceManager;
 class Scene;
 
 class SpriteRenderer : public RenderSubsystem {
 public:
-  void create(Device &device, const PassResources &resources) override;
+  void create(const PassResources &resources) override;
   void destroy() override;
 
   // RenderSubsystem lifecycle

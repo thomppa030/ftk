@@ -11,7 +11,7 @@ namespace fjell {
 // pipeline or descriptor sets. Emits nothing when MSAA is off.
 class DepthResolvePass : public RenderPass {
 public:
-    Result<> create(Device& /*device*/, const PassResources& /*resources*/) override {
+    Result<> create(const PassResources& /*resources*/) override {
         return {};
     }
     void destroy() override {}

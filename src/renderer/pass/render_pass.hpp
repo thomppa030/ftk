@@ -19,7 +19,6 @@ namespace fjell {
 struct DrawCommand;
 struct EnvironmentState;
 struct RenderStats;
-class Device;
 class DebugDraw;
 class GpuContext;
 class OffscreenPass;
@@ -186,8 +185,8 @@ struct FrameContext {
 
 /// How a pass prefers to be scheduled relative to the graphics queue.
 /// Phase 3 (`RenderPipeline` dual-queue dispatch) reads this; Phase 2
-/// only populates it. When `Device::async_compute_supported()` is false
-/// every pass degrades to `None` regardless of the hint.
+/// only populates it. When the device has no async compute every pass
+/// degrades to `None` regardless of the hint.
 enum class AsyncComputeHint : uint8_t {
     /// Must run on the graphics queue — typically because the pass uses
     /// render targets or records commands that aren't valid on a pure
@@ -226,7 +225,7 @@ public:
     RenderPass& operator=(RenderPass&&) = delete;
 
     // Create GPU resources (pipelines, layouts).
-    [[nodiscard]] virtual Result<> create(Device& device, const PassResources& resources) = 0;
+    [[nodiscard]] virtual Result<> create(const PassResources& resources) = 0;
 
     // Destroy GPU resources.
     virtual void destroy() = 0;
@@ -284,9 +283,9 @@ public:
     /// class. Shadow atlases, Hi-Z pyramids, sky cubemaps, etc. go here.
     virtual void collect_exports(DeclareContext& /*ctx*/) {}
 
-    [[nodiscard]] Result<> recreate(Device& device, const PassResources& resources) {
+    [[nodiscard]] Result<> recreate(const PassResources& resources) {
         destroy();
-        return create(device, resources);
+        return create(resources);
     }
 };
 

@@ -11,7 +11,7 @@ namespace fjell {
 // Draws line-list geometry from DebugDraw over the finished frame.
 class DebugPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;

@@ -142,7 +142,6 @@ public:
   [[nodiscard]] gpu::Format swapchain_format() const;
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
-  [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
   /// The GPU interface's device.
   [[nodiscard]] gpu::Device &gpu_device() { return gpu_.core().gpu_device(); }
   [[nodiscard]] gpu::Samples msaa_samples() const { return gpu_.msaa_samples(); }

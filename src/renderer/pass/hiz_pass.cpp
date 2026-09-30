@@ -54,7 +54,7 @@ void HizPass::Images::resize(gpu::Device& gpu, uint32_t depth_width, uint32_t de
 
 // ── HizPass (singleton) ─────────────────────────────────────────────────────
 
-Result<> HizPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> HizPass::create(const PassResources& resources) {
     device_ = resources.device;
     sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
                                  .mip_filter = gpu::Filter::nearest,

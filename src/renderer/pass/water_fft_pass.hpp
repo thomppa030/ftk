@@ -53,7 +53,7 @@ public:
     static constexpr std::uint32_t MIN_RESOLUTION = 16;
     static constexpr std::uint32_t MAX_RESOLUTION = 1024;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;

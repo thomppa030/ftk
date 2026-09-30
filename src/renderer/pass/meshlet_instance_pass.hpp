@@ -35,7 +35,7 @@ public:
     /// Which of the two culls a dispatch is.
     enum class Cull : uint8_t { first = 0, second = 1 };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

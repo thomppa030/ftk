@@ -30,7 +30,6 @@
 
 namespace fjell {
 
-class Device;
 class FontLibrary;
 class Input;
 class PipelineCache;

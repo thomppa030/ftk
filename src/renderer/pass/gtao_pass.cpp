@@ -99,7 +99,7 @@ void AoPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
 
 // ── AoPass ──────────────────────────────────────────────────────────────────
 
-Result<> AoPass::create(Device& device, const PassResources& resources) {
+Result<> AoPass::create(const PassResources& resources) {
     device_ = resources.device;
     ao_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
                                     .mip_filter = gpu::Filter::nearest,
@@ -113,7 +113,7 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
     // 1x1 placeholder so the global "ao_texture" binding is valid from frame 1.
     default_images_.create(*device_, 1, 1);
 
-    if (auto r = create_trace(device, resources); !r) { return r; }
+    if (auto r = create_trace(resources); !r) { return r; }
 
     FJELL_GFX_DEBUG("AO pass created");
     return {};
@@ -171,7 +171,7 @@ void AoPass::collect_exports(DeclareContext& /*ctx*/) {
 
 // ── GtaoTracePass ───────────────────────────────────────────────────────────
 
-Result<> GtaoTracePass::create_trace(Device& /*device*/, const PassResources& resources) {
+Result<> GtaoTracePass::create_trace(const PassResources& resources) {
     FJELL_TRY(trace_pipeline_, device_->create(gpu::ComputePipelineDesc{
                                    .shader = "shaders/gtao.comp",
                                    .shared = {resources.globals},
@@ -218,7 +218,7 @@ PassSetup GtaoTracePass::setup() const {
 
 // ── AoBlurHPass ─────────────────────────────────────────────────────────────
 
-Result<> AoBlurHPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> AoBlurHPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -270,7 +270,7 @@ void AoBlurHPass::record(const FrameContext& ctx) {
 
 // ── AoBlurVPass ─────────────────────────────────────────────────────────────
 
-Result<> AoBlurVPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> AoBlurVPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

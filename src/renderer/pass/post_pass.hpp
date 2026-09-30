@@ -70,7 +70,7 @@ public:
         void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

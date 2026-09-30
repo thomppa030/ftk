@@ -19,7 +19,7 @@ constexpr const char* DEPTH_NAME = "meshlet_viz_depth";
 
 } // namespace
 
-Result<> MeshletVizPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> MeshletVizPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     depth_format_ = resources.scene_depth_format;
     viz_image_.init(device, VIZ_FORMAT, "viz_meshlets");

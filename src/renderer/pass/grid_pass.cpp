@@ -8,7 +8,7 @@
 
 namespace fjell {
 
-Result<> GridPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> GridPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     overlay_.create(device);
 

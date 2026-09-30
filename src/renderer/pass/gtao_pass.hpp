@@ -73,7 +73,7 @@ public:
         void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
-    Result<> create(Device& device, const PassResources& resources) final;
+    Result<> create(const PassResources& resources) final;
     void destroy() final;
     void record(const FrameContext& ctx) final;
     void declare(PassBuilder& builder, const DeclareContext& ctx) final;
@@ -101,7 +101,7 @@ protected:
     // Subclass hooks. AoPass::create() sets up shared state then calls
     // create_trace(); AoPass::declare/record delegate when enabled, and
     // handle the !enabled_ clear-to-white path directly.
-    virtual Result<> create_trace(Device& device, const PassResources& resources) = 0;
+    virtual Result<> create_trace(const PassResources& resources) = 0;
     virtual void declare_trace(PassBuilder& builder, const DeclareContext& ctx) = 0;
     virtual void record_trace(const FrameContext& ctx, Images& images) = 0;
     virtual void destroy_trace() = 0;
@@ -126,7 +126,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
 
 protected:
-    Result<> create_trace(Device& device, const PassResources& resources) override;
+    Result<> create_trace(const PassResources& resources) override;
     void declare_trace(PassBuilder& builder, const DeclareContext& ctx) override;
     void record_trace(const FrameContext& ctx, Images& images) override;
     void destroy_trace() override;
@@ -138,7 +138,7 @@ private:
 // Horizontal blur dispatch. Reads ao_image, writes transient gtao_blur.
 class AoBlurHPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
@@ -152,7 +152,7 @@ private:
 // Vertical blur dispatch. Reads transient gtao_blur, writes ao_image.
 class AoBlurVPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

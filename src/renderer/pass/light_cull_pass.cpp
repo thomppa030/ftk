@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> LightCullPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> LightCullPass::create(const PassResources& resources) {
     FJELL_TRY(pipeline_, resources.device->create(gpu::ComputePipelineDesc{
                              .shader = "shaders/light_cull.comp",
                              .shared = {resources.globals},

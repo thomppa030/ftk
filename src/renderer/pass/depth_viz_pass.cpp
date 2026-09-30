@@ -18,7 +18,7 @@ struct DepthVizPush {
 
 } // namespace
 
-Result<> DepthVizPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> DepthVizPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, gpu::Format::rgba8_srgb, "viz_depth");
     depth_sampler_ = device.sampler({.filter = gpu::Filter::nearest,

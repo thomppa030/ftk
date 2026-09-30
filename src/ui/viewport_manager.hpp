@@ -18,7 +18,6 @@
 namespace fjell {
 
 class VulkanContext;
-class Device;
 class Input;
 
 struct ViewportPanel {

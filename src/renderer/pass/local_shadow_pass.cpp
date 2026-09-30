@@ -25,7 +25,7 @@ namespace fjell {
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> LocalShadowPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> LocalShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     written_ = false;
     FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{

@@ -13,7 +13,7 @@
 
 namespace fjell {
 
-Result<> FogDensityFieldPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> FogDensityFieldPass::create(const PassResources& resources) {
     device_ = resources.device;
     FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
                              .shader = "shaders/fog_density_field.comp",

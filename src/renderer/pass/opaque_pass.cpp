@@ -24,7 +24,7 @@
 
 namespace fjell {
 
-Result<> OpaquePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> OpaquePass::create(const PassResources& /*resources*/) {
     return {};
 }
 

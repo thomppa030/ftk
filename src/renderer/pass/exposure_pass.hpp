@@ -17,7 +17,7 @@ namespace fjell {
 /// Two dispatches per frame: histogram build (parallel) + reduce (single workgroup).
 class ExposurePass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

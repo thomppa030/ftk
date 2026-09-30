@@ -48,7 +48,7 @@ struct CompositePushConstants {
 
 // ── SsrCore ─────────────────────────────────────────────────────────────────
 
-Result<> SsrCore::create(Device& /*device*/, const PassResources& resources) {
+Result<> SsrCore::create(const PassResources& resources) {
     device_ = resources.device;
     nearest_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
                                          .mip_filter = gpu::Filter::nearest,
@@ -193,7 +193,7 @@ void SsrTracePass::record(const FrameContext& ctx) {
 
 // ── SsrCompositePass ────────────────────────────────────────────────────────
 
-Result<> SsrCompositePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SsrCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -283,7 +283,7 @@ void SsrCompositePass::record(const FrameContext& ctx) {
 
 // ── SsrHistoryPass ──────────────────────────────────────────────────────────
 
-Result<> SsrHistoryPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SsrHistoryPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

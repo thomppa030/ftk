@@ -42,7 +42,7 @@ constexpr const char* FALLBACK_WATER_SHADER = "shaders/water_default.fjsl";
 
 } // namespace
 
-Result<> WaterPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> WaterPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
 
@@ -649,7 +649,7 @@ void WaterPass::record(const FrameContext& ctx) {
 
 // ── WaterDepthSeedPass ──────────────────────────────────────────────────────
 
-Result<> WaterDepthSeedPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> WaterDepthSeedPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -679,7 +679,7 @@ void WaterDepthSeedPass::record(const FrameContext& ctx) {
 
 // ── WaterDepthPrepass ───────────────────────────────────────────────────────
 
-Result<> WaterDepthPrepass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> WaterDepthPrepass::create(const PassResources& /*resources*/) {
     return {};
 }
 

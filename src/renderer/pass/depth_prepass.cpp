@@ -18,7 +18,7 @@
 
 namespace fjell {
 
-Result<> DepthPrePass::create(Device& /*device*/, const PassResources& resources) {
+Result<> DepthPrePass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     // Nearer wins; each draw culls what its material culls, as the colour
     // pass does, so the depth holds exactly the faces it shades.

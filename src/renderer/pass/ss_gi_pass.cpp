@@ -143,7 +143,7 @@ void SsGiPass::Images::destroy() {
 
 // ── Pass create ─────────────────────────────────────────────────────────
 
-Result<> SsGiPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> SsGiPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     linear_sampler_ = device.sampler({.filter = gpu::Filter::linear,
                                       .mip_filter = gpu::Filter::nearest,
@@ -372,7 +372,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
 // ── SsGiDepthHistoryPass ────────────────────────────────────────────────────
 
-Result<> SsGiDepthHistoryPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> SsGiDepthHistoryPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

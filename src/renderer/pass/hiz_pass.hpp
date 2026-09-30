@@ -30,7 +30,7 @@ public:
         [[nodiscard]] bool ready() const { return pyramid.get().valid(); }
     };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;

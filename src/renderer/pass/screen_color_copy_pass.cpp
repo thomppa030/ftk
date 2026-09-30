@@ -6,7 +6,7 @@
 
 namespace fjell {
 
-Result<> ScreenColorCopyPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> ScreenColorCopyPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

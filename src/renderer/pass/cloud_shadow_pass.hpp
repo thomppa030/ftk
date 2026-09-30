@@ -25,7 +25,7 @@ public:
     static constexpr uint32_t RESOLUTION = 256;
     static constexpr float EXTENT_METRES = 512.0f;
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;

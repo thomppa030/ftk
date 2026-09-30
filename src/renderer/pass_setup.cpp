@@ -42,7 +42,7 @@ Result<> create_passes_from_graph(const FjGraph& graph,
                               "' — should have been caught at parse time");
         }
 
-        auto create_result = pass->create(gpu.device_ref(), resources);
+        auto create_result = pass->create(resources);
         if (!create_result) {
             return make_error("Pass '" + entry.name + "' (" + entry.class_name +
                               ") failed to create: " + create_result.error());

@@ -100,7 +100,7 @@ static_assert(sizeof(WaterPushConstants) == 100, "push block layout must match t
 /// carries on over it with the same colour targets.
 class WaterPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -299,7 +299,7 @@ private:
 /// layouts and on to where their next readers want them.
 class WaterDepthSeedPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
@@ -314,7 +314,7 @@ private:
 /// attachment: the surface depth the fog volume and the colour draw read.
 class WaterDepthPrepass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;

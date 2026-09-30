@@ -8,7 +8,7 @@
 
 namespace fjell {
 
-Result<> InstanceCullPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> InstanceCullPass::create(const PassResources& resources) {
     // Set 0 is the globals (the view-projection); set 1 the pass's buffers.
     FJELL_TRY(pipeline_, resources.device->create(gpu::ComputePipelineDesc{
                              .shader = "shaders/instance_cull.comp",

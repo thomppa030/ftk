@@ -103,7 +103,7 @@ void declare_mip_read_write(PassBuilder& builder, uint32_t idx) {
 
 // ── BloomCore ───────────────────────────────────────────────────────────────
 
-Result<> BloomCore::create(Device& /*device*/, const PassResources& resources) {
+Result<> BloomCore::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     sampler_ = device.sampler({.filter = gpu::Filter::linear,
                                .mip_filter = gpu::Filter::nearest,
@@ -162,7 +162,7 @@ void BloomDs0Pass::record(const FrameContext& ctx) {
 
 // ── BloomDsPass (mip_index 1..4) ────────────────────────────────────────────
 
-Result<> BloomDsPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> BloomDsPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -203,7 +203,7 @@ void BloomDsPass::record(const FrameContext& ctx) {
 
 // ── BloomUsPass (dst_mip 3..0) ──────────────────────────────────────────────
 
-Result<> BloomUsPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+Result<> BloomUsPass::create(const PassResources& /*resources*/) {
     return {};
 }
 

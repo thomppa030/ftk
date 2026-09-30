@@ -82,7 +82,7 @@ public:
     /// How far the wind carries a disturbance, against its own speed. Air that
     /// has been stirred goes with the weather rather than standing still in it.
     static constexpr float WIND_FRACTION = 0.4f;
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;

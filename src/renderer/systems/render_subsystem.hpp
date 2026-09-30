@@ -7,7 +7,6 @@
 namespace fjell {
 
 struct DeclareContext;
-class Device;
 namespace gpu {
 class RenderEncoder;
 }
@@ -53,7 +52,7 @@ class RenderSubsystem {
 public:
     virtual ~RenderSubsystem() = default;
 
-    virtual void create(Device& device, const PassResources& resources) = 0;
+    virtual void create(const PassResources& resources) = 0;
     virtual void destroy() = 0;
 
     // Early sync — called before command buffer recording.

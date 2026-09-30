@@ -8,7 +8,7 @@ namespace fjell {
 // The apply half of the effect lives in DistortionApplyPass.
 class DistortionPass : public RenderPass {
 public:
-    Result<> create(Device& /*device*/, const PassResources& /*resources*/) override {
+    Result<> create(const PassResources& /*resources*/) override {
         return {};
     }
     void destroy() override {}

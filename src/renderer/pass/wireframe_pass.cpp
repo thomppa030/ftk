@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> WireframePass::create(Device& /*device*/, const PassResources& resources) {
+Result<> WireframePass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, gpu::Format::rgba8_srgb, "viz_wireframe");
     // depth_push.vert places the vertices through the global UBO,

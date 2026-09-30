@@ -68,7 +68,7 @@ struct PostPush {
 
 } // namespace
 
-Result<> PostPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> PostPass::create(const PassResources& resources) {
     device_ = resources.device;
     globals_ = resources.globals;
     bindless_layout_ = resources.bindless;

@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> UvVizPass::create(Device& /*device*/, const PassResources& resources) {
+Result<> UvVizPass::create(const PassResources& resources) {
     gpu::Device& device = *resources.device;
     viz_image_.init(device, gpu::Format::rgba8_srgb, "viz_uv");
     // Its own single-sample image and no depth: meshes land in draw order.

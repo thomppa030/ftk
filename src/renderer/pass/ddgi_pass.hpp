@@ -239,7 +239,7 @@ public:
         void remake(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
     };
 
-    Result<> create(Device& device, const PassResources& resources) override;
+    Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
