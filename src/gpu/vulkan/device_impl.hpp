@@ -408,6 +408,7 @@ struct Device::Impl {
     std::filesystem::path pipeline_cache_file;
     ShaderLocator locator;
     Caps caps;
+    std::string name;
     /// Every sampler made, by its description; few enough to search.
     std::vector<std::pair<SamplerDesc, Sampler>> sampler_by_desc;
 

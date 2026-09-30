@@ -240,6 +240,9 @@ public:
     ///         says what the texture lacks)
     [[nodiscard]] Result<Readback> read_back(const TextureView& view, const ReadbackDesc& desc = {});
 
+    /// The GPU's name, as its driver reports it.
+    [[nodiscard]] const std::string& name() const;
+
     [[nodiscard]] const Caps& caps() const;
 
     /// The backend's state, for the backend's own code.
