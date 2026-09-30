@@ -61,8 +61,7 @@ VkOffset3D far_corner(const VkExtent3D& extent) {
 }
 
 VkImageSubresourceLayers layers_of(const Found& found, uint32_t mip) {
-    // The texture's own aspect unless the view reads it as another format:
-    // an adopted depth image may have a format `Format` has no name for.
+    // The texture's own aspect unless the view reads it as another format.
     const VkImageAspectFlags aspect = found.view.format == found.record->info.format
                                           ? found.record->aspect
                                           : vulkan::view_aspect(found.view.format);

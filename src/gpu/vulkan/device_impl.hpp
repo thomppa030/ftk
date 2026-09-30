@@ -48,8 +48,7 @@ struct Upload::Impl {
 struct Device::Impl {
     struct BufferRecord {
         VkBuffer buffer{VK_NULL_HANDLE};
-        /// Null for an adopted buffer, which the device does not destroy,
-        /// and for a sparse one, whose memory is `pages`.
+        /// Null for a sparse buffer, whose memory is `pages`.
         VmaAllocation allocation{VK_NULL_HANDLE};
         /// Usable bytes: for a sparse buffer, those with memory bound.
         uint64_t size{0};
@@ -154,8 +153,7 @@ struct Device::Impl {
         VmaAllocation allocation{VK_NULL_HANDLE};
         TextureInfo info;
         /// The aspect a barrier on the texture names: depth alone for any
-        /// depth format, as a view shows it, else colour. Kept from the
-        /// native format, which an adopted image may have outside `Format`.
+        /// depth format, as a view shows it, else colour.
         VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
         /// Made on first use, destroyed with the texture. Guarded by
         /// `views_mutex`: any recording thread may ask for a view.
