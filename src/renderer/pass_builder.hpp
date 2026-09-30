@@ -93,6 +93,8 @@ struct DeclareContext {
     glm::uvec2 viewport_extent{0, 0};
     gpu::Samples msaa_samples{gpu::Samples::x1};
     uint32_t frame_index{0};
+    /// The scene the viewport renders; 0 for none.
+    uint64_t scene_id{0};
 
     // Hardware capability flags
     bool mesh_shader_supported{false};
