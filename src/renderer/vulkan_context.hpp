@@ -391,9 +391,10 @@ private:
                         float dt, uint32_t selected_id, ThreadPool &pool);
   /// Renders `view` into its target: what it carries besides the camera
   /// (shadows, graph, private global set, backdrop, grid) decides how.
+  /// The frame's main view alone records into its async lists.
   void render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest &view,
                        Scene *scene, float dt, uint32_t selected_id,
-                       ThreadPool &pool, PostProcessResources *pp);
+                       ThreadPool &pool, PostProcessResources *pp, bool main_view);
   /// `pp` is the viewport being rendered: its config decides which temporal
   /// effects the UBO enables (TAA jitter, GI intensities) and its ViewHistory
   /// supplies and receives the previous-frame camera.

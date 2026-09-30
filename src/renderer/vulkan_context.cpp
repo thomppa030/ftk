@@ -463,7 +463,7 @@ void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest& view,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool, PostProcessResources* pp) {
+                                    ThreadPool& pool, PostProcessResources* pp, bool main_view) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
     OffscreenPass& target = *view.target;
     const FjGraph* viewport_graph = view.viewport_graph;
@@ -526,20 +526,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     }
 
     current_ctx_ = build_frame_context(cmd, view, scene, dt, selected_id, pp);
-    // Hand the async CB + post-compute graphics CB to the graph, but
-    // only for the main frame CB — preview viewports get their own
-    // one-shot CBs from render_preview and have no paired compute/post
-    // CBs, so routing their passes through the main frame's async CB
-    // would interleave preview compute dispatches into a CB that
-    // submit_and_present fences independently. Nulling both handles
-    // folds previews back to single-CB behavior.
-    const bool is_main_cb = (cmd == frame_cmd_);
-    current_ctx_.async_compute_cmd = is_main_cb ? async_cmd_ : VK_NULL_HANDLE;
-    current_ctx_.graphics_post_cmd = is_main_cb ? post_cmd_ : VK_NULL_HANDLE;
-    // The main frame binds the per-frame set, where record_frame put the GI
+    // Only the main view splits its passes across the frame's lists: the
+    // compute list runs after the whole of the list before it and before the
+    // whole of the one after, so a second view's passes there would land in
+    // the middle of the first's and overwrite what it has yet to read. Every
+    // other view records all of its passes into one list: the frame's other
+    // views after the main view's, a preview into its own.
+    current_ctx_.async_compute_cmd = main_view ? async_cmd_ : VK_NULL_HANDLE;
+    current_ctx_.graphics_post_cmd = main_view ? post_cmd_ : VK_NULL_HANDLE;
+    // The frame's views bind the per-frame set, where record_frame put the GI
     // outputs; a preview's set holds the fallbacks there.
-    current_ctx_.bound_gi_indirect = is_main_cb ? bound_gi_indirect_ : gpu::Texture{};
-    current_ctx_.bound_ss_gi_emissive = is_main_cb ? bound_ss_gi_emissive_ : gpu::Texture{};
+    const bool frame_set = !view.global_group.valid();
+    current_ctx_.bound_gi_indirect = frame_set ? bound_gi_indirect_ : gpu::Texture{};
+    current_ctx_.bound_ss_gi_emissive = frame_set ? bound_ss_gi_emissive_ : gpu::Texture{};
 
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.
@@ -634,7 +633,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                           req.camera_position, environment, scene, req.target->extent(), *pp);
     update_light_ssbo(current_frame_, scene);
     update_fog_volume_ssbo(current_frame_);
-    render_scene_to(cmd, req, scene, dt, selected_id, pool, pp);
+    render_scene_to(cmd, req, scene, dt, selected_id, pool, pp, false);
 
     vkEndCommandBuffer(cmd);
 
@@ -701,6 +700,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
     prepare_ray_tracing(viewports, scene);
 
     // --- Render scene once per viewport ---
+    // The first is the main view. The others follow it on the list that runs
+    // last: the one after the compute list when the main view used it.
+    bool main_view = true;
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
         auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
@@ -712,7 +714,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         // right way up, whatever a request says.
         ViewportRenderRequest view = vp;
         view.global_group = {};
-        render_scene_to(cmd, view, scene, dt, selected_id, pool, pp);
+        const VkCommandBuffer view_cmd = main_view || !recorded_async_this_frame_ ? cmd : post_cmd_;
+        render_scene_to(view_cmd, view, scene, dt, selected_id, pool, pp, main_view);
+        main_view = false;
     }
 
     // --- UI editor preview offscreen pass ---
