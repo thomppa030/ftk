@@ -181,7 +181,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
     // sets; and terrain, which generates its geometry in a mesh shader and
     // has no draw in the batch.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
-        ctx.subsystems[i]->record_depth(ctx);
+        ctx.subsystems[i]->record_depth(ctx, pass);
     }
     if (ctx.passes != nullptr) {
         if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) {

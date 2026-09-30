@@ -163,7 +163,7 @@ void OpaquePass::record(const FrameContext& ctx) {
     // The subsystems' opaques, which still record natively into this scope,
     // and terrain.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
-        ctx.subsystems[i]->record_opaque(ctx);
+        ctx.subsystems[i]->record_opaque(ctx, pass);
     }
     if (ctx.passes != nullptr) {
         if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) terrain->draw(pass, ctx);

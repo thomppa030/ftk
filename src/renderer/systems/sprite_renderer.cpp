@@ -342,7 +342,7 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void SpriteRenderer::record_depth(const FrameContext& ctx) {
+void SpriteRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     FJELL_PROFILE_SCOPE_N("sprite_record_depth");
     const SpriteRun& range = opaque_range_[ctx.frame_index];
     if (range.count == 0) return;
@@ -366,11 +366,11 @@ void SpriteRenderer::record_depth(const FrameContext& ctx) {
     vkCmdDraw(ctx.cmd, range.count * 6, 1, range.first * 6, 0);
 }
 
-void SpriteRenderer::record_opaque(const FrameContext& ctx) {
+void SpriteRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     record_runs(ctx, std::span(&opaque_range_[ctx.frame_index], 1));
 }
 
-void SpriteRenderer::record_transparent(const FrameContext& ctx) {
+void SpriteRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     // Unlit sprites and lit billboards blend in one list in layer order,
     // switching pipeline where one kind follows the other.
     record_runs(ctx, transparent_runs_[ctx.frame_index]);

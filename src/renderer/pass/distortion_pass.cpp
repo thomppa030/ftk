@@ -48,7 +48,7 @@ void DistortionPass::record(const FrameContext& ctx) {
                                       .access = gpu::Access::depth_read_sampled},
     });
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
-        ctx.subsystems[i]->record_distortion(ctx);
+        ctx.subsystems[i]->record_distortion(ctx, scope);
     }
 }
 

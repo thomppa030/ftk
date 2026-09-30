@@ -29,9 +29,9 @@ public:
 
   // RenderSubsystem lifecycle
   void update(const RenderSubsystemContext &ctx) override;
-  void record_depth(const FrameContext &ctx) override;
-  void record_opaque(const FrameContext &ctx) override;
-  void record_transparent(const FrameContext &ctx) override;
+  void record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
+  void record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
+  void record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
   [[nodiscard]] int transparent_order() const override { return -50; }
 
   // Resolve texture paths to bindless indices (called externally by editor)

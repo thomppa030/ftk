@@ -54,7 +54,7 @@ void TransparentPass::record(const FrameContext& ctx) {
             target->extent(), ctx.frame_index);
     }
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
-        ctx.subsystems[i]->record_transparent(ctx);
+        ctx.subsystems[i]->record_transparent(ctx, pass);
     }
 }
 

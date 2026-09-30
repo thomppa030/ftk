@@ -8,6 +8,9 @@ namespace fjell {
 
 struct DeclareContext;
 class Device;
+namespace gpu {
+class RenderEncoder;
+}
 class Project;
 class ResourceManager;
 class Scene;
@@ -37,7 +40,8 @@ struct RenderSubsystemContext {
 //   4. record_opaque()   — draw during opaque color pass
 //   5. record_transparent() — draw during transparent color pass
 //
-// All record_* methods default to no-op. Override what you need.
+// The draw hooks are called inside the pass's render scope and are given its
+// encoder. All record_* methods default to no-op. Override what you need.
 class RenderSubsystem {
 public:
     virtual ~RenderSubsystem() = default;
@@ -65,17 +69,17 @@ public:
     // Draw into the depth pre-pass — called before the opaque pass so the
     // subsystem's opaque geometry contributes to Hi-Z, contact shadows,
     // and depth-driven post (SS-GI, SSR neighbour lookups).
-    virtual void record_depth(const FrameContext& ctx) { (void)ctx; }
+    virtual void record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw opaque geometry — called during the opaque color pass.
-    virtual void record_opaque(const FrameContext& ctx) { (void)ctx; }
+    virtual void record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw distortion particles into the distortion UV-offset buffer.
-    virtual void record_distortion(const FrameContext& ctx) { (void)ctx; }
+    virtual void record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw transparent geometry — called during the transparent color pass.
     // Subsystems are sorted by transparent_order() before recording (lower = drawn first = behind).
-    virtual void record_transparent(const FrameContext& ctx) { (void)ctx; }
+    virtual void record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Sort key for transparent pass draw order. Lower values draw first (behind).
     [[nodiscard]] virtual int transparent_order() const { return 0; }

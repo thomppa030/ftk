@@ -1011,15 +1011,15 @@ void ParticleSystem::collect_exports(DeclareContext& ctx) const {
     }
 }
 
-void ParticleSystem::record_opaque(const FrameContext& ctx) {
+void ParticleSystem::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     record_render_opaque(ctx);
 }
 
-void ParticleSystem::record_distortion(const FrameContext& ctx) {
+void ParticleSystem::record_distortion(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     record_render_distortion(ctx);
 }
 
-void ParticleSystem::record_transparent(const FrameContext& ctx) {
+void ParticleSystem::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     record_render(ctx);
 }
 

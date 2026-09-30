@@ -337,7 +337,7 @@ void TilemapRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void TilemapRenderer::record_depth(const FrameContext& ctx) {
+void TilemapRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     FJELL_PROFILE_SCOPE_N("tilemap_record_depth");
     if (tile_buckets_[ctx.frame_index] != Bucket::LitOpaque) return;
     if (tile_counts_[ctx.frame_index] == 0) return;
@@ -364,13 +364,13 @@ void TilemapRenderer::record_depth(const FrameContext& ctx) {
     vkCmdDraw(ctx.cmd, tile_counts_[ctx.frame_index] * 6, 1, 0, 0);
 }
 
-void TilemapRenderer::record_opaque(const FrameContext& ctx) {
+void TilemapRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     if (tile_buckets_[ctx.frame_index] == Bucket::LitOpaque) {
         record_bucket(ctx, Bucket::LitOpaque);
     }
 }
 
-void TilemapRenderer::record_transparent(const FrameContext& ctx) {
+void TilemapRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
     if (tile_buckets_[ctx.frame_index] == Bucket::UnlitTransparent) {
         record_bucket(ctx, Bucket::UnlitTransparent);
     }

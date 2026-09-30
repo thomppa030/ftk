@@ -97,9 +97,9 @@ public:
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;
     void collect_exports(DeclareContext& ctx) const override;
-    void record_opaque(const FrameContext& ctx) override;
-    void record_distortion(const FrameContext& ctx) override;
-    void record_transparent(const FrameContext& ctx) override;
+    void record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
+    void record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
+    void record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
 
 
 private:
