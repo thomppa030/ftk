@@ -161,6 +161,10 @@ struct Device::Impl {
         /// Made on first use, destroyed with the texture. Guarded by
         /// `views_mutex`: any recording thread may ask for a view.
         std::vector<View> views;
+        /// Run when the texture is destroyed, once the frames using it are
+        /// done, before its views go: what else holds one (an ImGui image)
+        /// lets it go. Guarded by `views_mutex`.
+        std::vector<std::move_only_function<void()>> on_release;
     };
 
     /// Memory acceleration structures made together share, freed with the
