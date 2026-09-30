@@ -64,11 +64,11 @@ struct ViewportRenderRequest {
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
 
-    /// Private global descriptor set for this offscreen viewport. When set,
-    /// render_preview copies the per-frame global bindings into it and
-    /// overwrites the view-dependent images here, instead of mutating the
-    /// shared per-frame set the main command buffer binds (which races a
-    /// pending CB → DEVICE_LOST). Null = legacy shared-set path.
+    /// Private global descriptor set for this offscreen viewport, which
+    /// render_preview requires: it copies the per-frame global bindings into
+    /// it and overwrites the view-dependent images here, instead of mutating
+    /// the shared per-frame set the main command buffer binds (which races a
+    /// pending CB → DEVICE_LOST).
     VkDescriptorSet global_set{VK_NULL_HANDLE};
 
     /// `.fjgraph` that decides which passes run for this viewport. Null

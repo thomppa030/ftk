@@ -620,6 +620,11 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     const EnvironmentState& environment, Scene* scene,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
     if (!req.target) return;
+    if (req.global_set == VK_NULL_HANDLE) {
+        FJELL_GFX_ERROR("A preview needs a global set of its own "
+                        "(GlobalBindings::allocate_set); it is not drawn");
+        return;
+    }
     current_environment_ = &environment;
 
     auto vk = gpu_.device();
@@ -638,12 +643,11 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
     auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
 
-    // Update the view-dependent global image bindings to point at THIS
-    // viewport's targets. A preview with its own global_set writes into that
-    // private set (inheriting the per-frame set's static bindings via a copy)
-    // so it never mutates the shared per-frame set the main command buffer
-    // binds — rewriting a set an in-flight CB references is a DEVICE_LOST.
-    // Without a private set (legacy callers) fall back to the per-frame set.
+    // Point the view-dependent global image bindings at THIS viewport's
+    // targets, in the preview's own global set (inheriting the per-frame
+    // set's static bindings by a copy), so it never touches the shared
+    // per-frame set the main command buffer binds: rewriting a set an
+    // in-flight CB references is a DEVICE_LOST.
     {
         auto& gb = gpu_.global_bindings();
         // The preview doesn't run GTAO; its colour pass reads the main
@@ -651,49 +655,29 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         const gpu::Texture ao =
             default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
 
-        if (req.global_set != VK_NULL_HANDLE) {
-            // Inherit sky/shadow/sdf/ubo/etc. from the (idle) per-frame set,
-            // then overwrite only the view-dependent images.
-            gb.copy_from_frame(req.global_set, current_frame_);
-            gb.write_image_to(req.global_set, "depth_texture",
-                req.target->depth_view(), gpu_.depth_sampler(),
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-            gb.write_image_to(req.global_set, "ao_texture",
-                gpu::vulkan::native_view(gpu_device(), ao),
-                gpu::vulkan::native_sampler(gpu_device(), gtao_pass().ao_sampler()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image_to(req.global_set, "screen_color",
-                req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image_to(req.global_set, "gi_indirect",
-                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image_to(req.global_set, "ss_gi_emissive",
-                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image_to(req.global_set, "contact_shadow",
-                gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
-                gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        } else {
-            gb.write_image(current_frame_, "depth_texture",
-                req.target->depth_view(), gpu_.depth_sampler(),
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-            gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
-            gb.write_image(current_frame_, "screen_color",
-                req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image(current_frame_, "gi_indirect",
-                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image(current_frame_, "ss_gi_emissive",
-                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image(current_frame_, "contact_shadow",
-                gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
-                gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        }
+        // Inherit sky/shadow/sdf/ubo/etc. from the (idle) per-frame set,
+        // then overwrite only the view-dependent images.
+        gb.copy_from_frame(req.global_set, current_frame_);
+        gb.write_image_to(req.global_set, "depth_texture",
+            req.target->depth_view(), gpu_.depth_sampler(),
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        gb.write_image_to(req.global_set, "ao_texture",
+            gpu::vulkan::native_view(gpu_device(), ao),
+            gpu::vulkan::native_sampler(gpu_device(), gtao_pass().ao_sampler()),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image_to(req.global_set, "screen_color",
+            req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image_to(req.global_set, "gi_indirect",
+            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image_to(req.global_set, "ss_gi_emissive",
+            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image_to(req.global_set, "contact_shadow",
+            gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
+            gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         gb.flush_writes();
     }
 
