@@ -5,23 +5,40 @@
 // transient memory through the GPU interface, and records a dispatch, copies,
 // clears and draws through command lists, two of them at once on two threads,
 // and acceleration structure builds and a ray query where the GPU has them,
-// which takes a GPU and a display: it is run by hand, not as a test.
+// which takes a GPU and a display: it is run by hand, not as a test. It uses
+// the interface alone, as a program outside Fjell would, and counts what the
+// device refuses by the errors it logs.
 
 #include "core/log.hpp"
+#include "gpu/command_list.hpp"
 #include "gpu/device.hpp"
-#include "gpu/vulkan/device_impl.hpp"
-#include "gpu/vulkan/native.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/window.hpp"
 
+#include <spdlog/sinks/callback_sink.h>
+
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <span>
 #include <string>
 #include <thread>
 
+namespace {
+
+// Every error logged, which is how the device reports a mistake it refuses:
+// once per kind of mistake.
+std::atomic<size_t> reported{0};
+
+} // namespace
+
 int main() {
     fjell::log::init({.level = spdlog::level::warn});
+    fjell::log::add_sink(std::make_shared<spdlog::sinks::callback_sink_mt>(
+        [](const spdlog::details::log_msg& message) {
+            if (message.level >= spdlog::level::err) ++reported;
+        }));
     bool ran = false;
     {
         fjell::Window window("fjell-link-gpu", 320, 240);
@@ -31,14 +48,8 @@ int main() {
             return 1;
         }
         fjell::gpu::Device& device = **made_device;
-        const VkDevice vk_device = device.impl().device;
-        const VkQueue graphics_queue = device.impl().queues[0];
-        const uint32_t graphics_family = device.impl().families[0];
-        VkCommandPoolCreateInfo one_shot_info{};
-        one_shot_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        one_shot_info.queueFamilyIndex = graphics_family;
-        VkCommandPool one_shot_pool{VK_NULL_HANDLE};
-        vkCreateCommandPool(vk_device, &one_shot_info, nullptr, &one_shot_pool);
+        using fjell::gpu::Access;
+        const auto graphics_queue = fjell::gpu::Queue::graphics;
 
         auto buffer = device.create(fjell::gpu::BufferDesc{
             .size = 256,
@@ -112,8 +123,7 @@ int main() {
                                    .pipeline = *compute,
                                    .entries = {{"target", fjell::gpu::sampled(*texture, sampler)}}})
                      .has_value();
-            pipelines = pipelines && group && refilled && wrong_kind_refused &&
-                        fjell::gpu::vulkan::native_group(device, *group) != VK_NULL_HANDLE;
+            pipelines = pipelines && group && refilled && wrong_kind_refused;
         }
 
         if (compute) {
@@ -122,76 +132,45 @@ int main() {
             pipelines = pipelines && rebuilt.has_value() && device.layout(handle).push_size == 16;
         }
 
-        // Transient memory, which the command list hands out: two slices in
-        // one frame slot, the same ones again when that slot comes round.
-        // Frames that submit nothing end at once, so the device can cycle
-        // through its slots.
-        auto& transient = device.impl().transient;
+        // A frame's memory: two slices in one frame slot, the same ones again
+        // when that slot comes round. Frames that submit nothing end at once,
+        // so the device can cycle through its slots.
         auto& first_frame = device.begin_frame();
-        auto first = transient.allocate(100);
-        auto second = transient.allocate(3u << 20);
+        const fjell::gpu::TransientSlice first = first_frame.transient_slice(100);
+        const fjell::gpu::TransientSlice second = first_frame.transient_slice(3u << 20);
         (void)device.end_frame(first_frame);
         auto& second_frame = device.begin_frame();
-        auto other_slot = transient.allocate(100);
+        const fjell::gpu::TransientSlice other_slot = second_frame.transient_slice(100);
         (void)device.end_frame(second_frame);
         for (uint32_t slot = 2; slot < device.caps().frames_in_flight; ++slot) {
             (void)device.end_frame(device.begin_frame());
         }
         auto& round_again = device.begin_frame();
-        auto again = transient.allocate(100);
-        const bool transient_ok = first && second && other_slot && again &&
-                                  again->range == first->range &&
-                                  other_slot->range.buffer != first->range.buffer &&
-                                  second->bytes.size() == (3u << 20) &&
-                                  fjell::gpu::vulkan::native_buffer(device, first->range.buffer) != VK_NULL_HANDLE;
-        if (first) std::memset(first->bytes.data(), 0xCD, first->bytes.size());
+        const fjell::gpu::TransientSlice again = round_again.transient_slice(100);
+        const bool transient_ok = first.range.buffer.valid() && first.bytes.size() == 100 &&
+                                  again.range == first.range &&
+                                  other_slot.range.buffer != first.range.buffer &&
+                                  second.bytes.size() == (3u << 20);
+        if (!first.bytes.empty()) std::memset(first.bytes.data(), 0xCD, first.bytes.size());
         (void)device.end_frame(round_again);
         if (!transient_ok) std::fprintf(stderr, "transient memory failed\n");
         pipelines = pipelines && transient_ok;
 
-        // Records into a command buffer through a command list, makes what it
-        // wrote readable by the CPU, submits it and waits for it.
-        auto run = [&](auto&& record) {
-            VkCommandBufferAllocateInfo allocate{};
-            allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            allocate.commandPool = one_shot_pool;
-            allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            allocate.commandBufferCount = 1;
-            VkCommandBuffer cb{VK_NULL_HANDLE};
-            vkAllocateCommandBuffers(vk_device, &allocate, &cb);
-            VkCommandBufferBeginInfo begin{};
-            begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            vkBeginCommandBuffer(cb, &begin);
-            {
-                fjell::gpu::vulkan::CommandBufferList commands(device, cb);
-                record(commands.list());
-            }
-            VkMemoryBarrier2 written{};
-            written.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            written.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
-            written.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            written.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-            written.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-            VkDependencyInfo dependency{};
-            dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dependency.memoryBarrierCount = 1;
-            dependency.pMemoryBarriers = &written;
-            vkCmdPipelineBarrier2(cb, &dependency);
-            vkEndCommandBuffer(cb);
-
-            VkFenceCreateInfo fence_info{};
-            fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            VkFence fence{VK_NULL_HANDLE};
-            vkCreateFence(vk_device, &fence_info, nullptr, &fence);
-            VkSubmitInfo submit{};
-            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit.commandBufferCount = 1;
-            submit.pCommandBuffers = &cb;
-            vkQueueSubmit(graphics_queue, 1, &submit, fence);
-            vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
-            vkDestroyFence(vk_device, fence, nullptr);
-            vkFreeCommandBuffers(vk_device, one_shot_pool, 1, &cb);
+        // Ends `frame` with `cmd` submitted, after making what copies and
+        // dispatches wrote into `read` readable by the CPU, and waits until
+        // the GPU has finished it.
+        auto finish = [&](fjell::gpu::Frame& frame, fjell::gpu::CommandList& cmd, fjell::gpu::Buffer read) {
+            cmd.barrier(read, Access::copy_dst | Access::storage_write_compute, Access::host_read);
+            frame.submit(cmd);
+            if (auto ended = device.end_frame(frame); !ended) std::fprintf(stderr, "%s\n", ended.error().c_str());
+            device.wait_idle();
+        };
+        // Records a frame's one list, then finishes the frame.
+        auto run = [&](fjell::gpu::Buffer read, auto&& record) {
+            fjell::gpu::Frame& frame = device.begin_frame();
+            fjell::gpu::CommandList& cmd = frame.commands(graphics_queue);
+            record(cmd);
+            finish(frame, cmd, read);
         };
         auto word = [&](fjell::gpu::Buffer read_back, uint32_t index) {
             uint32_t value = 0;
@@ -212,8 +191,8 @@ int main() {
             .name = "link_results",
         });
         if (commands_pipeline && results) {
-            const size_t reported_before = device.impl().reported.size();
-            run([&](fjell::gpu::CommandList& cmd) {
+            const size_t reported_before = reported;
+            run(*results, [&](fjell::gpu::CommandList& cmd) {
                 struct Push {
                     uint32_t base;
                     uint32_t count;
@@ -228,20 +207,20 @@ int main() {
                 cmd.set_pipeline(*commands_pipeline);
                 cmd.dispatch(1, 1, 1);
             });
-            recorded = device.impl().reported.size() == reported_before + 1;
+            recorded = reported == reported_before + 1;
             for (uint32_t i = 0; recorded && i < 64; ++i) recorded = word(*results, i) == 7 + 3 * i;
         }
         if (!commands_pipeline) std::fprintf(stderr, "%s\n", commands_pipeline.error().c_str());
         if (!recorded) std::fprintf(stderr, "command list failed\n");
         pipelines = pipelines && recorded;
 
-        // A group of the table, its elements given one at a time. Written in
-        // place until a frame binds it; then an update is a new version,
-        // and the next, before another bind, goes into that one. Once the
-        // frame that bound it is finished, the set is written in place
-        // again. What the group already holds costs no version. An element
-        // given nothing is emptied; a single binding left empty, or given
-        // nothing, is refused.
+        // A group of the table, its elements given one at a time: before a
+        // frame binds it, while that frame records and binds it again, and
+        // after the frame is finished, none of which the device may report
+        // (the validation layers included, which see a set written while a
+        // frame uses it). An element given nothing is emptied; a name the
+        // layout lacks is refused, and so is a single binding left empty or
+        // given nothing.
         bool shared_groups = false;
         if (table && with_table && texture) {
             auto group = device.create(fjell::gpu::SharedGroupDesc{
@@ -258,30 +237,25 @@ int main() {
                 cmd.set_pipeline(*with_table);
                 cmd.bind(*group);
             };
-            // The set as it stands; `native_group` would count as a bind.
-            auto current_set = [&] { return device.impl().groups.get(*group)->set; };
             if (group) {
-                const VkDescriptorSet made = current_set();
-                shared_groups = element(3) && current_set() == made;
+                const size_t reported_before = reported;
+                shared_groups = element(3);
 
                 auto& binding_frame = device.begin_frame();
-                run(bind_table);
-                shared_groups = shared_groups && element(4);
-                const VkDescriptorSet version = current_set();
-                shared_groups = shared_groups && version != made && element(5) && current_set() == version;
-                run(bind_table);
-                // The same resource again, the set bound: nothing to write.
-                shared_groups = shared_groups && element(5) && current_set() == version;
+                auto& binding = binding_frame.commands(graphics_queue);
+                bind_table(binding);
+                shared_groups = shared_groups && element(4) && element(5);
+                bind_table(binding);
+                // The same resource again, the set bound.
+                shared_groups = shared_groups && element(5);
+                binding_frame.submit(binding);
                 (void)device.end_frame(binding_frame);
-                vkDeviceWaitIdle(vk_device);
-                shared_groups = shared_groups && element(6) && current_set() == version;
+                device.wait_idle();
+                shared_groups = shared_groups && element(6);
 
                 const fjell::gpu::BindEntry emptied[] = {{"textures", fjell::gpu::sampled({}, {}), 5}};
-                shared_groups = shared_groups && device.update(*group, emptied).has_value();
-
-                const auto& contents = device.impl().groups.get(*group)->state->contents;
-                for (uint32_t at : {3u, 4u, 6u, 17u}) shared_groups = shared_groups && contents[at];
-                shared_groups = shared_groups && !contents[0] && !contents[5] && !contents[16];
+                shared_groups = shared_groups && device.update(*group, emptied).has_value() &&
+                                reported == reported_before;
 
                 const fjell::gpu::BindEntry unknown[] = {{"missing", fjell::gpu::sampled(*texture, sampler)}};
                 shared_groups = shared_groups && !device.update(*group, unknown).has_value();
@@ -301,10 +275,10 @@ int main() {
         pipelines = pipelines && shared_groups;
         if (with_table) with_table->reset();
 
-        // Lists recorded at once on two threads, into secondary command
-        // buffers from pools of their own, then played in order by the
-        // primary: each dispatch binds transient memory through the shared
-        // frame sets and writes its own half of a buffer.
+        // Lists recorded at once on two threads, each asked of the frame by
+        // the thread that records it, then played in order by the frame's
+        // list: each dispatch binds the frame's memory and writes its own
+        // half of a buffer.
         bool parallel = false;
         auto halves = device.create(fjell::gpu::BufferDesc{
             .size = 512,
@@ -313,30 +287,8 @@ int main() {
             .name = "link_halves",
         });
         if (commands_pipeline && halves) {
-            std::array<VkCommandPool, 2> pools{};
-            std::array<VkCommandBuffer, 2> secondaries{};
-            for (size_t i = 0; i < 2; ++i) {
-                VkCommandPoolCreateInfo pool_info{};
-                pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-                pool_info.queueFamilyIndex = graphics_family;
-                vkCreateCommandPool(vk_device, &pool_info, nullptr, &pools[i]);
-                VkCommandBufferAllocateInfo allocate{};
-                allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-                allocate.commandPool = pools[i];
-                allocate.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-                allocate.commandBufferCount = 1;
-                vkAllocateCommandBuffers(vk_device, &allocate, &secondaries[i]);
-            }
-            fjell::gpu::vulkan::CommandBufferList here(device, secondaries[0]);
-            fjell::gpu::vulkan::CommandBufferList there(device, secondaries[1]);
-            auto record_half = [&](fjell::gpu::CommandList& cmd, VkCommandBuffer cb, uint32_t half) {
-                VkCommandBufferInheritanceInfo inheritance{};
-                inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-                VkCommandBufferBeginInfo begin{};
-                begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                begin.pInheritanceInfo = &inheritance;
-                vkBeginCommandBuffer(cb, &begin);
+            auto record_half = [&](fjell::gpu::Frame& frame, uint32_t half) -> fjell::gpu::CommandList& {
+                fjell::gpu::CommandList& cmd = frame.parallel_commands(graphics_queue);
                 struct Push {
                     uint32_t base;
                     uint32_t count;
@@ -347,16 +299,17 @@ int main() {
                           {"results", fjell::gpu::storage(fjell::gpu::BufferRange(*halves, 256 * half, 128))}});
                 cmd.push(Push{.base = 100 * half, .count = 32});
                 cmd.dispatch(1, 1, 1);
-                vkEndCommandBuffer(cb);
+                return cmd;
             };
-            run([&](fjell::gpu::CommandList& cmd) {
-                std::thread other([&] { record_half(there.list(), secondaries[1], 1); });
-                record_half(here.list(), secondaries[0], 0);
-                other.join();
-                const std::array<fjell::gpu::CommandList*, 2> lists{&here.list(), &there.list()};
-                cmd.execute(lists);
-            });
-            for (VkCommandPool pool : pools) vkDestroyCommandPool(vk_device, pool, nullptr);
+            fjell::gpu::Frame& frame = device.begin_frame();
+            fjell::gpu::CommandList* there = nullptr;
+            std::thread other([&] { there = &record_half(frame, 1); });
+            fjell::gpu::CommandList* here = &record_half(frame, 0);
+            other.join();
+            fjell::gpu::CommandList& cmd = frame.commands(graphics_queue);
+            const std::array<fjell::gpu::CommandList*, 2> lists{here, there};
+            cmd.execute(lists);
+            finish(frame, cmd, *halves);
             parallel = true;
             for (uint32_t i = 0; parallel && i < 32; ++i) {
                 parallel = word(*halves, i) == 5 * i && word(*halves, 64 + i) == 100 + 6 * i;
@@ -380,8 +333,8 @@ int main() {
         });
         if (source && mipped && results) {
             using fjell::gpu::Access;
-            const size_t reported_before = device.impl().reported.size();
-            run([&](fjell::gpu::CommandList& cmd) {
+            const size_t reported_before = reported;
+            run(*results, [&](fjell::gpu::CommandList& cmd) {
                 cmd.fill(*source, 0xABCD1234U);
                 cmd.barrier(*source, Access::clear, Access::copy_src);
                 cmd.copy(*source, fjell::gpu::BufferRange(*results, 0, 16));
@@ -393,7 +346,7 @@ int main() {
                 cmd.barrier(fjell::gpu::mip(*mipped, 2), Access::copy_dst, Access::copy_src);
                 cmd.copy(fjell::gpu::mip(*mipped, 2), fjell::gpu::BufferRange(*results, 16, 4));
             });
-            copied = device.impl().reported.size() == reported_before;
+            copied = reported == reported_before;
             for (uint32_t i = 0; copied && i < 4; ++i) copied = word(*results, i) == 0xABCD1234U;
             copied = copied && word(*results, 4) == 0xFFFF00FFU;
         }
@@ -418,7 +371,7 @@ int main() {
             using fjell::gpu::Access;
             constexpr uint32_t RED = 0xFF0000FFU;
             constexpr uint32_t GREEN = 0xFF00FF00U;
-            const size_t reported_before = device.impl().reported.size();
+            const size_t reported_before = reported;
             fjell::gpu::Upload& upload = device.upload();
             const std::array<uint32_t, 4> words{1, 2, 3, 4};
             upload.to_buffer(*upload_target, 16, words);
@@ -434,14 +387,14 @@ int main() {
                               std::as_bytes(std::span(box)),
                               {.before = Access::sampled_fragment, .after = Access::sampled_fragment});
             device.wait_idle();
-            run([&](fjell::gpu::CommandList& cmd) {
+            run(*results, [&](fjell::gpu::CommandList& cmd) {
                 cmd.copy(fjell::gpu::BufferRange(*upload_target, 16, 16),
                          fjell::gpu::BufferRange(*results, 0, 16));
                 cmd.barrier(*upload_texture, Access::sampled_fragment, Access::copy_src);
                 cmd.copy(fjell::gpu::mip(*upload_texture, 0), fjell::gpu::BufferRange(*results, 16, 64));
                 cmd.copy(fjell::gpu::mip(*upload_texture, 2), fjell::gpu::BufferRange(*results, 80, 4));
             });
-            uploaded = device.impl().reported.size() == reported_before + 1;
+            uploaded = reported == reported_before + 1;
             for (uint32_t i = 0; uploaded && i < 4; ++i) uploaded = word(*results, i) == i + 1;
             for (uint32_t i = 0; uploaded && i < 16; ++i) {
                 const bool in_box = i == 9 || i == 10;
@@ -556,8 +509,8 @@ int main() {
             };
             if (colour && depth && samples && resolved && drawn && draw_args && vertex_pipeline &&
                 sampled_pipeline && (mesh_pipeline || !has_mesh)) {
-                const size_t reported_before = device.impl().reported.size();
-                run([&](fjell::gpu::CommandList& cmd) {
+                const size_t reported_before = reported;
+                run(*drawn, [&](fjell::gpu::CommandList& cmd) {
                     cmd.barrier(*colour, {}, Access::color_attachment);
                     cmd.barrier(*depth, {}, Access::depth_attachment);
                     {
@@ -604,7 +557,7 @@ int main() {
                     cmd.copy(*resolved, fjell::gpu::BufferRange(*drawn, 128, 64));
                 });
                 // The pipeline for other targets and the copy in the scope.
-                rendered = device.impl().reported.size() == reported_before + 2;
+                rendered = reported == reported_before + 2;
                 for (uint32_t i = 0; rendered && i < 16; ++i) {
                     rendered = word(*drawn, i) == 0xFF00FF00U &&
                                (!has_mesh || word(*drawn, 16 + i) == 0xFFFF0000U) &&
@@ -657,8 +610,8 @@ int main() {
                     std::memcpy(device.mapped(*indices).data(), order.data(), sizeof(order));
                     const fjell::gpu::AccelerationInstance instance{.custom_index = 42, .structure = *bottom};
                     device.write_instances(device.mapped(*records), std::span(&instance, 1));
-                    const size_t reported_before = device.impl().reported.size();
-                    run([&](fjell::gpu::CommandList& cmd) {
+                    const size_t reported_before = reported;
+                    run(*hits, [&](fjell::gpu::CommandList& cmd) {
                         using fjell::gpu::Access;
                         auto zone = cmd.zone("link acceleration structures");
                         cmd.build(*bottom, triangle);
@@ -670,7 +623,7 @@ int main() {
                                   {"hits_out", fjell::gpu::storage(*hits)}});
                         cmd.dispatch(1, 1, 1);
                     });
-                    traced = device.impl().reported.size() == reported_before && word(*hits, 0) == 1 &&
+                    traced = reported == reported_before && word(*hits, 0) == 1 &&
                              word(*hits, 1) == 42 && word(*hits, 2) == 0;
                 }
                 if (!bottom) std::fprintf(stderr, "%s\n", bottom.error().c_str());
@@ -689,10 +642,9 @@ int main() {
         if (pipelines && buffer && texture && sampler.valid()) {
             const auto bytes = device.mapped(*buffer);
             std::memset(bytes.data(), 0xAB, bytes.size());
-            const VkImageView level = fjell::gpu::vulkan::native_view(device, fjell::gpu::mip(*texture, 1));
             const bool same_sampler =
                 device.sampler({.address = fjell::gpu::Address::clamp}) == sampler;
-            ran = bytes.size() == 256 && level != VK_NULL_HANDLE && same_sampler &&
+            ran = bytes.size() == 256 && same_sampler &&
                   device.info(*texture).mips == 2;
         }
         device.wait_idle();
@@ -702,7 +654,6 @@ int main() {
         if (graphics) graphics->reset();
         if (mesh) mesh->reset();
         device.wait_idle();
-        vkDestroyCommandPool(vk_device, one_shot_pool, nullptr);
     }
     fjell::log::shutdown();
     return ran ? 0 : 1;
