@@ -71,6 +71,13 @@ PassSetup TaaResolvePass::setup() const {
 }
 
 void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // A viewport without TAA images of its own (a scene viewport made from
+    // flags runs the global pass set) has no history to resolve into, so
+    // the pass declares nothing there and the graph leaves it out.
+    const FgTexture history_read = builder.import_named_optional(ctx, "taa_history_read");
+    const FgTexture history_write = builder.import_named_optional(ctx, "taa_history_write");
+    if (!history_read.valid() || !history_write.valid()) { return; }
+
     auto color = builder.import_named(ctx, "color");
     auto velocity = builder.import_named(ctx, "velocity");
     auto depth = builder.import_named(ctx, "depth");
@@ -80,9 +87,8 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Blends into this frame's history slot from last frame's. The slots
     // are persistent, which keeps the pass alive for the frame after even
     // when nothing reads its output now.
-    builder.read(builder.import_named(ctx, "taa_history_read"), gpu::Access::sampled_compute);
-    builder.write(builder.import_named(ctx, "taa_history_write"),
-                  gpu::Access::storage_write_compute);
+    builder.read(history_read, gpu::Access::sampled_compute);
+    builder.write(history_write, gpu::Access::storage_write_compute);
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {
