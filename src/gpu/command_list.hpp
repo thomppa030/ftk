@@ -181,7 +181,9 @@ public:
     [[nodiscard]] RenderEncoder render(const RenderTargets& targets);
 
     // Barriers between a pass's own commands. Between passes the frame graph
-    // orders what they declare.
+    // orders what they declare. A barrier naming an access its resource has
+    // no scope for (a storage image's on a buffer, a buffer's on a texture)
+    // would order nothing, and is refused.
 
     /// Orders what comes after on `view` as `after` behind what came before
     /// as `before`. Nothing before discards what the view holds.
@@ -246,5 +248,12 @@ private:
 
 /// The sets `layout`'s shaders declare, one bit each (bit n for set n).
 [[nodiscard]] uint32_t declared_sets(const ShaderLayout& layout);
+
+/// Whether a barrier on `resource` ("a texture", "a buffer", "an
+/// acceleration structure"), whose accesses `applies` says, can order
+/// `after` behind `before`.
+/// @return nothing, or which access is not one such a resource has.
+[[nodiscard]] Result<> barrier_accesses(AccessSet before, AccessSet after,
+                                        bool (*applies)(Access) noexcept, std::string_view resource);
 
 } // namespace fjell::gpu

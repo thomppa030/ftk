@@ -1,5 +1,6 @@
 #include "gpu/command_list.hpp"
 
+#include <format>
 #include <string>
 
 namespace fjell::gpu {
@@ -17,6 +18,16 @@ uint32_t declared_sets(const ShaderLayout& layout) {
     uint32_t sets = 0;
     for (const auto& binding : layout.bindings) sets |= 1u << binding.set;
     return sets;
+}
+
+Result<> barrier_accesses(AccessSet before, AccessSet after, bool (*applies)(Access) noexcept,
+                          std::string_view resource) {
+    for (const AccessSet side : {before, after}) {
+        if (const auto wrong = first_misapplied(side, applies)) {
+            return make_error(std::format("{} is not an access {} has", access_name(*wrong), resource));
+        }
+    }
+    return {};
 }
 
 } // namespace fjell::gpu

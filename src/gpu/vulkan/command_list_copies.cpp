@@ -203,6 +203,9 @@ Result<VkImageMemoryBarrier2> image_barrier(Device::Impl& device, const TextureV
     auto found = find(device, view);
     if (!found) return std::unexpected(found.error());
     if (after.empty()) return make_error("a barrier to no access orders nothing");
+    if (auto fits = barrier_accesses(before, after, applies_to_texture, "a texture"); !fits) {
+        return std::unexpected(fits.error());
+    }
     const bool depth = is_depth(found->view.format);
     const auto from = vulkan::image_scope(before, depth);
     const auto to = vulkan::image_scope(after, depth);
@@ -235,6 +238,9 @@ Result<VkBufferMemoryBarrier2> buffer_barrier(Device::Impl& device, const Buffer
     if (!found) return std::unexpected(found.error());
     if (before.empty() || after.empty()) {
         return make_error("a buffer barrier orders one access behind another");
+    }
+    if (auto fits = barrier_accesses(before, after, applies_to_buffer, "a buffer"); !fits) {
+        return std::unexpected(fits.error());
     }
     const vulkan::BufferScope from = vulkan::buffer_scope(before);
     const vulkan::BufferScope to = vulkan::buffer_scope(after);
