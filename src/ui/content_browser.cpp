@@ -125,19 +125,6 @@ void ContentBrowser::apply_pending_navigation() {
     if (icons_) icons_->clear_thumbnails();
     refresh_current_dir();
 
-    // Kick off async thumbnail decode for all images in this directory
-    if (icons_ && pool_) {
-        std::vector<std::string> paths;
-        for (const auto& entry : entries_) {
-            if (entry.type == FileType::texture) {
-                paths.push_back(entry.path.string());
-            }
-        }
-        if (!paths.empty()) {
-            icons_->preload_thumbnails(paths, *pool_);
-        }
-    }
-
     // Asset thumbnails stream in one per frame, cache hits first. A refresh
     // also re-renders an asset edited since its thumbnail was made.
     if (asset_thumbnails_) {

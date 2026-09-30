@@ -6,7 +6,6 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -84,13 +83,6 @@ public:
     /// frame recording now.
     void clear_thumbnails();
 
-    /// Queue async thumbnail decode for a list of image paths.
-    /// CPU decode runs on background threads, GPU upload happens in poll_thumbnails().
-    void preload_thumbnails(const std::vector<std::string>& paths, class ThreadPool& pool);
-
-    /// Upload completed thumbnail data to GPU. Call once per frame from main thread.
-    void poll_thumbnails();
-
     /// Generate .fjcache thumbnail on disk for an image file (no GPU work).
     /// Safe to call from any thread. Skips if cache is already valid.
     static void ensure_thumbnail_cache(const std::string& path);
@@ -142,27 +134,6 @@ private:
     };
     std::unordered_map<ContextKey, VkDescriptorSet, ContextKeyHash> context_descriptors_;
     Connection context_destroyed_conn_;
-
-    // Async thumbnail pipeline: background threads decode pixels, main thread uploads
-    struct PendingThumbnail {
-        std::string path;
-        std::vector<uint8_t> pixels;
-        int width;
-        int height;
-    };
-    std::mutex pending_mutex_;
-    std::vector<PendingThumbnail> pending_thumbnails_;
-
-    // In-flight GPU upload — submitted but not yet finished
-    struct InFlightUpload {
-        VkFence fence{VK_NULL_HANDLE};
-        VkCommandBuffer cmd{VK_NULL_HANDLE};
-        VkBuffer staging_buffer{VK_NULL_HANDLE};
-        VkDeviceMemory staging_memory{VK_NULL_HANDLE};
-        std::vector<std::string> paths;
-        std::vector<IconEntry> entries;
-    };
-    InFlightUpload in_flight_;
 };
 
 } // namespace fjell
