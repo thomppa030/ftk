@@ -308,6 +308,12 @@ public:
   /// reclaim the old emitters.
   void release_scene_particles(const Scene& scene);
 
+  /// Moves a scene's effects on by `dt` seconds. Call once per tick for a
+  /// scene that is drawn, as physics is stepped: the first view of it that
+  /// runs the subsystem compute pass records the step and every other view
+  /// draws what it left, so time advances once however many views there are.
+  void advance_scene_particles(const Scene& scene, float dt);
+
   /// Callback for worldspace UI rendering (color pass, after transparent objects).
   using WorldUiCallback = FrameContext::UiCallback;
   void set_world_ui_callback(WorldUiCallback cb) { world_ui_callback_ = std::move(cb); }

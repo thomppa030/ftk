@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -46,13 +47,22 @@ constexpr uint64_t SUB_EVENT_SIZE = 64;
 
 namespace {
 
-// Whether an emitter draws into the view being recorded: seen by the last
-// simulation, and of the scene this view renders. Every scene's emitters live
-// in one list, and a thumbnail or a camera preview draws without simulating,
-// so the visibility flags alone would put the open scene's effects into a
-// render of another.
-bool draws_in(const ParticleSystem::EmitterGpu& em, const FrameContext& ctx) {
-    return em.active && em.visible && ctx.scene != nullptr && em.scene_id == ctx.scene->id();
+// The view being recorded: the scene it renders and what it sees.
+struct DrawView {
+    uint64_t scene_id{0};
+    Frustum frustum{};
+};
+
+DrawView view_of(const FrameContext& ctx) {
+    return {ctx.scene->id(), Frustum::from_vp_matrix_zo(ctx.projection * ctx.view)};
+}
+
+// Whether an emitter draws into the view being recorded: moved by its
+// scene's last step, of the scene this view renders, and where the view
+// sees. Every scene's emitters live in one list, so the scene test keeps the
+// open scene's effects out of a render of another.
+bool draws_in(const ParticleSystem::EmitterGpu& em, const DrawView& view) {
+    return em.active && em.stepped && em.scene_id == view.scene_id && view.frustum.intersects(em.bounds);
 }
 
 // Colour over what is there by the source's alpha, the alpha summed.
@@ -341,24 +351,49 @@ void ParticleSystem::sync_scene(Scene& scene, ResourceManager* resources, const 
 }
 
 void ParticleSystem::update(const RenderSubsystemContext& ctx) {
-    // Cache view_projection for record_compute (GPU dispatch needs it for frustum).
-    cached_view_projection_ = ctx.view_projection;
+    // Every view a scene is drawn from counts towards where it emits at its
+    // next step, previews included.
+    if (!ctx.scene) return;
+    const auto clock = clocks_.find(ctx.scene->id());
+    if (clock == clocks_.end()) return;
+    clock->second.views.push_back({Frustum::from_vp_matrix_zo(ctx.view_projection), ctx.camera_position});
+}
+
+void ParticleSystem::advance(uint64_t scene_id, float dt) {
+    SceneClock& clock = clocks_[scene_id];
+    clock.dt = dt;
+    clock.pending = true;
+    clock.last_views = std::move(clock.views);
+    clock.views.clear();
 }
 
 void ParticleSystem::record_compute(const FrameContext& ctx) {
     if (!ctx.scene) return;
+    const auto clock = clocks_.find(ctx.scene->id());
+    if (clock == clocks_.end() || !clock->second.pending) return;
+    clock->second.pending = false;
+
+    // The views of the tick before and those of this one so far, the one
+    // stepping included.
+    std::vector<SceneView> views = clock->second.last_views;
+    views.insert(views.end(), clock->second.views.begin(), clock->second.views.end());
+
     auto& scene_ref = const_cast<Scene&>(*ctx.scene);
     const glm::vec3 wind = ctx.environment != nullptr
         ? ctx.environment->weather.wind_direction *
               (ctx.environment->weather.wind_speed * ctx.environment->weather.wind_gust)
         : glm::vec3{0.0f};
-    dispatch_compute(ctx, scene_ref, wind, cached_view_projection_);
+    dispatch_compute(ctx, scene_ref, wind, clock->second.dt, views);
 }
 
 void ParticleSystem::collect_exports(DeclareContext& ctx) const {
+    // Only the run that records the scene's step writes these; the others
+    // draw what it left.
+    const auto clock = clocks_.find(ctx.scene_id);
+    const bool steps = clock != clocks_.end() && clock->second.pending;
     auto add = [&](gpu::Buffer buffer, bool persistent, gpu::Access draw_access) {
         if (!buffer.valid()) { return; }
-        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, persistent}, draw_access});
+        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, persistent}, draw_access, steps});
     };
     // The particles and their counters carry into the next frame; the alive
     // lists, commands and mesh instances are rebuilt from them every frame.
@@ -386,7 +421,8 @@ void ParticleSystem::record_transparent(const FrameContext& ctx, gpu::RenderEnco
     record_render(ctx, pass);
 }
 
-void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline) {
+void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline,
+                         const gpu::BufferRange& records) {
     pass.set_pipeline(pipeline);
     pass.bind(ctx.globals);
     pass.bind(ctx.bindless);
@@ -394,7 +430,7 @@ void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu:
     const gpu::BindEntry offered[] = {
         {"ParticleBuffer", gpu::storage(particles_)},
         {"AliveList", gpu::storage(alive_)},
-        {"EmitterBuffer", gpu::storage(emitter_records_)},
+        {"EmitterBuffer", gpu::storage(records)},
         {"Counters", gpu::storage(counters_)},
         {"InstanceBuffer", gpu::storage(mesh_instances_)},
         {"depth_tex", gpu::sampled(ctx.target->depth_texture(), depth_sampler_)},
@@ -408,18 +444,19 @@ void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu:
 }
 
 void ParticleSystem::record_render_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) {
-    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
+    if (emitters_.empty() || !ctx.scene) return;
+    const DrawView view = view_of(ctx);
 
     bool has_any = false;
     for (const auto& em : emitters_) {
-        if (draws_in(em, ctx) && em.is_distortion) { has_any = true; break; }
+        if (draws_in(em, view) && em.is_distortion) { has_any = true; break; }
     }
     if (!has_any) return;
     auto zone = ctx.commands().zone("Particles: Distortion");
 
     use(ctx, pass, pipelines_.distortion);
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!draws_in(emitters_[i], ctx) || !emitters_[i].is_distortion) continue;
+        if (!draws_in(emitters_[i], view) || !emitters_[i].is_distortion) continue;
         pass.push(emitters_[i].distortion_strength);
         pass.draw_indirect(gpu::BufferRange(indirect_, i * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
                            sizeof(gpu::DrawArgs));
@@ -432,6 +469,7 @@ void ParticleSystem::release_scene(uint64_t scene_id) {
     for (auto& gpu : emitters_) {
         if (gpu.active && gpu.scene_id == scene_id) free_slot(gpu);
     }
+    clocks_.erase(scene_id);
 }
 
 uint32_t ParticleSystem::allocate_slot() {
@@ -665,14 +703,12 @@ static float max_velocity_magnitude(const VfxEmitter& emitter) {
     return max_speed;
 }
 
-void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
-                                      const glm::mat4& view_projection) {
+void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind, float dt,
+                                      std::span<const SceneView> views) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Particles: Compute");
-    const glm::vec3 camera_pos = ctx.camera_position;
-    float dt = ctx.delta_time;
     record_pending_inits(cmd);
     // One long frame would otherwise move every particle far enough in a
     // single step to pass through whatever it was about to hit. Past this
@@ -681,8 +717,6 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     dt = std::min(dt, MAX_STEP);
     ++frame_seed_;
     accumulated_time_ += dt;
-    camera_pos_ = camera_pos;
-    Frustum frustum = Frustum::from_vp_matrix_zo(view_projection);
 
     uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
     // Ranges are allocated first fit, so a freed gap below a live emitter
@@ -690,8 +724,9 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     uint32_t total_max = particle_extent();
 
     // Build emitter metadata
-    emitter_data_cache_.clear();
-    emitter_data_cache_.resize(emitter_count);
+    step_records_.clear();
+    step_records_.resize(emitter_count);
+    draw_records_.resize(emitter_count);
     uint32_t max_emit_count = 0;
     uint32_t max_child_emit = 0; // threads the child emit pass needs across emitters
 
@@ -707,7 +742,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         // stranger's node. A free slot has no node at all.
         gpu.in_scene = gpu.active && gpu.scene_id == scene.id();
         auto* obj = gpu.in_scene ? scene.find(gpu.object_id) : nullptr;
-        auto& data = emitter_data_cache_[i];
+        auto& data = step_records_[i];
         std::memset(&data, 0, sizeof(data));
 
         auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
@@ -716,8 +751,9 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
             // Emitter not valid — assign a terminator-only module block
             // so the shader exits the module walk immediately. With dt and
             // emit count zero its particles hold still, and unseen they
-            // are not drawn into a target that is not theirs.
-            gpu.visible = false;
+            // are not drawn into a target that is not theirs. Another
+            // scene's are left as its own last step left them.
+            if (gpu.in_scene) gpu.stepped = false;
             data.module_offset = module_word_offset;
             // Zero would name emitter 0 as its parent, and the sub-emit
             // pass would then spawn from that emitter's events into a
@@ -830,16 +866,21 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         gpu.prev_position = pos;
         gpu.has_prev_position = true;
 
-        // ── Frustum culling + distance LOD ──
+        // ── Culling + distance LOD, by every view of the scene ──
         glm::vec3 spawn_ext = compute_spawn_extent(sub);
         float max_travel = sub.lifetime_max() * max_velocity_magnitude(sub);
-        AABB emitter_aabb;
-        emitter_aabb.min = pos - spawn_ext - glm::vec3(max_travel);
-        emitter_aabb.max = pos + spawn_ext + glm::vec3(max_travel);
-        gpu.visible = frustum.intersects(emitter_aabb);
+        gpu.bounds.min = pos - spawn_ext - glm::vec3(max_travel);
+        gpu.bounds.max = pos + spawn_ext + glm::vec3(max_travel);
+        gpu.stepped = true;
+        bool seen = false;
+        float dist = std::numeric_limits<float>::max();
+        for (const SceneView& view : views) {
+            if (!view.frustum.intersects(gpu.bounds)) continue;
+            seen = true;
+            dist = std::min(dist, glm::length(view.camera - pos));
+        }
 
-        if (gpu.visible) {
-            float dist = glm::length(camera_pos - pos);
+        if (seen) {
             float lod_factor = 1.0f;
             if (dist > 100.0f)      lod_factor = 0.0f;
             else if (dist > 60.0f)  lod_factor = 0.25f;
@@ -1032,17 +1073,17 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         module_word_offset += bytes / 4;
     }
 
-    // Clear one-frame fire flags
+    // Clear one-frame fire flags, and keep what the scene's draws read.
     for (size_t i = 0; i < emitters_.size(); ++i) {
         if (!emitters_[i].in_scene) continue;
+        if (emitters_[i].stepped) draw_records_[i] = step_records_[i];
         auto* obj = scene.find(emitters_[i].object_id);
         auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
         if (ec) ec->fire = false;
     }
 
-    // This dispatch's emitter records and module bytes, which the frame's
-    // trail draws read too.
-    emitter_records_ = cmd.transient(std::span<const GpuEmitterData>(emitter_data_cache_.data(), emitter_count));
+    const gpu::BufferRange emitter_records =
+        cmd.transient(std::span<const GpuEmitterData>(step_records_.data(), emitter_count));
     const gpu::BufferRange modules = cmd.transient(
         std::span<const std::byte>(module_bytes_.data(), static_cast<size_t>(module_word_offset) * 4));
 
@@ -1059,7 +1100,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     const gpu::BindEntry simulation[] = {
         {"ParticleBuffer", gpu::storage(particles_)},
         {"Counters", gpu::storage(counters_)},
-        {"EmitterBuffer", gpu::storage(emitter_records_)},
+        {"EmitterBuffer", gpu::storage(emitter_records)},
         {"ModuleBuffer", gpu::storage(modules)},
         {"SubEmitterEventBuf", gpu::storage(sub_events_)},
         {"SubEmitterEventCounters", gpu::storage(sub_event_counts_)},
@@ -1110,7 +1151,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         auto step = cmd.zone("Particles: Indirect");
         cmd.set_pipeline(pipelines_.indirect);
         cmd.bind({{"Counters", gpu::storage(counters_)},
-                  {"EmitterBuffer", gpu::storage(emitter_records_)},
+                  {"EmitterBuffer", gpu::storage(emitter_records)},
                   {"IndirectDraw", gpu::storage(indirect_)}});
         cmd.push(push);
         cmd.dispatch((emitter_count + 255) / 256, 1, 1);
@@ -1135,7 +1176,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         cmd.bind({{"ParticleBuffer", gpu::storage(particles_)},
                   {"MeshIndirect", gpu::storage(mesh_indirect_)},
                   {"BillboardIndirect", gpu::storage(indirect_)},
-                  {"EmitterBuffer", gpu::storage(emitter_records_)},
+                  {"EmitterBuffer", gpu::storage(emitter_records)},
                   {"AliveList", gpu::storage(alive_)},
                   {"InstanceBuffer", gpu::storage(mesh_instances_)},
                   {"AliveCounts", gpu::storage(mesh_instance_counts_)}});
@@ -1160,7 +1201,8 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
 
 void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     FJELL_PROFILE_SCOPE_N("particle_record_render");
-    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
+    if (emitters_.empty() || !ctx.scene) return;
+    const DrawView view = view_of(ctx);
     auto zone = ctx.commands().zone("Particles: Transparent");
 
     // Build sorted draw order: additive first (order-independent),
@@ -1169,10 +1211,12 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
     draw_order.reserve(emitters_.size());
 
     std::vector<uint32_t> alpha_indices;
+    bool any_trail = false;
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!draws_in(emitters_[i], ctx)) continue;
+        if (!draws_in(emitters_[i], view)) continue;
         if (emitters_[i].blend_mode == ParticleBlendMode::opaque) continue;
         if (emitters_[i].is_distortion) continue; // drawn in distortion pass
+        any_trail = any_trail || (emitters_[i].is_trail && !emitters_[i].is_mesh);
         if (emitters_[i].blend_mode == ParticleBlendMode::additive) {
             draw_order.push_back(i);
         } else {
@@ -1182,11 +1226,16 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
 
     // Sort alpha emitters back-to-front
     std::sort(alpha_indices.begin(), alpha_indices.end(), [&](uint32_t a, uint32_t b) {
-        glm::vec3 da = emitter_data_cache_[a].emitter_position - camera_pos_;
-        glm::vec3 db = emitter_data_cache_[b].emitter_position - camera_pos_;
+        glm::vec3 da = draw_records_[a].emitter_position - ctx.camera_position;
+        glm::vec3 db = draw_records_[b].emitter_position - ctx.camera_position;
         return glm::dot(da, da) > glm::dot(db, db);
     });
     draw_order.insert(draw_order.end(), alpha_indices.begin(), alpha_indices.end());
+
+    // The trails read every slot's record, as its scene's last step left it.
+    draw_records_.resize(emitters_.size());
+    const gpu::BufferRange records =
+        any_trail ? ctx.commands().transient(std::span<const GpuEmitterData>(draw_records_)) : gpu::BufferRange{};
 
     gpu::GraphicsPipeline bound{};
     for (uint32_t idx : draw_order) {
@@ -1204,7 +1253,7 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
             else       needed = additive ? pipelines_.additive : pipelines_.alpha;
         }
         if (needed != bound) {
-            use(ctx, pass, needed);
+            use(ctx, pass, needed, records);
             bound = needed;
         }
         if (lit) {
@@ -1223,7 +1272,7 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
 
     bool any_mesh = false;
     for (const auto& em : emitters_) {
-        if (em.is_mesh && draws_in(em, ctx)) { any_mesh = true; break; }
+        if (em.is_mesh && draws_in(em, view)) { any_mesh = true; break; }
     }
     if (!any_mesh || !ctx.mega_buffer) return;
 
@@ -1258,12 +1307,13 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
 
 void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     FJELL_PROFILE_SCOPE_N("particle_record_render_opaque");
-    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
+    if (emitters_.empty() || !ctx.scene) return;
+    const DrawView view = view_of(ctx);
 
     // Check if any opaque emitters exist
     bool any_opaque = false;
     for (const auto& em : emitters_) {
-        if (draws_in(em, ctx) && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
+        if (draws_in(em, view) && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
     }
     if (!any_opaque) return;
     auto zone = ctx.commands().zone("Particles: Opaque");
@@ -1276,7 +1326,7 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEn
 
     gpu::GraphicsPipeline bound{};
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        if (!draws_in(emitters_[i], ctx)) continue;
+        if (!draws_in(emitters_[i], view)) continue;
         if (emitters_[i].blend_mode != ParticleBlendMode::opaque) continue;
 
         const bool lit = emitters_[i].is_lit;

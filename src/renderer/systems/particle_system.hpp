@@ -7,6 +7,7 @@
 #include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
 #include "renderer/components/particle_emitter.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
@@ -24,6 +25,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -116,15 +119,30 @@ public:
     /// one that merely lost its emitter nodes is reconciled by sync.
     void release_scene(uint64_t scene_id);
 
+    /// Moves the scene's effects on by `dt` seconds, once per tick, as
+    /// physics is stepped: the next graph run drawing the scene with a
+    /// subsystem compute pass records the step, and every other view draws
+    /// what it left. A second call before any run steps replaces the first,
+    /// so a scene nothing draws holds still.
+    void advance(uint64_t scene_id, float dt);
+
 private:
-    void dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
-                          const glm::mat4& view_projection);
+    // A view a scene was drawn from: what it sees and where it stands.
+    struct SceneView {
+        Frustum frustum;
+        glm::vec3 camera{0.0f};
+    };
+
+    void dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind, float dt,
+                          std::span<const SceneView> views);
     void record_render(const FrameContext& ctx, gpu::RenderEncoder& pass);
     void record_render_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass);
     void record_render_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass);
     /// Sets `pipeline` and binds what its shaders read: the globals, the
     /// bindless table, and of the particle buffers those it declares.
-    void use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline);
+    /// `records` holds the emitter records, which only the trails read.
+    void use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline,
+             const gpu::BufferRange& records = {});
 
 public:
     // Public for DDGI RT TLAS integration (mesh particle emitters as proxy geometry)
@@ -149,7 +167,11 @@ public:
         ParticleBlendMode blend_mode{ParticleBlendMode::additive};
         glm::vec3 prev_position{0.0f};
         bool has_prev_position{false};
-        bool visible{true};       // frustum culling result
+        // The last step of its scene found its node and moved it on, and
+        // where its particles can be as of that step, which each view culls
+        // its draws by.
+        bool stepped{false};
+        AABB bounds{};
         bool is_trail{false};     // uses trail ring buffer emit + strip rendering
         bool is_lit{false};       // uses lit PBR fragment shader
         float lit_metallic{0.0f};
@@ -252,16 +274,29 @@ private:
     gpu::Owned<gpu::Buffer> mesh_instance_counts_;
     gpu::Owned<gpu::Buffer> mesh_indirect_;  // per emitter: the indexed mesh draw
 
-    /// This frame's emitter records, written with its dispatch and read by
-    /// the trail draws.
-    gpu::BufferRange emitter_records_{};
     /// Each emitter's module bytes as the dispatch gathers them.
     std::vector<std::byte> module_bytes_;
 
     // Emitter tracking
     std::vector<EmitterGpu> emitters_;
     std::unordered_set<uint32_t> emitter_id_set_;
-    std::vector<GpuEmitterData> emitter_data_cache_;
+    /// The records a step sends, one per slot: an emitter of another scene
+    /// gets one that holds it still.
+    std::vector<GpuEmitterData> step_records_;
+    /// Each slot's record as its own scene's last step wrote it, which the
+    /// draws read: another scene's step leaves it alone.
+    std::vector<GpuEmitterData> draw_records_;
+
+    // Per scene the engine advances: the step waiting to be recorded, and
+    // the views that drew the scene this tick and the tick before, which
+    // decide where it emits.
+    struct SceneClock {
+        float dt{0.0f};
+        bool pending{false};
+        std::vector<SceneView> views;
+        std::vector<SceneView> last_views;
+    };
+    std::unordered_map<uint64_t, SceneClock> clocks_;
 
     // Capacity
     uint32_t total_particle_capacity_{0};
@@ -286,8 +321,6 @@ private:
 
     uint32_t frame_seed_{0};
     float accumulated_time_{0.0f};
-    glm::vec3 camera_pos_{0.0f};
-    glm::mat4 cached_view_projection_{1.0f};
 
     glm::vec3 sdf_volume_min_{-10.0f};
     glm::vec3 sdf_volume_max_{10.0f};

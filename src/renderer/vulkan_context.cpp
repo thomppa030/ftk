@@ -1094,6 +1094,10 @@ void VulkanContext::release_scene_particles(const Scene& scene) {
     if (particle_system_) particle_system_->release_scene(scene.id());
 }
 
+void VulkanContext::advance_scene_particles(const Scene& scene, float dt) {
+    if (particle_system_) particle_system_->advance(scene.id(), dt);
+}
+
 void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
     if (!ui.loaded()) return;
 

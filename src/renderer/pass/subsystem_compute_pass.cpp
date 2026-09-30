@@ -21,10 +21,11 @@ PassSetup SubsystemComputePass::setup() const {
 }
 
 void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    // Everything the subsystems simulate and then draw. A buffer that
-    // carries state into the next frame is persistent, which keeps the
-    // simulation running while nothing on screen draws it.
+    // Everything the subsystems simulate in this run and then draw. A
+    // buffer that carries state into the next frame is persistent, which
+    // keeps the simulation running while nothing on screen draws it.
     for (const auto& input : ctx.subsystem_draw_inputs) {
+        if (!input.written) continue;
         builder.read_write(builder.import("subsystem_draw_input", input.buffer.buffer,
                                           input.buffer.persistent),
                            gpu::Access::storage_buffer_read_write_compute);
@@ -33,8 +34,8 @@ void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& c
 
 void SubsystemComputePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_subsystem_compute");
-    // The subsystems still record their dispatches and barriers natively,
-    // into the command buffer this list records into.
+    // Each subsystem records its dispatches and barriers into this pass's
+    // list.
     auto zone = ctx.commands().zone("Subsystem Compute");
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_compute(ctx);

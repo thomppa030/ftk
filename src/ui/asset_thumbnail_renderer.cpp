@@ -374,6 +374,7 @@ public:
         float warm = std::clamp(effect->max_lifetime(), MIN_WARMUP_SECONDS, MAX_WARMUP_SECONDS);
         int steps = static_cast<int>(std::ceil(warm / WARMUP_STEP));
         for (int i = 0; i < steps; ++i) {
+            vk.advance_scene_particles(scene, WARMUP_STEP);
             if (!stage.render(deps, WARMUP_STEP, FRAMING, nullptr, graph)) return false;
         }
         // The simulation advances the effect's own clock, so this says
@@ -386,6 +387,7 @@ public:
                              sub.emission_rate(), sub.burst_count(), sub.lifetime_max(),
                              sub.paused, sub.finished);
         }
+        vk.advance_scene_particles(scene, WARMUP_STEP);
         return stage.render(deps, WARMUP_STEP, FRAMING, &out, graph);
     }
 

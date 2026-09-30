@@ -2480,6 +2480,10 @@ void Engine::run() {
         vulkan_context_->sync_tilemap_textures(*render_scene, *resource_manager_, project_mgr_.active());
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
+        // The scene's effects move on once this tick, whichever view draws
+        // them first.
+        vulkan_context_->advance_scene_particles(*render_scene, clock_.game_delta_time());
+
         // Render scene viewports (render-to-texture, must complete before main frame)
         vulkan_context_->render_scene_viewports(render_scene, clock_.game_delta_time(),
                                                  scene_context_->selected_id(),
