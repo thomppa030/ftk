@@ -21,7 +21,6 @@
 #endif
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <functional>
 #include <memory>
@@ -61,14 +60,10 @@ public:
     GameUi();
 
     /// fjsl_pipelines compiles the `shader_type ui;` materials nodes may
-    /// name; `gpu` keeps the pipelines built from them alive until the
-    /// frames using them are done.
-    void create(Device& device, VmaAllocator allocator,
-                const PassResources& resources,
-                FontLibrary& fonts,
-                PipelineCache* fjsl_pipelines,
-                gpu::Device& gpu,
-                VkFormat output_format = VK_FORMAT_UNDEFINED);
+    /// name. Screen UI draws to one target of `output_format`, the scene
+    /// colour's when undefined.
+    void create(const PassResources& resources, FontLibrary& fonts, PipelineCache* fjsl_pipelines,
+                gpu::Format output_format = gpu::Format::undefined);
 
     void destroy();
 
@@ -103,17 +98,18 @@ public:
                 const Input* input = nullptr,
                 glm::vec2 viewport_offset = {0.0f, 0.0f});
 
-    /// Record Vulkan draw commands.
-    void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                VkExtent2D extent, uint32_t frame_index);
+    /// Draws the UI into `pass`, a scope with one colour target and no
+    /// depth, `extent` pixels large.
+    void record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                glm::uvec2 extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR + scene MSAA). Call after create().
     void create_world_pipelines(const PassResources& resources);
 
     /// Record worldspace draw commands with push constants. prev_mvp is last
     /// frame's mvp for this same widget, for the velocity attachment.
-    void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+    void record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                      glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                       const glm::mat4& prev_mvp);
 
     void set_resource_manager(ResourceManager* rm);

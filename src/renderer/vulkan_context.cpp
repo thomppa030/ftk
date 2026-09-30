@@ -1066,8 +1066,7 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
     res.samples = gpu::vulkan::from_vk(res.sample_count);
 
-    ui.create(gpu_.device_ref(), gpu_.allocator(), res,
-              *font_library_, gpu_.pipeline_cache(), gpu_device(), output_format);
+    ui.create(res, *font_library_, gpu_.pipeline_cache(), gpu::vulkan::from_vk(output_format));
     if (world) ui.create_world_pipelines(res);
 }
 
@@ -1075,17 +1074,15 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
                                               uint32_t frame_index) {
     if (!ui.loaded()) return;
     record_game_ui_offscreen_multi(
-        [&ui](VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-             VkExtent2D extent, uint32_t idx) {
-            ui.record(cmd, global_set, bindless_set, extent, idx);
-        },
+        [&ui](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+              glm::uvec2 extent, uint32_t idx) { ui.record(pass, globals, bindless, extent, idx); },
         target, frame_index);
 }
 
 void VulkanContext::record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                                     OffscreenPass& target,
                                                     uint32_t frame_index) {
-    record_game_ui_into(frame_cmd_, record_fn, target, frame_index);
+    record_game_ui_into(*pre_list_, record_fn, target, frame_index);
 }
 
 void VulkanContext::sync_scene_particles(Scene& scene) {
@@ -1113,12 +1110,14 @@ void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vk_check(vkBeginCommandBuffer(cmd, &begin), "begin UI preview command buffer");
 
-    record_game_ui_into(cmd,
-        [&ui](VkCommandBuffer c, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-              VkExtent2D extent, uint32_t idx) {
-            ui.record(c, global_set, bindless_set, extent, idx);
-        },
-        target, current_frame_);
+    {
+        gpu::vulkan::CommandBufferList list(gpu_device(), cmd);
+        record_game_ui_into(
+            list.list(),
+            [&ui](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                  glm::uvec2 extent, uint32_t idx) { ui.record(pass, globals, bindless, extent, idx); },
+            target, current_frame_);
+    }
 
     vk_check(vkEndCommandBuffer(cmd), "end UI preview command buffer");
 
@@ -1136,48 +1135,14 @@ void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
     vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
 }
 
-void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordFn& record_fn,
+void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                                         OffscreenPass& target, uint32_t frame_index) {
-    VkExtent2D extent = target.extent();
+    const VkExtent2D extent = target.extent();
+    const bool msaa = target.sample_count() != VK_SAMPLE_COUNT_1_BIT;
 
-    // Transition offscreen color to color attachment
-    VkImageMemoryBarrier to_attach{};
-    to_attach.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_attach.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    to_attach.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    to_attach.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    to_attach.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    to_attach.image = target.color_image();
-    to_attach.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &to_attach);
-
-    // Begin dynamic rendering targeting offscreen color
-    VkRenderingAttachmentInfo color_att{};
-    color_att.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_att.imageView = target.msaa_color_view();
-    color_att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_att.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    // Resolve attachment if MSAA
-    if (target.sample_count() != VK_SAMPLE_COUNT_1_BIT) {
-        color_att.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        color_att.resolveImageView = target.color_view();
-        color_att.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    }
-
-    VkRenderingInfo ri{};
-    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = extent;
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &color_att;
-
-    vkCmdBeginRendering(cmd, &ri);
+    // Whatever the target held is cleared: nothing of it is kept.
+    cmd.barrier(target.msaa_color_texture(), {}, gpu::Access::color_attachment);
+    if (msaa) cmd.barrier(target.color_texture(), {}, gpu::Access::color_attachment);
 
     // .fjsl materials sample TIME from the global UBO, but that UBO is
     // only otherwise refreshed by a scene viewport's render request
@@ -1191,27 +1156,19 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
     float live_time = elapsed_time_;
     std::memcpy(gpu_device().mapped(gpu_.uniform_buffer(frame_index)).data() + offsetof(GlobalUbo, time),
                 &live_time, sizeof(live_time));
-
     gpu_.bindless_textures().flush(frame_index);
-    record_fn(cmd, gpu::vulkan::native_group(gpu_device(), gpu_.global_bindings().group(frame_index)),
-              gpu::vulkan::native_group(gpu_device(), gpu_.bindless_textures().group(frame_index)),
-              extent, frame_index);
+    {
+        auto pass = cmd.render({.color = {{.view = target.msaa_color_texture(),
+                                           .load = gpu::Load::clear,
+                                           .clear = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                                           .resolve = msaa ? gpu::TextureView(target.color_texture())
+                                                           : gpu::TextureView{}}}});
+        record_fn(pass, gpu_.global_bindings().group(frame_index), gpu_.bindless_textures().group(frame_index),
+                  glm::uvec2(extent.width, extent.height), frame_index);
+    }
 
-    vkCmdEndRendering(cmd);
-
-    // Transition to shader read for ImGui display
-    VkImageMemoryBarrier to_read{};
-    to_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_read.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    to_read.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    to_read.image = target.color_image();
-    to_read.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &to_read);
+    // ImGui shows it.
+    cmd.barrier(target.color_texture(), gpu::Access::color_attachment, gpu::Access::sampled_fragment);
 }
 
 VkFormat VulkanContext::swapchain_format() const {

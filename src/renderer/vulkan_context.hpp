@@ -278,10 +278,10 @@ public:
   /// Same transient render target and transitions as record_game_ui_offscreen,
   /// but the caller supplies the draw calls instead of a single GameUi — used
   /// by play mode, which composites every screen-space UiSubsystem instance
-  /// into one shared HUD target (cmd, global_set, bindless_set, extent,
-  /// frame_index — same shape as GameUi::record).
-  using GameUiRecordFn = std::function<void(VkCommandBuffer, VkDescriptorSet,
-                                            VkDescriptorSet, VkExtent2D, uint32_t)>;
+  /// into one shared HUD target (the scope's encoder, the global and bindless
+  /// groups, the target's size and the frame slot — same shape as
+  /// GameUi::record).
+  using GameUiRecordFn = FrameContext::UiCallback;
   void record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                        OffscreenPass& target, uint32_t frame_index);
 
@@ -309,8 +309,7 @@ public:
   void release_scene_particles(const Scene& scene);
 
   /// Callback for worldspace UI rendering (color pass, after transparent objects).
-  using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
-                                              VkDescriptorSet, VkExtent2D, uint32_t)>;
+  using WorldUiCallback = FrameContext::UiCallback;
   void set_world_ui_callback(WorldUiCallback cb) { world_ui_callback_ = std::move(cb); }
 
   /// Callback for UI editor preview rendering (offscreen, called during record_frame).
@@ -364,10 +363,10 @@ public:
   /// Render a single viewport in its own command buffer (submitted + waited).
   /// Used for camera preview to avoid singleton state conflicts with the main
   /// viewport's render_scene_to in the same command buffer.
-  // The transient render target, clear and layout transitions every
-  // offscreen UI draw shares, recorded into whatever command buffer is
-  // open: the frame's for previews and the HUD, a one-shot for readbacks.
-  void record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordFn& record_fn,
+  // The render target, clear and barriers every offscreen UI draw shares,
+  // recorded into whatever list is open: the frame's for previews and the
+  // HUD, a one-shot for readbacks.
+  void record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                            OffscreenPass& target, uint32_t frame_index);
 
   void render_preview(const ViewportRenderRequest& req,

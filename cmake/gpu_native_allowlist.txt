@@ -89,10 +89,6 @@ src/ui/content_browser.hpp
 src/ui/font_editor_context.cpp
 src/ui/game_ui/font_atlas.cpp
 src/ui/game_ui/font_atlas.hpp
-src/ui/game_ui/game_ui.cpp
-src/ui/game_ui/game_ui.hpp
-src/ui/game_ui/ui_renderer.cpp
-src/ui/game_ui/ui_renderer.hpp
 src/ui/icon_cache.cpp
 src/ui/icon_cache.hpp
 src/ui/imgui_layer.cpp

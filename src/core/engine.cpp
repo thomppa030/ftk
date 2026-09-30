@@ -253,15 +253,14 @@ void Engine::init_ui() {
     play_phase_0_.push_back(ui_subsystem_);
 
     vulkan_context_->set_world_ui_callback(
-        [this](VkCommandBuffer cmd, VkDescriptorSet global_set,
-               VkDescriptorSet bindless_set, VkExtent2D extent,
-               uint32_t frame_index) {
+        [this](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+               glm::uvec2 extent, uint32_t frame_index) {
             for (const auto& rec : ui_subsystem_->world_records()) {
                 rec.game_ui->update(rec.push.viewport_width,
                                      rec.push.viewport_height,
                                      frame_index, clock_.delta_time(), nullptr);
-                rec.game_ui->record_world(cmd, global_set, bindless_set,
-                                           extent, frame_index, rec.push, rec.prev_mvp);
+                rec.game_ui->record_world(pass, globals, bindless, extent, frame_index, rec.push,
+                                          rec.prev_mvp);
             }
         });
 }

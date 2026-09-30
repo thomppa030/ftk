@@ -1,25 +1,28 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
+#include "gpu/binding.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/format.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "ui/game_ui/text_shaper.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace fjell {
 
-class Device;
 namespace gpu {
 class Device;
+class RenderEncoder;
 }
 class PipelineCache;
 struct UiNode;
@@ -34,11 +37,11 @@ struct UiWorldPushConstants {
 };
 static_assert(sizeof(UiWorldPushConstants) == 80);
 
-/// Last frame's mvp, for the velocity attachment. Written to a tiny per-frame
-/// buffer rather than folded into UiWorldPushConstants: that would put the
-/// struct at 144 bytes, over Vulkan's guaranteed-minimum 128-byte push
-/// constant range (this engine isn't Linux-only, so it can't assume the
-/// larger limit desktop GPUs happen to offer).
+/// Last frame's mvp, for the velocity attachment. A uniform of each draw's
+/// own rather than part of UiWorldPushConstants: that would put the struct
+/// at 144 bytes, over the guaranteed-minimum 128 bytes of push data (this
+/// engine isn't Linux-only, so it can't assume the larger limit desktop GPUs
+/// happen to offer).
 struct UiWorldFrameData {
     glm::mat4 prev_mvp;
 };
@@ -46,12 +49,11 @@ struct UiWorldFrameData {
 class UiRenderer {
 public:
     /// fjsl_pipelines compiles the `shader_type ui;` materials quads may
-    /// name; null means materials are ignored. Pipelines built from it wait
-    /// on `gpu` for the frames using them, and it outlives this renderer.
-    void create(Device& device, VmaAllocator allocator,
-                const PassResources& resources,
-                PipelineCache* fjsl_pipelines, gpu::Device& gpu,
-                VkFormat output_format = VK_FORMAT_UNDEFINED);
+    /// name; null means materials are ignored, and it outlives this renderer.
+    /// Screen UI draws to one target of `output_format`, the scene colour's
+    /// when undefined.
+    void create(const PassResources& resources, PipelineCache* fjsl_pipelines,
+                gpu::Format output_format = gpu::Format::undefined);
     void destroy();
 
     /// Flatten the UI node tree into GPU quads and upload to SSBO.
@@ -75,18 +77,20 @@ public:
     /// update() and every update_text() of the frame are done.
     void build_runs(uint32_t frame_index);
 
-    /// Record draw commands into the command buffer (quads + text).
-    void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                VkExtent2D extent, uint32_t frame_index);
+    /// Draws the frame's quads and text into `pass`, a scope with one colour
+    /// target of the output format and no depth, `extent` pixels large.
+    void record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                glm::uvec2 extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR format + scene MSAA). Call after create().
     void create_world_pipelines(const PassResources& resources);
 
-    /// Record worldspace draw commands with push constants. prev_mvp is last
-    /// frame's mvp for this same widget (proj * view * world_transform, all
-    /// from last frame) — used to compute the velocity attachment.
-    void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+    /// Draws the frame's quads and text into the scene's transparent pass.
+    /// prev_mvp is last frame's mvp for this same widget (proj * view *
+    /// world_transform, all from last frame) — used to compute the velocity
+    /// attachment.
+    void record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                      glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                       const glm::mat4& prev_mvp);
 
 private:
@@ -176,64 +180,50 @@ private:
 
     // Pipelines built for one `shader_type ui;` PipelineCache entry, in the
     // two shapes the fixed quad pipelines come in. Rebuilt when the entry's
-    // compile generation moves (a hot-reload), old ones kept until the frames
-    // using them are done.
+    // compile generation moves (a hot-reload); the device keeps the old ones
+    // until the frames using them are done.
     struct MaterialPipelines {
-        VkPipeline screen{VK_NULL_HANDLE};
-        VkPipeline world{VK_NULL_HANDLE};
+        gpu::Owned<gpu::GraphicsPipeline> screen;
+        gpu::Owned<gpu::GraphicsPipeline> world;
         uint32_t generation{0};
     };
     // Builds or refreshes the pipelines for a PipelineCache entry. Returns
     // false when the entry has no usable ui fragment, in which case the quad
     // is drawn by the fixed fill instead.
     bool ensure_material_pipelines(uint32_t pipeline_id);
-    void retire_material_pipelines(MaterialPipelines& mp);
     std::unordered_map<uint32_t, MaterialPipelines> material_pipelines_;
     PipelineCache* fjsl_pipelines_{nullptr};
-    gpu::Device* gpu_device_{nullptr};
-    // Worldspace pipeline shape, kept so material pipelines can match it
+
+    // A screen UI pipeline: quads or glyphs blended over the one target in
+    // the order they are drawn, no depth. Text reads no globals.
+    [[nodiscard]] gpu::GraphicsPipelineDesc screen_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+                                                        std::string_view name, bool reads_globals) const;
+    // A world UI pipeline: blended over the scene's four targets in the
+    // transparent pass, tested against its depth and never writing it,
+    // writing its own motion.
+    [[nodiscard]] gpu::GraphicsPipelineDesc world_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+                                                       std::string_view name, bool reads_globals) const;
+    [[nodiscard]] std::vector<gpu::SharedLayout> shared(bool reads_globals) const;
+    [[nodiscard]] gpu::Owned<gpu::GraphicsPipeline> make(const gpu::GraphicsPipelineDesc& desc) const;
+
+    gpu::Device* gpu_{nullptr};
+    gpu::SharedLayout globals_{};
+    gpu::SharedLayout bindless_{};
+    gpu::Format output_format_{gpu::Format::undefined};
+    // The scene targets world UI draws to, kept so material pipelines can
+    // match them.
     bool has_world_pipelines_{false};
-    VkSampleCountFlagBits world_samples_{VK_SAMPLE_COUNT_1_BIT};
-    VkFormat world_color_format_{VK_FORMAT_UNDEFINED};
+    PassResources world_{};
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::GraphicsPipeline> quad_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> text_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> world_quad_pipeline_;
+    gpu::Owned<gpu::GraphicsPipeline> world_text_pipeline_;
 
-    // Quad pipelines
-    VkDescriptorSetLayout quad_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};           // quads, blended
-
-    // Text pipeline (shares layout)
-    VkPipeline text_pipeline_{VK_NULL_HANDLE};
-
-    // Worldspace pipelines (HDR + scene MSAA, with push constants)
-    VkPipelineLayout world_layout_{VK_NULL_HANDLE};
-    VkPipeline world_transparent_pipeline_{VK_NULL_HANDLE};
-    VkPipeline world_text_pipeline_{VK_NULL_HANDLE};
-
-    // Worldspace's own set 2 layout/pool (see create_world_pipelines) and its
-    // per-frame prev_mvp UBO for the velocity attachment.
-    VkDescriptorSetLayout world_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool world_pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> world_sets_{};
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> world_frame_buffers_;
-
-    // Double-buffered SSBOs (quads)
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> quad_ssbos_;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> quad_sets_{};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-
-    // Double-buffered SSBOs (text glyphs)
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> text_ssbos_;
-
-    // Cached layouts from PassResources
-    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
-    VkFormat color_format_{VK_FORMAT_UNDEFINED};
-    // The scene's depth, which world UI tests against and never writes.
-    // Screen UI has none: it paints in tree order.
-    VkFormat depth_format_{VK_FORMAT_UNDEFINED};
+    // The frame slot's quads and glyphs, written by update() and
+    // update_text() and read by its frame.
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> quad_buffers_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> glyph_buffers_;
 
     // Per-frame counts
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> quad_counts_{};
@@ -245,8 +235,8 @@ private:
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;
-    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * sizeof(GpuUiQuad);
-    static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * sizeof(GpuUiGlyph);
+    static constexpr uint64_t QUAD_BUFFER_SIZE = MAX_UI_QUADS * sizeof(GpuUiQuad);
+    static constexpr uint64_t GLYPH_BUFFER_SIZE = MAX_TEXT_GLYPHS * sizeof(GpuUiGlyph);
 };
 
 } // namespace fjell

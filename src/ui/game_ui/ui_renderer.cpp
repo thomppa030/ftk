@@ -1,290 +1,102 @@
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_node.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/offscreen_pass.hpp"
+#include "gpu/device.hpp"
+#include "gpu/render_encoder.hpp"
+#include "gpu/shader.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/gpu/shader_utils.hpp"
-#include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <stdexcept>
 
 namespace fjell {
 
-// A UI pipeline: quads or glyphs blended over what is there, in the order
-// they are drawn. With a depth format it tests against that depth (the
-// scene, for world UI) and never writes it.
-static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
-                                      VkFormat color_format, VkFormat depth_format,
-                                      const std::string& vert_path,
-                                      const std::string& frag_path,
-                                      VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT,
-                                      VkFormat mr_format = VK_FORMAT_UNDEFINED,
-                                      VkFormat normal_format = VK_FORMAT_UNDEFINED,
-                                      VkFormat velocity_format = VK_FORMAT_UNDEFINED) {
-    auto vert_mod = create_shader_module(device, read_spirv(vert_path));
-    auto frag_mod = create_shader_module(device, read_spirv(frag_path));
+namespace {
 
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_mod;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_mod;
-    stages[1].pName = "main";
+constexpr std::string_view QUAD_BUFFER = "UiQuadBuffer";
+constexpr std::string_view GLYPH_BUFFER = "UiGlyphBuffer";
+constexpr std::string_view WORLD_FRAME = "WorldUiFrameData";
 
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+} // namespace
 
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = 2;
-    dynamic_state.pDynamicStates = dynamic_states;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = msaa;
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    bool use_depth = (depth_format != VK_FORMAT_UNDEFINED);
-    depth_stencil.depthTestEnable = use_depth ? VK_TRUE : VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState blend{};
-    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_TRUE;
-    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    // Second color attachment (M/R): no writes when present
-    VkPipelineColorBlendAttachmentState mr_blend{};
-    mr_blend.colorWriteMask = 0; // no writes to M/R from UI
-
-    // Third color attachment (normal): no writes from UI
-    VkPipelineColorBlendAttachmentState normal_blend{};
-    normal_blend.colorWriteMask = 0;
-
-    // Fourth color attachment (velocity): only ever declared for worldspace
-    // pipelines (velocity_format is VK_FORMAT_UNDEFINED for screen-space UI,
-    // which excludes this attachment from the pipeline entirely — see
-    // has_velocity below). The worldspace fragment shaders compute a real
-    // per-pixel velocity now, so this writes unlike the M/R and normal
-    // attachments above, which the UI genuinely has no data for.
-    VkPipelineColorBlendAttachmentState vel_blend{};
-    vel_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-
-    bool has_mr = (mr_format != VK_FORMAT_UNDEFINED);
-    bool has_normal = (normal_format != VK_FORMAT_UNDEFINED);
-    bool has_velocity = (velocity_format != VK_FORMAT_UNDEFINED);
-    uint32_t attachment_count = 1 + (has_mr ? 1 : 0) + (has_normal ? 1 : 0) + (has_velocity ? 1 : 0);
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend, vel_blend};
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = attachment_count;
-    color_blending.pAttachments = blend_attachments;
-
-    VkFormat color_formats[] = {color_format, mr_format, normal_format, velocity_format};
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = attachment_count;
-    rendering_info.pColorAttachmentFormats = color_formats;
-    if (use_depth) {
-        rendering_info.depthAttachmentFormat = depth_format;
-    }
-
-    VkGraphicsPipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    ci.pNext = &rendering_info;
-    ci.stageCount = 2;
-    ci.pStages = stages;
-    ci.pVertexInputState = &vertex_input;
-    ci.pInputAssemblyState = &input_assembly;
-    ci.pViewportState = &viewport_state;
-    ci.pRasterizationState = &rasterizer;
-    ci.pMultisampleState = &multisampling;
-    ci.pDepthStencilState = &depth_stencil;
-    ci.pColorBlendState = &color_blending;
-    ci.pDynamicState = &dynamic_state;
-    ci.layout = layout;
-
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI pipeline");
-    }
-
-    vkDestroyShaderModule(device, vert_mod, nullptr);
-    vkDestroyShaderModule(device, frag_mod, nullptr);
-    return pipeline;
+std::vector<gpu::SharedLayout> UiRenderer::shared(bool reads_globals) const {
+    if (reads_globals) return {globals_, bindless_};
+    return {bindless_};
 }
 
-void UiRenderer::create(Device& device, VmaAllocator allocator,
-                        const PassResources& resources,
-                        PipelineCache* fjsl_pipelines, gpu::Device& gpu,
-                        VkFormat output_format) {
-    device_ = device.handle();
-    allocator_ = allocator;
+gpu::GraphicsPipelineDesc UiRenderer::screen_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+                                                  std::string_view name, bool reads_globals) const {
+    return {
+        .vertex = vertex,
+        .fragment = fragment,
+        .color = {{output_format_, gpu::Blend::alpha}},
+        .shared = shared(reads_globals),
+        .name = name,
+    };
+}
+
+gpu::GraphicsPipelineDesc UiRenderer::world_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+                                                 std::string_view name, bool reads_globals) const {
+    // The UI has no surface to give metallic/roughness or normal; the
+    // worldspace fragment shaders compute a real per-pixel motion.
+    return {
+        .vertex = vertex,
+        .fragment = fragment,
+        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .color = {{world_.scene_color_format, gpu::Blend::alpha},
+                  {world_.scene_mr_format, gpu::Blend::none, gpu::ChannelMask{}},
+                  {world_.scene_normal_format, gpu::Blend::none, gpu::ChannelMask{}},
+                  {world_.scene_velocity_format, gpu::Blend::none, gpu::Channel::r | gpu::Channel::g}},
+        .depth_format = world_.scene_depth_format,
+        .samples = world_.samples,
+        .shared = shared(reads_globals),
+        .name = name,
+    };
+}
+
+gpu::Owned<gpu::GraphicsPipeline> UiRenderer::make(const gpu::GraphicsPipelineDesc& desc) const {
+    auto made = gpu_->create(desc);
+    if (!made) throw std::runtime_error("UI: " + made.error());
+    return std::move(*made);
+}
+
+void UiRenderer::create(const PassResources& resources, PipelineCache* fjsl_pipelines,
+                        gpu::Format output_format) {
+    gpu_ = resources.device;
     fjsl_pipelines_ = fjsl_pipelines;
-    gpu_device_ = &gpu;
-    global_set_layout_ = resources.global_set_layout;
-    bindless_set_layout_ = resources.material_set_layout;
-    color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
-    depth_format_ = resources.depth_format;
-
-    // Set 2: binding 0 = quad SSBO, binding 1 = glyph SSBO
-    VkDescriptorSetLayoutBinding bindings[2]{};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 2;
-    layout_ci.pBindings = bindings;
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &quad_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI set layout");
-    }
-
-    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = UI SSBOs
-    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, quad_set_layout_};
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 3;
-    pipe_layout_ci.pSetLayouts = sets;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI pipeline layout");
-    }
+    globals_ = resources.globals;
+    bindless_ = resources.bindless;
+    output_format_ = output_format != gpu::Format::undefined ? output_format : resources.scene_color_format;
 
     // Screen UI draws into a scope with no depth: it paints in tree order.
-    pipeline_ = create_ui_pipeline(device_, layout_, color_format_, VK_FORMAT_UNDEFINED,
-        base_path::resolve("shaders/ui_quad.vert.spv"),
-        base_path::resolve("shaders/ui_quad.frag.spv"));
-    text_pipeline_ = create_ui_pipeline(device_, layout_, color_format_, VK_FORMAT_UNDEFINED,
-        base_path::resolve("shaders/ui_text.vert.spv"),
-        base_path::resolve("shaders/ui_text.frag.spv"));
+    quad_pipeline_ = make(screen_desc("shaders/ui_quad.vert", "shaders/ui_quad.frag", "ui_quad", true));
+    text_pipeline_ = make(screen_desc("shaders/ui_text.vert", "shaders/ui_text.frag", "ui_text", false));
 
-    // N sets × 2 SSBOs each = 2N storage buffer descriptors
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
-
-    VkDescriptorPoolCreateInfo desc_pool_ci{};
-    desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    desc_pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-    desc_pool_ci.poolSizeCount = 1;
-    desc_pool_ci.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI descriptor pool");
-    }
-
-    // Double-buffered SSBOs + descriptor sets
+    auto buffer = [&](uint64_t size, std::string_view name) {
+        auto made = gpu_->create(gpu::BufferDesc{
+            .size = size, .use = gpu::BufferUse::storage, .memory = gpu::Memory::upload, .name = name});
+        if (!made) throw std::runtime_error("UI: " + made.error());
+        return std::move(*made);
+    };
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        quad_ssbos_[i] = std::make_unique<Buffer>(
-            allocator_, SSBO_SIZE,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        quad_ssbos_[i]->map();
-
-        text_ssbos_[i] = std::make_unique<Buffer>(
-            allocator_, TEXT_SSBO_SIZE,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        text_ssbos_[i]->map();
-
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = pool_;
-        alloc.descriptorSetCount = 1;
-        alloc.pSetLayouts = &quad_set_layout_;
-        if (vkAllocateDescriptorSets(device_, &alloc, &quad_sets_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate UI descriptor set");
-        }
-
-        // Write both bindings
-        VkDescriptorBufferInfo quad_buf{quad_ssbos_[i]->handle(), 0, SSBO_SIZE};
-        VkDescriptorBufferInfo text_buf{text_ssbos_[i]->handle(), 0, TEXT_SSBO_SIZE};
-
-        VkWriteDescriptorSet writes[2]{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = quad_sets_[i];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &quad_buf;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = quad_sets_[i];
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo = &text_buf;
-
-        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+        quad_buffers_[i] = buffer(QUAD_BUFFER_SIZE, "ui_quads");
+        glyph_buffers_[i] = buffer(GLYPH_BUFFER_SIZE, "ui_glyphs");
     }
 
     FJELL_GFX_DEBUG("UI renderer created (quad + text pipelines)");
 }
 
 void UiRenderer::destroy() {
-    auto safe_destroy = [&](auto& handle, auto destroy_fn) {
-        if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
-    };
-
-    for (auto& ssbo : quad_ssbos_) ssbo.reset();
-    for (auto& ssbo : text_ssbos_) ssbo.reset();
-    for (auto& buf : world_frame_buffers_) buf.reset();
-    for (auto& [id, mp] : material_pipelines_) {
-        safe_destroy(mp.screen, vkDestroyPipeline);
-        safe_destroy(mp.world, vkDestroyPipeline);
-    }
+    for (auto& buffer : quad_buffers_) buffer.reset();
+    for (auto& buffer : glyph_buffers_) buffer.reset();
     material_pipelines_.clear();
-    safe_destroy(pool_, vkDestroyDescriptorPool);
-    safe_destroy(world_pool_, vkDestroyDescriptorPool);
-    safe_destroy(world_text_pipeline_, vkDestroyPipeline);
-    safe_destroy(world_transparent_pipeline_, vkDestroyPipeline);
-    safe_destroy(world_layout_, vkDestroyPipelineLayout);
-    safe_destroy(world_set_layout_, vkDestroyDescriptorSetLayout);
-    safe_destroy(text_pipeline_, vkDestroyPipeline);
-    safe_destroy(pipeline_, vkDestroyPipeline);
-    safe_destroy(layout_, vkDestroyPipelineLayout);
-    safe_destroy(quad_set_layout_, vkDestroyDescriptorSetLayout);
+    quad_pipeline_.reset();
+    text_pipeline_.reset();
+    world_quad_pipeline_.reset();
+    world_text_pipeline_.reset();
 }
 
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
@@ -310,7 +122,7 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
     quad_counts_[frame_index] = count;
     frame_scales_[frame_index] = frame_scale;
     if (count > 0) {
-        auto* dst = static_cast<GpuUiQuad*>(quad_ssbos_[frame_index]->mapped());
+        auto* dst = reinterpret_cast<GpuUiQuad*>(gpu_->mapped(quad_buffers_[frame_index]).data());
         for (uint32_t i = 0; i < count; ++i) {
             dst[i] = quads[i].gpu;
         }
@@ -378,7 +190,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
     if (glyphs.empty()) return;
     const uint32_t first = text_counts_[frame_index];
 
-    auto* base = static_cast<GpuUiGlyph*>(text_ssbos_[frame_index]->mapped());
+    auto* base = reinterpret_cast<GpuUiGlyph*>(gpu_->mapped(glyph_buffers_[frame_index]).data());
     const auto& style = source_node.style;
 
     // One instance per glyph, moved by the offset and drawn in the colour
@@ -543,296 +355,141 @@ bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
     auto it = material_pipelines_.find(pipeline_id);
     uint32_t generation = fjsl_pipelines_->generation(pipeline_id);
     if (it != material_pipelines_.end() && it->second.generation == generation) {
-        return it->second.screen != VK_NULL_HANDLE;
+        return static_cast<bool>(it->second.screen);
     }
 
     // The entry compiled again (or for the first time). A failed compile
     // leaves the cache's SPV paths at the last good build and its generation
     // unchanged, so an existing pipeline is only replaced by a working one.
+    const std::string& shader = fjsl_pipelines_->shader_path(pipeline_id);
     const std::string& screen_spv = fjsl_pipelines_->ui_frag_spv(pipeline_id);
-    if (screen_spv.empty()) {
+    auto screen_fragment = screen_spv.empty() ? Result<std::vector<uint32_t>>(make_error("no ui fragment"))
+                                              : gpu::read_spirv(screen_spv);
+    if (!screen_fragment) {
         if (it == material_pipelines_.end()) {
-            FJELL_GFX_WARN("UI material '{}' has no ui fragment to draw with",
-                           fjsl_pipelines_->shader_path(pipeline_id));
-            material_pipelines_[pipeline_id] = MaterialPipelines{VK_NULL_HANDLE, VK_NULL_HANDLE, generation};
+            FJELL_GFX_WARN("UI material '{}' has no ui fragment to draw with", shader);
+            material_pipelines_[pipeline_id].generation = generation;
         }
         return false;
     }
 
-    MaterialPipelines fresh{};
+    MaterialPipelines fresh;
     fresh.generation = generation;
-    fresh.screen = create_ui_pipeline(device_, layout_, color_format_, VK_FORMAT_UNDEFINED,
-        base_path::resolve("shaders/ui_quad.vert.spv"), screen_spv);
+    fresh.screen =
+        make(screen_desc("shaders/ui_quad.vert", std::span<const uint32_t>(*screen_fragment), shader, true));
     if (has_world_pipelines_) {
-        fresh.world = create_ui_pipeline(device_, world_layout_, world_color_format_, depth_format_,
-            base_path::resolve("shaders/ui_quad_world.vert.spv"),
-            fjsl_pipelines_->ui_world_frag_spv(pipeline_id),
-            world_samples_, VK_FORMAT_R8G8_UNORM,
-            OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT);
+        auto world_fragment = gpu::read_spirv(fjsl_pipelines_->ui_world_frag_spv(pipeline_id));
+        if (!world_fragment) {
+            FJELL_GFX_ERROR("UI material '{}': {}", shader, world_fragment.error());
+        } else {
+            fresh.world = make(world_desc("shaders/ui_quad_world.vert",
+                                          std::span<const uint32_t>(*world_fragment), shader, true));
+        }
     }
 
-    if (it != material_pipelines_.end()) {
-        retire_material_pipelines(it->second);
-        it->second = fresh;
-    } else {
-        material_pipelines_[pipeline_id] = fresh;
-    }
-    FJELL_GFX_DEBUG("UI material pipelines built for '{}' (generation {})",
-                    fjsl_pipelines_->shader_path(pipeline_id), generation);
+    // The pipelines replaced go once the frames using them are done.
+    material_pipelines_[pipeline_id] = std::move(fresh);
+    FJELL_GFX_DEBUG("UI material pipelines built for '{}' (generation {})", shader, generation);
     return true;
 }
 
-void UiRenderer::retire_material_pipelines(MaterialPipelines& mp) {
-    // A frame in flight may still reference these; they are destroyed once
-    // the GPU has finished it.
-    for (VkPipeline* p : {&mp.screen, &mp.world}) {
-        if (*p == VK_NULL_HANDLE) continue;
-        gpu::vulkan::defer(*gpu_device_, [device = device_, pipeline = *p] {
-            vkDestroyPipeline(device, pipeline, nullptr);
-        });
-        *p = VK_NULL_HANDLE;
-    }
-}
-
-void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                         VkExtent2D extent, uint32_t frame_index) {
+void UiRenderer::record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                        glm::uvec2 extent, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_record");
     const auto& runs = runs_[frame_index];
     if (runs.empty()) return;
 
-    VkViewport vp{};
-    vp.width = static_cast<float>(extent.width);
-    vp.height = static_cast<float>(extent.height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &vp);
-
     // Glyphs clip in their shader and draw with the whole target open.
-    VkRect2D full_scissor{};
-    full_scissor.extent = extent;
-
-    // Bind shared descriptor sets
-    VkDescriptorSet sets[] = {global_set, bindless_set, quad_sets_[frame_index]};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 3, sets, 0, nullptr);
+    const gpu::Rect full{.x = 0, .y = 0, .width = extent.x, .height = extent.y};
 
     // Clip rects are in layout pixels; scissors are in target pixels.
-    float frame_scale = frame_scales_[frame_index];
+    const float frame_scale = frame_scales_[frame_index];
+    auto scissor = [&](const glm::vec4& layout_clip) {
+        const glm::vec4 clip = layout_clip * frame_scale;
+        const float x = std::max(0.0f, clip.x);
+        const float y = std::max(0.0f, clip.y);
+        const float right = std::min(clip.x + clip.z, static_cast<float>(extent.x));
+        const float bottom = std::min(clip.y + clip.w, static_cast<float>(extent.y));
+        return gpu::Rect{.x = static_cast<int32_t>(x),
+                         .y = static_cast<int32_t>(y),
+                         .width = static_cast<uint32_t>(std::max(0.0f, right - std::floor(x))),
+                         .height = static_cast<uint32_t>(std::max(0.0f, bottom - std::floor(y)))};
+    };
 
-    // Helper: set scissor from a clip_rect (layout pixels), clamped to extent
-    auto set_scissor = [&](const glm::vec4& layout_clip) {
-        glm::vec4 clip = layout_clip * frame_scale;
-        VkRect2D sc{};
-        sc.offset.x = static_cast<int32_t>(std::max(0.0f, clip.x));
-        sc.offset.y = static_cast<int32_t>(std::max(0.0f, clip.y));
-        float right = std::min(clip.x + clip.z, static_cast<float>(extent.width));
-        float bottom = std::min(clip.y + clip.w, static_cast<float>(extent.height));
-        sc.extent.width = static_cast<uint32_t>(std::max(0.0f, right - static_cast<float>(sc.offset.x)));
-        sc.extent.height = static_cast<uint32_t>(std::max(0.0f, bottom - static_cast<float>(sc.offset.y)));
-        vkCmdSetScissor(cmd, 0, 1, &sc);
+    const gpu::BindEntry buffers[] = {
+        {QUAD_BUFFER, gpu::storage(quad_buffers_[frame_index])},
+        {GLYPH_BUFFER, gpu::storage(glyph_buffers_[frame_index])},
     };
 
     // In tree order. A run of material quads binds that material's
     // pipeline; the fixed fill and the text pipeline are rebound as the runs
-    // change.
-    VkPipeline bound = VK_NULL_HANDLE;
+    // change, and with them what they read.
+    gpu::GraphicsPipeline bound{};
     for (const PaintRun& run : runs) {
-        const VkPipeline wanted = run.text                        ? text_pipeline_
-                                  : run.pipeline_id == UINT32_MAX ? pipeline_
-                                                                  : material_pipelines_[run.pipeline_id].screen;
+        const gpu::GraphicsPipeline wanted = run.text ? text_pipeline_.get()
+                                             : run.pipeline_id == UINT32_MAX
+                                                 ? quad_pipeline_.get()
+                                                 : material_pipelines_[run.pipeline_id].screen.get();
         if (wanted != bound) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            pass.set_pipeline(wanted);
+            if (!run.text) pass.bind(globals);
+            pass.bind(bindless);
+            pass.bind(buffers);
             bound = wanted;
         }
-        if (run.text) {
-            vkCmdSetScissor(cmd, 0, 1, &full_scissor);
-        } else {
-            set_scissor(run.clip_rect);
-        }
-        vkCmdDraw(cmd, run.count * 6, 1, run.first * 6, 0);
+        pass.set_scissor(run.text ? full : scissor(run.clip_rect));
+        pass.draw(run.count * 6, 1, run.first * 6, 0);
     }
 }
 
 void UiRenderer::create_world_pipelines(const PassResources& resources) {
-    // Worldspace gets its own set 2 layout instead of sharing quad_set_layout_:
-    // it needs a third binding (the previous-frame mvp UBO, for the velocity
-    // attachment) that the screen-space pipelines have no use for and would
-    // otherwise be forced to declare unused.
-    VkDescriptorSetLayoutBinding bindings[3]{};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-    VkDescriptorSetLayoutCreateInfo world_layout_ci{};
-    world_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    world_layout_ci.bindingCount = 3;
-    world_layout_ci.pBindings = bindings;
-    if (vkCreateDescriptorSetLayout(device_, &world_layout_ci, nullptr, &world_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create worldspace UI set layout");
-    }
-
-    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = worldspace UI set + push constants
-    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, world_set_layout_};
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(UiWorldPushConstants);
-
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 3;
-    pipe_layout_ci.pSetLayouts = sets;
-    pipe_layout_ci.pushConstantRangeCount = 1;
-    pipe_layout_ci.pPushConstantRanges = &push_range;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &world_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create worldspace UI pipeline layout");
-    }
-
-    auto msaa = resources.sample_count;
-    auto color_fmt = resources.color_format;
-    auto depth_fmt = resources.depth_format;
+    world_ = resources;
     has_world_pipelines_ = true;
-    world_samples_ = msaa;
-    world_color_format_ = color_fmt;
     // Material pipelines built before this point know only the screen shape
     for (auto& [id, mp] : material_pipelines_) {
         mp.generation = 0;
     }
 
-    // Color pass has 2 color attachments (color + metallic/roughness).
-    // UI doesn't write to M/R, but the pipeline must declare both.
-    constexpr VkFormat mr_fmt = VK_FORMAT_R8G8_UNORM;
-
-    auto normal_fmt = OffscreenPass::NORMAL_FORMAT;
-    auto vel_fmt = OffscreenPass::VELOCITY_FORMAT;
-
     // Drawn in the transparent pass, whose depth is read-only: world UI is
     // hidden by the scene in front of it and paints in tree order.
-    world_transparent_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
-        base_path::resolve("shaders/ui_quad_world.vert.spv"),
-        base_path::resolve("shaders/ui_quad_world.frag.spv"),
-        msaa, mr_fmt, normal_fmt, vel_fmt);
+    world_quad_pipeline_ = make(world_desc("shaders/ui_quad_world.vert", "shaders/ui_quad_world.frag",
+                                           "ui_quad_world", true));
+    world_text_pipeline_ = make(world_desc("shaders/ui_text_world.vert", "shaders/ui_text_world.frag",
+                                           "ui_text_world", false));
 
-    world_text_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
-        base_path::resolve("shaders/ui_text_world.vert.spv"),
-        base_path::resolve("shaders/ui_text_world.frag.spv"),
-        msaa, mr_fmt, normal_fmt, vel_fmt);
-
-    // Descriptor pool for the worldspace set: 2 SSBOs (quads, glyphs, shared
-    // with the screen-space buffers) + 1 UBO (prev_mvp) per frame in flight.
-    VkDescriptorPoolSize pool_sizes[2]{};
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-    VkDescriptorPoolCreateInfo world_pool_ci{};
-    world_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    world_pool_ci.poolSizeCount = 2;
-    world_pool_ci.pPoolSizes = pool_sizes;
-    world_pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-    if (vkCreateDescriptorPool(device_, &world_pool_ci, nullptr, &world_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create worldspace UI descriptor pool");
-    }
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        world_frame_buffers_[i] = std::make_unique<Buffer>(allocator_, sizeof(UiWorldFrameData),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        world_frame_buffers_[i]->map();
-
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = world_pool_;
-        alloc.descriptorSetCount = 1;
-        alloc.pSetLayouts = &world_set_layout_;
-        if (vkAllocateDescriptorSets(device_, &alloc, &world_sets_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate worldspace UI descriptor set");
-        }
-
-        VkDescriptorBufferInfo quad_buf{quad_ssbos_[i]->handle(), 0, VK_WHOLE_SIZE};
-        VkDescriptorBufferInfo text_buf{text_ssbos_[i]->handle(), 0, VK_WHOLE_SIZE};
-        VkDescriptorBufferInfo frame_buf{world_frame_buffers_[i]->handle(), 0, sizeof(UiWorldFrameData)};
-
-        VkWriteDescriptorSet writes[3]{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = world_sets_[i];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &quad_buf;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = world_sets_[i];
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo = &text_buf;
-
-        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[2].dstSet = world_sets_[i];
-        writes[2].dstBinding = 2;
-        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[2].descriptorCount = 1;
-        writes[2].pBufferInfo = &frame_buf;
-
-        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
-    }
-
-    FJELL_GFX_DEBUG("Worldspace UI pipelines created ({}x MSAA)", static_cast<uint32_t>(msaa));
+    FJELL_GFX_DEBUG("Worldspace UI pipelines created");
 }
 
-void UiRenderer::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                               VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
-                               const glm::mat4& prev_mvp) {
+void UiRenderer::record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                              glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                              const glm::mat4& prev_mvp) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_record_world");
     if (runs_[frame_index].empty()) return;
 
-    UiWorldFrameData frame_data{prev_mvp};
-    std::memcpy(world_frame_buffers_[frame_index]->mapped(), &frame_data, sizeof(frame_data));
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(extent.width);
-    vp.height = static_cast<float>(extent.height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &vp);
-
-    VkRect2D full_scissor{};
-    full_scissor.extent = extent;
-    vkCmdSetScissor(cmd, 0, 1, &full_scissor);
-
-    // Bind descriptor sets on worldspace layout — its own set 2, not
-    // quad_sets_ (that one has no prev_mvp binding for the screen-space
-    // pipelines that share it).
-    VkDescriptorSet desc_sets[] = {global_set, bindless_set, world_sets_[frame_index]};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_layout_,
-                            0, 3, desc_sets, 0, nullptr);
-
-    // Push worldspace constants
-    vkCmdPushConstants(cmd, world_layout_, VK_SHADER_STAGE_VERTEX_BIT,
-                       0, sizeof(UiWorldPushConstants), &push);
+    // Each widget's own: several are drawn in one frame.
+    const gpu::BindEntry reads[] = {
+        {QUAD_BUFFER, gpu::storage(quad_buffers_[frame_index])},
+        {GLYPH_BUFFER, gpu::storage(glyph_buffers_[frame_index])},
+        {WORLD_FRAME, gpu::uniform(pass.transient(UiWorldFrameData{prev_mvp}))},
+    };
 
     // In tree order, as the screen UI paints; world UI does not clip.
-    VkPipeline bound = VK_NULL_HANDLE;
+    pass.set_scissor({.x = 0, .y = 0, .width = extent.x, .height = extent.y});
+    gpu::GraphicsPipeline bound{};
     for (const PaintRun& run : runs_[frame_index]) {
-        const VkPipeline wanted = run.text                        ? world_text_pipeline_
-                                  : run.pipeline_id == UINT32_MAX ? world_transparent_pipeline_
-                                                                  : material_pipelines_[run.pipeline_id].world;
+        const gpu::GraphicsPipeline wanted = run.text ? world_text_pipeline_.get()
+                                             : run.pipeline_id == UINT32_MAX
+                                                 ? world_quad_pipeline_.get()
+                                                 : material_pipelines_[run.pipeline_id].world.get();
         if (wanted != bound) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            pass.set_pipeline(wanted);
+            if (!run.text) pass.bind(globals);
+            pass.bind(bindless);
+            pass.bind(reads);
+            pass.push(push);
             bound = wanted;
         }
-        vkCmdDraw(cmd, run.count * 6, 1, run.first * 6, 0);
+        pass.draw(run.count * 6, 1, run.first * 6, 0);
     }
 }
 

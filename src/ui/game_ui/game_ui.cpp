@@ -23,14 +23,10 @@
 
 namespace fjell {
 
-void GameUi::create(Device& device, VmaAllocator allocator,
-                    const PassResources& resources,
-                    FontLibrary& fonts,
-                    PipelineCache* fjsl_pipelines,
-                    gpu::Device& gpu,
-                    VkFormat output_format) {
+void GameUi::create(const PassResources& resources, FontLibrary& fonts, PipelineCache* fjsl_pipelines,
+                    gpu::Format output_format) {
     fonts_ = &fonts;
-    renderer_.create(device, allocator, resources, fjsl_pipelines, gpu, output_format);
+    renderer_.create(resources, fjsl_pipelines, output_format);
 }
 
 void GameUi::set_resource_manager(ResourceManager* rm) {
@@ -440,20 +436,20 @@ void GameUi::init_text_templates(UiNode& node) {
     }
 }
 
-void GameUi::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                    VkExtent2D extent, uint32_t frame_index) {
+void GameUi::record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                    glm::uvec2 extent, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("game_ui_record");
-    renderer_.record(cmd, global_set, bindless_set, extent, frame_index);
+    renderer_.record(pass, globals, bindless, extent, frame_index);
 }
 
 void GameUi::create_world_pipelines(const PassResources& resources) {
     renderer_.create_world_pipelines(resources);
 }
 
-void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                           VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
-                           const glm::mat4& prev_mvp) {
-    renderer_.record_world(cmd, global_set, bindless_set, extent, frame_index, push, prev_mvp);
+void GameUi::record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+                          glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                          const glm::mat4& prev_mvp) {
+    renderer_.record_world(pass, globals, bindless, extent, frame_index, push, prev_mvp);
 }
 
 void GameUi::resolve_textures(UiNode& node) {

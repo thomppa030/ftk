@@ -290,8 +290,8 @@ void PlayController::record_hud(uint32_t frame_index) {
     if (!playing() || !hud_target_) return;
 
     s_.vulkan->record_game_ui_offscreen_multi(
-        [this](VkCommandBuffer cmd, VkDescriptorSet global_set,
-              VkDescriptorSet bindless_set, VkExtent2D extent, uint32_t idx) {
+        [this](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+               glm::uvec2 extent, uint32_t idx) {
             for (auto& inst : s_.ui->instances()) {
                 if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
                 if (!inst.game_ui || !inst.game_ui->loaded()) continue;
@@ -301,7 +301,7 @@ void PlayController::record_hud(uint32_t frame_index) {
                 // offset is the panel's own window-absolute top-left.
                 inst.game_ui->update(hud_img_size_.x, hud_img_size_.y, idx,
                                      s_.clock->delta_time(), s_.input, hud_img_pos_);
-                inst.game_ui->record(cmd, global_set, bindless_set, extent, idx);
+                inst.game_ui->record(pass, globals, bindless, extent, idx);
             }
         },
         *hud_target_, frame_index);
