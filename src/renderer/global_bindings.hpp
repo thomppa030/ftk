@@ -55,6 +55,10 @@ public:
     /// the view drawn, set for the slot about to record.
     void set(uint32_t slot, std::string_view name, const gpu::BindResource& resource);
 
+    /// Several bindings of one slot's group at once, as one new version of
+    /// it: a view's run points the bindings it fills at its own.
+    void set(uint32_t slot, std::span<const gpu::BindEntry> entries);
+
     /// A group of the set for an offscreen view to own; `refresh_view()`
     /// brings it up to date before each render. Empty, and reported once,
     /// while a binding has never been set.

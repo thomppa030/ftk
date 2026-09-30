@@ -141,10 +141,8 @@ GpuContext::~GpuContext() {
         vk_pipeline_cache_ = VK_NULL_HANDLE;
     }
 
-    for (auto* buffers : {&uniform_buffers_, &environment_buffers_, &light_ssbo_, &tile_light_ssbo_,
-                          &fog_volume_ssbo_}) {
-        for (auto& buffer : *buffers) buffer.reset();
-    }
+    for (auto& buffer : tile_light_ssbo_) buffer.reset();
+    view_data_fallback_.reset();
     unoccluded_.reset();
     volume_fallback_.reset();
     gi_fallback_.reset();
@@ -172,30 +170,25 @@ void GpuContext::create_descriptor_resources() {
     // additional bindings to be declared before the layout is locked.
     gpu::Device& device = core_.gpu_device();
 
-    // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
-    constexpr uint64_t light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
     // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
     constexpr uint64_t tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                         MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
-    // Fog volume SSBO: the scene's local fog volumes (~7 KB)
-    constexpr uint64_t fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
 
-    auto make = [&](uint64_t size, gpu::BufferUse use, gpu::Memory memory, std::string_view name) {
+    auto make = [&](uint64_t size, gpu::BufferUses use, gpu::Memory memory, std::string_view name) {
         auto made = device.create(gpu::BufferDesc{.size = size, .use = use, .memory = memory, .name = name});
         if (!made) throw std::runtime_error(made.error());
         return std::move(*made);
     };
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        uniform_buffers_[i] = make(sizeof(GlobalUbo), gpu::BufferUse::uniform, gpu::Memory::upload, "global_ubo");
-        environment_buffers_[i] =
-            make(sizeof(EnvironmentUbo), gpu::BufferUse::uniform, gpu::Memory::upload, "environment_ubo");
-        light_ssbo_[i] = make(light_ssbo_size, gpu::BufferUse::storage, gpu::Memory::upload, "light_ssbo");
         // Light cull writes it, maybe on the async compute queue, and the
         // fragment shaders read it on graphics.
         tile_light_ssbo_[i] = make(tile_ssbo_size, gpu::BufferUse::storage, gpu::Memory::gpu, "tile_light_ssbo");
-        fog_volume_ssbo_[i] =
-            make(fog_volume_ssbo_size, gpu::BufferUse::storage, gpu::Memory::upload, "fog_volume_ssbo");
     }
+    const uint64_t view_data_size = std::max({uint64_t{sizeof(GlobalUbo)}, uint64_t{sizeof(EnvironmentUbo)},
+                                              LIGHT_SSBO_SIZE, uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume)});
+    view_data_fallback_ = make(view_data_size, gpu::BufferUse::uniform | gpu::BufferUse::storage,
+                               gpu::Memory::upload, "view_data_fallback");
+    std::ranges::fill(device.mapped(view_data_fallback_), std::byte{0});
 
     depth_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
                                      .mip_filter = gpu::Filter::nearest,
@@ -232,23 +225,33 @@ void GpuContext::finalize_descriptors() {
 
     // Write initial descriptor values for static bindings
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        global_bindings_.set(i, "global_ubo", gpu::uniform(uniform_buffers_[i]));
-        global_bindings_.set(i, "environment_ubo", gpu::uniform(environment_buffers_[i]));
-        global_bindings_.set(i, "light_ssbo", gpu::storage(light_ssbo_[i]));
         global_bindings_.set(i, "tile_light_ssbo", gpu::storage(tile_light_ssbo_[i]));
-        global_bindings_.set(i, "fog_volume_ssbo", gpu::storage(fog_volume_ssbo_[i]));
-        global_bindings_.set(i, "gi_indirect", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
-        // Set by each frame for its own view, and by each preview for its.
-        for (const char* view_image : {"depth_texture", "ao_texture", "screen_color"}) {
-            global_bindings_.set(i, view_image, gpu::sampled(gi_fallback_, gi_fallback_sampler_));
-        }
-        global_bindings_.set(i, "ss_gi_emissive", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
         global_bindings_.set(i, "fog_density_field", gpu::sampled(volume_fallback_, gi_fallback_sampler_));
+        reset_view_bindings(i);
     }
 
     shared_layouts_.globals = global_bindings_.layout();
 
     FJELL_GFX_DEBUG("Global descriptors finalized");
+}
+
+void GpuContext::reset_view_bindings(uint32_t slot) {
+    const gpu::BindResource black = gpu::sampled(gi_fallback_, gi_fallback_sampler_);
+    const gpu::BindResource unoccluded = gpu::sampled(unoccluded_, gi_fallback_sampler_);
+    const gpu::BindEntry entries[] = {
+        {"global_ubo", gpu::uniform(gpu::BufferRange(view_data_fallback_, 0, sizeof(GlobalUbo)))},
+        {"environment_ubo", gpu::uniform(gpu::BufferRange(view_data_fallback_, 0, sizeof(EnvironmentUbo)))},
+        {"light_ssbo", gpu::storage(gpu::BufferRange(view_data_fallback_, 0, LIGHT_SSBO_SIZE))},
+        {"fog_volume_ssbo",
+         gpu::storage(gpu::BufferRange(view_data_fallback_, 0, uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume)))},
+        {"depth_texture", black},
+        {"ao_texture", unoccluded},
+        {"screen_color", black},
+        {"gi_indirect", black},
+        {"ss_gi_emissive", black},
+        {"contact_shadow", unoccluded},
+    };
+    global_bindings_.set(slot, entries);
 }
 
 void GpuContext::ensure_secondary_pools(uint32_t thread_count) {

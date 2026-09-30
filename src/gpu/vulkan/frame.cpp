@@ -8,6 +8,7 @@
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <span>
 #include <string>
@@ -56,6 +57,22 @@ uint64_t Frame::serial() const noexcept {
 
 uint32_t Frame::slot() const noexcept {
     return impl_->slot;
+}
+
+TransientSlice Frame::transient_slice(uint64_t size) {
+    auto slice = device_->impl().transient.allocate(size);
+    if (!slice) {
+        device_->impl().report_once(slice.error());
+        return {};
+    }
+    return *slice;
+}
+
+BufferRange Frame::transient_bytes(std::span<const std::byte> bytes) {
+    const TransientSlice slice = transient_slice(bytes.size());
+    if (slice.bytes.size() < bytes.size()) return {};
+    std::memcpy(slice.bytes.data(), bytes.data(), bytes.size());
+    return slice.range;
 }
 
 CommandList& Frame::commands(Queue queue) {

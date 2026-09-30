@@ -1,8 +1,14 @@
 #pragma once
 
+#include "gpu/buffer.hpp"
 #include "gpu/queue.hpp"
+#include "gpu/transient_memory.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <ranges>
+#include <span>
+#include <type_traits>
 
 namespace fjell::gpu {
 
@@ -62,9 +68,34 @@ public:
     /// is never submitted records for nothing.
     void submit(CommandList& list, const SubmitDesc& desc = {});
 
+    /// `size` bytes of the frame's memory for the CPU to fill before the
+    /// frame ends, and the range to bind them as: the memory
+    /// `CommandList::transient` copies into, which lasts until the frame's
+    /// slot comes round again. For data a view writes before anything
+    /// records. Empty when no memory could be had, which is reported and
+    /// refused where bound.
+    [[nodiscard]] TransientSlice transient_slice(uint64_t size);
+
+    /// A copy of `value` in the frame's memory.
+    template <typename T>
+        requires(std::is_trivially_copyable_v<T> && !std::ranges::range<T>)
+    [[nodiscard]] BufferRange transient(const T& value) {
+        return transient_bytes(std::as_bytes(std::span(&value, 1)));
+    }
+
+    /// A copy of `values`, one after another, in the frame's memory.
+    template <std::ranges::contiguous_range R>
+        requires std::is_trivially_copyable_v<std::ranges::range_value_t<R>>
+    [[nodiscard]] BufferRange transient(const R& values) {
+        const std::span all(std::ranges::data(values), std::ranges::size(values));
+        return transient_bytes(std::as_bytes(all));
+    }
+
     [[nodiscard]] Impl& impl() const noexcept { return *impl_; }
 
 private:
+    [[nodiscard]] BufferRange transient_bytes(std::span<const std::byte> bytes);
+
     Device* device_;
     Impl* impl_;
 };

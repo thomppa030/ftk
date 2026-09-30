@@ -82,16 +82,13 @@ public:
     // ── Global descriptors ──────────────────────────────────────────────
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
     [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }
-    /// The global set's layout, for pipelines still made natively.
-    /// The frame slot's GlobalUbo behind global binding "global_ubo", written
-    /// through `mapped()`.
-    [[nodiscard]] gpu::Buffer uniform_buffer(uint32_t frame_index) const {
-        return uniform_buffers_[frame_index];
-    }
-    /// The frame slot's EnvironmentUbo behind global binding "environment_ubo".
-    [[nodiscard]] gpu::Buffer environment_buffer(uint32_t frame_index) const {
-        return environment_buffers_[frame_index];
-    }
+    /// Points the bindings a view's run fills in `slot`'s group (its
+    /// uniforms, environment, lights and fog volumes, and its depth, AO, GI,
+    /// contact shadows and screen colour) at zeroed data and harmless images.
+    /// A run writes its data into the frame's memory, which a slot hands out
+    /// anew each time it comes round, so nothing may read what a view set
+    /// there in the slot's last frame.
+    void reset_view_bindings(uint32_t slot);
 
     /// Finalize global descriptor layout, pool, and initial writes.
     /// Must be called after any additional global_bindings().declare() calls
@@ -119,9 +116,7 @@ public:
     [[nodiscard]] VkPipelineCache vk_pipeline_cache() const { return vk_pipeline_cache_; }
 
     // ── Light data (global descriptor bindings) ─────────────────────────
-    [[nodiscard]] gpu::Buffer light_ssbo(uint32_t frame_index) const { return light_ssbo_[frame_index]; }
     [[nodiscard]] gpu::Buffer tile_light_ssbo(uint32_t frame_index) const { return tile_light_ssbo_[frame_index]; }
-    [[nodiscard]] gpu::Buffer fog_volume_ssbo(uint32_t frame_index) const { return fog_volume_ssbo_[frame_index]; }
     /// Nearest, clamped: for depth, which means nothing between two texels.
     [[nodiscard]] gpu::Sampler depth_sampler() const { return depth_sampler_; }
     /// A 1x1 black image for a 2D binding with nothing to hold, read through
@@ -173,8 +168,9 @@ private:
 
     // Descriptors
     GlobalBindings global_bindings_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> environment_buffers_;
+    /// Zeroes, as large as the largest of a view's uniforms, lights and fog
+    /// volumes: what those bindings read before a view has written its own.
+    gpu::Owned<gpu::Buffer> view_data_fallback_;
 
     BindlessTextures bindless_textures_;
     TransientImagePool transient_pool_;
@@ -190,9 +186,7 @@ private:
     SharedLayouts shared_layouts_;
 
     // Light data
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
     std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> fog_volume_ssbo_;
     gpu::Sampler depth_sampler_{};
 
     // Somewhere harmless for a binding whose writer is not in the graph being

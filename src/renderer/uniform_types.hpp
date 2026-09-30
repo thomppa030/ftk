@@ -95,6 +95,13 @@ struct GpuSpotLight {
     alignas(16) glm::vec4 vol_params;           // x = vol_scatter_intensity
 };
 
+// The light SSBO holds this many point lights, then this many spot lights
+// (as every shader declaring the block does); past them the extras are dropped.
+inline constexpr uint32_t MAX_POINT_LIGHTS = 1024;
+inline constexpr uint32_t MAX_SPOT_LIGHTS = 1024;
+inline constexpr uint64_t LIGHT_SSBO_SIZE =
+    MAX_POINT_LIGHTS * sizeof(GpuPointLight) + MAX_SPOT_LIGHTS * sizeof(GpuSpotLight);
+
 // A local fog volume: extra density in a box or sphere, on top of the global
 // height fog. The froxel's world position is taken into the volume's space by
 // inv_transform and tested against the unit shape, so rotation and non-uniform

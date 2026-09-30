@@ -125,6 +125,21 @@ void GlobalBindings::set(uint32_t slot, std::string_view name, const gpu::BindRe
     }
 }
 
+void GlobalBindings::set(uint32_t slot, std::span<const gpu::BindEntry> entries) {
+    for (const gpu::BindEntry& entry : entries) {
+        const auto it = index_.find(entry.name);
+        if (it == index_.end()) {
+            FJELL_GFX_ERROR("GlobalBindings: no binding '{}'", entry.name);
+            return;
+        }
+        contents_[slot][it->second] = entry.resource;
+    }
+    if (!groups_[slot]) return;
+    if (auto written = gpu_->update(groups_[slot], entries); !written) {
+        FJELL_GFX_ERROR("Global set: {}", written.error());
+    }
+}
+
 gpu::Owned<gpu::BindGroup> GlobalBindings::make_view_group(std::string_view name) {
     // Any slot will do: the view is refreshed from the slot it renders in.
     const auto entries = this->entries(0);

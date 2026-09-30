@@ -404,10 +404,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.backdrop = view.backdrop;
     ctx.show_grid = view.show_grid;
 
-    // Read inv_view_proj from the already-written GlobalUbo
-    const auto* ubo_data =
-        reinterpret_cast<const GlobalUbo*>(gpu_device().mapped(gpu_.uniform_buffer(current_frame_)).data());
-    ctx.inv_view_proj = ubo_data->inv_view_proj;
+    ctx.inv_view_proj = view_inv_view_proj_;
 
     // Extended context for self-registering passes
     ctx.render_stats = &gpu_.render_stats();
@@ -534,11 +531,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     // views after the main view's, a preview into its own.
     current_ctx_.async_compute_cmd = main_view ? async_cmd_ : VK_NULL_HANDLE;
     current_ctx_.graphics_post_cmd = main_view ? post_cmd_ : VK_NULL_HANDLE;
-    // The frame's views bind the per-frame set, where record_frame put the GI
-    // outputs; a preview's set holds the fallbacks there.
-    const bool frame_set = !view.global_group.valid();
-    current_ctx_.bound_gi_indirect = frame_set ? bound_gi_indirect_ : gpu::Texture{};
-    current_ctx_.bound_ss_gi_emissive = frame_set ? bound_ss_gi_emissive_ : gpu::Texture{};
+    current_ctx_.bound_gi_indirect = bound_gi_indirect_;
+    current_ctx_.bound_ss_gi_emissive = bound_ss_gi_emissive_;
 
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.
@@ -600,39 +594,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     vkBeginCommandBuffer(cmd, &begin);
 
     auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
-
-    // The preview's own global set takes what the frame slot's holds, with
-    // this view's depth, AO, contact shadows and screen colour in place of
-    // the frame's.
-    {
-        // AO and contact shadows are what this view's run computes: its own
-        // AO image, and the shared contact shadow image once its run has
-        // traced it. A view that runs neither reads nothing occluding, not
-        // the main view's, which lie over other pixels.
-        const gpu::BindResource unoccluded = gpu::sampled(gpu_.unoccluded(), gpu_.gi_fallback_sampler());
-        const auto* view_ao = req.pp_resources != nullptr ? req.pp_resources->gtao() : nullptr;
-        const bool traces_contact = req.viewport_graph != nullptr
-            ? runs_pass(req.viewport_graph, "contact_shadow")
-            : render_pipeline_.is_pass_enabled("contact_shadow");
-        const gpu::BindResource gi_fallback = gpu::sampled(gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
-        const gpu::BindEntry view_images[] = {
-            {"depth_texture", gpu::sampled(req.target->depth_texture(), gpu_.depth_sampler())},
-            {"ao_texture", view_ao != nullptr && view_ao->ao ? gpu::sampled(view_ao->ao, gtao_pass().ao_sampler())
-                                                            : unoccluded},
-            {"screen_color", gpu::sampled(req.target->screen_color_texture(), post_pass().output_sampler())},
-            {"gi_indirect", gi_fallback},
-            {"ss_gi_emissive", gi_fallback},
-            {"contact_shadow", traces_contact ? gpu::sampled(contact_shadow_pass().shadow(),
-                                                             contact_shadow_pass().shadow_sampler())
-                                              : unoccluded},
-        };
-        gpu_.global_bindings().refresh_view(req.global_group, current_frame_, view_images);
-    }
-
-    update_uniform_buffer(current_frame_, req.view, req.projection,
-                          req.camera_position, environment, scene, req.target->extent(), *pp);
-    update_light_ssbo(current_frame_, scene);
-    update_fog_volume_ssbo(current_frame_);
+    write_view_globals(req, environment, scene, *pp);
     render_scene_to(cmd, req, scene, dt, selected_id, pool, pp, false);
 
     vkEndCommandBuffer(cmd);
@@ -706,14 +668,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
         auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
-        update_uniform_buffer(current_frame_, vp.view, vp.projection,
-                              vp.camera_position, environment, scene, vp.target->extent(), *pp);
-        update_light_ssbo(current_frame_, scene);
-        update_fog_volume_ssbo(current_frame_);
-        // The frame's own viewports bind the per-frame set and are shown the
-        // right way up, whatever a request says.
+        // The frame's own viewports bind the per-frame set, whatever a
+        // request says.
         ViewportRenderRequest view = vp;
         view.global_group = {};
+        write_view_globals(view, environment, scene, *pp);
         const VkCommandBuffer view_cmd = main_view || !recorded_async_this_frame_ ? cmd : post_cmd_;
         render_scene_to(view_cmd, view, scene, dt, selected_id, pool, pp, main_view);
         main_view = false;
@@ -769,14 +728,85 @@ static float halton(int index, int base) {
     return r;
 }
 
-void VulkanContext::update_uniform_buffer(uint32_t frame_index,
-                                          const glm::mat4& view,
-                                          const glm::mat4& projection,
-                                          const glm::vec3& camera_position,
-                                          const EnvironmentState& environment,
-                                          Scene* scene, glm::uvec2 extent,
-                                          PostProcessResources& pp) {
-    FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
+void VulkanContext::write_view_globals(const ViewportRenderRequest& view, const EnvironmentState& environment,
+                                       Scene* scene, PostProcessResources& pp) {
+    FJELL_PROFILE_SCOPE_N("write_view_globals");
+    if (frame_ == nullptr) {
+        FJELL_GFX_ERROR("A view's globals are written while a frame records; none is");
+        return;
+    }
+    const OffscreenPass& target = *view.target;
+    const GlobalUbo ubo =
+        view_uniforms(view.view, view.projection, view.camera_position, environment, scene, target.extent(), pp);
+    view_inv_view_proj_ = ubo.inv_view_proj;
+
+    EnvironmentUbo env_ubo = make_environment_ubo(environment);
+    // The cloud shadow map's placement is the renderer's, following the
+    // camera, so it joins the block here rather than in the resolved state.
+    if (auto* clouds = passes_.try_get<CloudShadowPass>("cloud_shadow")) {
+        env_ubo.cloud_shadow_vp = clouds->world_to_uv();
+        env_ubo.cloud_shadow_texture = clouds->active() ? 1u : 0u;
+    }
+    if (auto* motion = passes_.try_get<MotionFieldPass>("motion_field")) {
+        env_ubo.motion_field_vp = motion->world_to_uv();
+        env_ubo.motion_field_texture = motion->active() ? 1u : 0u;
+    }
+    if (auto* density = passes_.try_get<FogDensityFieldPass>("fog_density_field")) {
+        env_ubo.fog_density_field_vp = density->world_to_uv();
+        env_ubo.fog_density_field_texture = density->active() ? 1u : 0u;
+    }
+
+    // GI is this view's own, once its run has written it. The enabled check
+    // matters as much as the written one: a disabled pass stops writing but
+    // its image keeps whatever it last produced, and binding that composites
+    // a frozen frame of indirect light over everything, a ghost that follows
+    // the camera because it is screen space. The black fallback is what
+    // turns the contribution off.
+    bound_gi_indirect_ = {};
+    if (const auto* ddgi = pp.ddgi(); ddgi_pass().config().enabled && ddgi != nullptr && ddgi->indirect_written) {
+        bound_gi_indirect_ = ddgi->indirect;
+    }
+    bound_ss_gi_emissive_ = {};
+    if (const auto* ss_gi = pp.ss_gi(); ss_gi_pass().config().enabled && ss_gi != nullptr && ss_gi->written) {
+        bound_ss_gi_emissive_ = ss_gi->indirect;
+    }
+    const auto gi = [&](gpu::Texture texture) {
+        return gpu::sampled(texture.valid() ? texture : gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
+    };
+
+    // AO and contact shadows are what this view's run computes: its own AO
+    // image, and the shared contact shadow image once its run has traced it.
+    // A view that runs neither reads nothing occluding, not another view's,
+    // which lie over other pixels.
+    const gpu::BindResource unoccluded = gpu::sampled(gpu_.unoccluded(), gpu_.gi_fallback_sampler());
+    const auto* ao = pp.gtao();
+    const bool traces_contact = view.viewport_graph != nullptr ? runs_pass(view.viewport_graph, "contact_shadow")
+                                                               : render_pipeline_.is_pass_enabled("contact_shadow");
+
+    const gpu::BindEntry entries[] = {
+        {"global_ubo", gpu::uniform(frame_->transient(ubo))},
+        {"environment_ubo", gpu::uniform(frame_->transient(env_ubo))},
+        {"light_ssbo", gpu::storage(write_lights(scene))},
+        {"fog_volume_ssbo", gpu::storage(write_fog_volumes(environment))},
+        {"depth_texture", gpu::sampled(target.depth_texture(), gpu_.depth_sampler())},
+        {"ao_texture", ao != nullptr && ao->ao ? gpu::sampled(ao->ao, gtao_pass().ao_sampler()) : unoccluded},
+        {"screen_color", gpu::sampled(target.screen_color_texture(), post_pass().output_sampler())},
+        {"gi_indirect", gi(bound_gi_indirect_)},
+        {"ss_gi_emissive", gi(bound_ss_gi_emissive_)},
+        {"contact_shadow", traces_contact ? gpu::sampled(contact_shadow_pass().shadow(),
+                                                         contact_shadow_pass().shadow_sampler())
+                                          : unoccluded},
+    };
+    if (view.global_group.valid()) {
+        gpu_.global_bindings().refresh_view(view.global_group, current_frame_, entries);
+    } else {
+        gpu_.global_bindings().set(current_frame_, entries);
+    }
+}
+
+GlobalUbo VulkanContext::view_uniforms(const glm::mat4& view, const glm::mat4& projection,
+                                       const glm::vec3& camera_position, const EnvironmentState& environment,
+                                       Scene* scene, glm::uvec2 extent, PostProcessResources& pp) {
 
     ViewHistory& history = pp.view_history();
 
@@ -823,13 +853,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         point_count += static_cast<uint32_t>(scene->point_lights().size());
         spot_count += static_cast<uint32_t>(scene->spot_lights().size());
     }
-    if (point_count > 1024) {
-        FJELL_GFX_WARN("Point light overflow: {} lights, max 1024 — extras ignored", point_count);
-        point_count = 1024;
+    if (point_count > MAX_POINT_LIGHTS) {
+        FJELL_GFX_WARN("Point light overflow: {} lights, max {} — extras ignored", point_count, MAX_POINT_LIGHTS);
+        point_count = MAX_POINT_LIGHTS;
     }
-    if (spot_count > 1024) {
-        FJELL_GFX_WARN("Spot light overflow: {} lights, max 1024 — extras ignored", spot_count);
-        spot_count = 1024;
+    if (spot_count > MAX_SPOT_LIGHTS) {
+        FJELL_GFX_WARN("Spot light overflow: {} lights, max {} — extras ignored", spot_count, MAX_SPOT_LIGHTS);
+        spot_count = MAX_SPOT_LIGHTS;
     }
 
     const DirectionalBody& sun = environment.primary;
@@ -877,30 +907,16 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.prev_view = history.view;
     ubo.time = elapsed_time_;
 
-    std::memcpy(gpu_device().mapped(gpu_.uniform_buffer(frame_index)).data(), &ubo, sizeof(ubo));
-    EnvironmentUbo env_ubo = make_environment_ubo(environment);
-    // The cloud shadow map's placement is the renderer's, following the
-    // camera, so it joins the block here rather than in the resolved state.
-    if (auto* clouds = passes_.try_get<CloudShadowPass>("cloud_shadow")) {
-        env_ubo.cloud_shadow_vp = clouds->world_to_uv();
-        env_ubo.cloud_shadow_texture = clouds->active() ? 1u : 0u;
-    }
-    if (auto* motion = passes_.try_get<MotionFieldPass>("motion_field")) {
-        env_ubo.motion_field_vp = motion->world_to_uv();
-        env_ubo.motion_field_texture = motion->active() ? 1u : 0u;
-    }
-    if (auto* density = passes_.try_get<FogDensityFieldPass>("fog_density_field")) {
-        env_ubo.fog_density_field_vp = density->world_to_uv();
-        env_ubo.fog_density_field_texture = density->active() ? 1u : 0u;
-    }
-    std::memcpy(gpu_device().mapped(gpu_.environment_buffer(frame_index)).data(), &env_ubo, sizeof(env_ubo));
-
     history.advance(view, jittered_projection, projection);
+    return ubo;
 }
 
-void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
-    FJELL_PROFILE_SCOPE_N("update_light_ssbo");
-    if (!scene) return;
+gpu::BufferRange VulkanContext::write_lights(Scene* scene) {
+    FJELL_PROFILE_SCOPE_N("write_lights");
+    // Past the counts the view's UBO carries nothing is read, so only the
+    // lights there are written.
+    const gpu::TransientSlice slice = frame_->transient_slice(LIGHT_SSBO_SIZE);
+    if (scene == nullptr || slice.bytes.empty()) return slice.range;
 
     // Build lookup from light index → shadow tile/block
     const auto& spot_tiles = local_shadow_pass().spot_tiles();
@@ -915,7 +931,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         point_shadow_map[block.light_index] = &block;
     }
 
-    auto* dst = reinterpret_cast<uint8_t*>(gpu_device().mapped(gpu_.light_ssbo(frame_index)).data());
+    std::byte* dst = slice.bytes.data();
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
 
@@ -924,7 +940,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     // shadow atlas names it too (LocalShadowPass).
     scene->each_node<PointLightNode>([&](const PointLightNode& light) {
         const PointLightNode* pl = &light;
-        if (point_count >= 1024) return;
+        if (point_count >= MAX_POINT_LIGHTS) return;
         GpuPointLight gpu{};
         glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
         gpu.position_radius = glm::vec4(pos, pl->radius);
@@ -947,7 +963,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     });
     scene->each_node<SpotLightNode>([&](const SpotLightNode& light) {
         const SpotLightNode* sl = &light;
-        if (spot_count >= 1024) return;
+        if (spot_count >= MAX_SPOT_LIGHTS) return;
         GpuSpotLight gpu{};
         glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
         gpu.position_radius = glm::vec4(pos, sl->radius);
@@ -972,14 +988,14 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
             gpu.shadow_tile_size = 0;
             gpu.shadow_vp = glm::mat4(1.0f);
         }
-        auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
+        std::byte* spot_dst = dst + MAX_POINT_LIGHTS * sizeof(GpuPointLight);
         std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
         ++spot_count;
     });
 
     // Legacy: also include lights from the old separate vectors
     const auto& old_point_lights = scene->point_lights();
-    for (uint32_t i = 0; i < static_cast<uint32_t>(old_point_lights.size()) && point_count < 1024; ++i) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(old_point_lights.size()) && point_count < MAX_POINT_LIGHTS; ++i) {
         const auto& pl = old_point_lights[i];
         GpuPointLight gpu{};
         gpu.position_radius = glm::vec4(pl.position, pl.radius);
@@ -990,8 +1006,8 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     }
 
     const auto& old_spot_lights = scene->spot_lights();
-    auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
-    for (uint32_t i = 0; i < static_cast<uint32_t>(old_spot_lights.size()) && spot_count < 1024; ++i) {
+    std::byte* spot_dst = dst + MAX_POINT_LIGHTS * sizeof(GpuPointLight);
+    for (uint32_t i = 0; i < static_cast<uint32_t>(old_spot_lights.size()) && spot_count < MAX_SPOT_LIGHTS; ++i) {
         const auto& sl = old_spot_lights[i];
         GpuSpotLight gpu{};
         gpu.position_radius = glm::vec4(sl.position, sl.radius);
@@ -1003,15 +1019,17 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
         ++spot_count;
     }
-
+    return slice.range;
 }
 
-void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("update_fog_volume_ssbo");
-    if (current_environment_ == nullptr) return;
-
-    const auto& volumes = current_environment_->fog_volumes;
-    auto* dst = reinterpret_cast<GpuFogVolume*>(gpu_device().mapped(gpu_.fog_volume_ssbo(frame_index)).data());
+gpu::BufferRange VulkanContext::write_fog_volumes(const EnvironmentState& environment) {
+    FJELL_PROFILE_SCOPE_N("write_fog_volumes");
+    // The block is the whole array; the fog template reads the volume each
+    // of its sources names.
+    const gpu::TransientSlice slice = frame_->transient_slice(uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume));
+    if (slice.bytes.empty()) return slice.range;
+    const auto& volumes = environment.fog_volumes;
+    auto* dst = reinterpret_cast<GpuFogVolume*>(slice.bytes.data());
 
     const uint32_t count = std::min(static_cast<uint32_t>(volumes.size()), MAX_FOG_VOLUMES);
     for (uint32_t i = 0; i < count; ++i) {
@@ -1027,6 +1045,7 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
         gpu.drift = glm::vec4(v.drift, 0.0f);
         dst[i] = gpu;
     }
+    return slice.range;
 }
 
 void VulkanContext::init_game_ui(GameUi& ui, gpu::Format output_format, bool world) {
@@ -1114,18 +1133,13 @@ void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecor
     cmd.barrier(target.msaa_color_texture(), {}, gpu::Access::color_attachment);
     if (msaa) cmd.barrier(target.color_texture(), {}, gpu::Access::color_attachment);
 
-    // .fjsl materials sample TIME from the global UBO, but that UBO is
-    // only otherwise refreshed by a scene viewport's render request
-    // (update_uniform_buffer()) — when this offscreen target is the
-    // only thing rendering this frame (e.g. the UI editor tab open with
-    // no 3D viewport active), TIME would sit frozen at whatever a scene
-    // viewport last wrote, so animated UI materials appear static in
-    // the preview. Patch just the time field in place — cheap, and
-    // harmless even when a scene request did already refresh the full
-    // UBO this frame (same value either way).
-    float live_time = elapsed_time_;
-    std::memcpy(gpu_device().mapped(gpu_.uniform_buffer(frame_index)).data() + offsetof(GlobalUbo, time),
-                &live_time, sizeof(live_time));
+    // UI materials read TIME from the global UBO, and nothing else of it:
+    // the UI is no view, so it binds one of its own holding the time.
+    if (frame_ != nullptr) {
+        GlobalUbo ubo{};
+        ubo.time = elapsed_time_;
+        gpu_.global_bindings().set(frame_index, "global_ubo", gpu::uniform(frame_->transient(ubo)));
+    }
     gpu_.bindless_textures().flush(frame_index);
     {
         auto pass = cmd.render({.color = {{.view = target.msaa_color_texture(),
@@ -1183,6 +1197,8 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     frame_ = &gpu_device().begin_frame();
     current_frame_ = frame_->slot();
     frame_serial_ = frame_->serial();
+    // What the slot's views wrote last time is gone with its memory.
+    gpu_.reset_view_bindings(current_frame_);
     render_pipeline_.begin_frame();
     gpu_.transient_pool().begin_frame(frame_serial_, gpu_device().finished_frame());
     apply_pending_ddgi_toggle();
@@ -1451,52 +1467,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         }
 
         scene_sdf_pass().end_gather(current_frame_);
-    }
-
-    // Update per-frame global bindings before recording
-    if (!viewports.empty() && viewports[0].target) {
-        auto& gb = gpu_.global_bindings();
-
-        gb.set(current_frame_, "depth_texture",
-               gpu::sampled(viewports[0].target->depth_texture(), gpu_.depth_sampler()));
-
-        const gpu::Texture ao =
-            default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
-        gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
-
-        gb.set(current_frame_, "screen_color",
-               gpu::sampled(viewports[0].target->screen_color_texture(), post_pass().output_sampler()));
-
-        // GI indirect: DDGI handles sun bounce indirect.
-        //
-        // The enabled check matters as much as the null check. A disabled
-        // pass stops writing but its image keeps whatever it last produced,
-        // and binding that composites a frozen frame of indirect light over
-        // everything — a ghost that follows the camera because it is screen
-        // space. Falling back to the black fallback image is what actually
-        // turns the contribution off.
-        gpu::Texture gi = gpu_.gi_fallback();
-        bound_gi_indirect_ = {};
-        auto* ddgi_imgs = default_pp_->ddgi();
-        if (ddgi_pass().config().enabled && ddgi_imgs && ddgi_imgs->indirect_written) {
-            gi = ddgi_imgs->indirect;
-            bound_gi_indirect_ = ddgi_imgs->indirect;
-        }
-        gb.set(current_frame_, "gi_indirect", gpu::sampled(gi, gpu_.gi_fallback_sampler()));
-
-        // SS-GI emissive: screen-space emissive color bleeding (supplements DDGI)
-        gpu::Texture ss_gi = gpu_.gi_fallback();
-        bound_ss_gi_emissive_ = {};
-        auto* ss_gi_imgs = default_pp_->ss_gi();
-        // Same ghost as DDGI above: a disabled pass keeps its last output.
-        if (ss_gi_pass().config().enabled && ss_gi_imgs && ss_gi_imgs->written) {
-            ss_gi = ss_gi_imgs->indirect;
-            bound_ss_gi_emissive_ = ss_gi_imgs->indirect;
-        }
-        gb.set(current_frame_, "ss_gi_emissive", gpu::sampled(ss_gi, gpu_.gi_fallback_sampler()));
-
-        gb.set(current_frame_, "contact_shadow",
-               gpu::sampled(contact_shadow_pass().shadow(), contact_shadow_pass().shadow_sampler()));
     }
 
     // The frame's lists: pre, and, where there is a compute queue, the

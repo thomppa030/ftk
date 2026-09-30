@@ -11,6 +11,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
 #include "renderer/systems/render_subsystem.hpp"
+#include "renderer/uniform_types.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
@@ -112,8 +113,6 @@ public:
                     const EnvironmentState &environment, Scene *scene,
                     float dt, uint32_t selected_id, ThreadPool &pool);
 
-  void update_light_ssbo(uint32_t frame_index, Scene *scene);
-  void update_fog_volume_ssbo(uint32_t frame_index);
   void wait_idle();
   void reload_pipeline();
   /// Rebuild only the FJSL pipelines naming one of `changed_paths`. What does
@@ -395,14 +394,26 @@ private:
   void render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest &view,
                        Scene *scene, float dt, uint32_t selected_id,
                        ThreadPool &pool, PostProcessResources *pp, bool main_view);
-  /// `pp` is the viewport being rendered: its config decides which temporal
-  /// effects the UBO enables (TAA jitter, GI intensities) and its ViewHistory
+  /// Writes `view`'s uniforms, environment, lights and fog volumes into the
+  /// frame's memory and points the global set the view binds at them and at
+  /// its own depth, AO, GI, contact shadows and screen colour: the slot's set
+  /// for the frame's views, the view's own for a preview. Each view's run
+  /// binds a version of the set of its own, so none reads another's.
+  void write_view_globals(const ViewportRenderRequest &view, const EnvironmentState &environment,
+                          Scene *scene, PostProcessResources &pp);
+  /// The GlobalUbo of a view, which also hands its camera to the gatherer.
+  /// `pp` is the view's resources: its config decides which temporal effects
+  /// the UBO enables (TAA jitter, GI intensities) and its ViewHistory
   /// supplies and receives the previous-frame camera.
-  void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
-                             const glm::mat4 &projection,
-                             const glm::vec3 &camera_position,
-                             const EnvironmentState &environment, Scene *scene,
-                             glm::uvec2 extent, PostProcessResources &pp);
+  [[nodiscard]] GlobalUbo view_uniforms(const glm::mat4 &view, const glm::mat4 &projection,
+                                        const glm::vec3 &camera_position,
+                                        const EnvironmentState &environment, Scene *scene,
+                                        glm::uvec2 extent, PostProcessResources &pp);
+  /// The scene's point and spot lights in the frame's memory, laid out as
+  /// the light SSBO.
+  [[nodiscard]] gpu::BufferRange write_lights(Scene *scene);
+  /// The environment's fog volumes in the frame's memory.
+  [[nodiscard]] gpu::BufferRange write_fog_volumes(const EnvironmentState &environment);
 
   // `view.global_set` overrides the per-frame global descriptor set bound for
   // the frame (used by previews that own a private set); null = per-frame set.
@@ -475,11 +486,12 @@ private:
   // present fires the compute queue submit + timeline wait.
   bool recorded_async_this_frame_{false};
   bool async_compute_enabled_{false};
-  /// The images this frame's global set binds at the GI slots, null for the
-  /// fallback; written with the bindings, handed to the graph by the runs
-  /// that bind that set.
+  /// The images the view being recorded binds at the GI slots, null for the
+  /// fallback; written with its bindings and handed to its graph.
   gpu::Texture bound_gi_indirect_{};
   gpu::Texture bound_ss_gi_emissive_{};
+  /// The view being recorded's inverse view-projection, jitter included.
+  glm::mat4 view_inv_view_proj_{1.0f};
   /// The serial of the frame begun last: what the transient pool dates its
   /// textures by.
   uint64_t frame_serial_{0};
