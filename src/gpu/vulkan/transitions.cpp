@@ -128,11 +128,10 @@ bool buffer_already_visible(AccessSet made_visible, AccessSet wanted, Queue queu
            (want.access & ~made.access) == 0;
 }
 
-void CommandList::transition(std::span<const Transition> transitions) {
+void CommandList::transition(std::span<const Transition> transitions, std::string* trace) {
     if (!vulkan::outside_render(*device_, *impl_, "records transitions")) return;
     Device::Impl& device = device_->impl();
     const Queue queue = impl_->queue;
-    std::string* trace = device.transition_trace;
 
     SmallVector<VkImageMemoryBarrier2, INLINE_BARRIERS> images;
     SmallVector<VkBufferMemoryBarrier2, INLINE_BARRIERS> buffers;
@@ -228,13 +227,5 @@ void CommandList::transition(std::span<const Transition> transitions) {
     dependency.pBufferMemoryBarriers = buffers.data();
     vkCmdPipelineBarrier2(impl_->cb, &dependency);
 }
-
-namespace vulkan {
-
-void trace_transitions(Device& device, std::string* lines) {
-    device.impl().transition_trace = lines;
-}
-
-} // namespace vulkan
 
 } // namespace fjell::gpu
