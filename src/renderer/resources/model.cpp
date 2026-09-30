@@ -75,9 +75,7 @@ static LoadedImage load_image_from_source(
     return result;
 }
 
-Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
-             gpu::Device& gpu,
-             const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets) {
+Model::Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets) {
     auto gltf_path = std::filesystem::path(path);
     auto base_dir = gltf_path.parent_path();
 
@@ -106,9 +104,7 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
     // Load textures from embedded/external images
     for (auto& image : asset.images) {
         auto [pixels, tex_w, tex_h] = load_image_from_source(asset, image, base_dir);
-        textures_.push_back(std::make_unique<Texture>(
-            device, allocator, physical_device, gpu,
-            pixels.data(), tex_w, tex_h));
+        textures_.push_back(std::make_unique<Texture>(gpu, pixels.data(), tex_w, tex_h));
     }
 
     // Load meshes

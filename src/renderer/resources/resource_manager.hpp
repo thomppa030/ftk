@@ -20,7 +20,6 @@
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -51,9 +50,7 @@ struct MaterialAsset;
 
 class ResourceManager {
 public:
-    ResourceManager(VkDevice device, VmaAllocator allocator,
-                    VkPhysicalDevice physical_device,
-                    gpu::Device& gpu,
+    ResourceManager(gpu::Device& gpu,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
                     MeshletBuffer* meshlet_buffer = nullptr,
                     PipelineCache* pipeline_cache = nullptr);
@@ -236,9 +233,6 @@ public:
     void update_viewport_bindings(const std::string& viewport_name, uint32_t bindless_idx);
 
 private:
-    VkDevice device_;
-    VmaAllocator allocator_;
-    VkPhysicalDevice physical_device_;
     /// Uploads what is loaded, and keeps a texture being replaced alive
     /// until the frames still reading it are done.
     gpu::Device& gpu_;

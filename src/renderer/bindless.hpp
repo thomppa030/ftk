@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 
@@ -96,6 +98,7 @@ public:
 
     // Replace an existing entry's view and sampler (e.g. after render target resize).
     // Marks the slot dirty for the next update_descriptors() call.
+    void update_entry(uint32_t index, gpu::Texture texture, gpu::Sampler sampler);
     void update_entry(uint32_t index, VkImageView view, VkSampler sampler);
 
     // Register a material and get its index for push constants.

@@ -268,8 +268,6 @@ void Engine::init_ui() {
 
 void Engine::init_resources() {
     resource_manager_ = std::make_unique<ResourceManager>(
-        vulkan_context_->device(), vulkan_context_->allocator(),
-        vulkan_context_->physical_device(),
         vulkan_context_->gpu_device(),
         vulkan_context_->bindless_textures(), vulkan_context_->mega_buffer(),
         vulkan_context_->meshlet_buffer(), vulkan_context_->pipeline_cache());

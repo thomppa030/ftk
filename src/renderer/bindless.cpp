@@ -165,7 +165,7 @@ void BindlessTextures::destroy() {
 }
 
 uint32_t BindlessTextures::add(const Texture& texture) {
-    VkImageView view = texture.image_view();
+    VkImageView view = gpu::vulkan::native_view(*gpu_device_, texture.texture());
 
     // Idempotent: return existing index if already registered
     auto it = view_to_index_.find(view);
@@ -177,7 +177,7 @@ uint32_t BindlessTextures::add(const Texture& texture) {
 
     Entry entry{};
     entry.view = view;
-    entry.sampler = texture.sampler();
+    entry.sampler = gpu::vulkan::native_sampler(*gpu_device_, texture.sampler());
     entries_.push_back(entry);
     view_to_index_[view] = index;
 
@@ -192,6 +192,11 @@ uint32_t BindlessTextures::reserve_index() {
     // leaves it unwritten, which the partially bound array allows.
     entries_.push_back(Entry{VK_NULL_HANDLE, VK_NULL_HANDLE});
     return index;
+}
+
+void BindlessTextures::update_entry(uint32_t index, gpu::Texture texture, gpu::Sampler sampler) {
+    update_entry(index, gpu::vulkan::native_view(*gpu_device_, texture),
+                 gpu::vulkan::native_sampler(*gpu_device_, sampler));
 }
 
 void BindlessTextures::update_entry(uint32_t index, VkImageView view, VkSampler sampler) {

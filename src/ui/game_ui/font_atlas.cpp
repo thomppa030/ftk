@@ -39,7 +39,8 @@ void FontAtlas::release_imgui_texture() {
 VkDescriptorSet FontAtlas::imgui_texture() {
     if (imgui_descriptor_ == VK_NULL_HANDLE && atlas_texture_) {
         imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            atlas_texture_->sampler(), atlas_texture_->image_view(),
+            gpu::vulkan::native_sampler(*gpu_.gpu_device, atlas_texture_->sampler()),
+            gpu::vulkan::native_view(*gpu_.gpu_device, atlas_texture_->texture()),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return imgui_descriptor_;
@@ -167,10 +168,8 @@ void FontAtlas::create(const std::string& recipe_path, const FontAtlasGpu& gpu,
     adopt(data);
 
     // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
-    atlas_texture_ = std::make_unique<Texture>(
-        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.gpu_device,
-        data.pixels.data(), atlas_width_, atlas_height_,
-        VK_FORMAT_R8G8B8A8_UNORM, 1, true);
+    atlas_texture_ = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
+                                               atlas_height_, gpu::Format::rgba8_unorm, 1, true);
     atlas_index_ = gpu_.bindless->add(*atlas_texture_);
 
     FJELL_GFX_INFO("Font atlas ready: {} ({}x{}, {} glyphs)",
@@ -186,21 +185,16 @@ void FontAtlas::reload(FontAtlasData data) {
     adopt(data);
     ++generation_;
 
-    auto fresh = std::make_unique<Texture>(
-        gpu_.device, gpu_.allocator, gpu_.physical_device, *gpu_.gpu_device,
-        data.pixels.data(), atlas_width_, atlas_height_,
-        VK_FORMAT_R8G8B8A8_UNORM, 1, true);
-    gpu_.bindless->update_entry(atlas_index_, fresh->image_view(), fresh->sampler());
-    if (gpu_.gpu_device != nullptr) {
-        gpu::vulkan::retire(*gpu_.gpu_device, std::move(atlas_texture_));
-        // The editor's view of the old texture may still be in a frame's
-        // draw data; it goes when that frame is done, and the next
-        // imgui_texture() call makes one for the new texture.
-        if (imgui_descriptor_ != VK_NULL_HANDLE) {
-            gpu::vulkan::defer(*gpu_.gpu_device,
-                               [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
-            imgui_descriptor_ = VK_NULL_HANDLE;
-        }
+    auto fresh = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
+                                           atlas_height_, gpu::Format::rgba8_unorm, 1, true);
+    gpu_.bindless->update_entry(atlas_index_, fresh->texture(), fresh->sampler());
+    // The old texture goes when the frames reading it are done. The editor's
+    // view of it may still be in a frame's draw data; it goes then too, and
+    // the next imgui_texture() call makes one for the new texture.
+    if (imgui_descriptor_ != VK_NULL_HANDLE) {
+        gpu::vulkan::defer(*gpu_.gpu_device,
+                           [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
+        imgui_descriptor_ = VK_NULL_HANDLE;
     }
     atlas_texture_ = std::move(fresh);
 

@@ -138,8 +138,7 @@ VulkanContext::VulkanContext(Window& window)
     // The engine's own font is the one every UI falls back to.
     font_library_ = std::make_unique<FontLibrary>();
     font_library_->create(
-        FontAtlasGpu{gpu_.device(), gpu_.allocator(), gpu_.device_ref().physical_device(),
-                     &gpu_.bindless_textures(), &gpu_device()},
+        FontAtlasGpu{&gpu_.bindless_textures(), &gpu_device()},
         base_path::resolve("engine_assets/fonts/Inter.fjfont"));
 
     // Default post-process resources for the main viewport (all passes enabled)

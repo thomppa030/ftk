@@ -33,16 +33,11 @@ namespace fs = std::filesystem;
 
 // -- ResourceManager ---------------------------------------------------------
 
-ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
-                                 VkPhysicalDevice physical_device,
-                                 gpu::Device& gpu,
+ResourceManager::ResourceManager(gpu::Device& gpu,
                                  BindlessTextures& bindless, MegaBuffer* mega_buffer,
                                  MeshletBuffer* meshlet_buffer,
                                  PipelineCache* pipeline_cache)
-    : device_{device}
-    , allocator_{allocator}
-    , physical_device_{physical_device}
-    , gpu_{gpu}
+    : gpu_{gpu}
     , bindless_{bindless}
     , mega_buffer_{mega_buffer}
     , meshlet_buffer_{meshlet_buffer}
@@ -55,8 +50,7 @@ ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
     const std::array<uint8_t, 4> black = {0, 0, 0, 255};
 
     auto register_default = [&](const std::string& name, const uint8_t* pixels) -> TextureHandle {
-        auto tex = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_,
-                                             pixels, 1, 1);
+        auto tex = std::make_unique<Texture>(gpu_, pixels, 1, 1);
         uint32_t bindless_idx = bindless_.add(*tex);
         auto handle = textures_.insert(name, std::move(tex));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -113,8 +107,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         }
 
         // Fall back to glTF loading (existing path)
-        auto model = std::make_unique<Model>(allocator_, device_, physical_device_, gpu_,
-                                              path, *mega_buffer_, *meshlet_buffer_);
+        auto model = std::make_unique<Model>(gpu_, path, *mega_buffer_, *meshlet_buffer_);
         return models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
         return make_error("Failed to load model '" + path + "': " + e.what());
@@ -155,7 +148,7 @@ Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_, path);
+        auto texture = std::make_unique<Texture>(gpu_, path);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(path, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -174,7 +167,7 @@ Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& p
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_, path, true);
+        auto texture = std::make_unique<Texture>(gpu_, path, true);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(key, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -227,10 +220,9 @@ uint32_t ResourceManager::file_texture_index(const FjslUniform& u, const std::st
 std::unique_ptr<Texture> ResourceManager::make_lut_texture(const LutStrip& strip) {
     // Clamped, filtered, one mip: the lookup takes its own half-texel
     // offsets and reads the table's edge texels as its ends.
-    return std::make_unique<Texture>(device_, allocator_, physical_device_, gpu_,
-                                     reinterpret_cast<const uint8_t*>(strip.rgba.data()),
+    return std::make_unique<Texture>(gpu_, reinterpret_cast<const uint8_t*>(strip.rgba.data()),
                                      strip.width(), strip.height(),
-                                     VK_FORMAT_R16G16B16A16_UNORM, 1, true);
+                                     gpu::Format::rgba16_unorm, 1, true);
 }
 
 Result<TextureHandle> ResourceManager::load_lut(const std::string& path) {
@@ -315,10 +307,8 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     // texture lives until the frames still reading it are done, as a font
     // atlas's does on its reload.
     const uint32_t index = bindless_index(lut.handle);
-    bindless_.update_entry(index, fresh->image_view(), fresh->sampler());
-    auto& slot = textures_.slots[lut.handle.index()];
-    gpu::vulkan::retire(gpu_, std::move(slot));
-    slot = std::move(fresh);
+    bindless_.update_entry(index, fresh->texture(), fresh->sampler());
+    textures_.slots[lut.handle.index()] = std::move(fresh);
     FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }
 

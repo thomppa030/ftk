@@ -24,9 +24,6 @@ class Device;
 /// What an atlas needs to reach the GPU. Kept by the atlas so it can
 /// rebuild itself in place.
 struct FontAtlasGpu {
-    VkDevice device{VK_NULL_HANDLE};
-    VmaAllocator allocator{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device{VK_NULL_HANDLE};
     BindlessTextures* bindless{nullptr};
     /// Uploads the atlas, and keeps a reloaded atlas's old texture alive
     /// until the frames drawing with it are done.

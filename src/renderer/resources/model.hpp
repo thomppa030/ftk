@@ -9,7 +9,6 @@
 #include "renderer/resources/texture.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
@@ -71,11 +70,9 @@ public:
     // Every constructor adds the model's geometry to `mega` and its
     // meshlets to `meshlets`, one mega entry per submesh of each LOD.
 
-    // Load from glTF/GLB file (existing path); the device arguments make
-    // the file's own textures.
-    Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
-          gpu::Device& gpu,
-          const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets);
+    // Load from glTF/GLB file (existing path); `gpu` makes the file's own
+    // textures.
+    Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets);
 
     // Create from primitive mesh data (cube/plane/sphere)
     Model(const PrimitiveMeshData& data, MegaBuffer& mega, MeshletBuffer& meshlets);
