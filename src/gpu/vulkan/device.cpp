@@ -666,7 +666,8 @@ void release(Device& device, Texture texture) {
     auto record = self.textures.take(texture);
     if (!record.has_value()) return;
     self.release_later(
-        [dev = self.device, allocator = self.allocator, gone = std::move(*record)] {
+        [dev = self.device, allocator = self.allocator, gone = std::move(*record)]() mutable {
+            for (auto& released : gone.on_release) released();
             destroy_texture(dev, allocator, gone);
         });
 }

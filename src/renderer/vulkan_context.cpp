@@ -744,7 +744,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
                                                        .load = gpu::Load::clear,
                                                        .clear = gpu::Clear{0.012f, 0.012f, 0.015f, 1.0f}}}});
             if (overlay_callback_) {
-                overlay_callback_(swap_cmd);
+                overlay_callback_(target);
             }
         }
         const gpu::Transition show = image.to_present();
@@ -1138,8 +1138,8 @@ void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecor
     cmd.barrier(target.color_texture(), gpu::Access::color_attachment, gpu::Access::sampled_fragment);
 }
 
-VkFormat VulkanContext::swapchain_format() const {
-    return gpu::vulkan::native_format(gpu_.swapchain().format());
+gpu::Format VulkanContext::swapchain_format() const {
+    return gpu_.swapchain().format();
 }
 
 void VulkanContext::submit_and_present() {

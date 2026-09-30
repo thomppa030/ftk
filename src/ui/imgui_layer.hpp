@@ -1,10 +1,14 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "gpu/format.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 
-#include <vulkan/vulkan.h>
+#include <imgui.h>
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +18,11 @@ struct SDL_Cursor;
 namespace fjell {
 
 class Window;
+namespace gpu {
+class Device;
+class ImGuiRenderer;
+class RenderEncoder;
+}
 
 /// The files an ImGui layer reads, wherever its host keeps them.
 struct ImGuiLayerFiles {
@@ -27,13 +36,8 @@ struct ImGuiLayerFiles {
 
 class ImGuiLayer {
 public:
-    /// Draws into `color_format` targets. `frames_in_flight` is how many
-    /// frames the GPU may be working on at once, the device's: ImGui keeps
-    /// vertex buffers for that many frames and uses them in turn.
-    ImGuiLayer(Window& window, VkInstance instance,
-               VkPhysicalDevice physical_device, VkDevice device,
-               uint32_t graphics_family, VkQueue graphics_queue,
-               VkFormat color_format, uint32_t frames_in_flight,
+    /// Draws `window`'s UI with `device` into `color_format` targets.
+    ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_format,
                const ImGuiLayerFiles& files);
     ~ImGuiLayer();
 
@@ -44,7 +48,17 @@ public:
 
     void begin_frame();
     void end_frame();
-    void render(VkCommandBuffer cmd);
+    /// Records the frame's UI into `pass`, a scope with one colour target of
+    /// the format. Nothing records into the scope after it.
+    void render(gpu::RenderEncoder& pass);
+
+    /// `view` as this layer's ImGui shows it, sampled with `sampler`: made
+    /// the first time it is asked for, and let go once the texture is
+    /// released and the frames that drew it are done.
+    [[nodiscard]] ImTextureID texture(const gpu::TextureView& view, gpu::Sampler sampler);
+
+    /// The layer whose ImGui context is current, or null without one.
+    [[nodiscard]] static ImGuiLayer* current();
 
     /// Make this layer's ImGui context the current one. Required when
     /// multiple ImGui contexts coexist (e.g. editor + import dialog).
@@ -69,13 +83,8 @@ private:
     Connection event_connection_;
     /// An OS cursor for each ImGuiMouseCursor shape, indexed by it.
     std::vector<SDL_Cursor*> cursors_;
-    VkDevice device_;
-    VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
-    // Fragment stage that decodes ImGui's sRGB colours for the sRGB
-    // swapchain (shaders/imgui.frag). The backend keeps the pointer for
-    // its lifetime, so the code lives here for the layer's.
-    std::vector<uint32_t> frag_spv_;
     ImGuiContext* context_{nullptr};
+    std::unique_ptr<gpu::ImGuiRenderer> renderer_;
     ImGuiContext* prev_context_{nullptr}; // saved by activate(), restored by deactivate()
 };
 

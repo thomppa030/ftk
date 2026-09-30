@@ -1,8 +1,10 @@
 #include "ui/standalone_window.hpp"
 
 #include "core/log.hpp"
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/swapchain.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 #include "ui/imgui_layer.hpp"
@@ -25,10 +27,7 @@ StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int w
     auto made = gpu::Swapchain::create(gpu_.gpu_device(), *window_);
     if (!made) throw std::runtime_error(made.error());
     swapchain_ = std::move(*made);
-    imgui_ = std::make_unique<ImGuiLayer>(*window_, gpu_.instance(), gpu_.physical_device(), gpu_.vk_device(),
-                                          gpu_.graphics_family(), gpu_.graphics_queue(),
-                                          gpu::vulkan::native_format(swapchain_->format()),
-                                          gpu_.gpu_device().caps().frames_in_flight, files);
+    imgui_ = std::make_unique<ImGuiLayer>(*window_, gpu_.gpu_device(), swapchain_->format(), files);
 }
 
 StandaloneWindow::~StandaloneWindow() {
@@ -66,7 +65,7 @@ void StandaloneWindow::frame(const std::function<void(float width, float height)
         imgui_->begin_frame();
         draw(static_cast<float>(swapchain_->width()), static_cast<float>(swapchain_->height()));
         imgui_->end_frame();
-        imgui_->render(gpu::vulkan::native_command_buffer(cmd));
+        imgui_->render(target);
         imgui_->deactivate();
     }
     const gpu::Transition to_present = image->to_present();

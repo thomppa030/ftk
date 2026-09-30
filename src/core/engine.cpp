@@ -237,16 +237,10 @@ void Engine::init_project(const std::filesystem::path& project_path,
 }
 
 void Engine::init_ui() {
-    imgui_layer_ = std::make_unique<ImGuiLayer>(
-        window_, vulkan_context_->instance(),
-        vulkan_context_->physical_device(), vulkan_context_->device(),
-        vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
-        vulkan_context_->swapchain_format(), vulkan_context_->gpu_device().caps().frames_in_flight,
-        engine_imgui_files());
+    imgui_layer_ = std::make_unique<ImGuiLayer>(window_, vulkan_context_->gpu_device(),
+                                                vulkan_context_->swapchain_format(), engine_imgui_files());
 
-    vulkan_context_->set_overlay_callback([this](VkCommandBuffer cmd) {
-        imgui_layer_->render(cmd);
-    });
+    vulkan_context_->set_overlay_callback([this](gpu::RenderEncoder& pass) { imgui_layer_->render(pass); });
 
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_,
                                                script_subsystem_->manager());

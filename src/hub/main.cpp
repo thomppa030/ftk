@@ -1,8 +1,10 @@
 #include "hub/hub_ui.hpp"
 #include "core/clock.hpp"
 #include "core/log.hpp"
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/swapchain.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 #include "ui/engine_imgui_files.hpp"
@@ -48,12 +50,7 @@ int main() {
         if (!made) throw std::runtime_error(made.error());
         const std::unique_ptr<fjell::gpu::Swapchain> swapchain = std::move(*made);
 
-        auto imgui_layer = fjell::ImGuiLayer(
-            window, gpu.instance(),
-            gpu.physical_device(), gpu.vk_device(),
-            gpu.graphics_family(), gpu.graphics_queue(),
-            fjell::gpu::vulkan::native_format(swapchain->format()),
-            device.caps().frames_in_flight, fjell::engine_imgui_files());
+        auto imgui_layer = fjell::ImGuiLayer(window, device, swapchain->format(), fjell::engine_imgui_files());
 
         fjell::hub::HubUI hub_ui;
         hub_ui.set_gpu(&gpu);
@@ -85,7 +82,7 @@ int main() {
                 launch = hub_ui.draw(static_cast<float>(swapchain->width()),
                                      static_cast<float>(swapchain->height()));
                 imgui_layer.end_frame();
-                imgui_layer.render(fjell::gpu::vulkan::native_command_buffer(cmd));
+                imgui_layer.render(target);
             }
             const fjell::gpu::Transition show = image->to_present();
             cmd.transition({&show, 1});

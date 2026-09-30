@@ -319,6 +319,19 @@ fjell_library(ui-kit
         PUBLIC fjell-core fjell-imgui-headless glm::glm
 )
 
+# fjell-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
+# with the backend's own renderer for ImGui behind it (imgui_impl_vulkan).
+# Apart from both, so neither the GPU library nor ImGui needs the other.
+fjell_library(gpu-imgui
+    SOURCES
+        gpu/vulkan/imgui_renderer.cpp
+    HEADERS
+        gpu/imgui_renderer.hpp
+    LINKS
+        PUBLIC fjell-core fjell-gpu fjell-imgui-headless
+        PRIVATE fjell-imgui
+)
+
 # fjell-editor-shell is what an editor window needs around the kit: the
 # ImGui layer on a window of its own, the console, undo history and its
 # panel, the icon cache, the file browser, and the EditorContext a tool's
@@ -346,7 +359,7 @@ fjell_library(editor-shell
         ui/imgui_layer.hpp
         ui/standalone_window.hpp
     LINKS
-        PUBLIC fjell-core fjell-gpu fjell-imgui fjell-ui-kit
+        PUBLIC fjell-core fjell-gpu fjell-gpu-imgui fjell-imgui fjell-ui-kit
         PRIVATE fjell-stb SDL3::SDL3
 )
 

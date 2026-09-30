@@ -5,7 +5,7 @@
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <imgui_impl_vulkan.h>
+#include "gpu/imgui_renderer.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -34,34 +34,9 @@ std::vector<uint32_t> read_spirv_words(const std::string& path) {
 
 } // namespace
 
-ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
-                       VkPhysicalDevice physical_device, VkDevice device,
-                       uint32_t graphics_family, VkQueue graphics_queue,
-                       VkFormat color_format, uint32_t frames_in_flight,
+ImGuiLayer::ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_format,
                        const ImGuiLayerFiles& files)
-    : window_{window}, device_{device} {
-  // Descriptor pool for ImGui. Every ImGui::Image texture holds one set for
-  // as long as it is registered: editor icons, a directory's worth of
-  // texture thumbnails, the resident asset thumbnails, viewport images.
-  // When this runs out AddTexture returns null and the image silently does
-  // not draw, so the size leaves generous room above those counts.
-  constexpr uint32_t MAX_IMAGE_DESCRIPTORS = 4096;
-  std::array<VkDescriptorPoolSize, 1> pool_sizes = {{
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_IMAGE_DESCRIPTORS},
-  }};
-
-  VkDescriptorPoolCreateInfo pool_info{};
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets = MAX_IMAGE_DESCRIPTORS;
-  pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-  pool_info.pPoolSizes = pool_sizes.data();
-
-  if (vkCreateDescriptorPool(device_, &pool_info, nullptr, &descriptor_pool_) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("Failed to create ImGui descriptor pool");
-  }
-
+    : window_{window} {
   IMGUI_CHECKVERSION();
   auto* prev_ctx = ImGui::GetCurrentContext();
   context_ = ImGui::CreateContext();
@@ -96,45 +71,17 @@ ImGuiLayer::ImGuiLayer(Window& window, VkInstance instance,
   cursors_[ImGuiMouseCursor_Progress] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_PROGRESS);
   cursors_[ImGuiMouseCursor_NotAllowed] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED);
 
-  ImGui_ImplVulkan_InitInfo init_info{};
-  init_info.Instance = instance;
-  init_info.PhysicalDevice = physical_device;
-  init_info.Device = device;
-  init_info.QueueFamily = graphics_family;
-  init_info.Queue = graphics_queue;
-  init_info.DescriptorPool = descriptor_pool_;
-  // The backend swallows Vulkan failures unless told where to report them;
-  // an exhausted descriptor pool would otherwise show up only as images
-  // that stop drawing.
-  init_info.CheckVkResultFn = [](VkResult result) {
-    if (result != VK_SUCCESS) {
-      FJELL_GFX_ERROR("ImGui Vulkan backend: VkResult={}", static_cast<int>(result));
-    }
-  };
-  // The backend's "image count" is how many sets of vertex buffers it keeps
-  // and uses in turn, one per frame: enough for every frame in flight. The
-  // minimum is only for swapchains of its own, which it is never asked for.
-  init_info.MinImageCount = 2;
-  init_info.ImageCount = std::max(frames_in_flight, init_info.MinImageCount);
-  init_info.UseDynamicRendering = true;
-  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &color_format;
-  init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-
-  frag_spv_ = read_spirv_words(files.srgb_fragment.string());
-  if (frag_spv_.empty()) {
+  // Decodes ImGui's sRGB colours for the sRGB target (shaders/imgui.frag).
+  const std::vector<uint32_t> srgb_fragment = read_spirv_words(files.srgb_fragment.string());
+  if (srgb_fragment.empty()) {
     // The stock stage writes ImGui's sRGB colours as if they were linear,
     // so every swatch and style colour comes out one gamma too bright.
     FJELL_CORE_ERROR("ImGui: {} not found; colours will render too bright",
                      files.srgb_fragment.string());
-  } else {
-    init_info.CustomShaderFragCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    init_info.CustomShaderFragCreateInfo.codeSize = frag_spv_.size() * sizeof(uint32_t);
-    init_info.CustomShaderFragCreateInfo.pCode = frag_spv_.data();
   }
-
-  ImGui_ImplVulkan_Init(&init_info);
+  renderer_ = std::make_unique<gpu::ImGuiRenderer>(
+      device, gpu::ImGuiRenderer::Desc{.target_format = color_format, .fragment = srgb_fragment});
+  io.UserData = this;
 
   // The window hands over only its own events, so each context sees its
   // own window's input whichever context is current when they arrive.
@@ -164,7 +111,7 @@ ImGuiLayer::~ImGuiLayer() {
   ImGui::SetCurrentContext(context_);
   // Announce while the context is still current, so listeners can inspect it.
   on_context_destroyed.broadcast(static_cast<void*>(context_));
-  ImGui_ImplVulkan_Shutdown();
+  renderer_.reset();
   ImGui_ImplSDL3_Shutdown();
   theme::forget_fonts(context_);
   ImGui::DestroyContext(context_);
@@ -173,9 +120,6 @@ ImGuiLayer::~ImGuiLayer() {
   // Restore the previous context so the editor keeps working
   ImGui::SetCurrentContext(prev);
 
-  if (descriptor_pool_ != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
-  }
   for (SDL_Cursor* cursor : cursors_) {
     SDL_DestroyCursor(cursor);
   }
@@ -199,7 +143,7 @@ void ImGuiLayer::begin_frame() {
   }
 
   ImGui::SetCurrentContext(context_);
-  ImGui_ImplVulkan_NewFrame();
+  renderer_->new_frame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 }
@@ -230,9 +174,23 @@ void ImGuiLayer::update_cursor() {
   SDL_ShowCursor();
 }
 
-void ImGuiLayer::render(VkCommandBuffer cmd) {
-  FJELL_PROFILE_SCOPE_N("imgui_render");
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+void ImGuiLayer::render(gpu::RenderEncoder& pass) {
+  renderer_->render(pass);
+}
+
+ImTextureID ImGuiLayer::texture(const gpu::TextureView& view, gpu::Sampler sampler) {
+  // The backend makes the image in the current context's pool, which has
+  // to be this layer's for the image to go back to it.
+  ImGuiContext* current = ImGui::GetCurrentContext();
+  ImGui::SetCurrentContext(context_);
+  const ImTextureID id = renderer_->texture(view, sampler);
+  ImGui::SetCurrentContext(current);
+  return id;
+}
+
+ImGuiLayer* ImGuiLayer::current() {
+  if (ImGui::GetCurrentContext() == nullptr) return nullptr;
+  return static_cast<ImGuiLayer*>(ImGui::GetIO().UserData);
 }
 
 void ImGuiLayer::setup_style() {

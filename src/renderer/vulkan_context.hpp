@@ -148,7 +148,7 @@ public:
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
   [[nodiscard]] VkInstance instance() const { return gpu_.instance(); }
   /// The main window's images' format, what ImGui and the game UI draw into.
-  [[nodiscard]] VkFormat swapchain_format() const;
+  [[nodiscard]] gpu::Format swapchain_format() const;
   [[nodiscard]] uint32_t graphics_family() const { return gpu_.graphics_family(); }
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
@@ -241,7 +241,7 @@ public:
   [[nodiscard]] SubsystemComputePass &subsystem_compute_pass() { return passes_.get<SubsystemComputePass>("subsystem_compute"); }
   [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
 
-  using OverlayCallback = std::function<void(VkCommandBuffer)>;
+  using OverlayCallback = std::function<void(gpu::RenderEncoder&)>;
   void set_overlay_callback(OverlayCallback callback) {
     overlay_callback_ = std::move(callback);
   }
