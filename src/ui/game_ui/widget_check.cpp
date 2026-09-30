@@ -23,16 +23,16 @@ namespace fs = std::filesystem;
 
 // ── The schema ──────────────────────────────────────────────────────────
 
-const UiSchema::Field* UiSchema::Type::field(std::string_view name) const {
+const UiSchema::Field* UiSchema::Type::field(std::string_view field_name) const {
     for (const auto& f : fields) {
-        if (f.name == name) return &f;
+        if (f.name == field_name) return &f;
     }
     return nullptr;
 }
 
-const UiSchema::Action* UiSchema::Type::action(std::string_view name) const {
+const UiSchema::Action* UiSchema::Type::action(std::string_view action_name) const {
     for (const auto& a : actions) {
-        if (a.name == name) return &a;
+        if (a.name == action_name) return &a;
     }
     return nullptr;
 }

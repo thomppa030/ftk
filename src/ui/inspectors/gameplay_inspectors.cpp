@@ -233,7 +233,6 @@ ui::Edit draw_particle_emitter(Node3D& /*node*/, void* component, const Inspecto
 }
 
 ui::Edit draw_ui_widget(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
-    using RenderMode = UiWidgetComponent::RenderMode;
     using Scaling = UiWidgetComponent::Scaling;
     auto& wc = *static_cast<UiWidgetComponent*>(component);
     static const std::string widget_exts[] = {".fjwidget"};
@@ -254,7 +253,7 @@ ui::Edit draw_ui_widget(Node3D& /*node*/, void* component, const InspectorContex
                     }
                 });
         ui::row("Render mode", [&] { edit |= ui::choice("##render_mode", wc.render_mode, RENDER_MODES); });
-        if (wc.render_mode == RenderMode::screen_space) {
+        if (wc.render_mode == UiWidgetComponent::RenderMode::screen_space) {
             ui::row("Scaling",
                     "Design resolution: the project's design height fills the viewport.\n"
                     "Native pixels: one layout pixel per screen pixel.\n"

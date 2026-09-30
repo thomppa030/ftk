@@ -19,10 +19,10 @@ fjell::GpuDdgiConstants ddgi{};
 
 // Stand-ins for the atlases, one entry per probe. Irradiance is stored
 // encoded, as the update pass writes it.
-std::vector<vec3> probe_irradiance;
-std::vector<vec2> probe_visibility;
-std::vector<vec3> probe_offset;
-std::vector<uint> probe_status;
+std::vector<vec3> stub_irradiance;
+std::vector<vec2> stub_visibility;
+std::vector<vec3> stub_offset;
+std::vector<uint> stub_status;
 
 // The probe whose atlas tile holds uv.
 int probe_at(vec2 uv, int tex_w, int tex_h, int side) {
@@ -33,18 +33,18 @@ int probe_at(vec2 uv, int tex_w, int tex_h, int side) {
 }
 
 vec3 ddgi_cage_irradiance(vec2 uv) {
-    return probe_irradiance[static_cast<size_t>(
+    return stub_irradiance[static_cast<size_t>(
         probe_at(uv, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side))];
 }
 vec2 ddgi_cage_visibility(vec2 uv) {
-    return probe_visibility[static_cast<size_t>(
+    return stub_visibility[static_cast<size_t>(
         probe_at(uv, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side))];
 }
 vec3 ddgi_cage_probe_offset(int probe_index) {
-    return probe_offset[static_cast<size_t>(probe_index)];
+    return stub_offset[static_cast<size_t>(probe_index)];
 }
 uint ddgi_cage_probe_status(int probe_index) {
-    return probe_status[static_cast<size_t>(probe_index)];
+    return stub_status[static_cast<size_t>(probe_index)];
 }
 
 #ifdef _MSC_VER
@@ -95,10 +95,10 @@ void uniform_field(ivec3 counts, vec3 spacing, vec3 origin, vec3 irradiance, flo
     ddgi.camera_position = origin + vec3(counts) * spacing * 0.5f + vec3(0.3f, 5.0f, 0.7f);
 
     const auto n = static_cast<size_t>(total);
-    probe_irradiance.assign(n, ddgi_encode_irradiance(irradiance));
-    probe_visibility.assign(n, vec2(far, far * far));
-    probe_offset.assign(n, vec3(0.0f));
-    probe_status.assign(n, PROBE_STATUS_ACTIVE);
+    stub_irradiance.assign(n, ddgi_encode_irradiance(irradiance));
+    stub_visibility.assign(n, vec2(far, far * far));
+    stub_offset.assign(n, vec3(0.0f));
+    stub_status.assign(n, PROBE_STATUS_ACTIVE);
 }
 
 bool near(vec3 a, vec3 b, float tolerance) {
@@ -289,14 +289,14 @@ TEST_CASE("A probe the status pass switched off does not reach the cage", "[ddgi
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), light, 100.0f);
     const vec3 p = SAMPLE_POINTS[0];
     const int corner = ddgi_grid_to_probe_index(ddgi_world_to_grid(p));
-    probe_irradiance[static_cast<size_t>(corner)] = ddgi_encode_irradiance(vec3(30.0f, 0.0f, 0.0f));
+    stub_irradiance[static_cast<size_t>(corner)] = ddgi_encode_irradiance(vec3(30.0f, 0.0f, 0.0f));
 
-    probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_OFF;
+    stub_status[static_cast<size_t>(corner)] = PROBE_STATUS_OFF;
     REQUIRE(near(ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false).irradiance,
                  light * DDGI_ENERGY_CONSERVATION, 1e-4f));
 
     // Switched back on, the same probe does pull the result toward red.
-    probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_ACTIVE;
+    stub_status[static_cast<size_t>(corner)] = PROBE_STATUS_ACTIVE;
     REQUIRE(ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false).irradiance.x
             > light.x * DDGI_ENERGY_CONSERVATION + 0.1f);
 }
@@ -307,9 +307,9 @@ TEST_CASE("A probe not traced since the last reset does not reach the cage", "[d
     const vec3 p = SAMPLE_POINTS[2];
     const int corner = ddgi_grid_to_probe_index(ddgi_world_to_grid(p));
     // What a reset leaves in its atlases: nothing.
-    probe_irradiance[static_cast<size_t>(corner)] = vec3(0.0f);
-    probe_visibility[static_cast<size_t>(corner)] = vec2(0.0f);
-    probe_status[static_cast<size_t>(corner)] = PROBE_STATUS_UNINITIALIZED;
+    stub_irradiance[static_cast<size_t>(corner)] = vec3(0.0f);
+    stub_visibility[static_cast<size_t>(corner)] = vec2(0.0f);
+    stub_status[static_cast<size_t>(corner)] = PROBE_STATUS_UNINITIALIZED;
 
     const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[3], ddgi.camera_position, false);
     REQUIRE(s.cheb_tested == 0.0f);
@@ -318,7 +318,7 @@ TEST_CASE("A probe not traced since the last reset does not reach the cage", "[d
 
 TEST_CASE("With no cage probe traced since the last reset the cage gives no light", "[ddgi]") {
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
-    probe_status.assign(probe_status.size(), PROBE_STATUS_UNINITIALIZED);
+    stub_status.assign(stub_status.size(), PROBE_STATUS_UNINITIALIZED);
     const DdgiCageSample s =
         ddgi_sample_cage(SAMPLE_POINTS[3], SAMPLE_NORMALS[1], ddgi.camera_position, false);
     REQUIRE(s.sum_weight == 0.0f);
@@ -327,7 +327,7 @@ TEST_CASE("With no cage probe traced since the last reset the cage gives no ligh
 
 TEST_CASE("With every cage probe switched off the cage gives no light", "[ddgi]") {
     uniform_field(ivec3(4), vec3(2.0f), vec3(0.0f), vec3(1.0f), 100.0f);
-    probe_status.assign(probe_status.size(), PROBE_STATUS_OFF);
+    stub_status.assign(stub_status.size(), PROBE_STATUS_OFF);
     const DdgiCageSample s =
         ddgi_sample_cage(SAMPLE_POINTS[1], SAMPLE_NORMALS[0], ddgi.camera_position, false);
     REQUIRE(s.sum_weight == 0.0f);
@@ -340,7 +340,7 @@ TEST_CASE("A probe whose recorded depth stops short of the point is weighted dow
     const int corner = ddgi_grid_to_probe_index(ddgi_world_to_grid(p));
     // Something 5 cm from the probe in every direction: the point, over a
     // metre away, is behind it.
-    probe_visibility[static_cast<size_t>(corner)] = vec2(0.05f, 0.05f * 0.05f);
+    stub_visibility[static_cast<size_t>(corner)] = vec2(0.05f, 0.05f * 0.05f);
 
     const DdgiCageSample s = ddgi_sample_cage(p, SAMPLE_NORMALS[0], ddgi.camera_position, false);
     REQUIRE(s.cheb_tested == 1.0f);

@@ -42,8 +42,8 @@ struct UiSchema {
         std::vector<Field> fields;
         std::vector<Action> actions;
 
-        [[nodiscard]] const Field* field(std::string_view name) const;
-        [[nodiscard]] const Action* action(std::string_view name) const;
+        [[nodiscard]] const Field* field(std::string_view field_name) const;
+        [[nodiscard]] const Action* action(std::string_view action_name) const;
 
         bool operator==(const Type&) const = default;
     };
