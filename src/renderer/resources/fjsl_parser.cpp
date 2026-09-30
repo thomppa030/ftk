@@ -1487,10 +1487,11 @@ std::map<std::string, std::string> composition_renames(const ShaderMetadata& met
     // function, `<type> <name> =` or `;` for a constant, with an optional
     // `const` and precision qualifier before the type. Verified against every
     // global in the shader library — the `const` alternative is load-bearing,
-    // since `const mat2 M = ...` puts three tokens before the name.
+    // since `const mat2 M = ...` puts three tokens before the name. A line
+    // starts at `^` or after a newline: MSVC's standard library has no
+    // std::regex::multiline.
     static const std::regex decl(
-        R"(^(?:const\s+)?(?:lowp\s+|mediump\s+|highp\s+)?(\w+)\s+(\w+)\s*[\(=;\[])",
-        std::regex::multiline);
+        R"((?:^|\n)(?:const\s+)?(?:lowp\s+|mediump\s+|highp\s+)?(\w+)\s+(\w+)\s*[\(=;\[])");
     for (auto it = std::sregex_iterator(meta.user_globals.begin(),
                                         meta.user_globals.end(), decl);
          it != std::sregex_iterator(); ++it) {
