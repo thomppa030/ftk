@@ -912,7 +912,7 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     // The stage's own scene carries its own sun; the environment comes from it,
     // never from whatever scene the editor has open.
     const EnvironmentState environment = resolve_environment(scene);
-    vk.render_preview(req, environment, &scene, dt, 0, *deps.thread_pool);
+    vk.render_preview_and_wait(req, environment, &scene, dt, 0, *deps.thread_pool);
     post.set_exposure(saved_exposure);
     post.set_auto_exposure(saved_auto);
     if (out == nullptr) return true;

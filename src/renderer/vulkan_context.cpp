@@ -567,20 +567,39 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     passes_.post_record_all(current_ctx_);
 }
 
-void VulkanContext::render_preview(const ViewportRenderRequest& req,
-                                    const EnvironmentState& environment, Scene* scene,
-                                    float dt, uint32_t selected_id, ThreadPool& pool) {
-    FJELL_PROFILE_SCOPE_N("render_preview");
-    if (!req.target) return;
+bool VulkanContext::preview_complete(const ViewportRenderRequest& req) const {
+    if (!req.target) return false;
     if (req.pp_resources == nullptr) {
         FJELL_GFX_ERROR("A preview needs post-process resources of its own; it is not drawn");
-        return;
+        return false;
     }
     if (!req.global_group.valid()) {
         FJELL_GFX_ERROR("A preview needs a global set of its own "
                         "(GlobalBindings::make_view_group); it is not drawn");
+        return false;
+    }
+    return true;
+}
+
+void VulkanContext::render_preview(const ViewportRenderRequest& req,
+                                    const EnvironmentState& environment, Scene* scene,
+                                    float dt, uint32_t selected_id, ThreadPool& pool) {
+    FJELL_PROFILE_SCOPE_N("render_preview");
+    if (!preview_complete(req)) return;
+    if (frame_cmd_ == VK_NULL_HANDLE) {
+        FJELL_GFX_ERROR("A preview records into the frame, and none is recording; it is not drawn");
         return;
     }
+    current_environment_ = &environment;
+    write_view_globals(req, environment, scene, *req.pp_resources);
+    render_scene_to(frame_cmd_, req, scene, dt, selected_id, pool, req.pp_resources, false);
+}
+
+void VulkanContext::render_preview_and_wait(const ViewportRenderRequest& req,
+                                             const EnvironmentState& environment, Scene* scene,
+                                             float dt, uint32_t selected_id, ThreadPool& pool) {
+    FJELL_PROFILE_SCOPE_N("render_preview");
+    if (!preview_complete(req)) return;
     current_environment_ = &environment;
 
     auto vk = gpu_.device();
@@ -1235,6 +1254,24 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
         return false;
     }
     acquired_image_ = *image;
+
+    // The frame's lists: pre, and, where there is a compute queue, the
+    // compute list and the graphics list after it that async passes need.
+    // Made here, so what renders before the frame's views (previews, UI
+    // targets) records into pre ahead of them. The last two stay empty on
+    // frames without compute work, and are then never submitted.
+    pre_list_ = &frame_->commands(gpu::Queue::graphics);
+    async_list_ = nullptr;
+    post_list_ = nullptr;
+    if (gpu_device().caps().async_compute) {
+        async_list_ = &frame_->commands(gpu::Queue::compute);
+        post_list_ = &frame_->commands(gpu::Queue::graphics);
+    }
+    frame_cmd_ = gpu::vulkan::native_command_buffer(*pre_list_);
+    async_cmd_ = async_list_ != nullptr ? gpu::vulkan::native_command_buffer(*async_list_)
+                                        : VK_NULL_HANDLE;
+    post_cmd_ = post_list_ != nullptr ? gpu::vulkan::native_command_buffer(*post_list_)
+                                      : VK_NULL_HANDLE;
     return true;
 }
 
@@ -1477,22 +1514,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         scene_sdf_pass().end_gather(current_frame_);
     }
 
-    // The frame's lists: pre, and, where there is a compute queue, the
-    // compute list and the graphics list after it that async passes need.
-    // They stay empty on frames without compute work, and are then never
-    // submitted.
-    pre_list_ = &frame_->commands(gpu::Queue::graphics);
-    async_list_ = nullptr;
-    post_list_ = nullptr;
-    if (gpu_device().caps().async_compute) {
-        async_list_ = &frame_->commands(gpu::Queue::compute);
-        post_list_ = &frame_->commands(gpu::Queue::graphics);
-    }
-    frame_cmd_ = gpu::vulkan::native_command_buffer(*pre_list_);
-    async_cmd_ = async_list_ != nullptr ? gpu::vulkan::native_command_buffer(*async_list_)
-                                        : VK_NULL_HANDLE;
-    post_cmd_ = post_list_ != nullptr ? gpu::vulkan::native_command_buffer(*post_list_)
-                                      : VK_NULL_HANDLE;
     record_command_buffer(frame_cmd_, acquired_image_, viewports, environment, scene, dt,
                           selected_id, pool);
 

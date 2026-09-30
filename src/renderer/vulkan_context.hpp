@@ -367,18 +367,25 @@ public:
   void render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
                               const EnvironmentState& environment, ThreadPool& pool);
 
-  /// Render a single viewport in its own command buffer (submitted + waited).
-  /// Used for camera preview to avoid singleton state conflicts with the main
-  /// viewport's render_scene_to in the same command buffer.
   // The render target, clear and barriers every offscreen UI draw shares,
   // recorded into whatever list is open: the frame's for previews and the
   // HUD, a one-shot for readbacks.
   void record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                            OffscreenPass& target, uint32_t frame_index);
 
+  /// Renders `req`, a view with a target, post-process resources and global
+  /// set of its own, into the frame being recorded, ahead of the frame's own
+  /// views. Called between begin_frame() and record_frame().
   void render_preview(const ViewportRenderRequest& req,
                       const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
+  /// render_preview() in a list of its own, submitted and waited for before
+  /// it returns: for a caller reading the picture back at once. Called
+  /// before anything records into the frame, so the GPU runs the frame's
+  /// work in the order it was recorded.
+  void render_preview_and_wait(const ViewportRenderRequest& req,
+                               const EnvironmentState& environment, Scene* scene,
+                               float dt, uint32_t selected_id, ThreadPool& pool);
 
   /// The swapchain image of the last frame presented, for the editor's
   /// screenshot capture to read the composited frame back from. A handle
@@ -386,6 +393,9 @@ public:
   [[nodiscard]] gpu::Texture presented_swapchain_texture() const { return presented_texture_; }
 
 private:
+  /// Whether `req` carries everything a preview needs, reporting what it
+  /// lacks.
+  [[nodiscard]] bool preview_complete(const ViewportRenderRequest &req) const;
   void
   record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage &image,
                         const std::vector<ViewportRenderRequest> &viewports,

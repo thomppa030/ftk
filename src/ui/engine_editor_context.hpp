@@ -33,8 +33,8 @@ public:
     [[nodiscard]] virtual std::vector<ViewportRenderRequest> build_render_requests() = 0;
     virtual void apply_resize(VulkanContext& vk) = 0;
 
-    // Render auxiliary viewports (e.g. camera preview) in separate command buffers.
-    // Called after apply_resize but before record_frame.
+    // Render auxiliary viewports (e.g. camera preview) into the frame, ahead
+    // of its views. Called after apply_resize but before record_frame.
     virtual void render_previews(VulkanContext& /*vk*/, Scene* /*scene*/, float /*dt*/,
                                   const struct EnvironmentState& /*environment*/,
                                   class ThreadPool& /*pool*/) {}

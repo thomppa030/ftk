@@ -2464,18 +2464,18 @@ void Engine::run() {
         // them first.
         vulkan_context_->advance_scene_particles(*render_scene, clock_.game_delta_time());
 
-        // Render scene viewports (render-to-texture, must complete before main frame)
+        // Asset thumbnails first: each render is submitted and waited for on
+        // its own, so it runs on the GPU before anything the frame records,
+        // and has to be recorded before it too.
+        asset_thumbnails_.tick(asset_thumbnail_deps(), clock_.game_delta_time());
+
+        // Scene viewports (render-to-texture) and the context's previews
+        // (the camera preview) record into the frame ahead of its views.
         vulkan_context_->render_scene_viewports(render_scene, clock_.game_delta_time(),
                                                  scene_context_->selected_id(),
                                                  *environment, thread_pool_);
-
-        // Render auxiliary viewports (camera preview) in separate command buffers
         active_context().render_previews(*vulkan_context_, render_scene,
                                           clock_.game_delta_time(), *environment, thread_pool_);
-
-        // Same window for asset thumbnails: their one-shot submit needs the
-        // frame fence behind it and the main command buffer still unrecorded.
-        asset_thumbnails_.tick(asset_thumbnail_deps(), clock_.game_delta_time());
 
         // Tell the controller what rect the scene image actually occupied
         // this frame — the docked panel or the fullscreen play view,
