@@ -33,10 +33,10 @@ layout(set = 0, binding = FJELL_DDGI_LIGHTS_BINDING) readonly buffer DdgiLightLi
 
 // Added to d² under 1/d², as the raster path adds it, so a point on the
 // light itself does not divide by zero.
-const float DDGI_LIGHT_DIST2_BIAS = 0.0001;
-const float DDGI_LIGHT_MIN_DISTANCE = 0.0001;
+const float DDGI_LIGHT_DIST2_BIAS = 0.0001f;
+const float DDGI_LIGHT_MIN_DISTANCE = 0.0001f;
 // The largest float below 1: the pick's random number stays in [0, 1).
-const float DDGI_BELOW_ONE = 0.99999994;
+const float DDGI_BELOW_ONE = 0.99999994f;
 
 // What a light gives a point, before its shadow and the surface's albedo.
 struct DdgiLightSample {
@@ -53,12 +53,12 @@ DdgiLightSample ddgi_light_at(DdgiLight light, vec3 p, vec3 N) {
     float dist2 = dot(offset, offset);
     s.distance = sqrt(dist2);
     s.to_light = offset / max(s.distance, DDGI_LIGHT_MIN_DISTANCE);
-    s.incident = vec3(0.0);
+    s.incident = vec3(0.0f);
     if (dist2 > light.radius * light.radius) {
         return s;
     }
-    float NdotL = max(dot(N, s.to_light), 0.0);
-    float cone = 1.0;
+    float NdotL = max(dot(N, s.to_light), 0.0f);
+    float cone = 1.0f;
     if (light.is_spot != 0u) {
         cone = smoothstep(light.cos_outer, light.cos_inner, dot(s.to_light, -light.direction));
     }
@@ -68,7 +68,7 @@ DdgiLightSample ddgi_light_at(DdgiLight light, vec3 p, vec3 N) {
 }
 
 float ddgi_luminance(vec3 c) {
-    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return dot(c, vec3(0.2126f, 0.7152f, 0.0722f));
 }
 
 // One light picked for a point.
@@ -87,16 +87,16 @@ struct DdgiLightPick {
 DdgiLightPick ddgi_pick_light(vec3 p, vec3 N, float u) {
     DdgiLightPick pick;
     pick.index = -1;
-    pick.light.incident = vec3(0.0);
-    pick.light.to_light = vec3(0.0, 1.0, 0.0);
-    pick.light.distance = 0.0;
+    pick.light.incident = vec3(0.0f);
+    pick.light.to_light = vec3(0.0f, 1.0f, 0.0f);
+    pick.light.distance = 0.0f;
 
-    float total = 0.0;
-    float picked_weight = 0.0;
+    float total = 0.0f;
+    float picked_weight = 0.0f;
     for (uint i = 0u; i < ddgi_light_count; ++i) {
         DdgiLightSample s = ddgi_light_at(ddgi_lights[i], p, N);
         float weight = ddgi_luminance(s.incident);
-        if (weight <= 0.0) {
+        if (weight <= 0.0f) {
             continue;
         }
         total += weight;
@@ -107,7 +107,7 @@ DdgiLightPick ddgi_pick_light(vec3 p, vec3 N, float u) {
             picked_weight = weight;
             u = min(u / chance, DDGI_BELOW_ONE);
         } else {
-            float rest = 1.0 - chance;
+            float rest = 1.0f - chance;
             u = min((u - chance) / rest, DDGI_BELOW_ONE);
         }
     }

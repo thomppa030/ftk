@@ -22,20 +22,20 @@
 #define FJELL_VOLUME_SHAPE_SPHERE  1
 
 float volume_occupancy(int shape, mat4 inv_transform, vec3 world_pos, float edge_falloff) {
-    vec3 local = vec3(inv_transform * vec4(world_pos, 1.0));
-    float fade = clamp(edge_falloff, 0.0001, 1.0);
+    vec3 local = vec3(inv_transform * vec4(world_pos, 1.0f));
+    float fade = clamp(edge_falloff, 0.0001f, 1.0f);
 
     if (shape == FJELL_VOLUME_SHAPE_SPHERE) {
         // Distance from the centre, 0 at the middle and 1 on the shell.
         float r = length(local);
-        return 1.0 - smoothstep(1.0 - fade, 1.0, r);
+        return 1.0f - smoothstep(1.0f - fade, 1.0f, r);
     }
 
     // Box: fade on whichever axis is closest to its face, so corners fade once
     // rather than three times over and stay the same density as the faces.
     vec3 d = abs(local);
     float edge = max(d.x, max(d.y, d.z));
-    return 1.0 - smoothstep(1.0 - fade, 1.0, edge);
+    return 1.0f - smoothstep(1.0f - fade, 1.0f, edge);
 }
 
 #endif // FJELL_VOLUME_SHAPE_GLSL

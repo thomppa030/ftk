@@ -15,8 +15,8 @@
 // broadens troughs; sines give rolling hills. It also makes crest steepness
 // computable, which is where whitecaps come from.
 
-#define FJELL_WATER_GRAVITY 9.81
-#define FJELL_WATER_TAU 6.28318530717958647692
+#define FJELL_WATER_GRAVITY 9.81f
+#define FJELL_WATER_TAU 6.28318530717958647692f
 
 #include "fjell_water_field.glsl"
 
@@ -37,8 +37,8 @@
 // 1/(k*A) folds the surface through itself. Matches steepness_to_q().
 float fjell_water_steepness_to_q(float steepness, float k, float amplitude,
                                  float budget) {
-    float max_q = 1.0 / max(k * amplitude, 1e-6);
-    return clamp(steepness, 0.0, 1.0) * max_q * budget;
+    float max_q = 1.0f / max(k * amplitude, 1e-6f);
+    return clamp(steepness, 0.0f, 1.0f) * max_q * budget;
 }
 
 // How much of a single train's fold limit each train may spend. Matches
@@ -64,14 +64,14 @@ struct FjellWaveTerms {
 FjellWaveTerms fjell_water_terms(FjellWaterWave wave, float amplitude_scale, float speed_scale,
                                  float budget, vec2 world_xz, float time) {
     FjellWaveTerms t;
-    t.dir = vec2(1.0, 0.0);
-    t.k = 0.0;
-    t.amplitude = 0.0;
-    t.q = 0.0;
-    t.phase = 0.0;
+    t.dir = vec2(1.0f, 0.0f);
+    t.k = 0.0f;
+    t.amplitude = 0.0f;
+    t.q = 0.0f;
+    t.phase = 0.0f;
 
     float len = length(wave.direction);
-    if (len < 1e-6 || wave.wavelength < 1e-4) {
+    if (len < 1e-6f || wave.wavelength < 1e-4f) {
         return t;
     }
     t.dir = wave.direction / len;
@@ -87,7 +87,7 @@ FjellWaveTerms fjell_water_terms(FjellWaterWave wave, float amplitude_scale, flo
 // Matches displace(): the offset from a flat surface at this rest position,
 // summed over every train of every contributor.
 vec3 fjell_water_displace(vec2 world_xz, float time) {
-    vec3 sum = vec3(0.0);
+    vec3 sum = vec3(0.0f);
     uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
         uint count = min(FJELL_WATER_FIELD.gerstner[c].wave_count, uint(FJELL_MAX_WATER_WAVES));
@@ -97,7 +97,7 @@ vec3 fjell_water_displace(vec2 world_xz, float time) {
                                                  FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
                                                  FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
-            if (t.amplitude == 0.0) continue;
+            if (t.amplitude == 0.0f) continue;
 
             float c_phase = cos(t.phase);
             float s_phase = sin(t.phase);
@@ -123,8 +123,8 @@ struct FjellWaterTangents {
 // The closed-form contributors' share of the tangents, starting from the flat
 // surface's own.
 FjellWaterTangents fjell_water_tangents(vec2 world_xz, float time) {
-    vec3 binormal = vec3(1.0, 0.0, 0.0);
-    vec3 tangent  = vec3(0.0, 0.0, 1.0);
+    vec3 binormal = vec3(1.0f, 0.0f, 0.0f);
+    vec3 tangent  = vec3(0.0f, 0.0f, 1.0f);
 
     uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
@@ -135,7 +135,7 @@ FjellWaterTangents fjell_water_tangents(vec2 world_xz, float time) {
                                                  FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
                                                  FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
-            if (t.amplitude == 0.0) continue;
+            if (t.amplitude == 0.0f) continue;
 
             float c_phase = cos(t.phase);
             float s_phase = sin(t.phase);
@@ -160,7 +160,7 @@ FjellWaterTangents fjell_water_tangents(vec2 world_xz, float time) {
 vec3 fjell_water_normal_from(FjellWaterTangents tangents) {
     vec3 n = cross(tangents.tangent, tangents.binormal);
     float len = length(n);
-    if (len < 1e-6) return vec3(0.0, 1.0, 0.0);
+    if (len < 1e-6f) return vec3(0.0f, 1.0f, 0.0f);
     return n / len;
 }
 
@@ -187,9 +187,9 @@ float fjell_water_determinant(FjellWaterJacobian j) {
 // Matches jacobian_terms(): the closed-form contributors' share, starting
 // from the identity.
 FjellWaterJacobian fjell_water_jacobian_terms(vec2 world_xz, float time) {
-    float jxx = 1.0;
-    float jzz = 1.0;
-    float jxz = 0.0;
+    float jxx = 1.0f;
+    float jzz = 1.0f;
+    float jxz = 0.0f;
 
     uint contributors = min(FJELL_WATER_FIELD.gerstner_count, uint(FJELL_MAX_GERSTNER_CONTRIBUTORS));
     for (uint c = 0u; c < contributors; ++c) {
@@ -200,7 +200,7 @@ FjellWaterJacobian fjell_water_jacobian_terms(vec2 world_xz, float time) {
                                                  FJELL_WATER_FIELD.gerstner[c].amplitude_scale,
                                                  FJELL_WATER_FIELD.gerstner[c].speed_scale,
                                                  budget, world_xz, time);
-            if (t.amplitude == 0.0) continue;
+            if (t.amplitude == 0.0f) continue;
 
             float s_phase = sin(t.phase);
             float wa = t.k * t.amplitude * t.q;
@@ -229,7 +229,7 @@ float fjell_water_jacobian(vec2 world_xz, float time) {
 // bunched to a point. Use it directly as a whitecap mask. Clamped, so a folded
 // surface reads the same as one pinched to a point.
 float fjell_water_crest(vec2 world_xz, float time) {
-    return clamp(1.0 - fjell_water_jacobian(world_xz, time), 0.0, 1.0);
+    return clamp(1.0f - fjell_water_jacobian(world_xz, time), 0.0f, 1.0f);
 }
 
 #endif // FJELL_WATER_WAVES_GLSL

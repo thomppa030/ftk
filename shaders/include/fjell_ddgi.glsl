@@ -76,30 +76,30 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
 // v=1 (verified numerically — stacks two steep functions instead of
 // replacing one), the opposite of the intended fix.
 
-const float DDGI_IRRADIANCE_GAMMA = 5.0;
-const float IRRADIANCE_ENCODE_CEILING = 30.0; // matches the per-ray radiance clamp
+const float DDGI_IRRADIANCE_GAMMA = 5.0f;
+const float IRRADIANCE_ENCODE_CEILING = 30.0f; // matches the per-ray radiance clamp
 
 vec3 ddgi_encode_irradiance(vec3 v) {
     v = min(v, vec3(IRRADIANCE_ENCODE_CEILING));
-    return pow(max(v, vec3(0.0)), vec3(1.0 / DDGI_IRRADIANCE_GAMMA));
+    return pow(max(v, vec3(0.0f)), vec3(1.0f / DDGI_IRRADIANCE_GAMMA));
 }
 
 vec3 ddgi_decode_irradiance(vec3 v) {
-    return pow(max(v, vec3(0.0)), vec3(DDGI_IRRADIANCE_GAMMA));
+    return pow(max(v, vec3(0.0f)), vec3(DDGI_IRRADIANCE_GAMMA));
 }
 
 // The small share of energy the probe field deliberately loses on the way
 // from a ray's radiance to a surface: the cage hands a point this much of the
 // irradiance it blends (see the end of ddgi_sample_cage).
-const float DDGI_ENERGY_CONSERVATION = 0.95;
+const float DDGI_ENERGY_CONSERVATION = 0.95f;
 
 // ── Spherical Fibonacci ─────────────────────────────────────────────────
 
 vec3 spherical_fibonacci(float i, float n) {
-    const float PHI = sqrt(5.0) * 0.5 + 0.5;
-    float phi = 2.0 * PI * fract(i * (PHI - 1.0));
-    float cos_theta = 1.0 - (2.0 * i + 1.0) * (1.0 / n);
-    float sin_theta = sqrt(clamp(1.0 - cos_theta * cos_theta, 0.0, 1.0));
+    const float PHI = sqrt(5.0f) * 0.5f + 0.5f;
+    float phi = 2.0f * PI * fract(i * (PHI - 1.0f));
+    float cos_theta = 1.0f - (2.0f * i + 1.0f) * (1.0f / n);
+    float sin_theta = sqrt(clamp(1.0f - cos_theta * cos_theta, 0.0f, 1.0f));
     return vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
 }
 
@@ -109,24 +109,24 @@ vec2 normalized_oct_coord(ivec2 frag_coord, int probe_side_length) {
     int probe_with_border_side = probe_side_length + 2;
     vec2 oct_texel = vec2((frag_coord.x - 1) % probe_with_border_side,
                           (frag_coord.y - 1) % probe_with_border_side);
-    oct_texel += vec2(0.5);
-    oct_texel *= (2.0 / float(probe_side_length));
-    oct_texel -= vec2(1.0);
+    oct_texel += vec2(0.5f);
+    oct_texel *= (2.0f / float(probe_side_length));
+    oct_texel -= vec2(1.0f);
     return oct_texel;
 }
 
 vec2 get_probe_uv(vec3 direction, int probe_index,
                   int full_tex_w, int full_tex_h, int probe_side_length) {
     vec2 oct_coords = oct_encode(normalize(direction));
-    float probe_with_border_side = float(probe_side_length) + 2.0;
+    float probe_with_border_side = float(probe_side_length) + 2.0f;
     int probes_per_row = full_tex_w / int(probe_with_border_side);
 
     ivec2 probe_indices = ivec2(probe_index % probes_per_row,
                                 probe_index / probes_per_row);
 
-    float half_side = float(probe_side_length) * 0.5;
+    float half_side = float(probe_side_length) * 0.5f;
     vec2 atlas_texels = vec2(probe_indices) * probe_with_border_side;
-    atlas_texels += vec2(1.0);                                   // border offset
+    atlas_texels += vec2(1.0f);                                   // border offset
     atlas_texels += vec2(half_side);                             // center
     atlas_texels += oct_coords * half_side;                      // octahedral offset
 
@@ -187,7 +187,7 @@ ivec2 ddgi_probe_offset_texel(int probe_index) {
 #ifndef FJELL_DDGI_EXTERNAL_BINDINGS
 vec3 ddgi_grid_to_world(ivec3 grid_indices, int probe_index,
                         sampler2D probe_offset_tex, bool use_offsets) {
-    vec3 offset = vec3(0.0);
+    vec3 offset = vec3(0.0f);
     if (use_offsets) {
         offset = texelFetch(probe_offset_tex, ddgi_probe_offset_texel(probe_index), 0).rgb;
     }
@@ -214,7 +214,7 @@ float ddgi_grid_depth(vec3 world_pos) {
 // inside the grid, fading to none across its outermost cell. Past the grid
 // the cage only repeats its edge probes, so the sky's IBL takes over there.
 float ddgi_grid_coverage(vec3 world_pos) {
-    return clamp(ddgi_grid_depth(world_pos), 0.0, 1.0);
+    return clamp(ddgi_grid_depth(world_pos), 0.0f, 1.0f);
 }
 
 // ── Probe status constants ──────────────────────────────────────────────
@@ -315,7 +315,7 @@ struct DdgiCageSample {
 DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
                                 bool skip_visibility) {
     DdgiCageSample trace;
-    trace.irradiance = vec3(0.0);
+    trace.irradiance = vec3(0.0f);
     vec3 Wo = normalize(seen_from - world_pos);
 
     // Bias the sample off the surface before the cage lookup. Lean on the
@@ -339,7 +339,7 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
     // between probes") because up close the bias would push the sample
     // past the surface it is shading.
     float view_distance = length(seen_from - world_pos);
-    float view_scale = clamp(view_distance / cell_min, 0.0, 1.0);
+    float view_scale = clamp(view_distance / cell_min, 0.0f, 1.0f);
 
     // A flat surface gives a probe above it a perfectly consistent depth,
     // so the Chebyshev variance is ~0 and any sample even slightly beyond
@@ -360,16 +360,16 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
     ivec3 base_grid = ddgi_world_to_grid(world_pos);
     vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
     vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing,
-                       vec3(0.0), vec3(1.0));
+                       vec3(0.0f), vec3(1.0f));
 
     trace.base_grid = base_grid;
     trace.alpha = alpha;
-    trace.sum_weight = 0.0;
-    trace.cheb_tested = 0.0;
-    trace.cheb_floored = 0.0;
+    trace.sum_weight = 0.0f;
+    trace.cheb_tested = 0.0f;
+    trace.cheb_floored = 0.0f;
 
-    vec3 sum_irradiance = vec3(0.0);
-    float sum_weight = 0.0;
+    vec3 sum_irradiance = vec3(0.0f);
+    float sum_weight = 0.0f;
 
     for (int i = 0; i < 8; ++i) {
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
@@ -386,18 +386,18 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
         vec3 probe_pos = ddgi_grid_to_world_no_offsets(probe_grid)
                        + ddgi_cage_probe_offset(probe_idx);
 
-        vec3 trilinear = mix(vec3(1.0) - alpha, alpha, vec3(offset));
-        float weight = 1.0;
+        vec3 trilinear = mix(vec3(1.0f) - alpha, alpha, vec3(offset));
+        float weight = 1.0f;
 
         // Smooth backface weight
         vec3 dir_to_probe = normalize(probe_pos - world_pos);
-        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
-        weight *= (dir_dot_n * dir_dot_n) + 0.2;
+        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0f) * 0.5f;
+        weight *= (dir_dot_n * dir_dot_n) + 0.2f;
 
         // Chebyshev visibility
         vec3 probe_to_biased = biased_pos - probe_pos;
         float dist_to_biased = length(probe_to_biased);
-        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
+        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001f);
 
         vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx,
                                    ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
@@ -405,7 +405,7 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
         float mean_dist = visibility.x;
 
         if (dist_to_biased > mean_dist && !skip_visibility) {
-            trace.cheb_tested += 1.0;
+            trace.cheb_tested += 1.0f;
             // Floor the variance. A flat surface gives a probe an almost
             // perfectly consistent depth, so the measured variance is
             // ~0 and the Chebyshev ratio collapses for a sample only
@@ -414,23 +414,23 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
             // a fraction of a cell, small enough that a genuine occluder
             // (which sits a large fraction of a cell closer) still
             // rejects to zero.
-            float min_variance = 0.05 * cell_min;
+            float min_variance = 0.05f * cell_min;
             float variance = max(abs(mean_dist * mean_dist - visibility.y),
                                  min_variance * min_variance);
             float diff = dist_to_biased - mean_dist;
             float cheb = variance / (variance + diff * diff);
-            cheb = max(cheb * cheb, 0.0);
-            if (cheb < 0.05) trace.cheb_floored += 1.0;
-            weight *= max(0.05, cheb);
+            cheb = max(cheb * cheb, 0.0f);
+            if (cheb < 0.05f) trace.cheb_floored += 1.0f;
+            weight *= max(0.05f, cheb);
         }
 
-        weight = max(0.000001, weight);
+        weight = max(0.000001f, weight);
 
         vec2 irr_uv = get_probe_uv(normal, probe_idx,
                                    ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
         vec3 probe_irradiance = ddgi_decode_irradiance(ddgi_cage_irradiance(irr_uv));
 
-        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
+        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001f;
 
         sum_irradiance += weight * probe_irradiance;
         sum_weight += weight;
@@ -440,7 +440,7 @@ DdgiCageSample ddgi_sample_cage(vec3 world_pos, vec3 normal, vec3 seen_from,
 
     // No cage probe to read (deep inside geometry, or none traced yet since
     // a reset) — no indirect.
-    if (sum_weight < 1e-6) return trace;
+    if (sum_weight < 1e-6f) return trace;
 
     // sum_irradiance already holds albedo * incident_light (see the store
     // side in ddgi_probe_update.comp / ddgi_probe_trace_rt.comp —

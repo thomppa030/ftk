@@ -30,9 +30,11 @@ function(fjell_target_defaults target)
         #   class member or a global (C4456-C4459).
         # -Wmismatched-tags: a type declared class in one place and struct in
         #   another (C4099).
+        # -Wfloat-conversion: an implicit double-to-float or float-to-int
+        #   conversion, the floating-point half of C4244.
         target_compile_options(${target} PRIVATE
             -Wall -Wextra -Wpedantic
-            -Wshadow -Wmismatched-tags
+            -Wshadow -Wmismatched-tags -Wfloat-conversion
             -Werror)
     endif()
 endfunction()

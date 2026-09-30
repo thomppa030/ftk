@@ -5,11 +5,11 @@
 // it is written without swizzles, and a literal in vector arithmetic goes
 // through a constructor or a float.
 
-const float PI = 3.14159265359;
+const float PI = 3.14159265359f;
 
 // Octahedral normal encoding/decoding
 float sign_not_zero(float k) {
-    return (k >= 0.0) ? 1.0 : -1.0;
+    return (k >= 0.0f) ? 1.0f : -1.0f;
 }
 
 vec2 sign_not_zero2(vec2 v) {
@@ -17,18 +17,18 @@ vec2 sign_not_zero2(vec2 v) {
 }
 
 vec2 oct_encode(vec3 v) {
-    float inv_l1norm = 1.0 / (abs(v.x) + abs(v.y) + abs(v.z));
+    float inv_l1norm = 1.0f / (abs(v.x) + abs(v.y) + abs(v.z));
     vec2 result = vec2(v.x, v.y) * inv_l1norm;
-    if (v.z < 0.0) {
-        result = vec2(1.0 - abs(result.y), 1.0 - abs(result.x)) * sign_not_zero2(result);
+    if (v.z < 0.0f) {
+        result = vec2(1.0f - abs(result.y), 1.0f - abs(result.x)) * sign_not_zero2(result);
     }
     return result;
 }
 
 vec3 oct_decode(vec2 o) {
-    vec3 v = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
-    if (v.z < 0.0) {
-        vec2 folded = vec2(1.0 - abs(v.y), 1.0 - abs(v.x)) * sign_not_zero2(vec2(v.x, v.y));
+    vec3 v = vec3(o.x, o.y, 1.0f - abs(o.x) - abs(o.y));
+    if (v.z < 0.0f) {
+        vec2 folded = vec2(1.0f - abs(v.y), 1.0f - abs(v.x)) * sign_not_zero2(vec2(v.x, v.y));
         v.x = folded.x;
         v.y = folded.y;
     }
@@ -62,8 +62,8 @@ uint fjell_hash(uint x) {
 // Raw fresnel-style facing term: 0 facing camera, 1 at silhouette.
 // `power` shapes the falloff — 1.0 is wide, 5.0 is a tight rim.
 float fresnel_facing(vec3 normal, vec3 view_dir, float power) {
-    float NdotV = max(dot(normal, view_dir), 0.0);
-    float facing = 1.0 - NdotV;
+    float NdotV = max(dot(normal, view_dir), 0.0f);
+    float facing = 1.0f - NdotV;
     return pow(facing, power);
 }
 
@@ -72,9 +72,9 @@ float fresnel_facing(vec3 normal, vec3 view_dir, float power) {
 // edges (high scale). bias=0, scale=1 collapses to fresnel_facing.
 float fresnel_bias_scale(vec3 normal, vec3 view_dir,
                          float bias, float scale, float power) {
-    float NdotV = max(dot(normal, view_dir), 0.0);
-    float facing = 1.0 - NdotV;
-    return clamp(bias + scale * pow(facing, power), 0.0, 1.0);
+    float NdotV = max(dot(normal, view_dir), 0.0f);
+    float facing = 1.0f - NdotV;
+    return clamp(bias + scale * pow(facing, power), 0.0f, 1.0f);
 }
 
 #endif

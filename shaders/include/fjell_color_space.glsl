@@ -7,9 +7,9 @@
 // vec4 forms leave alpha alone: coverage is not light.
 
 vec3 srgb_to_linear(vec3 c) {
-    return mix(c / 12.92,
-               pow((c + 0.055) / 1.055, vec3(2.4)),
-               greaterThan(c, vec3(0.04045)));
+    return mix(c / 12.92f,
+               pow((c + 0.055f) / 1.055f, vec3(2.4f)),
+               greaterThan(c, vec3(0.04045f)));
 }
 
 vec4 srgb_to_linear(vec4 c) {
@@ -17,9 +17,9 @@ vec4 srgb_to_linear(vec4 c) {
 }
 
 vec3 linear_to_srgb(vec3 c) {
-    return mix(c * 12.92,
-               1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055,
-               greaterThan(c, vec3(0.0031308)));
+    return mix(c * 12.92f,
+               1.055f * pow(c, vec3(1.0f / 2.4f)) - 0.055f,
+               greaterThan(c, vec3(0.0031308f)));
 }
 
 #endif // FJELL_COLOR_SPACE_GLSL

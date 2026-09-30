@@ -111,7 +111,7 @@ RtSurface rt_resolve_hit(RtHit hit) {
     RtSurface surface;
     surface.material = materials[inst.material_id];
     surface.vertices = rt_hit_vertices(inst, hit.primitive);
-    surface.weights = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y,
+    surface.weights = vec3(1.0f - hit.barycentrics.x - hit.barycentrics.y,
                            hit.barycentrics.x, hit.barycentrics.y);
     surface.world_to_object = hit.world_to_object;
     surface.two_sided = (inst.flags & RT_INSTANCE_TWO_SIDED) != 0u;
@@ -136,8 +136,8 @@ vec2 rt_surface_uv(RtSurface surface) {
 
     float uv_scale_x = surface.material.base_params[7];
     float uv_scale_y = surface.material.base_params[8];
-    if (uv_scale_x > 0.0) uv.x *= uv_scale_x;
-    if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
+    if (uv_scale_x > 0.0f) uv.x *= uv_scale_x;
+    if (uv_scale_y > 0.0f) uv.y *= uv_scale_y;
     return uv;
 }
 
@@ -162,7 +162,7 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
                        surface.material.base_params[2]);
     uint base_color_tex = surface.material.texture_indices[0];
     if (base_color_tex > 0) {
-        albedo *= vec3(textureLod(FjellTexture(base_color_tex), uv, 2.0));
+        albedo *= vec3(textureLod(FjellTexture(base_color_tex), uv, 2.0f));
     }
     return albedo;
 }
@@ -171,7 +171,7 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
 // one mip down: a ray does not know its footprint.
 vec3 rt_surface_emission(RtSurface surface, vec2 uv) {
     vec3 emissive_sample = vec3(textureLod(
-        FjellTexture(surface.material.texture_indices[3]), uv, 1.0));
+        FjellTexture(surface.material.texture_indices[3]), uv, 1.0f));
     return material_emission(surface.material, emissive_sample);
 }
 

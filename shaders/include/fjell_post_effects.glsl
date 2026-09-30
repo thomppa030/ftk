@@ -27,20 +27,20 @@
 vec3 sharpen(vec2 uv, float amount) {
     vec2 t = post_texel_size();
     vec3 c = luma_weight(scene_at(uv));
-    vec3 n = luma_weight(scene_at(uv + vec2(0.0, -t.y)));
-    vec3 w = luma_weight(scene_at(uv + vec2(-t.x, 0.0)));
-    vec3 e = luma_weight(scene_at(uv + vec2(t.x, 0.0)));
-    vec3 s = luma_weight(scene_at(uv + vec2(0.0, t.y)));
+    vec3 n = luma_weight(scene_at(uv + vec2(0.0f, -t.y)));
+    vec3 w = luma_weight(scene_at(uv + vec2(-t.x, 0.0f)));
+    vec3 e = luma_weight(scene_at(uv + vec2(t.x, 0.0f)));
+    vec3 s = luma_weight(scene_at(uv + vec2(0.0f, t.y)));
     vec3 lo = min(c, min(min(n, w), min(e, s)));
     vec3 hi = max(c, max(max(n, w), max(e, s)));
 
     // Room left between the neighbourhood and the ends of the weighted range,
     // relative to its brightest: near 1 on flat ground, near 0 across an edge.
-    vec3 room = sqrt(clamp(min(lo, vec3(1.0) - hi) / max(hi, vec3(1e-5)), vec3(0.0), vec3(1.0)));
-    float a = clamp(amount, 0.0, 1.0);
-    float peak = -a / mix(8.0, 5.0, a);
+    vec3 room = sqrt(clamp(min(lo, vec3(1.0f) - hi) / max(hi, vec3(1e-5f)), vec3(0.0f), vec3(1.0f)));
+    float a = clamp(amount, 0.0f, 1.0f);
+    float peak = -a / mix(8.0f, 5.0f, a);
     vec3 k = room * peak;
-    return luma_unweight(((n + w + e + s) * k + c) / (vec3(1.0) + k * vec3(4.0)));
+    return luma_unweight(((n + w + e + s) * k + c) / (vec3(1.0f) + k * vec3(4.0f)));
 }
 
 // ── Outline ──────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ vec3 sharpen(vec2 uv, float amount) {
 // 1 - cos of the angle between two normals, or 0 where the second is zero
 // (the sky).
 float post_crease(vec3 a, vec3 b) {
-    return dot(b, b) > 0.25 ? 1.0 - dot(a, b) : 0.0;
+    return dot(b, b) > 0.25f ? 1.0f - dot(a, b) : 0.0f;
 }
 
 // How strongly an ink line is drawn at uv, 0..1: where the depth jumps (an
@@ -68,28 +68,28 @@ float post_crease(vec3 a, vec3 b) {
 // Either edge at 0 turns that half off.
 float outline(vec2 uv, float depth_edge, float normal_edge) {
     vec2 t = post_texel_size();
-    vec2 dx = vec2(t.x, 0.0);
-    vec2 dy = vec2(0.0, t.y);
-    float line = 0.0;
+    vec2 dx = vec2(t.x, 0.0f);
+    vec2 dy = vec2(0.0f, t.y);
+    float line = 0.0f;
 
-    if (depth_edge > 0.0) {
-        float c = 1.0 / max(depth_at(uv), 1e-4);
-        float l = 1.0 / max(depth_at(uv - dx), 1e-4);
-        float r = 1.0 / max(depth_at(uv + dx), 1e-4);
-        float u = 1.0 / max(depth_at(uv - dy), 1e-4);
-        float d = 1.0 / max(depth_at(uv + dy), 1e-4);
+    if (depth_edge > 0.0f) {
+        float c = 1.0f / max(depth_at(uv), 1e-4f);
+        float l = 1.0f / max(depth_at(uv - dx), 1e-4f);
+        float r = 1.0f / max(depth_at(uv + dx), 1e-4f);
+        float u = 1.0f / max(depth_at(uv - dy), 1e-4f);
+        float d = 1.0f / max(depth_at(uv + dy), 1e-4f);
         // How far this pixel stands in front of the line through its
         // neighbours on each axis, relative to its own inverse depth.
-        float jump = (max(2.0 * c - l - r, 0.0) + max(2.0 * c - u - d, 0.0)) / c;
-        line = smoothstep(0.5 * depth_edge, depth_edge, jump);
+        float jump = (max(2.0f * c - l - r, 0.0f) + max(2.0f * c - u - d, 0.0f)) / c;
+        line = smoothstep(0.5f * depth_edge, depth_edge, jump);
     }
 
-    if (normal_edge > 0.0) {
+    if (normal_edge > 0.0f) {
         vec3 nc = normal_at(uv);
-        if (dot(nc, nc) > 0.25) {
+        if (dot(nc, nc) > 0.25f) {
             float turn = max(max(post_crease(nc, normal_at(uv - dx)), post_crease(nc, normal_at(uv + dx))),
                              max(post_crease(nc, normal_at(uv - dy)), post_crease(nc, normal_at(uv + dy))));
-            line = max(line, smoothstep(0.5 * normal_edge, normal_edge, turn));
+            line = max(line, smoothstep(0.5f * normal_edge, normal_edge, turn));
         }
     }
     return line;
@@ -115,9 +115,9 @@ vec3 kuwahara(vec2 uv, int radius) {
     vec3 wsum[4];
     vec3 wsq[4];
     for (int q = 0; q < 4; ++q) {
-        sum[q] = vec3(0.0);
-        wsum[q] = vec3(0.0);
-        wsq[q] = vec3(0.0);
+        sum[q] = vec3(0.0f);
+        wsum[q] = vec3(0.0f);
+        wsq[q] = vec3(0.0f);
     }
     for (int j = -r; j <= r; ++j) {
         for (int i = -r; i <= r; ++i) {
@@ -133,7 +133,7 @@ vec3 kuwahara(vec2 uv, int radius) {
 
     float count = float((r + 1) * (r + 1));
     vec3 best = sum[0] / count;
-    float best_spread = 1e30;
+    float best_spread = 1e30f;
     for (int q = 0; q < 4; ++q) {
         vec3 mean = wsum[q] / count;
         vec3 v = wsq[q] / count - mean * mean;
@@ -152,8 +152,8 @@ vec3 kuwahara(vec2 uv, int radius) {
 // a cheap lens does. amount is how far each moves at the edge of the image,
 // in UV: 0.003 is subtle.
 vec3 chromatic_aberration(vec2 uv, float amount) {
-    float reach = 2.0 * amount;
-    vec2 shift = (uv - vec2(0.5)) * reach;
+    float reach = 2.0f * amount;
+    vec2 shift = (uv - vec2(0.5f)) * reach;
     return vec3(scene_at(uv + shift).r, scene_at(uv).g, scene_at(uv - shift).b);
 }
 
@@ -163,10 +163,10 @@ vec3 chromatic_aberration(vec2 uv, float amount) {
 // keeps it to the corners. Round on screen whatever the aspect.
 float vignette(vec2 uv, float amount, float softness) {
     vec2 t = post_texel_size();
-    vec2 aspect = vec2(t.y / t.x, 1.0);
-    float corner = 0.5 * length(aspect);
-    float reach = length((uv - vec2(0.5)) * aspect) / corner;
-    return 1.0 - amount * smoothstep(1.0 - max(softness, 1e-3), 1.0, reach);
+    vec2 aspect = vec2(t.y / t.x, 1.0f);
+    float corner = 0.5f * length(aspect);
+    float reach = length((uv - vec2(0.5f)) * aspect) / corner;
+    return 1.0f - amount * smoothstep(1.0f - max(softness, 1e-3f), 1.0f, reach);
 }
 
 // An offset to add to a colour after the tone curve: grain of up to half of
@@ -174,10 +174,10 @@ float vignette(vec2 uv, float amount, float softness) {
 // 2014) rather than white noise, so neighbouring pixels differ evenly and the
 // grain does not crawl in clumps.
 float film_grain(vec2 pixel, float time, float amount) {
-    float frame = mod(floor(time * 60.0), 64.0);
-    vec2 p = pixel + vec2(5.588238 * frame);
-    float noise = fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-    return (noise - 0.5) * amount;
+    float frame = mod(floor(time * 60.0f), 64.0f);
+    vec2 p = pixel + vec2(5.588238f * frame);
+    float noise = fract(52.9829189f * fract(dot(p, vec2(0.06711056f, 0.00583715f))));
+    return (noise - 0.5f) * amount;
 }
 
 // ── Bands ────────────────────────────────────────────────────────────────────
@@ -188,12 +188,12 @@ float film_grain(vec2 pixel, float time, float amount) {
 // sea's painted bands do, so it does not alias. For a display colour after
 // the tone curve; steps is held to 2 or more.
 vec3 posterize(vec3 c, float steps) {
-    float count = max(steps, 2.0);
+    float count = max(steps, 2.0f);
     float value = max(max(c.r, c.g), c.b);
-    if (value <= 0.0) return c;
+    if (value <= 0.0f) return c;
     float scaled = value * count;
     float band = floor(scaled);
-    float banded = (band + smoothstep(0.35, 0.65, scaled - band)) / count;
+    float banded = (band + smoothstep(0.35f, 0.65f, scaled - band)) / count;
     return c * (banded / value);
 }
 

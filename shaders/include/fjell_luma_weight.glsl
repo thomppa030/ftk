@@ -3,7 +3,7 @@
 
 // Rec. 709 luma of a linear colour.
 float luma_709(vec3 c) {
-    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return dot(c, vec3(0.2126f, 0.7152f, 0.0722f));
 }
 
 // c / (1 + luma): any HDR colour squeezed below one with its hue kept, and
@@ -13,12 +13,12 @@ float luma_709(vec3 c) {
 // tests/test_post_effects.cpp compiles this as C++, so the divisors are
 // floats rather than literals mixed into vector arithmetic.
 vec3 luma_weight(vec3 c) {
-    float scale = 1.0 + luma_709(c);
+    float scale = 1.0f + luma_709(c);
     return c / scale;
 }
 
 vec3 luma_unweight(vec3 c) {
-    float scale = max(1.0 - luma_709(c), 1e-4);
+    float scale = max(1.0f - luma_709(c), 1e-4f);
     return c / scale;
 }
 

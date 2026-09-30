@@ -32,7 +32,7 @@
 
 #include "fjell_water_wake_record.glsl"
 
-#define FJELL_WAKE_PI 3.14159265358979323846
+#define FJELL_WAKE_PI 3.14159265358979323846f
 
 #ifndef FJELL_WATER_WAKES
 #error "define FJELL_WATER_WAKES to the wake records before including fjell_water_wake.glsl"
@@ -61,12 +61,12 @@ struct FjellWakeSurface {
 // so that the test's C++ compiler can read this file too.
 FjellWakeSurface fjell_wake_ring(uint s, uint i, vec2 world_xz, float time) {
     FjellWakeSurface r;
-    r.height = 0.0;
-    r.slope = vec2(0.0);
+    r.height = 0.0f;
+    r.slope = vec2(0.0f);
     vec4 stamp = FJELL_WATER_WAKES[s].stamps[i];
     float age = time - stamp.z;
     // Laid after this instant: motion vectors ask about a frame ago.
-    if (age <= 0.0) return r;
+    if (age <= 0.0f) return r;
     vec4 ring = FJELL_WATER_WAKES[s].ring;
     float radius = FJELL_WATER_WAKES[s].body.x;
 
@@ -75,12 +75,12 @@ FjellWakeSurface fjell_wake_ring(uint s, uint i, vec2 world_xz, float time) {
     float u = reg - ring.y * age;
     float half_width = ring.z;
     if (abs(u) >= half_width) return r;
-    float amplitude = stamp.w * exp(-age / ring.w) * inversesqrt(1.0 + ring.y * age / radius);
+    float amplitude = stamp.w * exp(-age / ring.w) * inversesqrt(1.0f + ring.y * age / radius);
     float phase = FJELL_WAKE_PI * u / half_width;   // -pi..pi across the band
-    float c = cos(0.5 * phase);
+    float c = cos(0.5f * phase);
     r.height = amplitude * c * c;
     // d/du of cos²(phase/2), then du/d(xz) = d / reg.
-    float dF = -amplitude * (FJELL_WAKE_PI / (2.0 * half_width)) * sin(phase);
+    float dF = -amplitude * (FJELL_WAKE_PI / (2.0f * half_width)) * sin(phase);
     r.slope = dF * (d / reg);
     return r;
 }
@@ -102,19 +102,19 @@ bool fjell_wake_outside(uint s, vec2 world_xz) {
 FjellWakeSurface fjell_water_wake_surface(uint first, uint count, vec2 world_xz,
                                           float time, float cell) {
     FjellWakeSurface r;
-    r.height = 0.0;
-    r.slope = vec2(0.0);
+    r.height = 0.0f;
+    r.slope = vec2(0.0f);
     for (uint s = first; s < first + count; ++s) {
         if (FJELL_WATER_WAKES[s].counts.y == 0u) continue;
         if (fjell_wake_outside(s, world_xz)) continue;
-        float weight = 1.0;
-        if (cell > 0.0) {
+        float weight = 1.0f;
+        if (cell > 0.0f) {
             float half_width = FJELL_WATER_WAKES[s].ring.z;
-            weight = clamp(2.0 - 2.0 * cell / half_width, 0.0, 1.0);
-            if (weight == 0.0) continue;
+            weight = clamp(2.0f - 2.0f * cell / half_width, 0.0f, 1.0f);
+            if (weight == 0.0f) continue;
         }
-        float height = 0.0;
-        vec2 slope = vec2(0.0);
+        float height = 0.0f;
+        vec2 slope = vec2(0.0f);
         uint stamps = min(FJELL_WATER_WAKES[s].counts.x, uint(FJELL_MAX_WAKE_STAMPS));
         for (uint i = 0u; i < stamps; ++i) {
             FjellWakeSurface ring = fjell_wake_ring(s, i, world_xz, time);
@@ -143,17 +143,17 @@ struct FjellWakeShade {
 FjellWakeShade fjell_water_wake_shade(uint first, uint count, vec2 world_xz,
                                       float time, float footprint) {
     FjellWakeShade r;
-    r.slope = vec2(0.0);
-    r.foam = 0.0;
+    r.slope = vec2(0.0f);
+    r.foam = 0.0f;
     for (uint s = first; s < first + count; ++s) {
         if (fjell_wake_outside(s, world_xz)) continue;
-        float visible = 0.0;
+        float visible = 0.0f;
         if (FJELL_WATER_WAKES[s].counts.y == 0u) {
             float half_width = FJELL_WATER_WAKES[s].ring.z;
-            visible = 1.0 - smoothstep(half_width * 0.25, half_width * 0.5, footprint);
+            visible = 1.0f - smoothstep(half_width * 0.25f, half_width * 0.5f, footprint);
         }
         vec4 churn = FJELL_WATER_WAKES[s].churn;
-        vec2 slope = vec2(0.0);
+        vec2 slope = vec2(0.0f);
         uint stamps = min(FJELL_WATER_WAKES[s].counts.x, uint(FJELL_MAX_WAKE_STAMPS));
         for (uint i = 0u; i < stamps; ++i) {
             vec4 stamp = FJELL_WATER_WAKES[s].stamps[i];
@@ -163,12 +163,12 @@ FjellWakeShade fjell_water_wake_shade(uint first, uint count, vec2 world_xz,
             // foam is gone before the ripple is. The strongest crest, not
             // the sum: crests cross, and a sum would whiten the crossing.
             float age = time - stamp.z;
-            float crest = ring.height / max(stamp.w, 1e-6);
-            float share = min(stamp.w * churn.x, 1.0);
+            float crest = ring.height / max(stamp.w, 1e-6f);
+            float share = min(stamp.w * churn.x, 1.0f);
             r.foam = max(r.foam, share * crest * exp(-age / churn.y));
-            if (visible > 0.0) slope += ring.slope;
+            if (visible > 0.0f) slope += ring.slope;
         }
-        if (visible > 0.0) r.slope += visible * slope;
+        if (visible > 0.0f) r.slope += visible * slope;
     }
     return r;
 }

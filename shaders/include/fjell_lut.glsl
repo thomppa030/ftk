@@ -21,15 +21,15 @@
 // giving every colour back; written without swizzles for that reason.
 vec3 lut_sample(FjellTexture strip, vec3 color) {
     float n = float(textureSize(strip, 0).y);
-    vec3 c = clamp(linear_to_srgb(max(color, vec3(0.0))), vec3(0.0), vec3(1.0));
-    float slice = c.b * (n - 1.0);
+    vec3 c = clamp(linear_to_srgb(max(color, vec3(0.0f))), vec3(0.0f), vec3(1.0f));
+    float slice = c.b * (n - 1.0f);
     float s0 = floor(slice);
-    float s1 = min(s0 + 1.0, n - 1.0);
+    float s1 = min(s0 + 1.0f, n - 1.0f);
     float t = slice - s0;
-    float u = (c.r * (n - 1.0) + 0.5) / n;
-    float v = (c.g * (n - 1.0) + 0.5) / n;
-    vec3 a = vec3(textureLod(strip, vec2((s0 + u) / n, v), 0.0));
-    vec3 b = vec3(textureLod(strip, vec2((s1 + u) / n, v), 0.0));
+    float u = (c.r * (n - 1.0f) + 0.5f) / n;
+    float v = (c.g * (n - 1.0f) + 0.5f) / n;
+    vec3 a = vec3(textureLod(strip, vec2((s0 + u) / n, v), 0.0f));
+    vec3 b = vec3(textureLod(strip, vec2((s1 + u) / n, v), 0.0f));
     return srgb_to_linear(mix(a, b, t));
 }
 

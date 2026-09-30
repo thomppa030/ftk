@@ -11,7 +11,7 @@
 #define FJELL_MAX_WAKE_STAMPS 24
 
 #ifndef FJELL_WATER_TAU
-#define FJELL_WATER_TAU 6.28318530717958647692
+#define FJELL_WATER_TAU 6.28318530717958647692f
 #endif
 
 // One source and its trail. Mirrors GpuWakeSource in water_gpu.hpp: vec4s
