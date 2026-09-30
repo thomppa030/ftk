@@ -52,10 +52,11 @@ public:
     /// the format. Nothing records into the scope after it.
     void render(gpu::RenderEncoder& pass);
 
-    /// `view` as this layer's ImGui shows it, sampled with `sampler`: made
-    /// the first time it is asked for, and let go once the texture is
-    /// released and the frames that drew it are done.
+    /// `view` as this layer's ImGui shows it, sampled with `sampler`, or
+    /// linearly and clamped: made the first time it is asked for, and let go
+    /// once the texture is released and the frames that drew it are done.
     [[nodiscard]] ImTextureID texture(const gpu::TextureView& view, gpu::Sampler sampler);
+    [[nodiscard]] ImTextureID texture(const gpu::TextureView& view);
 
     /// The layer whose ImGui context is current, or null without one.
     [[nodiscard]] static ImGuiLayer* current();
@@ -87,5 +88,11 @@ private:
     std::unique_ptr<gpu::ImGuiRenderer> renderer_;
     ImGuiContext* prev_context_{nullptr}; // saved by activate(), restored by deactivate()
 };
+
+/// `view` as the current ImGui context shows it (`ImGui::Image` and the
+/// like), sampled with `sampler`, or linearly and clamped. None for a texture
+/// that is not there, or a context without a layer, as a headless test's.
+[[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler);
+[[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view);
 
 } // namespace fjell

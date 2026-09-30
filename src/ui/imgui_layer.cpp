@@ -188,6 +188,14 @@ ImTextureID ImGuiLayer::texture(const gpu::TextureView& view, gpu::Sampler sampl
   return id;
 }
 
+ImTextureID ImGuiLayer::texture(const gpu::TextureView& view) {
+  ImGuiContext* current = ImGui::GetCurrentContext();
+  ImGui::SetCurrentContext(context_);
+  const ImTextureID id = renderer_->texture(view);
+  ImGui::SetCurrentContext(current);
+  return id;
+}
+
 ImGuiLayer* ImGuiLayer::current() {
   if (ImGui::GetCurrentContext() == nullptr) return nullptr;
   return static_cast<ImGuiLayer*>(ImGui::GetIO().UserData);
@@ -195,6 +203,16 @@ ImGuiLayer* ImGuiLayer::current() {
 
 void ImGuiLayer::setup_style() {
   theme::apply(ImGui::GetStyle());
+}
+
+ImTextureID imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler) {
+  ImGuiLayer* layer = ImGuiLayer::current();
+  return layer != nullptr ? layer->texture(view, sampler) : ImTextureID{};
+}
+
+ImTextureID imgui_texture(const gpu::TextureView& view) {
+  ImGuiLayer* layer = ImGuiLayer::current();
+  return layer != nullptr ? layer->texture(view) : ImTextureID{};
 }
 
 } // namespace fjell

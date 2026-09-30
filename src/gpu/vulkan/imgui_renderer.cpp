@@ -64,7 +64,9 @@ struct ImGuiRenderer::State {
 };
 
 ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
-    : device_(device), state_(std::make_shared<State>()) {
+    : device_(device),
+      linear_(device.sampler({.filter = Filter::linear, .address = Address::clamp})),
+      state_(std::make_shared<State>()) {
     Device::Impl& impl = device.impl();
     State& state = *state_;
     state.device = impl.device;
@@ -119,6 +121,8 @@ ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
 }
 
 ImGuiRenderer::~ImGuiRenderer() {
+    // The frames in flight draw with the backend's buffers and the pool's sets.
+    vulkan::wait_idle(device_);
     ImGui_ImplVulkan_Shutdown();
     // Frees every image's set with it; the textures that would have let
     // theirs go find the state gone.

@@ -19,7 +19,8 @@ class RenderEncoder;
 /// target, and the device's textures shown in it. Each backend puts ImGui's
 /// own renderer for its API behind it (imgui_impl_vulkan on Vulkan).
 ///
-/// Made, used and destroyed with its ImGui context current.
+/// Made, used and destroyed with its ImGui context current. Destroying it
+/// waits for the frames drawing with it.
 ///
 /// @code
 /// gpu::ImGuiRenderer imgui(device, {.target_format = swapchain.format()});
@@ -57,13 +58,16 @@ public:
 
     /// `view` as ImGui shows it, sampled with `sampler`: made the first time
     /// it is asked for, and let go once the texture is released and the
-    /// frames that drew it are done.
+    /// frames that drew it are done. None for a texture that is not there.
     [[nodiscard]] ImTextureID texture(const TextureView& view, Sampler sampler);
+    /// `view` as ImGui shows it, sampled linearly and clamped at the edges.
+    [[nodiscard]] ImTextureID texture(const TextureView& view) { return texture(view, linear_); }
 
 private:
     struct State;
 
     Device& device_;
+    Sampler linear_;
     /// Shared with what each texture lets go of its image through, which
     /// finds nothing to do once the renderer is gone.
     std::shared_ptr<State> state_;
