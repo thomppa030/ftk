@@ -426,8 +426,6 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir, 
 }
 
 void ContentBrowser::draw_file_grid() {
-    constexpr int MAX_THUMBS_PER_FRAME = 2;
-    int thumbs_loaded_this_frame = 0;
     const ImVec2 tile = ui::asset_tile_size();
     const float gap = theme::GAP_M;
     const float panel_width = ImGui::GetContentRegionAvail().x;
@@ -463,12 +461,7 @@ void ContentBrowser::draw_file_grid() {
         // else its kind's icon, a folder in the colour it was given.
         ImTextureID picture{};
         if (entry.type == FileType::texture && icons_) {
-            const std::string thumb_path = entry.path.string();
-            picture = icons_->thumbnail_cached(thumb_path);
-            if (!picture && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
-                picture = icons_->thumbnail(thumb_path);
-                ++thumbs_loaded_this_frame;
-            }
+            picture = icons_->thumbnail(entry.path.string());
         } else if (asset_thumbnails_ && entry.type != FileType::folder && asset_thumbnails_->supports(entry.path)) {
             const auto asset_path = entry.path.string();
             picture = asset_thumbnails_->texture(asset_path);
