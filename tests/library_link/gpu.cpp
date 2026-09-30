@@ -228,8 +228,9 @@ int main() {
         // place until a frame binds it; then an update is a new version,
         // and the next, before another bind, goes into that one. Once the
         // frame that bound it is finished, the set is written in place
-        // again. An element given nothing is emptied; a single binding left
-        // empty, or given nothing, is refused.
+        // again. What the group already holds costs no version. An element
+        // given nothing is emptied; a single binding left empty, or given
+        // nothing, is refused.
         bool shared_groups = false;
         if (table && with_table && texture) {
             auto group = device.create(fjell::gpu::SharedGroupDesc{
@@ -258,6 +259,8 @@ int main() {
                 const VkDescriptorSet version = current_set();
                 shared_groups = shared_groups && version != made && element(5) && current_set() == version;
                 run(bind_table);
+                // The same resource again, the set bound: nothing to write.
+                shared_groups = shared_groups && element(5) && current_set() == version;
                 (void)device.end_frame(binding_frame);
                 vkDeviceWaitIdle(core.vk_device());
                 shared_groups = shared_groups && element(6) && current_set() == version;
