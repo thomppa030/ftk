@@ -232,7 +232,6 @@ int main() {
         // empty, or given nothing, is refused.
         bool shared_groups = false;
         if (table && with_table && texture) {
-            using fjell::gpu::vulkan::native_group;
             auto group = device.create(fjell::gpu::SharedGroupDesc{
                 .layout = *table,
                 .entries = {{"pair", fjell::gpu::sampled(*texture, sampler), 1}},
@@ -247,20 +246,21 @@ int main() {
                 cmd.set_pipeline(*with_table);
                 cmd.bind(*group);
             };
+            // The set as it stands; `native_group` would count as a bind.
+            auto current_set = [&] { return device.impl().groups.get(*group)->set; };
             if (group) {
-                const VkDescriptorSet made = native_group(device, *group);
-                shared_groups = element(3) && native_group(device, *group) == made;
+                const VkDescriptorSet made = current_set();
+                shared_groups = element(3) && current_set() == made;
 
                 auto& binding_frame = device.begin_frame();
                 run(bind_table);
                 shared_groups = shared_groups && element(4);
-                const VkDescriptorSet version = native_group(device, *group);
-                shared_groups = shared_groups && version != made && element(5) &&
-                                native_group(device, *group) == version;
+                const VkDescriptorSet version = current_set();
+                shared_groups = shared_groups && version != made && element(5) && current_set() == version;
                 run(bind_table);
                 (void)device.end_frame(binding_frame);
                 vkDeviceWaitIdle(core.vk_device());
-                shared_groups = shared_groups && element(6) && native_group(device, *group) == version;
+                shared_groups = shared_groups && element(6) && current_set() == version;
 
                 const fjell::gpu::BindEntry emptied[] = {{"textures", fjell::gpu::sampled({}, {}), 5}};
                 shared_groups = shared_groups && device.update(*group, emptied).has_value();

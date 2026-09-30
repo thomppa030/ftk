@@ -162,7 +162,14 @@ Owned<BindGroup> adopt_group(Device& device, SharedLayout shared, VkDescriptorSe
 
 VkDescriptorSet native_group(Device& device, BindGroup group) {
     const auto* record = device.impl().groups.get(group);
-    return record != nullptr ? record->set : VK_NULL_HANDLE;
+    if (record == nullptr) return VK_NULL_HANDLE;
+    if (record->state) record->state->bound.store(device.impl().recording, std::memory_order_relaxed);
+    return record->set;
+}
+
+VkDescriptorSetLayout native_set_layout(const Device& device, SharedLayout layout) {
+    const auto* record = device.impl().shared_layouts.get(layout);
+    return record != nullptr ? record->layout : VK_NULL_HANDLE;
 }
 
 VkCommandBuffer native_command_buffer(CommandList& list) {
