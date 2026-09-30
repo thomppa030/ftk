@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace fjell {
@@ -53,7 +54,14 @@ private:
     Count            = 3,
   };
 
-  void record_bucket(const FrameContext &ctx, Bucket bucket);
+  // A run of sprites drawn with one bucket's pipeline.
+  struct SpriteRun {
+    Bucket bucket{Bucket::UnlitTransparent};
+    uint32_t first{0};
+    uint32_t count{0};
+  };
+
+  void record_runs(const FrameContext &ctx, std::span<const SpriteRun> runs);
 
   struct GpuSprite {
     glm::vec3 position;       // 12
@@ -107,21 +115,18 @@ private:
   VkFormat depth_format_{VK_FORMAT_UNDEFINED};
   VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
 
-  // Per-frame, per-bucket sprite range. range[bucket] = {first, count} into the
-  // double-buffered SSBO. Sprites within a bucket are sorted as before; the
-  // SSBO is laid out [unlit_transparent | lit_transparent | lit_opaque].
-  struct BucketRange {
-    uint32_t first{0};
-    uint32_t count{0};
-  };
-  std::array<std::array<BucketRange, static_cast<size_t>(Bucket::Count)>, MAX_FRAMES_IN_FLIGHT> bucket_ranges_{};
+  // Per frame, into that frame's SSBO, which holds the transparent sprites
+  // and then the opaque ones: the transparent ones as runs in layer order,
+  // unlit and lit billboards interleaved as they sort, and the opaque range.
+  std::array<std::vector<SpriteRun>, MAX_FRAMES_IN_FLIGHT> transparent_runs_;
+  std::array<SpriteRun, MAX_FRAMES_IN_FLIGHT> opaque_range_{};
 
   static constexpr uint32_t MAX_SPRITES = 4096;
   static constexpr VkDeviceSize SSBO_SIZE = MAX_SPRITES * sizeof(GpuSprite);
 
   // Reusable per-frame scratch (avoid heap allocs every frame)
   struct SortEntry {
-    Bucket  bucket;     // primary partition
+    Bucket  bucket;     // which pipeline; opaque sprites sort after the rest
     int32_t sort_layer;
     int32_t sort_order;
     float y_position;   // for top-down depth (lower Y = in front)

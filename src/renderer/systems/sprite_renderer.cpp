@@ -344,7 +344,7 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
 
 void SpriteRenderer::record_depth(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("sprite_record_depth");
-    const auto& range = bucket_ranges_[ctx.frame_index][static_cast<size_t>(Bucket::LitOpaque)];
+    const SpriteRun& range = opaque_range_[ctx.frame_index];
     if (range.count == 0) return;
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, depth_pipeline_);
@@ -367,16 +367,13 @@ void SpriteRenderer::record_depth(const FrameContext& ctx) {
 }
 
 void SpriteRenderer::record_opaque(const FrameContext& ctx) {
-    record_bucket(ctx, Bucket::LitOpaque);
+    record_runs(ctx, std::span(&opaque_range_[ctx.frame_index], 1));
 }
 
 void SpriteRenderer::record_transparent(const FrameContext& ctx) {
-    // Tilemap-style "behind sprites" ordering: lit billboards are still part of
-    // the transparent pass, drawn alongside unlit sprites in layer order. The
-    // SSBO is laid out [unlit | lit_billboard | lit_flat], so the two
-    // transparent buckets sit contiguously and we draw both ranges here.
-    record_bucket(ctx, Bucket::UnlitTransparent);
-    record_bucket(ctx, Bucket::LitTransparent);
+    // Unlit sprites and lit billboards blend in one list in layer order,
+    // switching pipeline where one kind follows the other.
+    record_runs(ctx, transparent_runs_[ctx.frame_index]);
 }
 
 void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
@@ -450,50 +447,53 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
                                 pos.y, dist_sq, idx, sprite.flat});
     }
 
-    // Sort: bucket first (so SSBO layout = [unlit | lit_billboard | lit_flat]),
-    // then by layer / order / y / distance within each bucket as before.
+    // Opaque sprites after the transparent ones, which sort by layer and
+    // order together, unlit and lit billboards alike, so they blend in the
+    // order the layers ask. Within one layer and order, flat sprites come
+    // first (higher y behind), then camera-facing ones, farthest first: flat
+    // sprites are the plane the others stand on, and height and distance do
+    // not compare with each other.
     std::sort(sort_entries.begin(), sort_entries.end(),
               [](const SortEntry& a, const SortEntry& b) {
-                  if (a.bucket != b.bucket) return static_cast<uint8_t>(a.bucket) < static_cast<uint8_t>(b.bucket);
+                  const bool a_opaque = a.bucket == Bucket::LitOpaque;
+                  const bool b_opaque = b.bucket == Bucket::LitOpaque;
+                  if (a_opaque != b_opaque) return b_opaque;
                   if (a.sort_layer != b.sort_layer) return a.sort_layer < b.sort_layer;
                   if (a.sort_order != b.sort_order) return a.sort_order < b.sort_order;
-                  if (a.flat && b.flat) return a.y_position > b.y_position;
+                  if (a.flat != b.flat) return a.flat;
+                  if (a.flat) return a.y_position > b.y_position;
                   return a.distance > b.distance;
               });
 
     uint32_t count = std::min(static_cast<uint32_t>(sort_entries.size()), MAX_SPRITES);
 
-    auto& ranges = bucket_ranges_[frame_index];
-    for (auto& r : ranges) r = {0, 0};
+    auto& runs = transparent_runs_[frame_index];
+    auto& opaque = opaque_range_[frame_index];
+    runs.clear();
+    opaque = {Bucket::LitOpaque, 0, 0};
 
     if (count > 0) {
         auto* dst = static_cast<GpuSprite*>(sprite_ssbos_[frame_index]->mapped());
         for (uint32_t i = 0; i < count; ++i) {
             dst[i] = sprites[sort_entries[i].index];
         }
-
-        // Walk sorted entries and record per-bucket ranges.
-        Bucket cur = sort_entries[0].bucket;
-        uint32_t cur_first = 0;
-        for (uint32_t i = 1; i <= count; ++i) {
-            if (i == count || sort_entries[i].bucket != cur) {
-                ranges[static_cast<size_t>(cur)] = {cur_first, i - cur_first};
-                if (i < count) {
-                    cur = sort_entries[i].bucket;
-                    cur_first = i;
-                }
-            }
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        const Bucket bucket = sort_entries[i].bucket;
+        if (bucket == Bucket::LitOpaque) {
+            if (opaque.count == 0) opaque.first = i;
+            ++opaque.count;
+        } else if (!runs.empty() && runs.back().bucket == bucket) {
+            ++runs.back().count;
+        } else {
+            runs.push_back({bucket, i, 1});
         }
     }
 }
 
-void SpriteRenderer::record_bucket(const FrameContext& ctx, Bucket bucket) {
-    FJELL_PROFILE_SCOPE_N("sprite_record_bucket");
-    const auto& range = bucket_ranges_[ctx.frame_index][static_cast<size_t>(bucket)];
-    if (range.count == 0) return;
-
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      pipelines_[static_cast<size_t>(bucket)]);
+void SpriteRenderer::record_runs(const FrameContext& ctx, std::span<const SpriteRun> runs) {
+    FJELL_PROFILE_SCOPE_N("sprite_record_runs");
+    if (std::ranges::all_of(runs, [](const SpriteRun& run) { return run.count == 0; })) return;
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
@@ -509,10 +509,19 @@ void SpriteRenderer::record_bucket(const FrameContext& ctx, Bucket bucket) {
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 3, sets, 0, nullptr);
 
-    // Each sprite is 6 vertices. The vertex shader keys off gl_VertexIndex / 6
-    // to look up the sprite in the SSBO; firstVertex shifts that into the
-    // bucket's range without reuploading anything.
-    vkCmdDraw(ctx.cmd, range.count * 6, 1, range.first * 6, 0);
+    VkPipeline bound = VK_NULL_HANDLE;
+    for (const SpriteRun& run : runs) {
+        if (run.count == 0) continue;
+        const VkPipeline wanted = pipelines_[static_cast<size_t>(run.bucket)];
+        if (wanted != bound) {
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wanted);
+            bound = wanted;
+        }
+        // Each sprite is 6 vertices. The vertex shader keys off
+        // gl_VertexIndex / 6 to look up the sprite in the SSBO; firstVertex
+        // shifts that onto the run without reuploading anything.
+        vkCmdDraw(ctx.cmd, run.count * 6, 1, run.first * 6, 0);
+    }
 }
 
 } // namespace fjell
