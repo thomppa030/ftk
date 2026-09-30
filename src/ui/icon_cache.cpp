@@ -1,6 +1,7 @@
 #include "ui/icon_cache.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/thread_pool.hpp"
 #include "gpu/device.hpp"
 #include "ui/imgui_layer.hpp"
 
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <mutex>
 #include <vector>
 
 namespace fjell {
@@ -89,11 +91,23 @@ Picture load_thumbnail(const fs::path& source) {
 
 } // namespace
 
-IconCache::IconCache(gpu::Device& device, const std::string& icons_dir)
+struct IconCache::Inbox {
+    struct Decoded {
+        std::string path;
+        uint64_t generation{0};
+        Picture picture;
+    };
+    std::mutex mutex;
+    std::vector<Decoded> decoded;
+};
+
+IconCache::IconCache(gpu::Device& device, ThreadPool& pool, const std::string& icons_dir)
     : device_{device},
+      pool_{pool},
       pixel_sampler_{device.sampler({.filter = gpu::Filter::nearest,
                                      .mip_filter = gpu::Filter::nearest,
-                                     .address = gpu::Address::clamp})} {
+                                     .address = gpu::Address::clamp})},
+      inbox_{std::make_shared<Inbox>()} {
     if (!fs::is_directory(icons_dir)) {
         FJELL_CORE_WARN("Icons directory not found: {}", icons_dir);
         return;
@@ -157,21 +171,36 @@ void IconCache::load_icon(const std::string& name, const std::string& path) {
 }
 
 ImTextureID IconCache::thumbnail(const std::string& path) {
-    auto it = thumbnails_.find(path);
-    if (it == thumbnails_.end()) {
-        const Picture picture = load_thumbnail(path);
-        if (picture.rgba.empty()) return {};
-        it = thumbnails_
-                 .emplace(path, upload_rgba(picture.rgba, static_cast<uint32_t>(picture.width),
-                                            static_cast<uint32_t>(picture.height), "thumbnail " + path))
-                 .first;
+    take_decoded();
+    if (const auto it = thumbnails_.find(path); it != thumbnails_.end()) {
+        return it->second ? imgui_texture(it->second) : ImTextureID{};
     }
-    return it->second ? imgui_texture(it->second) : ImTextureID{};
+    if (decoding_.insert(path).second) {
+        (void)pool_.submit([inbox = inbox_, path, generation = generation_] {
+            Picture picture = load_thumbnail(path);
+            std::lock_guard lock(inbox->mutex);
+            inbox->decoded.push_back({path, generation, std::move(picture)});
+        });
+    }
+    return {};
 }
 
-ImTextureID IconCache::thumbnail_cached(const std::string& path) const {
-    const auto it = thumbnails_.find(path);
-    return it != thumbnails_.end() && it->second ? imgui_texture(it->second) : ImTextureID{};
+void IconCache::take_decoded() {
+    std::vector<Inbox::Decoded> decoded;
+    {
+        std::lock_guard lock(inbox_->mutex);
+        if (inbox_->decoded.empty()) return;
+        decoded.swap(inbox_->decoded);
+    }
+    for (auto& item : decoded) {
+        if (item.generation != generation_) continue;
+        decoding_.erase(item.path);
+        const Picture& picture = item.picture;
+        thumbnails_[item.path] = picture.rgba.empty()
+            ? gpu::Owned<gpu::Texture>{}
+            : upload_rgba(picture.rgba, static_cast<uint32_t>(picture.width),
+                          static_cast<uint32_t>(picture.height), "thumbnail " + item.path);
+    }
 }
 
 void IconCache::ensure_thumbnail_cache(const std::string& path) {
@@ -184,6 +213,8 @@ void IconCache::clear_thumbnails() {
     // What was handed out this frame stays until the frames drawing it are
     // done; the textures' release waits for them.
     thumbnails_.clear();
+    decoding_.clear();
+    ++generation_;
 }
 
 } // namespace fjell
