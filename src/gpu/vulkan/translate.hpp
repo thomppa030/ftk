@@ -99,10 +99,6 @@ namespace fjell::gpu::vulkan {
 
 [[nodiscard]] VkIndexType to_vk(IndexType type);
 
-/// The binding kind of a Vulkan descriptor type; nothing for a type the
-/// interface does not have.
-[[nodiscard]] std::optional<BindingKind> from_vk(VkDescriptorType type);
-
 /// The layout a sampled view of `format` is read in, the one the frame graph
 /// leaves it in: read-only depth for a depth format, shader-read otherwise.
 [[nodiscard]] VkImageLayout sampled_layout(Format format);

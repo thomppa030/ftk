@@ -110,19 +110,16 @@ struct Device::Impl {
 
     struct SharedRecord {
         SharedLayoutDesc desc;
-        /// The engine's for a layout it shares, which the device never
-        /// destroys; the device's for one it made.
         VkDescriptorSetLayout layout{VK_NULL_HANDLE};
-        bool owned{false};
-        /// A made layout's: where each binding's elements start in a group's
-        /// contents, how many descriptors of each type one set holds, and the
-        /// pools its groups' sets come from, each holding a few whole sets.
+        /// Where each binding's elements start in a group's contents, how many
+        /// descriptors of each type one set holds, and the pools its groups'
+        /// sets come from, each holding a few whole sets.
         std::vector<uint32_t> first;
         std::vector<VkDescriptorPoolSize> set_sizes;
         std::vector<VkDescriptorPool> pools;
     };
 
-    /// What a group of a made shared layout keeps besides its set.
+    /// What a shared group keeps besides its set.
     struct SharedGroupState {
         /// Every element's resource, empty where none was given, in the
         /// layout's binding order: what a new version is written from.
@@ -138,8 +135,7 @@ struct Device::Impl {
 
     struct GroupRecord {
         VkDescriptorSet set{VK_NULL_HANDLE};
-        /// The pool it came from; null for an adopted set, which the device
-        /// never frees.
+        /// The pool it came from.
         VkDescriptorPool pool{VK_NULL_HANDLE};
         VkDescriptorSetLayout layout{VK_NULL_HANDLE};
         /// The one set's bindings, what `update` checks entries against.
@@ -149,7 +145,7 @@ struct Device::Impl {
         uint32_t set_index{0};
         /// For a shared group, the shared layout it is.
         SharedLayout shared{};
-        /// A group of a shared layout the device made; null for any other.
+        /// A shared group's; null for a pipeline's own.
         std::unique_ptr<SharedGroupState> state;
     };
 
