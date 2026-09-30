@@ -188,7 +188,7 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
         const gpu::ChannelMask surface =
             opaque ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
         // Mesh particles draw the mega buffer's vertices.
-        const bool mesh = vertex == MESH;
+        const bool mesh = std::string_view{vertex} == MESH;
         auto made = gpu.create(gpu::GraphicsPipelineDesc{
             .vertex = vertex,
             .fragment = fragment,
