@@ -133,7 +133,7 @@ VulkanContext::VulkanContext(Window& window)
 
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
-    debug_draw_ = std::make_unique<DebugDraw>(gpu_device(), gpu_.allocator());
+    debug_draw_ = std::make_unique<DebugDraw>();
 
     // The engine's own font is the one every UI falls back to.
     font_library_ = std::make_unique<FontLibrary>();
@@ -1327,7 +1327,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     // and command buffers, so skipping it on the frame a source turns off
     // leaves that frame's geometry on screen until something else redraws.
     if (scene) {
-        debug_draw_->update(*scene, current_frame_, selected_id, show_colliders_, debug_draw_queue_);
+        debug_draw_->update(*scene, selected_id, show_colliders_, debug_draw_queue_);
     }
     if (debug_draw_queue_) {
         debug_draw_queue_->tick(dt);

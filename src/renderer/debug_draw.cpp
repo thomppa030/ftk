@@ -3,7 +3,6 @@
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/model.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "physics/collision_shape.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
@@ -22,8 +21,6 @@
 
 namespace fjell {
 
-DebugDraw::DebugDraw(gpu::Device& gpu, VmaAllocator allocator)
-    : gpu_{gpu}, allocator_{allocator} {}
 
 // ── Geometry helpers ────────────────────────────────────────────────────
 
@@ -207,7 +204,7 @@ glm::mat4 DebugDraw::primitive_placement(const CollisionPrimitive& prim,
     return placement;
 }
 
-void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t selected_id,
+void DebugDraw::update(const Scene& scene, uint32_t selected_id,
                        bool show_colliders, DebugDrawQueue* script_queue) {
     FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
@@ -416,35 +413,15 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
         }
     }
 
-    if (vertices_.empty()) return;
-
-    // Upload to GPU — write into this frame's slot only. Its fence was
-    // waited on before record_frame(), so destroying/replacing it here
-    // cannot race with an in-flight submission on another slot.
-    auto& buf = vertex_buffers_[frame_index];
-    auto& cap = buffer_capacities_[frame_index];
-    VkDeviceSize required = vertices_.size() * sizeof(glm::vec3);
-    if (!buf || required > cap) {
-        // Round up to avoid frequent reallocations
-        cap = std::max(required, VkDeviceSize{4096});
-        buf = std::make_unique<Buffer>(
-            allocator_, cap,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        buf->map();
-        buf->share(gpu_);
-    }
-    buf->write(vertices_.data(), required);
 }
 
 // ── Draw ────────────────────────────────────────────────────────────────
 
-void DebugDraw::draw(gpu::RenderEncoder& pass, uint32_t frame_index) const {
-    const auto& buf = vertex_buffers_[frame_index];
-    if (!buf || draw_commands_.empty()) return;
+void DebugDraw::draw(gpu::RenderEncoder& pass) const {
+    if (vertices_.empty() || draw_commands_.empty()) return;
 
-    pass.set_vertex_buffer(gpu::BufferRange(buf->shared()));
+    // The lines of the last update(), copied for this frame.
+    pass.set_vertex_buffer(pass.transient(vertices_));
     for (const auto& dc : draw_commands_) {
         pass.push(DebugPushConstants{.model = dc.model, .color = dc.color});
         pass.draw(dc.vertex_count, 1, dc.first_vertex, 0);

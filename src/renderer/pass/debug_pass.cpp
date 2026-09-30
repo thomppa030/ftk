@@ -66,7 +66,7 @@ void DebugPass::record(const FrameContext& ctx) {
     pass.set_pipeline(pipeline_);
     pass.bind(ctx.globals);
     overlay_.bind_depth(pass, ctx);
-    ctx.debug_draw->draw(pass, ctx.frame_index);
+    ctx.debug_draw->draw(pass);
 }
 
 } // namespace fjell

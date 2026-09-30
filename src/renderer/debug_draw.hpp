@@ -1,38 +1,26 @@
 #pragma once
 
-#include "renderer/renderer_constants.hpp"
-
 #include "physics/collision_shape.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
-#include <array>
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 namespace fjell {
 
 namespace gpu {
-class Device;
 class RenderEncoder;
 } // namespace gpu
 
-class Buffer;
 class DebugDrawQueue;
 class Scene;
 struct CameraNode;
 
 class DebugDraw {
 public:
-    DebugDraw(gpu::Device& gpu, VmaAllocator allocator);
-
-    /// Record debug primitives and upload them into the current frame's
-    /// vertex buffer. `frame_index` is the slot in [0, MAX_FRAMES_IN_FLIGHT)
-    /// whose fence has already been waited on by the caller.
-    void update(const Scene& scene, uint32_t frame_index, uint32_t selected_id = 0,
+    /// Gathers the frame's debug primitives, which draw() then draws.
+    void update(const Scene& scene, uint32_t selected_id = 0,
                 bool show_colliders = true, DebugDrawQueue* script_queue = nullptr);
 
     /// Collision geometry to overlay on the next `update()`, in the mesh's
@@ -60,9 +48,9 @@ public:
     void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight,
                                     const CollisionMesh& geometry = {});
 
-    /// Draw with the buffer populated by the matching `update()` call, through
-    /// the debug pass's pipeline set on `pass`.
-    void draw(gpu::RenderEncoder& pass, uint32_t frame_index) const;
+    /// Draws what the last `update()` gathered, through the debug pass's
+    /// pipeline set on `pass`.
+    void draw(gpu::RenderEncoder& pass) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }
 
@@ -97,9 +85,6 @@ private:
     void add_circle(const glm::vec3& center, const glm::vec3& axis_a,
                     const glm::vec3& axis_b, float radius, uint32_t segments);
 
-    gpu::Device& gpu_;
-    VmaAllocator allocator_;
-
     // Shapes submitted this frame, each with its own colour.
     struct AuthoredShape {
         glm::mat4 model;
@@ -116,11 +101,6 @@ private:
 
     std::vector<glm::vec3> vertices_;
     std::vector<DrawCommand> draw_commands_;
-
-    // One vertex buffer per in-flight frame slot. Growth replaces only the
-    // current frame's buffer, which has already been retired by its fence.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> vertex_buffers_;
-    std::array<VkDeviceSize, MAX_FRAMES_IN_FLIGHT> buffer_capacities_{};
 };
 
 } // namespace fjell
