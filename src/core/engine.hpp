@@ -237,9 +237,8 @@ private:
 
     // --- Functional test run (--run-tests), idle in an ordinary session ---
 
-    /// Where the run has got to with the current test. One transition per
-    /// frame: stop() only flags the HUD for destruction and the free happens
-    /// in the next frame's apply_pending_hud_resize().
+    /// Where the run has got to with the current test, one transition per
+    /// frame.
     enum class TestPhase : uint8_t {
         idle,       ///< Not running tests at all.
         load,       ///< Load the next scene, or finish the run.

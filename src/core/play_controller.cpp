@@ -253,22 +253,6 @@ void PlayController::load_input_contexts() {
 }
 
 void PlayController::apply_pending_hud_resize() {
-    if (hud_pending_destroy_) {
-        // begin_frame()'s fence wait (already run by the time Engine::run
-        // calls this) only guarantees the GPU is done with the *current*
-        // frame-in-flight slot. With more than one frame pipelined at once,
-        // hud_target_'s descriptor may have last been referenced by a draw
-        // recorded into a *different* slot's command buffer — confirmed by
-        // hitting this exact free from gdb and seeing the validation layer
-        // reject it as still in use by graphics_post[2] while begin_frame
-        // had only fenced a different slot. A full wait_idle is the same
-        // price stop() and UiSubsystem::on_play_stop already pay before
-        // tearing down GameUi pipelines, for the same reason.
-        s_.vulkan->wait_idle();
-        hud_target_.reset();
-        hud_pending_destroy_ = false;
-    }
-
     if (!playing()) return;
     if (hud_img_size_.x <= 0.0f || hud_img_size_.y <= 0.0f) return;
 
@@ -278,10 +262,6 @@ void PlayController::apply_pending_hud_resize() {
         hud_target_ = std::make_unique<OffscreenPass>(s_.vulkan->gpu_device(), w, h, gpu::Samples::x1,
                                                       OffscreenPass::Contents::color);
     } else {
-        // Unlike the destroy branch above, this was never the vulnerable
-        // path: OffscreenPass::resize() already calls vkDeviceWaitIdle
-        // itself before touching anything, and only when the size actually
-        // changes (an early-return no-op otherwise).
         hud_target_->resize(w, h);
     }
 }
@@ -449,12 +429,9 @@ void PlayController::stop() {
     // by a moment without referencing anything that is gone.
     s_.physics->notify_play_stop(ctx);
 
-    // Not destroyed here — see hud_pending_destroy_'s comment. Deferring
-    // costs one frame of an unused OffscreenPass sitting around, which is
-    // fine; destroying it early risks a validation error every time stop()
-    // runs mid-draw (the toolbar's Stop button) rather than only from a
-    // shortcut evaluated before any drawing starts.
-    hud_pending_destroy_ = true;
+    // The frames still drawing the HUD keep its image until they are done,
+    // which covers a Stop pressed mid-draw.
+    hud_target_.reset();
 
     session_.reset();
     state_ = PlayState::stopped;

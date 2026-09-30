@@ -185,7 +185,7 @@ public:
     /// viewport panel's rect, or the fullscreen play view's window rect. Set
     /// by Engine right after each frame's draw_ui()/draw_play_overlay(), for
     /// apply_pending_hud_resize() to consume at the very start of the next
-    /// frame (see below for why the size is one frame behind on purpose).
+    /// frame.
     void set_hud_rect(glm::vec2 img_pos, glm::vec2 img_size) {
         hud_img_pos_ = img_pos;
         hud_img_size_ = img_size;
@@ -193,16 +193,9 @@ public:
 
     /// Resizes the HUD target to match the last set_hud_rect() call, if it
     /// differs. Called once per frame from Engine::run, before
-    /// draw_ui()/draw_play_overlay() run — so any resize (which destroys and
-    /// recreates the target's ImGui descriptor) completes before this frame's
-    /// ImGui draw list can read hud_texture(). Applying it any later leaves a
-    /// one-frame window where a draw command already queued with the old
-    /// descriptor gets submitted after that descriptor was destroyed —
-    /// exactly the OffscreenPass::resize/cleanup_images ordering the UI
-    /// editor's own preview avoids by never resizing a slot a frame in
-    /// flight might still reference. The HUD's own size therefore always
-    /// trails the panel's by one frame, the same way apply_resize() already
-    /// resizes viewport offscreens "using last frame's panel size".
+    /// draw_ui()/draw_play_overlay() run, so the HUD's size trails the
+    /// panel's by one frame, the same way apply_resize() resizes viewport
+    /// offscreens "using last frame's panel size".
     void apply_pending_hud_resize();
 
     /// Composite every screen-space UiSubsystem instance into the (already
@@ -265,16 +258,6 @@ private:
     std::unique_ptr<OffscreenPass> hud_target_;
     glm::vec2 hud_img_pos_{0.0f};
     glm::vec2 hud_img_size_{0.0f};
-
-    // stop() cannot destroy hud_target_ synchronously: it can run mid-frame
-    // (the toolbar's Stop button, mid-draw) after this same frame's
-    // ImGui::Image(hud_texture()) already queued a draw referencing it, and
-    // before that draw is actually submitted (in overlay_callback_, later in
-    // record_command_buffer). stop() sets this flag instead;
-    // apply_pending_hud_resize() destroys the target at the one point already
-    // established as safe — the very start of the next frame, before that
-    // frame can read hud_texture() at all.
-    bool hud_pending_destroy_{false};
 };
 
 } // namespace fjell

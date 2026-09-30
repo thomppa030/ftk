@@ -2036,10 +2036,8 @@ void Engine::stop_on_missing_reference() {
 }
 
 void Engine::tick_test_runner() {
-    // Deliberately one transition per frame. stop() only flags the HUD for
-    // destruction; the free happens in the next frame's
-    // apply_pending_hud_resize(), so collapsing a stop and the next load into
-    // one frame runs an ordering nothing else exercises.
+    // Deliberately one transition per frame, so a stop and the next load
+    // never share one.
     switch (test_phase_) {
         case TestPhase::idle:
         case TestPhase::done:
@@ -2384,10 +2382,7 @@ void Engine::run() {
 
         // Applies last frame's scene_image_rect() (set below, after
         // draw_ui()/draw_play_overlay() ran) to the HUD target, if its size
-        // changed. Must happen before begin_frame() so this frame's
-        // ImGui::Image(hud_texture()) calls never read a descriptor that a
-        // resize is about to destroy later in this same frame — see
-        // PlayController::apply_pending_hud_resize.
+        // changed, before this frame's ImGui::Image(hud_texture()) calls.
         play_controller_.apply_pending_hud_resize();
 
         // While the game has input focus, ImGui must not also react to the
