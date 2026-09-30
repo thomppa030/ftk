@@ -1337,13 +1337,10 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         }
         PostProcessConfig preview_config = pp_config_from_graph(*camera_preview_graph_);
 
-        PostProcessResources::PassRefs refs{
-            vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
-            vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
-            vk.rt_reflection_pass()};
+        const PostProcessResources::PassRefs refs{vk.ddgi_pass(), vk.ss_gi_pass()};
 
-        camera_preview_pp_ = std::make_unique<PostProcessResources>(
-            vk.gpu_device(), vk.device(), vk.allocator(), 320, 180, preview_config, refs);
+        camera_preview_pp_ =
+            std::make_unique<PostProcessResources>(vk.gpu_device(), 320, 180, preview_config, refs);
         // A global set of its own, so the preview's depth and AO never
         // replace the frame's.
         camera_preview_global_group_ = vk.gpu().global_bindings().make_view_group("camera_preview");

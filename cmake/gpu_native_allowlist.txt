@@ -56,13 +56,9 @@ src/renderer/pass/ss_gi_pass.cpp
 src/renderer/pass/ss_gi_pass.hpp
 src/renderer/pass/uv_viz_pass.hpp
 src/renderer/pass/wireframe_pass.hpp
-src/renderer/post_process_resources.cpp
-src/renderer/post_process_resources.hpp
 src/renderer/render_pipeline.cpp
 src/renderer/render_pipeline.hpp
 src/renderer/resources/vertex.hpp
-src/renderer/scene_viewport.cpp
-src/renderer/scene_viewport.hpp
 src/renderer/viz_image.cpp
 src/renderer/viz_image.hpp
 src/renderer/vulkan_context.cpp

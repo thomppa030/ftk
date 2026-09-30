@@ -7,7 +7,6 @@
 #include "renderer/viewport_source.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
@@ -16,7 +15,6 @@
 namespace fjell {
 
 class BindlessTextures;
-class Device;
 
 /// Configuration for creating a SceneViewport.
 struct SceneViewportConfig {
@@ -47,8 +45,7 @@ struct SceneViewportView {
 /// as a bindless texture index, usable by any material.
 class SceneViewport {
 public:
-    SceneViewport(Device& device, gpu::Device& gpu, VkDevice vk_device, VmaAllocator allocator,
-                  const SceneViewportConfig& config,
+    SceneViewport(gpu::Device& gpu, const SceneViewportConfig& config,
                   const PostProcessResources::PassRefs& pass_refs,
                   uint32_t reserved_bindless_index);
     ~SceneViewport();

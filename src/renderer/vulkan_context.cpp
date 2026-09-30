@@ -146,9 +146,8 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ss_gi = true;
     default_config.taa = true;
     default_config.rt_reflection = gpu_.device_ref().ray_tracing_supported();
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), post_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(), rt_reflection_pass()};
-    default_pp_ = std::make_unique<PostProcessResources>(gpu_device(), gpu_.device(), gpu_.allocator(),
-                                                         256, 256, default_config, refs);
+    default_pp_ = std::make_unique<PostProcessResources>(gpu_device(), 256, 256, default_config,
+                                                         PostProcessResources::PassRefs{ddgi_pass(), ss_gi_pass()});
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
@@ -1660,14 +1659,9 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     uint32_t bindless_idx =
         gpu_.bindless_textures().reserve_index(gpu_device().sampler({.address = gpu::Address::clamp}));
 
-    PostProcessResources::PassRefs refs{
-        hiz_pass(), gtao_pass(), volumetric_fog_pass(),
-        post_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(),
-        rt_reflection_pass()};
+    const PostProcessResources::PassRefs refs{ddgi_pass(), ss_gi_pass()};
 
-    auto viewport = std::make_unique<SceneViewport>(
-        gpu_.device_ref(), gpu_device(), gpu_.device(), gpu_.allocator(),
-        config, refs, bindless_idx);
+    auto viewport = std::make_unique<SceneViewport>(gpu_device(), config, refs, bindless_idx);
     // A global set of its own, so its view-dependent images never replace
     // the frame's.
     viewport->set_global_group(gpu_.global_bindings().make_view_group(config.name));

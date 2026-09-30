@@ -865,12 +865,8 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
 
     // Pipelines are compiled for the main viewport's sample count.
     target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), SIZE, SIZE, vk.msaa_samples());
-    PostProcessResources::PassRefs refs{
-        vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
-        vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),
-        vk.rt_reflection_pass()};
-    pp_ = std::make_unique<PostProcessResources>(vk.gpu_device(), vk.device(), vk.allocator(),
-                                                 SIZE, SIZE, pp_config_from_graph(*graph_), refs);
+    const PostProcessResources::PassRefs refs{vk.ddgi_pass(), vk.ss_gi_pass()};
+    pp_ = std::make_unique<PostProcessResources>(vk.gpu_device(), SIZE, SIZE, pp_config_from_graph(*graph_), refs);
     global_group_ = vk.gpu().global_bindings().make_view_group("asset_thumbnail");
     skip_frames_ = DRAIN_FRAMES;
     return true;

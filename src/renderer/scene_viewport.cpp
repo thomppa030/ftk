@@ -4,9 +4,7 @@
 
 namespace fjell {
 
-SceneViewport::SceneViewport(Device& /*device*/, gpu::Device& gpu, VkDevice vk_device,
-                             VmaAllocator allocator,
-                             const SceneViewportConfig& config,
+SceneViewport::SceneViewport(gpu::Device& gpu, const SceneViewportConfig& config,
                              const PostProcessResources::PassRefs& pass_refs,
                              uint32_t reserved_bindless_index)
     : config_(config)
@@ -14,8 +12,8 @@ SceneViewport::SceneViewport(Device& /*device*/, gpu::Device& gpu, VkDevice vk_d
     offscreen_ = std::make_unique<OffscreenPass>(gpu, config_.width,
                                                  config_.height, config_.samples);
 
-    pp_ = std::make_unique<PostProcessResources>(
-        gpu, vk_device, allocator, config_.width, config_.height, config_.pp_config, pass_refs);
+    pp_ = std::make_unique<PostProcessResources>(gpu, config_.width, config_.height, config_.pp_config,
+                                                 pass_refs);
 
     FJELL_GFX_DEBUG("SceneViewport '{}' created ({}x{}, bindless index {})",
                     config_.name, config_.width, config_.height, bindless_index_);

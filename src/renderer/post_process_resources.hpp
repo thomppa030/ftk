@@ -12,7 +12,6 @@
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/view_history.hpp"
 
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
@@ -44,38 +43,27 @@ struct FjGraph;
 
 /// Owns all per-viewport post-processing image state.
 /// One instance per viewport / SubViewport. Pass singletons provide the
-/// shared pipelines and descriptor set layouts; this class owns the
-/// per-resolution images, descriptor pools, and descriptor sets.
+/// shared pipelines; this class owns the per-resolution images.
 ///
 /// Bloom and SSR transients live in the FrameGraph's TransientImagePool —
 /// no per-viewport Images for them. Config toggles still gate whether
 /// those passes run (see `config()`).
 class PostProcessResources {
 public:
-    /// Pass singletons are needed to provide set layouts for Images creation.
+    /// The passes whose settings size images made here: DDGI's probe grid
+    /// and SS-GI's probe spacing.
     struct PassRefs {
-        HizPass& hiz;
-        AoPass& gtao;
-        VolumetricFogPass& fog;
-        PostPass& post;
         DdgiPass& ddgi;
         SsGiPass& ss_gi;
-        TaaResolvePass& taa;
-        RtReflectionPass& rt_reflection;
     };
 
-    /// `gpu` is the GPU interface's device, which is handed the images made
-    /// here that the frame graph tracks.
-    PostProcessResources(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                          uint32_t width, uint32_t height,
-                          const PostProcessConfig& config,
-                          const PassRefs& passes);
+    /// `gpu` is the GPU interface's device, which makes the images.
+    PostProcessResources(gpu::Device& gpu, uint32_t width, uint32_t height,
+                         const PostProcessConfig& config, const PassRefs& passes);
     ~PostProcessResources();
 
     PostProcessResources(const PostProcessResources&) = delete;
     PostProcessResources& operator=(const PostProcessResources&) = delete;
-    PostProcessResources(PostProcessResources&& other) noexcept;
-    PostProcessResources& operator=(PostProcessResources&& other) noexcept;
 
     void resize(uint32_t width, uint32_t height);
 
@@ -95,18 +83,13 @@ public:
     /// above reproject through it.
     [[nodiscard]] ViewHistory& view_history() { return view_history_; }
 
-    /// Release all imgui texture descriptors (call before swapchain recreation).
+    /// Lets the ImGui images of these go, before ImGui shuts down.
     void invalidate_imgui_textures();
 
 private:
     gpu::Device* gpu_{nullptr};
-    VkDevice device_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
     PostProcessConfig config_;
-
-    // Cached layout/sampler refs for resize (non-owning)
-    std::unique_ptr<PassRefs> passes_storage_;
-    PassRefs* passes_{nullptr};
+    PassRefs passes_;
 
     HizPass::Images hiz_images_;
     AoPass::Images gtao_images_;
