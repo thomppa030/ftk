@@ -236,10 +236,6 @@ VkDescriptorSetLayout GpuContext::global_set_layout() const {
     return gpu::vulkan::native_set_layout(core_.gpu_device(), global_bindings_.layout());
 }
 
-gpu::BindGroup GpuContext::draw_data_group(VkDescriptorSet set) {
-    return adopted_group(draw_data_groups_, shared_layouts_.draw_data, set);
-}
-
 gpu::BindGroup GpuContext::meshlets_group(VkDescriptorSet set) {
     return adopted_group(meshlets_groups_, shared_layouts_.meshlets, set);
 }
@@ -290,10 +286,8 @@ const FrameDescriptorCache& GpuContext::descriptor_cache() const {
     return gpu::vulkan::frame_cache(core_.gpu_device());
 }
 
-void GpuContext::share_draw_data_layout(VkDescriptorSetLayout layout,
-                                        std::span<const VkDescriptorSetLayoutBinding> bindings) {
-    shared_layouts_.draw_data =
-        gpu::vulkan::share_layout(core_.gpu_device(), "draw data", 2, layout, bindings);
+void GpuContext::share_draw_data_layout(gpu::SharedLayout layout) {
+    shared_layouts_.draw_data = layout;
 }
 
 PassResources GpuContext::pass_resources() const {
@@ -304,7 +298,6 @@ PassResources GpuContext::pass_resources() const {
     res.meshlets = shared_layouts_.meshlets;
     res.global_set_layout = global_set_layout();
     res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
-    res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
     res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     res.depth_format = core_.device().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;

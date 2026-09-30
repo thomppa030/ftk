@@ -1,132 +1,103 @@
 #include "renderer/draw_data_descriptor.hpp"
 #include "core/log.hpp"
-#include "gpu/vulkan/native.hpp"
-
-#include <array>
-#include <stdexcept>
+// Through the include path: a quoted "gpu/device.hpp" finds the older
+// renderer/gpu/device.hpp beside this file first.
+#include <gpu/device.hpp>
 
 namespace fjell {
 
-void DrawDataDescriptor::create(VkDevice device, gpu::Device& gpu) {
-    device_ = device;
+namespace {
+
+constexpr std::string_view DRAWS = "draws";
+constexpr std::string_view BONES = "bones";
+constexpr std::string_view INSTANCES = "instance_transforms";
+constexpr std::string_view VISIBLE_INSTANCES = "visible_instance_transforms";
+constexpr std::string_view SPLINE_SEGMENTS = "spline_segments";
+
+gpu::ShaderBinding storage_binding(std::string_view name, uint32_t binding, gpu::ShaderStages stages) {
+    gpu::ShaderBinding b;
+    b.name = std::string(name);
+    b.binding = binding;
+    b.kind = gpu::BindingKind::storage_buffer;
+    b.stages = stages;
+    return b;
+}
+
+} // namespace
+
+Result<gpu::SharedLayout> DrawDataDescriptor::make_layout(gpu::Device& gpu) {
+    using gpu::ShaderStage;
+    return gpu.create(gpu::SharedLayoutDesc{
+        .name = "draw data",
+        .usual_set = 2,
+        .bindings = {
+            storage_binding(DRAWS, 0, ShaderStage::vertex | ShaderStage::fragment | ShaderStage::task |
+                                          ShaderStage::mesh | ShaderStage::compute),
+            storage_binding(BONES, 1, ShaderStage::vertex | ShaderStage::mesh | ShaderStage::compute),
+            // The raw transforms feed the mesh shader path, the visible ones
+            // (per-instance culled) the vertex path.
+            storage_binding(INSTANCES, 2, ShaderStage::vertex | ShaderStage::mesh | ShaderStage::task |
+                                              ShaderStage::compute),
+            storage_binding(VISIBLE_INSTANCES, 3, ShaderStage::vertex | ShaderStage::compute),
+            storage_binding(SPLINE_SEGMENTS, 4, ShaderStage::vertex | ShaderStage::mesh),
+        },
+    });
+}
+
+Result<> DrawDataDescriptor::create(gpu::Device& gpu, gpu::SharedLayout layout, gpu::Buffer empty) {
     gpu_ = &gpu;
-
-    // Layout:
-    //   binding 0 = draw data SSBO
-    //   binding 1 = bone matrix SSBO
-    //   binding 2 = raw instance transform SSBO (read by mesh shader path)
-    //   binding 3 = visible (per-instance culled) transform SSBO (read by vertex path)
-    //   binding 4 = spline-mesh per-instance segment SSBO (read by vertex path)
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
-
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                             VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
-                             VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT |
-                             VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT |
-                             VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[3].binding = 3;
-    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[4].binding = 4;
-    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[4].descriptorCount = 1;
-    bindings[4].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT;
-
-    // Bindings 2, 3, 4 are optional — only populated when the scene contains
-    // instanced draws (2/3) or spline-mesh draws (4).
-    std::array<VkDescriptorBindingFlags, 5> binding_flags{};
-    binding_flags[2] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-    binding_flags[3] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-    binding_flags[4] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
-    flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    flags_ci.bindingCount = static_cast<uint32_t>(binding_flags.size());
-    flags_ci.pBindingFlags = binding_flags.data();
-
-    layout_ = std::make_unique<DescriptorSetLayout>(
-        device_, std::span{bindings}, &flags_ci);
-    layout_bindings_ = bindings;
-
-    // Pool: 5 storage buffer descriptors per frame
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 5;
-
-    pool_ = std::make_unique<DescriptorPool>(
-        device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
-
-    // Allocate per-frame descriptor sets
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        descriptor_sets_[i] = pool_->allocate(*layout_);
+    empty_ = empty;
+    for (auto& group : groups_) {
+        auto made = gpu.create(gpu::SharedGroupDesc{
+            .layout = layout,
+            .entries = {{DRAWS, gpu::storage(empty)},
+                        {BONES, gpu::storage(empty)},
+                        {INSTANCES, gpu::storage(empty)},
+                        {VISIBLE_INSTANCES, gpu::storage(empty)},
+                        {SPLINE_SEGMENTS, gpu::storage(empty)}},
+            .name = "draw_data",
+        });
+        if (!made) return make_error(made.error());
+        group = std::move(*made);
     }
-
-    FJELL_GFX_DEBUG("Draw data descriptor created");
+    return {};
 }
 
 void DrawDataDescriptor::destroy() {
-    pool_.reset();
-    layout_.reset();
+    for (auto& group : groups_) group.reset();
 }
 
-void DrawDataDescriptor::write(uint32_t binding, VkBuffer buffer, VkDeviceSize size,
+void DrawDataDescriptor::write(std::string_view binding, gpu::Buffer buffer, uint64_t size,
                                uint32_t frame_index) {
-    if (buffer == VK_NULL_HANDLE || size == 0) return;
-
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = binding;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    const gpu::BufferRange range =
+        buffer.valid() && size > 0 ? gpu::BufferRange(buffer, 0, size) : gpu::BufferRange(empty_);
+    const gpu::BindEntry entry[] = {{binding, gpu::storage(range)}};
+    if (auto written = gpu_->update(groups_[frame_index], entry); !written) {
+        FJELL_GFX_ERROR("Draw data '{}': {}", binding, written.error());
+    }
 }
 
 void DrawDataDescriptor::update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
-    write(0, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
+    write(DRAWS, buffer, size, frame_index);
 }
 
 void DrawDataDescriptor::update_bones(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
-    write(1, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
+    write(BONES, buffer, size, frame_index);
 }
 
 void DrawDataDescriptor::update_instance_transforms(gpu::Buffer buffer, uint64_t size,
                                                     uint32_t frame_index) {
-    write(2, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
+    write(INSTANCES, buffer, size, frame_index);
 }
 
 void DrawDataDescriptor::update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size,
                                                             uint32_t frame_index) {
-    write(3, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
+    write(VISIBLE_INSTANCES, buffer, size, frame_index);
 }
 
 void DrawDataDescriptor::update_spline_segments(gpu::Buffer buffer, uint64_t size,
                                                 uint32_t frame_index) {
-    write(4, gpu::vulkan::native_buffer(*gpu_, buffer), size, frame_index);
+    write(SPLINE_SEGMENTS, buffer, size, frame_index);
 }
 
 } // namespace fjell

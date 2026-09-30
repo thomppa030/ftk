@@ -66,6 +66,8 @@ public:
         return shadow_commands_[cascade];
     }
     [[nodiscard]] DrawDataDescriptor& draw_data_descriptor() { return draw_data_descriptor_; }
+    /// The layout of every draw data group, the main view's and the cascades'.
+    [[nodiscard]] gpu::SharedLayout draw_data_layout() const { return draw_data_layout_; }
     [[nodiscard]] DrawDataDescriptor& shadow_draw_data(uint32_t cascade) { return shadow_draw_data_[cascade]; }
 
     [[nodiscard]] const glm::vec3& camera_position() const { return camera_position_; }
@@ -86,6 +88,11 @@ private:
     glm::mat4 projection_matrix_{1.0f};
 
     std::unique_ptr<IndirectBatch> indirect_batch_;
+    gpu::SharedLayout draw_data_layout_{};
+    /// Bytes a draw data binding with nothing to hold reads: enough for any
+    /// one record.
+    static constexpr uint64_t EMPTY_DRAW_DATA_BYTES = 256;
+    gpu::Owned<gpu::Buffer> empty_draw_data_;
     DrawDataDescriptor draw_data_descriptor_;
 
     // Per-cascade shadow batches (each cascade only draws its own geometry)

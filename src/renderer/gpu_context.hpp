@@ -157,17 +157,13 @@ public:
     };
     [[nodiscard]] const SharedLayouts& shared_layouts() const { return shared_layouts_; }
 
-    /// A draw data set as the GPU interface binds it, handed to the device
-    /// the first time it is asked for.
-    [[nodiscard]] gpu::BindGroup draw_data_group(VkDescriptorSet set);
 
     /// A meshlet set as the GPU interface binds it, the same way.
     [[nodiscard]] gpu::BindGroup meshlets_group(VkDescriptorSet set);
 
-    /// Hands the GPU interface the draw data layout, which the scene gatherer
-    /// owns and makes after this context.
-    void share_draw_data_layout(VkDescriptorSetLayout layout,
-                                std::span<const VkDescriptorSetLayoutBinding> bindings);
+    /// Takes the draw data layout, which the scene gatherer makes after this
+    /// context, for the pipelines that name it.
+    void share_draw_data_layout(gpu::SharedLayout layout);
 
     void wait_idle() { core_.wait_idle(); }
 
@@ -201,7 +197,6 @@ private:
     /// shared layout the first time a pass binds them.
     using AdoptedGroups = std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>>;
     gpu::BindGroup adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout, VkDescriptorSet set);
-    AdoptedGroups draw_data_groups_;
     AdoptedGroups meshlets_groups_;
 
     // Light data

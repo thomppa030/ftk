@@ -9,8 +9,6 @@ src/core/engine.cpp
 src/core/play_controller.cpp
 src/core/play_controller.hpp
 src/core/profiler.hpp
-src/renderer/draw_data_descriptor.cpp
-src/renderer/draw_data_descriptor.hpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp

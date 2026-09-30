@@ -37,7 +37,6 @@ class UploadContext;
 struct PassResources {
     VkDescriptorSetLayout global_set_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
-    VkDescriptorSetLayout draw_data_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout meshlet_layout{VK_NULL_HANDLE};
     /// The same four as the GPU interface knows them: what a pipeline names
     /// in `.shared` to bind the engine's globals, bindless table, draw data
@@ -114,9 +113,8 @@ struct FrameContext {
     /// That set as the GPU interface binds it, for pipelines that name the
     /// shared bindless layout.
     gpu::BindGroup bindless{};
-    VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
-    /// That set as the GPU interface binds it, for pipelines that name the
-    /// shared draw data layout.
+    /// The draw data group, for pipelines that name the shared draw data
+    /// layout.
     gpu::BindGroup draw_data{};
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
@@ -208,8 +206,7 @@ struct FrameContext {
     // Per-cascade shadow batches (indexed by cascade index)
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
     std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};
-    std::array<VkDescriptorSet, MAX_SHADOW_CASCADES> shadow_cascade_draw_data{};
-    /// Those sets as the GPU interface binds them.
+    /// Each cascade's draw data group.
     std::array<gpu::BindGroup, MAX_SHADOW_CASCADES> shadow_cascade_draw_data_groups{};
 
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};

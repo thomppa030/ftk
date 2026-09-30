@@ -87,13 +87,31 @@ DrawCommand mesh_command(const Node& obj, const Node3D& spatial, const MeshCompo
 void SceneGatherer::init(GpuContext& gpu) {
     gpu::Device& device = gpu.core().gpu_device();
     indirect_batch_ = std::make_unique<IndirectBatch>(device);
-    draw_data_descriptor_.create(gpu.device(), device);
 
+    auto layout = DrawDataDescriptor::make_layout(device);
+    if (!layout) throw std::runtime_error("Draw data: " + layout.error());
+    draw_data_layout_ = *layout;
+    // What a draw data binding holds while the frame has nothing for it.
+    auto empty = device.create(gpu::BufferDesc{
+        .size = EMPTY_DRAW_DATA_BYTES,
+        .use = gpu::BufferUse::storage,
+        .memory = gpu::Memory::upload,
+        .name = "draw_data_empty",
+    });
+    if (!empty) throw std::runtime_error("Draw data: " + empty.error());
+    empty_draw_data_ = std::move(*empty);
+    std::ranges::fill(device.mapped(empty_draw_data_), std::byte{0});
+
+    auto create = [&](DrawDataDescriptor& data) {
+        if (auto made = data.create(device, draw_data_layout_, empty_draw_data_); !made) {
+            throw std::runtime_error("Draw data: " + made.error());
+        }
+    };
+    create(draw_data_descriptor_);
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
         shadow_batches_[c] = std::make_unique<IndirectBatch>(device);
-        shadow_draw_data_[c].create(gpu.device(), device);
+        create(shadow_draw_data_[c]);
     }
-
 }
 
 void SceneGatherer::gather(const GatherInput& input) {
@@ -301,70 +319,54 @@ void SceneGatherer::gather(const GatherInput& input) {
                                   input.animation_system, /*is_shadow_batch=*/true);
     }
 
-    // Update draw data descriptor for this frame
-    if (indirect_batch_->draw_data_count(input.frame_index) > 0) {
-        draw_data_descriptor_.update(
-            indirect_batch_->draw_data_buffer(input.frame_index),
-            indirect_batch_->draw_data_size(input.frame_index),
-            input.frame_index);
-    }
+    // Every draw data binding is set each frame, to the empty buffer when the
+    // frame has nothing for it, so none keeps a buffer that has since gone;
+    // setting what a group already holds costs nothing.
+    const uint32_t slot = input.frame_index;
+    IndirectBatch& batch = *indirect_batch_;
+    const bool draws = batch.draw_data_count(slot) > 0;
+    draw_data_descriptor_.update(draws ? batch.draw_data_buffer(slot) : gpu::Buffer{},
+                                 batch.draw_data_size(slot), slot);
 
-    // Update instance transform SSBO bindings (partially bound — only when present).
-    // Raw transforms feed the mesh shader path; compacted visible transforms feed
-    // the vertex path after InstanceCullPass writes them.
-    if (indirect_batch_->instance_transform_count(input.frame_index) > 0) {
-        draw_data_descriptor_.update_instance_transforms(
-            indirect_batch_->instance_transform_buffer(input.frame_index),
-            indirect_batch_->instance_transform_size(input.frame_index),
-            input.frame_index);
-        draw_data_descriptor_.update_visible_instance_transforms(
-            indirect_batch_->visible_instance_buffer(input.frame_index),
-            indirect_batch_->visible_instance_size(input.frame_index),
-            input.frame_index);
-    }
+    // Raw transforms feed the mesh shader path; compacted visible transforms
+    // feed the vertex path after InstanceCullPass writes them.
+    const bool instances = batch.instance_transform_count(slot) > 0;
+    draw_data_descriptor_.update_instance_transforms(
+        instances ? batch.instance_transform_buffer(slot) : gpu::Buffer{},
+        batch.instance_transform_size(slot), slot);
+    draw_data_descriptor_.update_visible_instance_transforms(
+        instances ? batch.visible_instance_buffer(slot) : gpu::Buffer{},
+        batch.visible_instance_size(slot), slot);
 
-    // Update spline-segment SSBO binding (partially bound).
-    if (indirect_batch_->spline_segment_count(input.frame_index) > 0) {
-        draw_data_descriptor_.update_spline_segments(
-            indirect_batch_->spline_segment_buffer(input.frame_index),
-            indirect_batch_->spline_segment_size(input.frame_index),
-            input.frame_index);
-    }
+    const bool splines = batch.spline_segment_count(slot) > 0;
+    draw_data_descriptor_.update_spline_segments(
+        splines ? batch.spline_segment_buffer(slot) : gpu::Buffer{},
+        batch.spline_segment_size(slot), slot);
 
-    // Update bone SSBO descriptor (shared by main pass and shadow cascades)
+    // Bone matrices, shared by the main pass and the shadow cascades.
+    gpu::Buffer bones{};
+    uint64_t bone_bytes = 0;
     if (input.animation_system && input.animation_system->has_bones_this_frame()) {
         auto& bb = input.animation_system->bone_buffer();
-        if (bb.total_bones() > 0 && bb.buffer(input.frame_index).valid()) {
-            draw_data_descriptor_.update_bones(bb.buffer(input.frame_index), bb.byte_size(),
-                                               input.frame_index);
-
-            // Shadow cascade descriptors also need bone SSBO
-            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-                shadow_draw_data_[c].update_bones(bb.buffer(input.frame_index), bb.byte_size(),
-                                                  input.frame_index);
-            }
+        if (bb.total_bones() > 0 && bb.buffer(slot).valid()) {
+            bones = bb.buffer(slot);
+            bone_bytes = bb.byte_size();
         }
     }
+    draw_data_descriptor_.update_bones(bones, bone_bytes, slot);
 
-    // Update per-cascade shadow draw data descriptors
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-        if (shadow_batches_[c]->draw_data_count(input.frame_index) > 0) {
-            shadow_draw_data_[c].update(
-                shadow_batches_[c]->draw_data_buffer(input.frame_index),
-                shadow_batches_[c]->draw_data_size(input.frame_index),
-                input.frame_index);
-        }
+        IndirectBatch& cascade = *shadow_batches_[c];
+        DrawDataDescriptor& data = shadow_draw_data_[c];
+        data.update_bones(bones, bone_bytes, slot);
+        data.update(cascade.draw_data_count(slot) > 0 ? cascade.draw_data_buffer(slot) : gpu::Buffer{},
+                    cascade.draw_data_size(slot), slot);
         // Shadow cascades render every source instance (no InstanceCullPass
-        // in the shadow frustum), so bind the raw transform buffer into the
-        // cascade's descriptor.
-        if (shadow_batches_[c]->instance_transform_count(input.frame_index) > 0) {
-            shadow_draw_data_[c].update_instance_transforms(
-                shadow_batches_[c]->instance_transform_buffer(input.frame_index),
-                shadow_batches_[c]->instance_transform_size(input.frame_index),
-                input.frame_index);
-        }
+        // in the shadow frustum), so the raw transforms are theirs.
+        data.update_instance_transforms(
+            cascade.instance_transform_count(slot) > 0 ? cascade.instance_transform_buffer(slot) : gpu::Buffer{},
+            cascade.instance_transform_size(slot), slot);
     }
-
 }
 
 void SceneGatherer::collect_candidates(Scene& scene) {

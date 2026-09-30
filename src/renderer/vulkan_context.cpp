@@ -61,15 +61,12 @@ VulkanContext::VulkanContext(Window& window)
 
     // Scene gathering: indirect batches + draw data descriptors
     gatherer_.init(gpu_);
-    gpu_.share_draw_data_layout(gatherer_.draw_data_descriptor().layout(),
-                                gatherer_.draw_data_descriptor().layout_bindings());
+    gpu_.share_draw_data_layout(gatherer_.draw_data_layout());
 
-    // Init pipelines now that draw_data_layout is available
+    // Init pipelines now that the draw data layout is available
     gpu_.init_pipelines();
 
-    // Build PassResources with draw_data_layout
     PassResources pass_resources = gpu_.pass_resources();
-    pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
     // Load the default render pipeline from `assets/render_graphs/default.fjgraph`.
     // Topology lives in data; pass behavior stays in C++ (PassFactory keys
@@ -381,8 +378,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.global_descriptor_set = gpu::vulkan::native_group(gpu_device(), ctx.globals);
     ctx.bindless = gpu_.bindless_textures().group(current_frame_);
     ctx.bindless_set = gpu::vulkan::native_group(gpu_device(), ctx.bindless);
-    ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
-    ctx.draw_data = gpu_.draw_data_group(ctx.draw_data_set);
+    ctx.draw_data = gatherer_.draw_data_descriptor().group(current_frame_);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
     ctx.environment = current_environment_;
@@ -431,11 +427,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // Shadow cascade batches (filled from gatherer, consumed by ShadowPass::build)
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
         ctx.shadow_cascade_batches[c] = gatherer_.shadow_batch(c);
-        ctx.shadow_cascade_draw_data[c] =
-            gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
-        if (ctx.shadow_cascade_draw_data[c] != VK_NULL_HANDLE) {
-            ctx.shadow_cascade_draw_data_groups[c] = gpu_.draw_data_group(ctx.shadow_cascade_draw_data[c]);
-        }
+        ctx.shadow_cascade_draw_data_groups[c] = gatherer_.shadow_draw_data(c).group(current_frame_);
         ctx.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
     }
 
@@ -1059,7 +1051,6 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout =
         gpu::vulkan::native_set_layout(gpu_device(), gpu_.bindless_textures().layout());
-    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
     res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     const auto& shared = gpu_.shared_layouts();
     res.globals = shared.globals;
