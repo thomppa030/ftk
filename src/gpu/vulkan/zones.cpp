@@ -16,13 +16,13 @@ size_t Device::Impl::ZoneSiteHash::operator()(const ZoneSiteKey& key) const noex
     return name ^ (file << 1) ^ (static_cast<size_t>(key.line) << 2);
 }
 
-const tracy::SourceLocationData* Device::Impl::zone_source(std::string_view name,
+const tracy::SourceLocationData* Device::Impl::zone_source(std::string_view zone_name,
                                                            const std::source_location& where) {
-    const ZoneSiteKey key{name, where.file_name(), where.line()};
+    const ZoneSiteKey key{zone_name, where.file_name(), where.line()};
     std::lock_guard lock(zone_sites_mutex);
     auto found = zone_sites.find(key);
     if (found == zone_sites.end()) {
-        found = zone_sites.emplace(ZoneSite{std::string(name), key.file, key.line},
+        found = zone_sites.emplace(ZoneSite{std::string(zone_name), key.file, key.line},
                                    tracy::SourceLocationData{})
                     .first;
         // The map's nodes never move, so the profiler may keep pointing at

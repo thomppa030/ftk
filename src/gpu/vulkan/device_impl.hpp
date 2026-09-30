@@ -381,7 +381,7 @@ struct Device::Impl {
     std::mutex zone_sites_mutex;
 
     /// The profiler's record of a zone site, made the first time it opens.
-    [[nodiscard]] const tracy::SourceLocationData* zone_source(std::string_view name,
+    [[nodiscard]] const tracy::SourceLocationData* zone_source(std::string_view zone_name,
                                                                const std::source_location& where);
 #endif
     /// Acceleration structures, loaded where the GPU has ray queries; null
