@@ -8,8 +8,8 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 
-#include <gpu/command_list.hpp>
-#include <gpu/device.hpp>
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
 
 #include <algorithm>
 #include <cmath>

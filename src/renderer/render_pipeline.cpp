@@ -19,7 +19,7 @@
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
-#include <gpu/device.hpp>
+#include "gpu/device.hpp"
 
 #include <algorithm>
 #include <queue>

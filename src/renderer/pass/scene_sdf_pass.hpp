@@ -5,12 +5,12 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/uniform_types.hpp"
 
-#include <gpu/buffer.hpp>
-#include <gpu/format.hpp>
-#include <gpu/owned.hpp>
-#include <gpu/pipeline.hpp>
-#include <gpu/sampler.hpp>
-#include <gpu/texture.hpp>
+#include "gpu/buffer.hpp"
+#include "gpu/format.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 
 #include <glm/glm.hpp>
 

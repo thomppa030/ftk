@@ -1,6 +1,6 @@
 #include "renderer/offscreen_pass.hpp"
 
-#include <gpu/device.hpp>
+#include "gpu/device.hpp"
 
 #include <optional>
 #include <stdexcept>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <gpu/acceleration.hpp>
+#include "gpu/acceleration.hpp"
 
 #include <glm/mat4x4.hpp>
 

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
-
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -12,15 +10,15 @@
 #include <span>
 #include <vector>
 
-namespace fjell {
-
-class Device;
-
-namespace gpu {
+namespace fjell::gpu {
 class Device;
 class Readback;
 class Upload;
 }
+
+namespace fjell::gpu::vulkan {
+
+class Foundation;
 
 /// A mapped slice of upload staging memory, already positioned for a copy
 /// command (`buffer` + `offset` go straight into VkBufferCopy /
@@ -43,22 +41,23 @@ struct StagingSlice {
 ///  - buffer lane: vkCmdCopyBuffer batches, submitted to the dedicated
 ///    transfer queue (the DMA engine) when the device has one, so copies
 ///    overlap rendering. Destination buffers must be created with
-///    Device::upload_sharing_families() so their content is defined across
+///    Foundation::upload_sharing_families() so their content is defined across
 ///    queues. Falls back to the graphics queue otherwise.
 ///  - image lane: always the graphics queue — mip generation blits need a
 ///    graphics-capable queue, and same-queue submission order makes the
 ///    in-CB layout transitions sufficient sync.
 ///
 /// Main-thread only, like the rest of the GPU submission paths.
-class UploadContext {
+class UploadLanes {
 public:
-    UploadContext(Device& device, VmaAllocator allocator);
-    ~UploadContext();
+    /// Lanes on the queues of `foundation`, staging through its allocator.
+    explicit UploadLanes(Foundation& foundation);
+    ~UploadLanes();
 
-    UploadContext(const UploadContext&) = delete;
-    UploadContext& operator=(const UploadContext&) = delete;
-    UploadContext(UploadContext&&) = delete;
-    UploadContext& operator=(UploadContext&&) = delete;
+    UploadLanes(const UploadLanes&) = delete;
+    UploadLanes& operator=(const UploadLanes&) = delete;
+    UploadLanes(UploadLanes&&) = delete;
+    UploadLanes& operator=(UploadLanes&&) = delete;
 
     /// Stage `data` and record a copy into `dst` at `dst_offset`.
     /// Overlapping writes to the same destination region within one batch
@@ -91,8 +90,8 @@ public:
     }
 
     /// Queue families upload-destination buffers must be shared across
-    /// (Device::upload_sharing_families, forwarded so callers creating
-    /// destination buffers don't also need the Device).
+    /// (Foundation::upload_sharing_families, forwarded so callers creating
+    /// destination buffers don't also need the foundation).
     [[nodiscard]] std::span<const uint32_t> sharing_families() const {
         return sharing_families_;
     }
@@ -125,6 +124,19 @@ private:
 
     enum LaneIndex : uint32_t { BUFFER = 0, IMAGE = 1, LANE_COUNT = 2 };
 
+    /// Host memory copies are staged in, mapped for as long as it lives.
+    struct Staging {
+        Staging(VmaAllocator made_by, VkDeviceSize size);
+        ~Staging();
+        Staging(const Staging&) = delete;
+        Staging& operator=(const Staging&) = delete;
+
+        VmaAllocator allocator{VK_NULL_HANDLE};
+        VkBuffer buffer{VK_NULL_HANDLE};
+        VmaAllocation allocation{VK_NULL_HANDLE};
+        void* mapped{nullptr};
+    };
+
     struct Batch {
         VkCommandBuffer cb{VK_NULL_HANDLE};
         // 0 while the batch is open; set to the signaled timeline value at
@@ -133,7 +145,7 @@ private:
         std::shared_ptr<uint64_t> value{};
         // Oversized staging that bypassed the ring; freed when the batch
         // completes.
-        std::vector<std::unique_ptr<Buffer>> dedicated;
+        std::vector<std::unique_ptr<Staging>> dedicated;
     };
 
     struct Lane {
@@ -161,13 +173,13 @@ private:
 
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
-    // Points into the Device's stable family array.
+    // Points into the foundation's stable family array.
     std::span<const uint32_t> sharing_families_;
 
     std::array<Lane, LANE_COUNT> lanes_;
 
     // Persistent mapped staging ring shared by both lanes.
-    std::unique_ptr<Buffer> ring_;
+    std::unique_ptr<Staging> ring_;
     VkDeviceSize ring_capacity_{0};
     VkDeviceSize head_{0};
     VkDeviceSize tail_{0};
@@ -179,4 +191,4 @@ private:
     static constexpr VkDeviceSize RING_ALIGNMENT = 16;
 };
 
-} // namespace fjell
+} // namespace fjell::gpu::vulkan

@@ -4,7 +4,7 @@
 #include "gpu/vulkan/frame_impl.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/device.hpp"
+#include "gpu/vulkan/foundation.hpp"
 #include "renderer/gpu/window.hpp"
 
 #include <algorithm>
@@ -64,12 +64,12 @@ VkExtent2D choose_extent(const VkSurfaceCapabilitiesKHR& capabilities, VkExtent2
 
 struct Swapchain::Impl {
     Impl(Device& gpu_device, Window& shown, VkSurfaceKHR on, bool own_surface)
-        : device(gpu_device), vk(gpu_device.impl().foundation.vk), window(shown), surface(on),
+        : device(gpu_device), foundation(gpu_device.impl().foundation), window(shown), surface(on),
           owns_surface(own_surface) {}
 
     ~Impl() {
         tear_down();
-        if (owns_surface) vkDestroySurfaceKHR(vk.instance(), surface, nullptr);
+        if (owns_surface) vkDestroySurfaceKHR(foundation.instance(), surface, nullptr);
     }
 
     Impl(const Impl&) = delete;
@@ -86,7 +86,7 @@ struct Swapchain::Impl {
     void rebuild();
 
     Device& device;
-    fjell::Device& vk;
+    vulkan::Foundation& foundation;
     Window& window;
     VkSurfaceKHR surface{VK_NULL_HANDLE};
     /// A window other than the one the device was made for brings its own
@@ -118,7 +118,7 @@ Result<> Swapchain::Impl::build() {
     }
 
     const VkDevice dev = device.impl().device;
-    const SwapchainSupport support = vk.query_swapchain_support(surface);
+    const vulkan::SwapchainSupport support = foundation.query_swapchain_support(surface);
     const auto surface_format = choose_format(support.formats);
     if (!surface_format) return make_error("The window offers no image format the GPU interface names");
 
@@ -140,7 +140,7 @@ Result<> Swapchain::Impl::build() {
         (support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (sampled) info.imageUsage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    const auto families = vk.find_queue_families();
+    const auto families = foundation.find_queue_families();
     const std::array<uint32_t, 2> both{families.graphics.value(), families.present.value()};
     if (both[0] != both[1]) {
         info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -232,23 +232,23 @@ void Swapchain::Impl::rebuild() {
 
 Result<std::unique_ptr<Swapchain>> Swapchain::create(Device& device, Window& window) {
     Device::Impl& self = device.impl();
-    fjell::Device& vk = self.foundation.vk;
+    vulkan::Foundation& foundation = self.foundation;
     std::unique_ptr<Impl> impl;
-    if (&window == &self.foundation.window) {
-        impl = std::make_unique<Impl>(device, window, vk.surface(), false);
+    if (&window == &foundation.window()) {
+        impl = std::make_unique<Impl>(device, window, foundation.surface(), false);
     } else {
         VkSurfaceKHR surface{VK_NULL_HANDLE};
         try {
-            surface = window.create_surface(vk.instance());
+            surface = window.create_surface(foundation.instance());
         } catch (const std::exception& e) {
             return make_error(e.what());
         }
         VkBool32 supported = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(vk.physical_device(),
-                                             vk.find_queue_families().present.value(), surface,
+        vkGetPhysicalDeviceSurfaceSupportKHR(foundation.physical_device(),
+                                             foundation.find_queue_families().present.value(), surface,
                                              &supported);
         if (supported == VK_FALSE) {
-            vkDestroySurfaceKHR(vk.instance(), surface, nullptr);
+            vkDestroySurfaceKHR(foundation.instance(), surface, nullptr);
             return make_error("The GPU cannot present to the window");
         }
         impl = std::make_unique<Impl>(device, window, surface, true);
@@ -310,7 +310,7 @@ Result<> Swapchain::present(Frame& frame, const SwapchainImage& image) {
     info.swapchainCount = 1;
     info.pSwapchains = &impl_->swapchain;
     info.pImageIndices = &image.index;
-    const VkResult result = vkQueuePresentKHR(impl_->vk.present_queue(), &info);
+    const VkResult result = vkQueuePresentKHR(impl_->foundation.present_queue(), &info);
 
     // A compositor may resize the window without the swapchain going out of
     // date, which leaves the images at their old size.

@@ -2,9 +2,7 @@
 #include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-// Through the include path: a quoted "gpu/device.hpp" finds the older
-// renderer/gpu/device.hpp beside this file first.
-#include <gpu/device.hpp>
+#include "gpu/device.hpp"
 
 #include <algorithm>
 #include <cstring>

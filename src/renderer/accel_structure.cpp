@@ -11,8 +11,8 @@
 #include "renderer/systems/particle_system.hpp"
 #include "scene/scene.hpp"
 
-#include <gpu/command_list.hpp>
-#include <gpu/device.hpp>
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 

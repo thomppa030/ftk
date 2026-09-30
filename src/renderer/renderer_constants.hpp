@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/gpu/frames_in_flight.hpp"
+#include "gpu/frames_in_flight.hpp"
 
 #include <cstdint>
 

@@ -9,8 +9,8 @@
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 
-#include <gpu/device.hpp>
-#include <gpu/frame.hpp>
+#include "gpu/device.hpp"
+#include "gpu/frame.hpp"
 
 #include <algorithm>
 #include <array>

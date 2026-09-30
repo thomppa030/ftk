@@ -3,9 +3,9 @@
 
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/frames_in_flight.hpp"
-#include "renderer/gpu/upload_context.hpp"
-#include "renderer/gpu/vk_check.hpp"
+#include "gpu/frames_in_flight.hpp"
+#include "gpu/vulkan/upload_lanes.hpp"
+#include "gpu/vulkan/vk_check.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -100,7 +100,7 @@ constexpr uint64_t SCRATCH_CHUNK_SIZE = 8u << 20;
 
 // Where build scratch starts: what the device asks, where it builds
 // acceleration structures at all.
-uint64_t device_scratch_alignment(const fjell::Device& vk) {
+uint64_t device_scratch_alignment(const vulkan::Foundation& vk) {
     if (!vk.ray_tracing_supported()) return 256;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration{};
     acceleration.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
@@ -119,30 +119,7 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
                                properties.limits.minStorageBufferOffsetAlignment, 16});
 }
 
-VmaAllocator create_allocator(const fjell::Device& vk) {
-    VmaAllocatorCreateInfo info{};
-    info.instance = vk.instance();
-    info.physicalDevice = vk.physical_device();
-    info.device = vk.handle();
-    info.vulkanApiVersion = VK_API_VERSION_1_3;
-    if (vk.ray_tracing_supported()) info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-    VmaAllocator allocator{VK_NULL_HANDLE};
-    vk_check(vmaCreateAllocator(&info, &allocator), "Failed to create the allocator");
-    return allocator;
-}
-
 } // namespace
-
-// ── Foundation ──────────────────────────────────────────────────────────
-
-vulkan::Foundation::Foundation(Window& shown)
-    : window(shown), vk(shown), allocator(create_allocator(vk)),
-      lanes(std::make_unique<UploadContext>(vk, allocator)) {}
-
-vulkan::Foundation::~Foundation() {
-    lanes.reset();
-    vmaDestroyAllocator(allocator);
-}
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
@@ -164,11 +141,11 @@ void Device::Impl::save_pipeline_cache() {
 }
 
 Device::Impl::Impl(Window& window)
-    : foundation(window), device(foundation.vk.handle()), allocator(foundation.allocator),
-      sparse_queue(foundation.vk.sparse_bind_queue()),
-      upload_state{*foundation.lanes},
+    : foundation(window), device(foundation.handle()), allocator(foundation.allocator()),
+      sparse_queue(foundation.sparse_bind_queue()),
+      upload_state{foundation.lanes()},
       transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
-                 .alignment = transient_alignment(foundation.vk.physical_device()),
+                 .alignment = transient_alignment(foundation.physical_device()),
                  .chunk_size = TRANSIENT_CHUNK_SIZE},
                 [this](uint64_t size) -> Result<TransientChunk> {
                     auto made = make_buffer(BufferDesc{
@@ -182,7 +159,7 @@ Device::Impl::Impl(Window& window)
                     const BufferRecord* record = buffers.get(*made);
                     return TransientChunk{*made, record->size, {record->mapped, record->size}};
                 }),
-      scratch_alignment(device_scratch_alignment(foundation.vk)),
+      scratch_alignment(device_scratch_alignment(foundation)),
       scratch({.frame_slots = MAX_FRAMES_IN_FLIGHT,
                .alignment = scratch_alignment,
                .chunk_size = SCRATCH_CHUNK_SIZE},
@@ -196,7 +173,7 @@ Device::Impl::Impl(Window& window)
                   return TransientChunk{*made, size, {}};
               }) {
     VkPhysicalDeviceProperties properties{};
-    const fjell::Device& vk = foundation.vk;
+    const vulkan::Foundation& vk = foundation;
     vkGetPhysicalDeviceProperties(vk.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
     name = vk.gpu_name();
@@ -277,7 +254,7 @@ Device::Impl::Impl(Window& window)
 Device::Impl::~Impl() {
     // Uploads still open may clear textures the device holds: they are sent,
     // and finish with everything else on the GPU, before anything goes.
-    foundation.lanes->wait_all();
+    foundation.lanes().wait_all();
     vkDeviceWaitIdle(device);
 #ifdef FJELL_ENABLE_TRACY
     if (profiler != nullptr) TracyVkDestroy(profiler);
@@ -393,7 +370,7 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = desc.size;
     create_info.usage = vulkan::to_vk(desc.use);
-    const auto families = foundation.vk.upload_sharing_families();
+    const auto families = foundation.upload_sharing_families();
     share_with_upload_families(create_info, families);
 
     if (desc.reserve != 0 && sparse_queue != VK_NULL_HANDLE) {
@@ -560,7 +537,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     create_info.usage = vulkan::to_vk(info.use, info.format);
     create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     uint32_t family_count = 0;
-    const uint32_t* families = self.foundation.vk.concurrent_queue_families(family_count);
+    const uint32_t* families = self.foundation.concurrent_queue_families(family_count);
     if (desc.queues == Queues::graphics_and_compute && family_count >= 2) {
         create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         create_info.queueFamilyIndexCount = family_count;
@@ -655,7 +632,7 @@ Result<> Device::grow(Buffer buffer, uint64_t size) {
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = target;
     create_info.usage = record->usage;
-    const auto families = self.foundation.vk.upload_sharing_families();
+    const auto families = self.foundation.upload_sharing_families();
     share_with_upload_families(create_info, families);
     VmaAllocationCreateInfo allocation_info{};
     allocation_info.usage = VMA_MEMORY_USAGE_AUTO;

@@ -87,8 +87,8 @@ ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
     }
 
     ImGui_ImplVulkan_InitInfo init{};
-    init.Instance = impl.foundation.vk.instance();
-    init.PhysicalDevice = impl.foundation.vk.physical_device();
+    init.Instance = impl.foundation.instance();
+    init.PhysicalDevice = impl.foundation.physical_device();
     init.Device = impl.device;
     init.QueueFamily = impl.families[0];
     init.Queue = impl.queues[0];

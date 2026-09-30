@@ -1,7 +1,7 @@
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 
 #include "core/log.hpp"
-#include "renderer/gpu/vk_check.hpp"
+#include "gpu/vulkan/vk_check.hpp"
 
 #include <array>
 #include <cstring>

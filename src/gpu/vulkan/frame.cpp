@@ -3,9 +3,9 @@
 #include "core/small_vector.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/frames_in_flight.hpp"
-#include "renderer/gpu/upload_context.hpp"
-#include "renderer/gpu/vk_check.hpp"
+#include "gpu/frames_in_flight.hpp"
+#include "gpu/vulkan/upload_lanes.hpp"
+#include "gpu/vulkan/vk_check.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -242,7 +242,7 @@ Result<> Device::end_frame(Frame& frame) {
 
     // Uploads recorded since the last frame go first; the frame's first list
     // waits for them.
-    UploadContext& upload = *self.foundation.lanes;
+    vulkan::UploadLanes& upload = self.foundation.lanes();
     upload.flush();
 
     const auto submit = [&](VkQueue queue, std::span<const VkSemaphoreSubmitInfo> waits,
@@ -261,7 +261,7 @@ Result<> Device::end_frame(Frame& frame) {
         info.pSignalSemaphoreInfos = signals.data();
         const VkResult result = vkQueueSubmit2(queue, 1, &info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) return {};
-        if (result == VK_ERROR_DEVICE_LOST) self.foundation.vk.dump_device_fault("frame submit");
+        if (result == VK_ERROR_DEVICE_LOST) self.foundation.dump_device_fault("frame submit");
         return make_error("A frame's submission failed (VkResult=" +
                           std::to_string(static_cast<int>(result)) + ")");
     };
@@ -350,7 +350,7 @@ Result<> Device::end_frame(Frame& frame) {
 }
 
 void Device::wait_idle() {
-    impl_->foundation.lanes->wait_all();
+    impl_->foundation.lanes().wait_all();
     vk_check(vkDeviceWaitIdle(impl_->device), "Failed to wait for the device to go idle");
 }
 

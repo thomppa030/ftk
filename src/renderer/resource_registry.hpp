@@ -1,6 +1,6 @@
 #pragma once
 
-#include <gpu/buffer.hpp>
+#include "gpu/buffer.hpp"
 #include "gpu/texture.hpp"
 
 #include <cassert>

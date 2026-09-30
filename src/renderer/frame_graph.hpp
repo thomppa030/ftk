@@ -2,7 +2,7 @@
 
 #include "core/handle.hpp"
 #include "gpu/access.hpp"
-#include <gpu/buffer.hpp>
+#include "gpu/buffer.hpp"
 #include "gpu/queue.hpp"
 #include "gpu/texture.hpp"
 #include "gpu/transition.hpp"

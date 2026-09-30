@@ -2,8 +2,8 @@
 
 #include "renderer/resources/meshlet.hpp"
 
-#include <gpu/buffer.hpp>
-#include <gpu/owned.hpp>
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
 
 #include <cstdint>
 

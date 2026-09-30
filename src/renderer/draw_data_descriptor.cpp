@@ -1,8 +1,6 @@
 #include "renderer/draw_data_descriptor.hpp"
 #include "core/log.hpp"
-// Through the include path: a quoted "gpu/device.hpp" finds the older
-// renderer/gpu/device.hpp beside this file first.
-#include <gpu/device.hpp>
+#include "gpu/device.hpp"
 
 namespace fjell {
 

@@ -7,8 +7,8 @@
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
-#include <gpu/buffer.hpp>
-#include <gpu/owned.hpp>
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
 
 #include <cstdint>
 #include <memory>

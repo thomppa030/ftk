@@ -2,7 +2,7 @@
 
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/vk_check.hpp"
+#include "gpu/vulkan/vk_check.hpp"
 
 #include <algorithm>
 #include <array>
