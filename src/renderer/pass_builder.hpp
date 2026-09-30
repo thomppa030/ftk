@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/access.hpp"
+#include <gpu/acceleration.hpp>
 #include <gpu/buffer.hpp>
 #include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
@@ -43,10 +44,13 @@ struct ImportedImage {
 /// A named buffer made available to pass declare() bodies, the buffer
 /// counterpart of ImportedImage. Producer passes add their outputs through
 /// RenderPass::collect_exports(); consumers reach them by name through
-/// PassBuilder::import_named_buffer().
+/// PassBuilder::import_named_buffer(), or, for an acceleration structure,
+/// PassBuilder::import_named_acceleration().
 struct BufferImport {
     /// The buffer, which the graph tracks as a whole.
     gpu::Buffer buffer{};
+    /// Or an acceleration structure, tracked the same way.
+    gpu::AccelerationStructure structure{};
     // Read on a later frame than the one that wrote it, so a writer stays
     // alive with no reader in the frame.
     bool persistent{false};
@@ -219,16 +223,27 @@ public:
     /// viewport's graph, or the buffer does not exist yet.
     FgBuffer import_named_buffer(const DeclareContext& ctx, std::string_view name);
 
+    /// Declare an externally-owned acceleration structure, tracked as a
+    /// buffer is: whole, `persistent` as a buffer's.
+    FgAcceleration import(std::string_view name, gpu::AccelerationStructure structure,
+                          bool persistent = false);
+
+    /// import_named_buffer() for an acceleration structure a producer
+    /// exported: an invalid handle when none was exported this frame.
+    FgAcceleration import_named_acceleration(const DeclareContext& ctx, std::string_view name);
+
     // ── Access declarations ────────────────────────────────────────────
 
     /// Declare that this pass reads a resource. Returns the handle so
     /// builder code can chain.
     FgTexture read(FgTexture, gpu::Access);
     FgBuffer read(FgBuffer, gpu::Access);
+    FgAcceleration read(FgAcceleration, gpu::Access);
 
     /// Declare that this pass writes a resource.
     FgTexture write(FgTexture, gpu::Access);
     FgBuffer write(FgBuffer, gpu::Access);
+    FgAcceleration write(FgAcceleration, gpu::Access);
 
     /// Declare that this pass reads and writes the same resource
     /// (storage image ping-pong, depth test+write, etc.).
@@ -283,11 +298,14 @@ public:
         gpu::AccessSet resting{};
         bool unwritten{false};
     };
+    /// A buffer, or an acceleration structure (`structure` set, `buffer`
+    /// not), whose accesses are declared through a handle of the same id.
     struct ImportedBuffer {
         FgBuffer handle;
         std::string name;
         gpu::Buffer buffer;
         bool persistent;
+        gpu::AccelerationStructure structure{};
     };
     struct CreatedTexture {
         FgTexture handle;

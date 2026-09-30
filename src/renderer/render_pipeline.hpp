@@ -143,9 +143,10 @@ private:
     struct ResKey {
         gpu::Texture texture{};
         gpu::Buffer buffer{};
+        gpu::AccelerationStructure structure{};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
-        uint64_t virtual_name_hash{0};  // non-zero iff neither texture nor buffer
+        uint64_t virtual_name_hash{0};  // non-zero iff no handle is set
         bool operator==(const ResKey& o) const noexcept = default;
     };
     struct ResKeyHash {
@@ -155,7 +156,8 @@ private:
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
             auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
             auto h5 = std::hash<uint32_t>{}(k.buffer.id);
-            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
+            auto h6 = std::hash<uint32_t>{}(k.structure.id);
+            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4) ^ (h6 << 5);
         }
     };
     struct PendingPass {

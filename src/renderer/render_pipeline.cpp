@@ -387,12 +387,13 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Buffer keys: imported buffers identify by their handle (offset/range
     // is sub-resource detail the graph doesn't model yet — coarse buffer
-    // identity is enough for producer/consumer edges). Created (transient)
-    // buffers key on FNV-1a hash of name, mirroring the texture path.
+    // identity is enough for producer/consumer edges), and imported
+    // acceleration structures by theirs. Created (transient) buffers key on
+    // FNV-1a hash of name, mirroring the texture path.
     auto resolve_buffer_key = [](const PassBuilder& b, FgBuffer h) -> ResKey {
         for (const auto& imp : b.imported_buffers()) {
             if (imp.handle.id == h.id) {
-                return {.buffer = imp.buffer};
+                return {.buffer = imp.buffer, .structure = imp.structure};
             }
         }
         for (const auto& cre : b.created_buffers()) {
@@ -404,7 +405,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     };
 
     auto key_valid = [](const ResKey& k) {
-        return k.texture.valid() || k.buffer.valid() || k.virtual_name_hash != 0;
+        return k.texture.valid() || k.buffer.valid() || k.structure.valid() ||
+               k.virtual_name_hash != 0;
     };
 
     auto& dag_order = dag_order_;

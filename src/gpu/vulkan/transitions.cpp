@@ -142,7 +142,33 @@ void CommandList::transition(std::span<const Transition> transitions) {
 
     SmallVector<VkImageMemoryBarrier2, INLINE_BARRIERS> images;
     SmallVector<VkBufferMemoryBarrier2, INLINE_BARRIERS> buffers;
+    // Acceleration structures are memory reached through their addresses:
+    // a memory barrier each, which the pipeline barrier merges.
+    SmallVector<VkMemoryBarrier2, INLINE_BARRIERS> structures;
     for (const Transition& t : transitions) {
+        if (t.structure.valid()) {
+            if (!device.accelerations.contains(t.structure)) {
+                device.report_once("A transition names an acceleration structure that no longer exists");
+                continue;
+            }
+            // A buffer's barrier asks what a structure's does: the same
+            // stages, accesses and queue.
+            const auto barrier = buffer_barrier(VK_NULL_HANDLE, t, queue);
+            if (!barrier) continue;
+            VkMemoryBarrier2 memory{};
+            memory.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            memory.srcStageMask = barrier->srcStageMask;
+            memory.srcAccessMask = barrier->srcAccessMask;
+            memory.dstStageMask = barrier->dstStageMask;
+            memory.dstAccessMask = barrier->dstAccessMask;
+            structures.push_back(memory);
+            if (trace != nullptr) {
+                *trace += std::format("    structure {} src {:x}/{:x} dst {:x}/{:x}\n", t.name,
+                                      memory.srcStageMask, memory.srcAccessMask,
+                                      memory.dstStageMask, memory.dstAccessMask);
+            }
+            continue;
+        }
         if (t.texture.texture.valid()) {
             const auto* record = device.textures.get(t.texture.texture);
             if (record == nullptr) {
@@ -196,10 +222,12 @@ void CommandList::transition(std::span<const Transition> transitions) {
                 static_cast<uint64_t>(barrier->dstAccessMask), queue_name(queue));
         }
     }
-    if (images.empty() && buffers.empty()) return;
+    if (images.empty() && buffers.empty() && structures.empty()) return;
 
     VkDependencyInfo dependency{};
     dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.memoryBarrierCount = static_cast<uint32_t>(structures.size());
+    dependency.pMemoryBarriers = structures.data();
     dependency.imageMemoryBarrierCount = static_cast<uint32_t>(images.size());
     dependency.pImageMemoryBarriers = images.data();
     dependency.bufferMemoryBarrierCount = static_cast<uint32_t>(buffers.size());

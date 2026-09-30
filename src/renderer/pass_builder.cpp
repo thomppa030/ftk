@@ -84,6 +84,28 @@ FgBuffer PassBuilder::import(std::string_view name, gpu::Buffer buffer, bool per
     return h;
 }
 
+FgAcceleration PassBuilder::import(std::string_view name, gpu::AccelerationStructure structure,
+                                  bool persistent) {
+    FgAcceleration h{next_buffer_id_++};
+    imported_buffers_.push_back({
+        .handle = FgBuffer{h.id},
+        .name = std::string(name),
+        .buffer = {},
+        .persistent = persistent,
+        .structure = structure,
+    });
+    return h;
+}
+
+FgAcceleration PassBuilder::import_named_acceleration(const DeclareContext& ctx,
+                                                      std::string_view name) {
+    auto it = ctx.buffer_imports.find(fg_name_hash(name));
+    if (it == ctx.buffer_imports.end() || !it->second.structure.valid()) {
+        return FgAcceleration{};
+    }
+    return import(name, it->second.structure, it->second.persistent);
+}
+
 FgTexture PassBuilder::read(FgTexture h, gpu::Access a) {
     texture_accesses_.push_back({.handle = h, .access = a});
     return h;
@@ -95,6 +117,12 @@ FgBuffer PassBuilder::read(FgBuffer h, gpu::Access a) {
     return h;
 }
 
+FgAcceleration PassBuilder::read(FgAcceleration h, gpu::Access a) {
+    if (!h.valid()) { return h; }
+    buffer_accesses_.push_back({.handle = FgBuffer{h.id}, .access = a});
+    return h;
+}
+
 FgTexture PassBuilder::write(FgTexture h, gpu::Access a) {
     texture_accesses_.push_back({.handle = h, .access = a});
     return h;
@@ -103,6 +131,12 @@ FgTexture PassBuilder::write(FgTexture h, gpu::Access a) {
 FgBuffer PassBuilder::write(FgBuffer h, gpu::Access a) {
     if (!h.valid()) { return h; }
     buffer_accesses_.push_back({.handle = h, .access = a});
+    return h;
+}
+
+FgAcceleration PassBuilder::write(FgAcceleration h, gpu::Access a) {
+    if (!h.valid()) { return h; }
+    buffer_accesses_.push_back({.handle = FgBuffer{h.id}, .access = a});
     return h;
 }
 

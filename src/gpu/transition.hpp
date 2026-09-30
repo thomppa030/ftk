@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/acceleration.hpp"
 #include "gpu/access.hpp"
 #include "gpu/buffer.hpp"
 #include "gpu/queue.hpp"
@@ -14,12 +15,14 @@
 
 namespace fjell::gpu {
 
-/// One texture range or buffer moved from what was done to it to what
-/// comes next.
+/// One texture range, buffer or acceleration structure moved from what was
+/// done to it to what comes next.
 struct Transition {
-    /// The part of a texture it moves; or, left invalid, `buffer` whole.
+    /// The part of a texture it moves; or, left invalid, `buffer` whole, or
+    /// `structure`.
     TextureView texture{};
     Buffer buffer{};
+    AccelerationStructure structure{};
 
     /// Work that must finish first: the accesses since the last
     /// transition that the next ones may not overtake.

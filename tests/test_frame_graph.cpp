@@ -339,3 +339,45 @@ TEST_CASE("A transient starts undefined in the texture that backs it", "[framegr
     REQUIRE(use.size() == 1);
     CHECK(use[0].wait_for == Access::storage_write_compute);
 }
+
+TEST_CASE("An acceleration structure is traced after its build, apart from buffers",
+          "[framegraph]") {
+    GraphRun run;
+    const auto tlas = gpu::AccelerationStructure::make(90, 1);
+    // A buffer whose id is the structure's: tracked apart all the same.
+    const auto records = gpu::Buffer::make(90, 1);
+    run.begin();
+    run.pass("build", [&](PassBuilder& b) {
+        b.write(b.import("tlas", tlas), Access::acceleration_build);
+        b.write(b.import("records", records), Access::storage_buffer_write_compute);
+    });
+    run.pass("trace", [&](PassBuilder& b) {
+        b.read(b.import("tlas", tlas), Access::acceleration_trace_compute);
+        b.read(b.import("records", records), Access::storage_buffer_read_compute);
+    });
+    run.execute();
+
+    CHECK(run.between("", "build").empty());
+    const auto trace = run.between("build", "trace");
+    REQUIRE(trace.size() == 2);
+    const gpu::Transition& structure = trace[0].structure.valid() ? trace[0] : trace[1];
+    const gpu::Transition& buffer = trace[0].structure.valid() ? trace[1] : trace[0];
+    CHECK(structure.structure == tlas);
+    CHECK_FALSE(structure.buffer.valid());
+    CHECK(structure.wait_for == Access::acceleration_build);
+    CHECK(structure.flush == Access::acceleration_build);
+    CHECK(structure.visible_to == Access::acceleration_trace_compute);
+    CHECK(buffer.buffer == records);
+    CHECK_FALSE(buffer.structure.valid());
+
+    // The next run's build waits for the trace the run before left.
+    run.begin();
+    run.pass("rebuild", [&](PassBuilder& b) {
+        b.write(b.import("tlas", tlas), Access::acceleration_build);
+    });
+    run.execute();
+    const auto rebuild = run.between("", "rebuild");
+    REQUIRE(rebuild.size() == 1);
+    CHECK(rebuild[0].structure == tlas);
+    CHECK(rebuild[0].wait_for == (Access::acceleration_build | Access::acceleration_trace_compute));
+}
