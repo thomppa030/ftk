@@ -143,7 +143,6 @@ private:
     std::array<VkDescriptorSetLayoutBinding, 3> layout_bindings_{};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
     VkDescriptorSet set_{VK_NULL_HANDLE};
-    VkSampler default_sampler_{VK_NULL_HANDLE};
 
     // Texture entries
     struct Entry {

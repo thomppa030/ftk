@@ -22,34 +22,6 @@
 
 namespace fjell {
 
-// ── Free function: image layout transition (synchronization2) ───────────
-
-void transition_image(VkCommandBuffer cmd, VkImage image,
-                      VkImageLayout old_layout, VkImageLayout new_layout,
-                      VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                      VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                      VkImageAspectFlags aspect) {
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = src_stage;
-    barrier.srcAccessMask = src_access;
-    barrier.dstStageMask = dst_stage;
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {aspect, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
 // ── Pipeline cache persistence ──────────────────────────────────────────
 
 static VkPipelineCache load_pipeline_cache(VkDevice device) {

@@ -35,13 +35,6 @@ namespace fjell {
 
 class Window;
 
-/// Insert a Vulkan image layout transition barrier (synchronization2).
-void transition_image(VkCommandBuffer cmd, VkImage image,
-                      VkImageLayout old_layout, VkImageLayout new_layout,
-                      VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                      VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                      VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
-
 /// GPU device, swapchain, command pools, descriptors, sync objects,
 /// shared buffers, and pipelines. Pure infrastructure — no scene or
 /// pass knowledge.

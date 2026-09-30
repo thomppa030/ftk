@@ -14,20 +14,6 @@ Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator, gpu::
     allocator_ = allocator;
     gpu_device_ = &gpu;
 
-    // Default sampler for empty slots
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_ci.anisotropyEnable = VK_TRUE;
-    sampler_ci.maxAnisotropy = 16.0f;
-    if (vkCreateSampler(device_, &sampler_ci, nullptr, &default_sampler_) != VK_SUCCESS) {
-        return make_error("Failed to create bindless default sampler");
-    }
-
     // Descriptor set layout: binding 0 = texture array, binding 1 = material SSBO,
     // binding 2 = custom params SSBO
     std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
@@ -173,7 +159,6 @@ void BindlessTextures::destroy() {
     materials_.clear();
     if (pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, pool_, nullptr); pool_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
-    if (default_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, default_sampler_, nullptr); default_sampler_ = VK_NULL_HANDLE; }
     entries_.clear();
     view_to_index_.clear();
     set_ = VK_NULL_HANDLE;
