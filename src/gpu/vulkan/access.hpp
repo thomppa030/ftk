@@ -21,6 +21,15 @@ struct ImageScope {
     VkAccessFlags2 access{VK_ACCESS_2_NONE};
 };
 
+/// The access bits that write memory, as opposed to reading it: what a
+/// barrier makes available. Every access that writes (`access_is_write`)
+/// has one of them.
+inline constexpr VkAccessFlags2 WRITE_ACCESS_BITS =
+    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+    VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT |
+    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
 /// An access to a buffer or an acceleration structure.
 struct BufferScope {
     VkPipelineStageFlags2 stages{VK_PIPELINE_STAGE_2_NONE};

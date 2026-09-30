@@ -17,12 +17,6 @@ namespace fjell::gpu {
 
 namespace {
 
-// The access bits that write memory, as opposed to reading it: what a
-// barrier makes available.
-constexpr VkAccessFlags2 WRITE_ACCESS_BITS =
-    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-    VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT |
-    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 // Barriers a pass needs between it and the one before; more go to the heap.
 constexpr size_t INLINE_BARRIERS = 16;
@@ -70,7 +64,7 @@ std::optional<VkImageMemoryBarrier2> image_barrier(const Device::Impl::TextureRe
                          : src == 0    ? VK_PIPELINE_STAGE_2_NONE
                                        : src;
     barrier.srcAccessMask =
-        cross_queue ? 0 : vulkan::merged_image_scope(t.flush, depth).access & WRITE_ACCESS_BITS;
+        cross_queue ? 0 : vulkan::merged_image_scope(t.flush, depth).access & vulkan::WRITE_ACCESS_BITS;
     barrier.dstStageMask = on_queue(next.stages, queue);
     barrier.dstAccessMask = next.access;
     barrier.oldLayout = from.layout;
@@ -94,7 +88,7 @@ std::optional<VkBufferMemoryBarrier2> buffer_barrier(VkBuffer buffer, const Tran
     VkBufferMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
     barrier.srcStageMask = src;
-    barrier.srcAccessMask = vulkan::buffer_scope(t.flush).access & WRITE_ACCESS_BITS;
+    barrier.srcAccessMask = vulkan::buffer_scope(t.flush).access & vulkan::WRITE_ACCESS_BITS;
     barrier.dstStageMask = on_queue(next.stages, queue);
     barrier.dstAccessMask = next.access;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;

@@ -26,6 +26,17 @@ TEST_CASE("Every access has a layout and stages for what it applies to", "[vulka
     }
 }
 
+TEST_CASE("Every write keeps a bit a barrier makes available", "[vulkan][access]") {
+    for (int i = 0; i < ACCESS_COUNT; ++i) {
+        const auto access = static_cast<Access>(i);
+        if (!access_is_write(access)) continue;
+        INFO("access " << i);
+        const VkAccessFlags2 image = vulkan::image_scope(access, false).access;
+        const VkAccessFlags2 buffer = vulkan::buffer_scope(access).access;
+        CHECK(((image | buffer) & vulkan::WRITE_ACCESS_BITS) != 0);
+    }
+}
+
 TEST_CASE("Acceleration structures are built and traced at their own stages", "[vulkan][access]") {
     const vulkan::BufferScope build = vulkan::buffer_scope(Access::acceleration_build);
     CHECK(build.stages == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
