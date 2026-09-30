@@ -19,8 +19,6 @@ src/renderer/gpu/device.cpp
 src/renderer/gpu/device.hpp
 src/renderer/gpu/gpu_core.cpp
 src/renderer/gpu/gpu_core.hpp
-src/renderer/gpu/growable_buffer.cpp
-src/renderer/gpu/growable_buffer.hpp
 src/renderer/gpu/image.cpp
 src/renderer/gpu/image.hpp
 src/renderer/gpu/shader_utils.hpp

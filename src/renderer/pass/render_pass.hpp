@@ -31,7 +31,6 @@ class RenderQueue;
 class RenderSubsystem;
 class ResourceRegistry;
 class Scene;
-class UploadContext;
 
 // Shared descriptor set layouts needed by passes at pipeline creation time.
 struct PassResources {
@@ -66,9 +65,6 @@ struct PassResources {
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     VkCommandPool command_pool{VK_NULL_HANDLE};
     VkQueue graphics_queue{VK_NULL_HANDLE};
-    // Needed by subsystems that own a GrowableBuffer (sparse-binding GPU
-    // buffer growth — see renderer/gpu/growable_buffer.hpp).
-    UploadContext* upload_context{nullptr};
 };
 
 class FrameDescriptorCache;
