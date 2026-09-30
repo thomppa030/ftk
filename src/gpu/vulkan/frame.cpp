@@ -350,6 +350,10 @@ Result<> Device::end_frame(Frame& frame) {
     return {};
 }
 
+void Device::wait_idle() {
+    vk_check(vkDeviceWaitIdle(impl_->device), "Failed to wait for the device to go idle");
+}
+
 uint64_t Device::finished_frame() const {
     uint64_t value = 0;
     vk_check(vkGetSemaphoreCounterValue(impl_->device, impl_->frame_timeline, &value),
