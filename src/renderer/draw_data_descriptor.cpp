@@ -67,37 +67,32 @@ void DrawDataDescriptor::destroy() {
     for (auto& group : groups_) group.reset();
 }
 
-void DrawDataDescriptor::write(std::string_view binding, gpu::Buffer buffer, uint64_t size,
-                               uint32_t frame_index) {
-    const gpu::BufferRange range =
-        buffer.valid() && size > 0 ? gpu::BufferRange(buffer, 0, size) : gpu::BufferRange(empty_);
-    const gpu::BindEntry entry[] = {{binding, gpu::storage(range)}};
+void DrawDataDescriptor::write(std::string_view binding, const gpu::BufferRange& range, uint32_t frame_index) {
+    const gpu::BindEntry entry[] = {
+        {binding, gpu::storage(range.buffer.valid() && range.size > 0 ? range : gpu::BufferRange(empty_))}};
     if (auto written = gpu_->update(groups_[frame_index], entry); !written) {
         FJELL_GFX_ERROR("Draw data '{}': {}", binding, written.error());
     }
 }
 
-void DrawDataDescriptor::update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
-    write(DRAWS, buffer, size, frame_index);
+void DrawDataDescriptor::update(const gpu::BufferRange& range, uint32_t frame_index) {
+    write(DRAWS, range, frame_index);
 }
 
-void DrawDataDescriptor::update_bones(gpu::Buffer buffer, uint64_t size, uint32_t frame_index) {
-    write(BONES, buffer, size, frame_index);
+void DrawDataDescriptor::update_bones(const gpu::BufferRange& range, uint32_t frame_index) {
+    write(BONES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_instance_transforms(gpu::Buffer buffer, uint64_t size,
-                                                    uint32_t frame_index) {
-    write(INSTANCES, buffer, size, frame_index);
+void DrawDataDescriptor::update_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index) {
+    write(INSTANCES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size,
-                                                            uint32_t frame_index) {
-    write(VISIBLE_INSTANCES, buffer, size, frame_index);
+void DrawDataDescriptor::update_visible_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index) {
+    write(VISIBLE_INSTANCES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_spline_segments(gpu::Buffer buffer, uint64_t size,
-                                                uint32_t frame_index) {
-    write(SPLINE_SEGMENTS, buffer, size, frame_index);
+void DrawDataDescriptor::update_spline_segments(const gpu::BufferRange& range, uint32_t frame_index) {
+    write(SPLINE_SEGMENTS, range, frame_index);
 }
 
 } // namespace fjell

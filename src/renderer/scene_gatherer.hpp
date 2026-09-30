@@ -26,12 +26,18 @@ class ThreadPool;
 struct RenderStats;
 
 /// Input parameters for SceneGatherer::gather().
+namespace gpu {
+class Frame;
+}
+
 struct GatherInput {
     Scene* scene{nullptr};
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
     glm::vec3 camera_position{0.0f};
     uint32_t frame_index{0};
+    /// The frame recording, whose memory the batches are written into.
+    gpu::Frame* frame{nullptr};
     const ShadowPass* shadow_pass{nullptr};
     ThreadPool* pool{nullptr};
     RenderStats* stats{nullptr};

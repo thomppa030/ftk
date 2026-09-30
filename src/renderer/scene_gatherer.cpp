@@ -303,9 +303,10 @@ void SceneGatherer::gather(const GatherInput& input) {
     }
 
     // Build indirect draw commands from opaque + transparent queues (with LOD selection)
-    indirect_batch_->build(render_queue_.commands(),
+    gpu::Frame& frame = *input.frame;
+    indirect_batch_->build(frame,
+                           render_queue_.commands(),
                            render_queue_.transparent_commands(),
-                           input.frame_index,
                            projection_matrix_, camera_position_,
                            input.animation_system, /*is_shadow_batch=*/false,
                            input.pipelines);
@@ -314,7 +315,7 @@ void SceneGatherer::gather(const GatherInput& input) {
     // Pass is_shadow_batch=true so instanced draws skip per-instance LOD bucketing + InstanceCullPass.
     empty_transparent_.clear();
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-        shadow_batches_[c]->build(shadow_commands_[c], empty_transparent_, input.frame_index,
+        shadow_batches_[c]->build(frame, shadow_commands_[c], empty_transparent_,
                                   glm::mat4(1.0f), glm::vec3(0.0f),
                                   input.animation_system, /*is_shadow_batch=*/true);
     }
@@ -325,47 +326,39 @@ void SceneGatherer::gather(const GatherInput& input) {
     const uint32_t slot = input.frame_index;
     IndirectBatch& batch = *indirect_batch_;
     const bool draws = batch.draw_data_count(slot) > 0;
-    draw_data_descriptor_.update(draws ? batch.draw_data_buffer(slot) : gpu::Buffer{},
-                                 batch.draw_data_size(slot), slot);
+    draw_data_descriptor_.update(draws ? batch.draw_data(slot) : gpu::BufferRange{}, slot);
 
     // Raw transforms feed the mesh shader path; compacted visible transforms
     // feed the vertex path after InstanceCullPass writes them.
     const bool instances = batch.instance_transform_count(slot) > 0;
     draw_data_descriptor_.update_instance_transforms(
-        instances ? batch.instance_transform_buffer(slot) : gpu::Buffer{},
-        batch.instance_transform_size(slot), slot);
-    draw_data_descriptor_.update_visible_instance_transforms(
-        instances ? batch.visible_instance_buffer(slot) : gpu::Buffer{},
-        batch.visible_instance_size(slot), slot);
+        instances ? batch.instance_transforms(slot) : gpu::BufferRange{}, slot);
+    draw_data_descriptor_.update_visible_instance_transforms(batch.visible_instances(slot), slot);
 
     const bool splines = batch.spline_segment_count(slot) > 0;
-    draw_data_descriptor_.update_spline_segments(
-        splines ? batch.spline_segment_buffer(slot) : gpu::Buffer{},
-        batch.spline_segment_size(slot), slot);
+    draw_data_descriptor_.update_spline_segments(splines ? batch.spline_segments(slot) : gpu::BufferRange{},
+                                                 slot);
 
     // Bone matrices, shared by the main pass and the shadow cascades.
-    gpu::Buffer bones{};
-    uint64_t bone_bytes = 0;
+    gpu::BufferRange bones{};
     if (input.animation_system && input.animation_system->has_bones_this_frame()) {
         auto& bb = input.animation_system->bone_buffer();
         if (bb.total_bones() > 0 && bb.buffer(slot).valid()) {
-            bones = bb.buffer(slot);
-            bone_bytes = bb.byte_size();
+            bones = gpu::BufferRange(bb.buffer(slot), 0, bb.byte_size());
         }
     }
-    draw_data_descriptor_.update_bones(bones, bone_bytes, slot);
+    draw_data_descriptor_.update_bones(bones, slot);
 
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
         IndirectBatch& cascade = *shadow_batches_[c];
         DrawDataDescriptor& data = shadow_draw_data_[c];
-        data.update_bones(bones, bone_bytes, slot);
-        data.update(cascade.draw_data_count(slot) > 0 ? cascade.draw_data_buffer(slot) : gpu::Buffer{},
-                    cascade.draw_data_size(slot), slot);
+        data.update_bones(bones, slot);
+        data.update(cascade.draw_data_count(slot) > 0 ? cascade.draw_data(slot) : gpu::BufferRange{}, slot);
         // Shadow cascades render every source instance (no InstanceCullPass
         // in the shadow frustum), so the raw transforms are theirs.
         data.update_instance_transforms(
-            cascade.instance_transform_count(slot) > 0 ? cascade.instance_transform_buffer(slot) : gpu::Buffer{},
-            cascade.instance_transform_size(slot), slot);
+            cascade.instance_transform_count(slot) > 0 ? cascade.instance_transforms(slot) : gpu::BufferRange{},
+            slot);
     }
 }
 

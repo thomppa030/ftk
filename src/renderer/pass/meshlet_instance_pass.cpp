@@ -172,8 +172,7 @@ void MeshletInstancePass::record_expand(const FrameContext& ctx, uint32_t total_
 
     cmd.set_pipeline(expand_pipeline_);
     cmd.bind({{"DrawDataBuffer",
-               gpu::storage(at_least_one_word(ctx.indirect_batch->draw_data_buffer(frame),
-                                              ctx.indirect_batch->draw_data_size(frame)))},
+               gpu::storage(ctx.indirect_batch->draw_data(frame))},
               {"InstanceBuffer", gpu::storage(instances)},
               {"CounterBuffer", gpu::storage(count)}});
     cmd.push(total_draws);
@@ -234,15 +233,13 @@ void MeshletInstancePass::record_cull(const FrameContext& ctx, Cull which) {
     cmd.set_pipeline(cull_pipeline_);
     cmd.bind(ctx.globals);
     cmd.bind(ctx.draw_data);
-    cmd.bind({{"DrawDataBuffer", gpu::storage(at_least_one_word(batch.draw_data_buffer(frame),
-                                                                batch.draw_data_size(frame)))},
+    cmd.bind({{"DrawDataBuffer", gpu::storage(batch.draw_data(frame))},
               {"InputInstances", gpu::storage(input)},
               {"InputCounter", gpu::storage(gpu::BufferRange(input_count, 0, sizeof(uint32_t)))},
               {"OutputInstances", gpu::storage(visible_buffers_[frame])},
               {"OutputCmds", gpu::storage(indirect_buffers_[frame])},
               {"BoundsBuffer", gpu::storage(at_least_one_word(bounds->buffer, bounds->size))},
-              {"PipelineBinBuffer", gpu::storage(at_least_one_word(batch.pipeline_bin_buffer(frame),
-                                                                   batch.pipeline_bin_size(frame)))},
+              {"PipelineBinBuffer", gpu::storage(batch.pipeline_bins(frame))},
               {"hiz_pyramid", gpu::sampled(hiz, hiz_sampler_)},
               {"CulledInstances", gpu::storage(culled_buffers_[frame])},
               {"CulledCounter", gpu::storage(culled_count)},

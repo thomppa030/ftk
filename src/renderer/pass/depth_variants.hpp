@@ -85,7 +85,6 @@ public:
     template <typename CullOf, typename Bind>
     void draw_batch(gpu::RenderEncoder& pass, const IndirectBatch& batch, uint32_t frame_index,
                     CullOf&& cull_of, Bind&& bind) const {
-        const gpu::Buffer commands = batch.indirect_buffer(frame_index);
         gpu::GraphicsPipeline bound{};
         for (const auto& range : batch.pipeline_ranges(frame_index)) {
             const Variant needed = variant(range.pipeline_id, cull_of(range.pipeline_id));
@@ -94,10 +93,8 @@ public:
                 bind(needed.custom);
                 bound = needed.pipeline;
             }
-            pass.draw_indexed_indirect(
-                gpu::BufferRange(commands, uint64_t{range.first_draw} * sizeof(gpu::DrawIndexedArgs),
-                                 uint64_t{range.draw_count} * sizeof(gpu::DrawIndexedArgs)),
-                range.draw_count, sizeof(gpu::DrawIndexedArgs));
+            pass.draw_indexed_indirect(batch.indirect_commands(frame_index, range.first_draw, range.draw_count),
+                                       range.draw_count, sizeof(gpu::DrawIndexedArgs));
         }
     }
 

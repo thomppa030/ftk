@@ -33,19 +33,20 @@ public:
     [[nodiscard]] Result<> create(gpu::Device& gpu, gpu::SharedLayout layout, gpu::Buffer empty);
     void destroy();
 
-    // Each binds the first `size` bytes of a buffer into the frame slot's
-    // group; the empty buffer while the buffer is unset or `size` is 0.
-    void update(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
-    void update_bones(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
-    void update_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
-    void update_visible_instance_transforms(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
-    void update_spline_segments(gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
+    // Each binds `range` into the frame slot's group, as a new version of it
+    // for the commands recorded after; the empty buffer while the range is
+    // unset or empty.
+    void update(const gpu::BufferRange& range, uint32_t frame_index);
+    void update_bones(const gpu::BufferRange& range, uint32_t frame_index);
+    void update_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index);
+    void update_visible_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index);
+    void update_spline_segments(const gpu::BufferRange& range, uint32_t frame_index);
 
     /// The group the frames of `frame_index`'s slot bind.
     [[nodiscard]] gpu::BindGroup group(uint32_t frame_index) const { return groups_[frame_index].get(); }
 
 private:
-    void write(std::string_view binding, gpu::Buffer buffer, uint64_t size, uint32_t frame_index);
+    void write(std::string_view binding, const gpu::BufferRange& range, uint32_t frame_index);
 
     gpu::Device* gpu_{nullptr};
     gpu::Buffer empty_{};

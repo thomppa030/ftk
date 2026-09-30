@@ -473,6 +473,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         gi.projection = gatherer_.projection_matrix();
         gi.camera_position = gatherer_.camera_position();
         gi.frame_index = current_frame_;
+        gi.frame = frame_;
         gi.shadow_pass = &shadow_pass();
         gi.pool = &pool;
         gi.stats = &gpu_.render_stats();
@@ -493,6 +494,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         sub_ctx.view_projection = gatherer_.projection_matrix() * gatherer_.view_matrix();
         sub_ctx.camera_position = gatherer_.camera_position();
         sub_ctx.frame_index = current_frame_;
+        sub_ctx.frame = frame_;
         sub_ctx.dt = dt;
         sub_ctx.playing = playing_;
         for (auto& sys : render_subsystems_) sys->update(sub_ctx);

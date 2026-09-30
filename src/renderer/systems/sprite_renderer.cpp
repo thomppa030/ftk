@@ -1,5 +1,6 @@
 #include "renderer/systems/sprite_renderer.hpp"
 #include "gpu/device.hpp"
+#include "gpu/frame.hpp"
 #include "gpu/render_encoder.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/texture.hpp"
@@ -74,22 +75,10 @@ void SpriteRenderer::create(Device& /*device*/, const PassResources& resources) 
         .name = "sprite_depth",
     });
 
-    for (auto& buffer : sprite_buffers_) {
-        auto made = gpu.create(gpu::BufferDesc{
-            .size = SPRITE_BUFFER_SIZE,
-            .use = gpu::BufferUse::storage,
-            .memory = gpu::Memory::upload,
-            .name = "sprites",
-        });
-        if (!made) throw std::runtime_error("Sprites: " + made.error());
-        buffer = std::move(*made);
-    }
-
     FJELL_GFX_DEBUG("Sprite renderer created");
 }
 
 void SpriteRenderer::destroy() {
-    for (auto& buffer : sprite_buffers_) buffer.reset();
     for (auto& pipeline : pipelines_) pipeline.reset();
     depth_pipeline_.reset();
 }
@@ -131,9 +120,8 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, con
 }
 
 void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
-    if (ctx.scene) {
-        update_impl(*ctx.scene, ctx.view_projection, ctx.camera_position,
-                     ctx.frame_index, ctx.playing);
+    if (ctx.scene != nullptr && ctx.frame != nullptr) {
+        update_impl(*ctx.scene, ctx.view_projection, ctx.camera_position, *ctx.frame, ctx.playing);
     }
 }
 
@@ -142,7 +130,7 @@ void SpriteRenderer::use(const FrameContext& ctx, gpu::RenderEncoder& pass,
     pass.set_pipeline(pipeline);
     pass.bind(ctx.globals);
     pass.bind(ctx.bindless);
-    pass.bind({{"SpriteBuffer", gpu::storage(sprite_buffers_[ctx.frame_index])}});
+    pass.bind({{"SpriteBuffer", gpu::storage(sprite_ranges_[ctx.frame_index])}});
 }
 
 void SpriteRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) {
@@ -164,9 +152,10 @@ void SpriteRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEnco
 }
 
 void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
-                                  const glm::vec3& camera_position, uint32_t frame_index,
+                                  const glm::vec3& camera_position, gpu::Frame& frame,
                                   bool playing) {
     FJELL_PROFILE_SCOPE_N("sprite_update");
+    const uint32_t frame_index = frame.slot();
     Frustum frustum = Frustum::from_vp_matrix(view_projection);
 
     // Gather visible sprites (reuse persistent scratch vectors)
@@ -259,11 +248,14 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
     runs.clear();
     opaque = {Bucket::LitOpaque, 0, 0};
 
+    // Nothing binds the range without a sprite to draw.
+    sprite_ranges_[frame_index] = {};
     if (count > 0) {
-        auto* dst = reinterpret_cast<GpuSprite*>(gpu_->mapped(sprite_buffers_[frame_index]).data());
+        sorted_scratch_.resize(count);
         for (uint32_t i = 0; i < count; ++i) {
-            dst[i] = sprites[sort_entries[i].index];
+            sorted_scratch_[i] = sprites[sort_entries[i].index];
         }
+        sprite_ranges_[frame_index] = frame.transient(sorted_scratch_);
     }
     for (uint32_t i = 0; i < count; ++i) {
         const Bucket bucket = sort_entries[i].bucket;

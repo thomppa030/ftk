@@ -19,6 +19,10 @@ struct PassResources;
 
 // Per-frame context passed to render subsystem update().
 // Each subsystem reads what it needs and ignores the rest.
+namespace gpu {
+class Frame;
+}
+
 struct RenderSubsystemContext {
     Scene* scene{nullptr};
     ResourceManager* resource_manager{nullptr};
@@ -26,6 +30,9 @@ struct RenderSubsystemContext {
     glm::mat4 view_projection{1.0f};
     glm::vec3 camera_position{0.0f};
     uint32_t frame_index{0};
+    /// The frame recording, whose memory update() writes a view's data into,
+    /// so each view's run keeps its own. Unset for sync().
+    gpu::Frame* frame{nullptr};
     float dt{0.0f};
     bool playing{false};
 };

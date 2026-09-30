@@ -64,18 +64,14 @@ void MeshletVizPass::record(const FrameContext& ctx) {
         pass.bind(ctx.globals);
         pass.bind(ctx.draw_data);
         pass.bind(ctx.meshlets);
-        const gpu::Buffer commands = batch.mesh_indirect_buffer(ctx.frame_index);
-        const gpu::Buffer counts = batch.mesh_count_buffer(ctx.frame_index);
         const uint32_t most_groups = std::max(batch.most_mesh_task_groups(ctx.frame_index), 1U);
         const auto& ranges = batch.pipeline_ranges(ctx.frame_index);
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             const uint32_t first_draw = ranges[r].first_draw;
             pass.push(first_draw);
-            pass.draw_mesh_tasks_indirect_count(
-                gpu::BufferRange(commands, uint64_t{first_draw} * sizeof(gpu::DrawMeshTasksArgs),
-                                 uint64_t{ranges[r].draw_count} * sizeof(gpu::DrawMeshTasksArgs)),
-                gpu::BufferRange(counts, uint64_t{r} * sizeof(uint32_t), sizeof(uint32_t)),
-                ranges[r].draw_count, sizeof(gpu::DrawMeshTasksArgs), most_groups);
+            pass.draw_mesh_tasks_indirect_count(batch.mesh_commands(ctx.frame_index, first_draw, ranges[r].draw_count),
+                                                batch.mesh_count(ctx.frame_index, r), ranges[r].draw_count,
+                                                sizeof(gpu::DrawMeshTasksArgs), most_groups);
         }
     }
     viz_image_.mark_rendered();

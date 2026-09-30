@@ -40,7 +40,7 @@ public:
 private:
   // Internal implementations
   void update_impl(const Scene &scene, const glm::mat4 &view_projection,
-                   const glm::vec3 &camera_position, uint32_t frame_index,
+                   const glm::vec3 &camera_position, gpu::Frame &frame,
                    bool playing);
   // Three pipeline buckets, partitioned by (lit, opaque-vs-transparent).
   // Lit-flat sprites render in the opaque pass with depth write on so they
@@ -102,8 +102,9 @@ private:
   // sprites contribute to Hi-Z, contact shadows, and SS-GI neighbour reads.
   gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
 
-  /// The frame slot's sprites, written by update() and read by its frame.
-  std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> sprite_buffers_;
+  /// The sprites the view being recorded draws, in the order below, in
+  /// the frame's memory: written by update() for each view's run.
+  std::array<gpu::BufferRange, MAX_FRAMES_IN_FLIGHT> sprite_ranges_{};
 
   // Per frame, into that frame's SSBO, which holds the transparent sprites
   // and then the opaque ones: the transparent ones as runs in layer order,
@@ -112,7 +113,6 @@ private:
   std::array<SpriteRun, MAX_FRAMES_IN_FLIGHT> opaque_range_{};
 
   static constexpr uint32_t MAX_SPRITES = 4096;
-  static constexpr uint64_t SPRITE_BUFFER_SIZE = MAX_SPRITES * sizeof(GpuSprite);
 
   // Reusable per-frame scratch (avoid heap allocs every frame)
   struct SortEntry {
@@ -126,6 +126,7 @@ private:
   };
   std::vector<GpuSprite> sprites_scratch_;
   std::vector<SortEntry> sort_scratch_;
+  std::vector<GpuSprite> sorted_scratch_;
 };
 
 } // namespace fjell

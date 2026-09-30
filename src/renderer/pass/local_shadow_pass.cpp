@@ -329,9 +329,8 @@ void LocalShadowPass::draw_casters(const FrameContext& ctx, gpu::RenderEncoder& 
         pass.bind(ctx.draw_data);
         pass.push(light_vp);
         ctx.mega_buffer->bind(pass);
-        pass.draw_indexed_indirect(gpu::BufferRange(batch.indirect_buffer(ctx.frame_index), 0,
-                                                    uint64_t{draws} * sizeof(gpu::DrawIndexedArgs)),
-                                   draws, sizeof(gpu::DrawIndexedArgs));
+        pass.draw_indexed_indirect(batch.indirect_commands(ctx.frame_index, 0, draws), draws,
+                                   sizeof(gpu::DrawIndexedArgs));
     }
 
     // Skinned meshes, each from its own vertices.

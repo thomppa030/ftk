@@ -203,13 +203,11 @@ void OpaquePass::draw_outline(const FrameContext& ctx, gpu::RenderEncoder& pass)
     // and LOD it drew the node with, each firstInstance naming its draw data,
     // and the instance counts the instance cull left.
     ctx.mega_buffer->bind(pass);
-    const gpu::Buffer commands = ctx.indirect_batch->indirect_buffer(ctx.frame_index);
-    for (const auto& draws : ctx.indirect_batch->node_draws(ctx.frame_index)) {
+    const IndirectBatch& batch = *ctx.indirect_batch;
+    for (const auto& draws : batch.node_draws(ctx.frame_index)) {
         if (draws.node_id != ctx.selected_id) continue;
-        pass.draw_indexed_indirect(
-            gpu::BufferRange(commands, uint64_t{draws.first_draw} * sizeof(gpu::DrawIndexedArgs),
-                             uint64_t{draws.draw_count} * sizeof(gpu::DrawIndexedArgs)),
-            draws.draw_count, sizeof(gpu::DrawIndexedArgs));
+        pass.draw_indexed_indirect(batch.indirect_commands(ctx.frame_index, draws.first_draw, draws.draw_count),
+                                   draws.draw_count, sizeof(gpu::DrawIndexedArgs));
     }
 }
 
