@@ -19,10 +19,11 @@ namespace {
 constexpr float UNORM16_MAX = 65535.0F;
 
 // What reads each terrain texture between uploads: the mesh shader places
-// vertices from the heights, the task shader decides from the patch bounds
-// whether a patch is emitted at all, and the fragment shader blends layers by
-// the weights.
-constexpr gpu::Access HEIGHT_READ = gpu::Access::sampled_mesh;
+// vertices from the heights — the terrain's own, and the water's, which reads
+// them as the bed its sea shoals on, as does the waterline's compute pass —
+// the task shader decides from the patch bounds whether a patch is emitted at
+// all, and the fragment shader blends layers by the weights.
+constexpr gpu::AccessSet HEIGHT_READ = gpu::Access::sampled_mesh | gpu::Access::sampled_compute;
 constexpr gpu::Access BOUNDS_READ = gpu::Access::sampled_mesh;
 constexpr gpu::Access WEIGHT_READ = gpu::Access::sampled_fragment;
 
