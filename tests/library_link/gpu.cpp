@@ -160,7 +160,7 @@ int main() {
         // dispatches wrote into `read` readable by the CPU, and waits until
         // the GPU has finished it.
         auto finish = [&](fjell::gpu::Frame& frame, fjell::gpu::CommandList& cmd, fjell::gpu::Buffer read) {
-            cmd.barrier(read, Access::copy_dst | Access::storage_write_compute, Access::host_read);
+            cmd.barrier(read, Access::copy_dst | Access::storage_buffer_write_compute, Access::host_read);
             frame.submit(cmd);
             if (auto ended = device.end_frame(frame); !ended) std::fprintf(stderr, "%s\n", ended.error().c_str());
             device.wait_idle();
