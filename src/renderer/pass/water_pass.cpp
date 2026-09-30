@@ -48,15 +48,17 @@ Result<> WaterPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
 
-    // The prepass: the surface's depth and nothing else. The same task and
-    // mesh stages as every colour pipeline, so the depth is the displaced
-    // surface to the bit; no fragment stage, since nothing it would compute
-    // is kept. Tests and writes LESS against the seeded scene depth. Seen
+    // The prepass: the surface's depth and nothing else. The same task stage
+    // as every colour pipeline and a mesh stage that places each vertex
+    // through the same code (fjell_water_mesh.glsl) with an invariant
+    // position, so the depth is the displaced surface to the bit, but works
+    // out none of the slopes, fold or motion the colour draw shades by; no
+    // fragment stage, since nothing it would compute is kept. Tests and writes LESS against the seeded scene depth. Seen
     // from both sides, as the colour pipelines are. Set 0 the globals, set 2
     // the water set, which is the pass's own.
     FJELL_TRY(depth_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
                                    .task = "shaders/water.task",
-                                   .mesh = "shaders/water.mesh",
+                                   .mesh = "shaders/water_depth.mesh",
                                    .raster = {.cull = gpu::Cull::none},
                                    .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
                                    .depth_format = resources.scene_depth_format,
@@ -479,6 +481,7 @@ std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange 
     };
     if (use == WaterSet::line) return entries;
     entries.push_back({"clip", gpu::uniform(clipmap)});
+    if (use == WaterSet::depth) return entries;
     entries.push_back({"simulated_previous", gpu::sampled(simulation_->previous_displacement(), sampler)});
     entries.push_back({"simulated_derivatives", gpu::sampled(simulation_->derivatives(), sampler)});
     if (use == WaterSet::colour) {
@@ -543,6 +546,13 @@ void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     }
 }
 
+void WaterPass::declare_displacement_read(PassBuilder& builder, const DeclareContext& ctx,
+                                          gpu::Access access) {
+    if (auto image = builder.import_named_optional(ctx, "water_displacement"); image.valid()) {
+        builder.read(image, access);
+    }
+}
+
 void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
                                          gpu::Access access) {
     for (const char* name : {"water_displacement", "water_displacement_prev",
@@ -558,7 +568,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
     // The same clipmap and wakes for every node; each node its own field.
     const gpu::BufferRange clipmap = pass.transient(clipmap_.gpu());
     const gpu::BufferRange wakes = pass.transient(wake_records());
-    const WaterSet use = depth_only.valid() ? WaterSet::mesh : WaterSet::colour;
+    const WaterSet use = depth_only.valid() ? WaterSet::depth : WaterSet::colour;
 
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         const auto field = fields_.find(wc);
@@ -749,8 +759,9 @@ void WaterDepthPrepass::declare(PassBuilder& builder, const DeclareContext& ctx)
     builder.write(builder.import_named(ctx, "surface_depth"),
                   ctx.msaa_samples != gpu::Samples::x1 ? gpu::Access::depth_resolve
                                                             : gpu::Access::depth_attachment);
-    // The simulated sea, which the mesh stage moves the surface by.
-    WaterPass::declare_simulation_reads(builder, ctx, gpu::Access::sampled_mesh);
+    // The simulated sea's displacement, which the mesh stage places the
+    // surface by; its slopes and history are the colour draw's.
+    WaterPass::declare_displacement_read(builder, ctx, gpu::Access::sampled_mesh);
 }
 
 void WaterDepthPrepass::record(const FrameContext& ctx) {

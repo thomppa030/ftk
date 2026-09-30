@@ -113,6 +113,10 @@ public:
     /// fog medium. Absent when the graph has no water_fft pass.
     static void declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
                                          gpu::Access access);
+    /// The same for a pass that places the surface and does nothing else
+    /// with the sea: its displacement alone.
+    static void declare_displacement_read(PassBuilder& builder, const DeclareContext& ctx,
+                                          gpu::Access access);
 
     /// Draw every water node's depth, and nothing else, into the water's
     /// depth attachment the seed filled, resolving it into the surface depth
@@ -168,10 +172,11 @@ private:
     [[nodiscard]] std::span<const GpuWakeSource> wake_records() const;
 
     /// Which of the water set's bindings a pipeline's shaders declare: the
-    /// task and mesh stages read the field, the clipmap, the sea and the
-    /// wakes, the colour draw's fragment stage the fog's medium as well, and
-    /// the waterline the field, the sea's displacement and the wakes.
-    enum class WaterSet : uint8_t { mesh, colour, line };
+    /// depth prepass the field, the clipmap, the ground, the sea's
+    /// displacement and the wakes; the colour draw the sea's previous frame
+    /// and derivatives too, and in its fragment stage the fog's medium; the
+    /// waterline the field, the ground, the sea's displacement and the wakes.
+    enum class WaterSet : uint8_t { depth, colour, line };
     /// The water set for one draw or dispatch: `field` and `clipmap` and
     /// `wakes` copies made for it, `medium` the fog's volume or unset, and
     /// `bed` the heights of the ground under this water or unset.
