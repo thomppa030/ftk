@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scripting/fjell/api.h"
+#include "scripting/reflected_types.hpp"
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -15,8 +16,6 @@
 
 namespace fjell {
 
-struct OwnedFieldDesc;
-struct OwnedVectorDesc;
 class UiValue;
 
 /// A reflected object a scope holds, read in place: a widget's Model, or a

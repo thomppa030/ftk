@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scripting/reflected_types.hpp"
 #include "ui/game_ui/ui_value.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 
@@ -14,7 +15,6 @@ namespace fjell {
 
 class Scene;
 class UiContext;
-struct OwnedFieldDesc;
 struct UiNode;
 
 /// A script component type as a Model reads it.
