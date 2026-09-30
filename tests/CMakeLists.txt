@@ -308,11 +308,24 @@ compile_shaders(fjell-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CURRE
 target_compile_definitions(fjell-tests PRIVATE
     FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
+# For a program that links the Vulkan backend and never calls it: the frame
+# graph records through gpu::Frame and gpu::CommandList, which the backend
+# implements, so linking the frame graph brings the backend and its calls
+# into the Vulkan loader. MSVC then loads vulkan-1.dll at the first call
+# rather than at startup, so the program runs on a machine without the
+# loader, a CI runner among them.
+function(fjell_delay_load_vulkan target)
+    if(MSVC)
+        target_link_options(${target} PRIVATE /DELAYLOAD:vulkan-1.dll)
+        target_link_libraries(${target} PRIVATE delayimp)
+    endif()
+endfunction()
+
 fjell_target_defaults(fjell-tests)
-# The libraries under test bring Vulkan and SDL for code no test calls.
-# Keeping only the shared libraries something uses leaves the Vulkan loader
-# out, so the tests start on a machine without it. MSVC already imports a
-# DLL only for the symbols used from it.
+fjell_delay_load_vulkan(fjell-tests)
+# Keeps only the shared libraries something references. The backend the
+# frame graph brings in still references the Vulkan loader, so on Linux the
+# tests need it installed.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(fjell-tests PRIVATE LINKER:--as-needed)
 endif()
@@ -342,6 +355,7 @@ endfunction()
 fjell_library_link_check(core)
 fjell_library_link_check(platform)
 fjell_library_link_check(framegraph)
+fjell_delay_load_vulkan(fjell-link-framegraph)
 fjell_library_link_check(shader)
 fjell_library_link_check(stb)
 fjell_library_link_check(ui-kit)
