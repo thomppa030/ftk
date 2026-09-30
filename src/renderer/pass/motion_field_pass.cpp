@@ -202,9 +202,10 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     settled_ = still_seconds_ >= MEMORY_SECONDS;
 }
 
-VkDescriptorSet MotionFieldPass::imgui_texture(VkSampler sampler) {
+VkDescriptorSet MotionFieldPass::imgui_texture(gpu::Sampler sampler) {
     if (imgui_set_ == VK_NULL_HANDLE && maps_[cur_]) {
-        imgui_set_ = ImGui_ImplVulkan_AddTexture(sampler, gpu::vulkan::native_view(*device_, maps_[cur_]),
+        imgui_set_ = ImGui_ImplVulkan_AddTexture(gpu::vulkan::native_sampler(*device_, sampler),
+                                                 gpu::vulkan::native_view(*device_, maps_[cur_]),
                                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return imgui_set_;

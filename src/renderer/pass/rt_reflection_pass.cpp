@@ -643,6 +643,16 @@ void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) 
         if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
             builder.read(sky, gpu::Access::sampled_compute);
         }
+        // A hit is lit by this viewport's DDGI probe field, after DDGI has
+        // updated it.
+        for (std::string_view name :
+             {DdgiPass::IRRADIANCE_NAME, DdgiPass::VISIBILITY_NAME, DdgiPass::PROBE_OFFSET_NAME}) {
+            if (auto atlas = builder.import_named_optional(ctx, name); atlas.valid()) {
+                builder.read(atlas, gpu::Access::sampled_compute);
+            }
+        }
+        builder.read(builder.import_named_buffer(ctx, DdgiPass::PROBE_STATUS_NAME),
+                     gpu::Access::storage_buffer_read_compute);
     }
 }
 
@@ -708,7 +718,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
             : VK_NULL_HANDLE;
     if (tlas == VK_NULL_HANDLE) return;
     auto* ddgi_imgs = ctx.pp_resources->ddgi();
-    if (ddgi_imgs == nullptr || ddgi_imgs->irradiance_view == VK_NULL_HANDLE) return;
+    if (ddgi_imgs == nullptr || !ddgi_imgs->irradiance) return;
 
     auto depth_view = ctx.target->depth_view();
     auto normal_view = ctx.target->normal_view();
@@ -792,16 +802,21 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         VkDescriptorImageInfo sky_info{sky_sampler, sky_res->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         // DDGI atlases.
-        VkDescriptorImageInfo irr_info{linear_sampler_, ddgi_imgs->irradiance_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo vis_info{linear_sampler_, ddgi_imgs->visibility_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo offset_info{nearest_sampler_, ddgi_imgs->probe_offset_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo irr_info{linear_sampler_, gpu::vulkan::native_view(*ctx.device, ddgi_imgs->irradiance),
+                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo vis_info{linear_sampler_, gpu::vulkan::native_view(*ctx.device, ddgi_imgs->visibility),
+                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo offset_info{nearest_sampler_, gpu::vulkan::native_view(*ctx.device, ddgi_imgs->probe_offset),
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         // DDGI UBO (binding 0) — share buffer with DdgiPass so the layout
         // matches the trace's struct without us replicating the data.
-        VkDescriptorBufferInfo ddgi_ubo_info{ddgi_imgs->constants_ubo[ctx.frame_index]->handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo ddgi_ubo_info{
+            gpu::vulkan::native_buffer(*ctx.device, ddgi_imgs->constants[ctx.frame_index]), 0, VK_WHOLE_SIZE};
 
         // Probe status SSBO.
-        VkDescriptorBufferInfo probe_status_info{ddgi_imgs->probe_status_buffer->handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo probe_status_info{
+            gpu::vulkan::native_buffer(*ctx.device, ddgi_imgs->probe_status), 0, VK_WHOLE_SIZE};
 
         // RT instance data SSBO.
         VkDescriptorBufferInfo inst_info{

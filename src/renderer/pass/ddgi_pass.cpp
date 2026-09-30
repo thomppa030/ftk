@@ -1,21 +1,18 @@
 #include "renderer/pass/ddgi_pass.hpp"
+#include "gpu/device.hpp"
+#include "gpu/upload.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
-#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/accel_structure.hpp"
-#include "renderer/gpu_context.hpp"
-#include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
-#include "renderer/resource_registry.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/gpu/shader_utils.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
+#include "renderer/pass/sky_cubemap_pass.hpp"
+#include "renderer/resources/mega_buffer.hpp"
 #include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
-#include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <imgui_impl_vulkan.h>
@@ -27,6 +24,7 @@
 #include <cmath>
 #include <cstring>
 #include <random>
+#include <vector>
 
 namespace fjell {
 
@@ -51,6 +49,13 @@ struct LightSelectPushConstants {
 constexpr uint32_t LIGHT_SELECT_GROUP = 64;
 static_assert(MAX_DDGI_LIGHTS % LIGHT_SELECT_GROUP == 0);
 
+// What a probe's status is until its batch is first traced: the update
+// gives it no history and the cage passes over it.
+constexpr uint32_t PROBE_STATUS_UNINITIALIZED = 6;
+
+// The radiance texture rests where the update samples it.
+constexpr gpu::Access RADIANCE_REST = gpu::Access::sampled_compute;
+
 } // namespace
 
 // ── Images ──────────────────────────────────────────────────────────────
@@ -71,43 +76,56 @@ static void compute_atlas_dims(const DdgiConfig& config,
     vis_h = ((total + probes_per_row - 1) / probes_per_row) * vis_side_with_border;
 }
 
-void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                               const DdgiConfig& config,
-                               uint32_t screen_w, uint32_t screen_h) {
+namespace {
+
+gpu::Owned<gpu::Texture> make_texture(gpu::Device& gpu, gpu::Format format, uint32_t width,
+                                      uint32_t height, std::optional<gpu::Clear> initial,
+                                      std::string_view name) {
+    auto made = gpu.create(gpu::TextureDesc{
+        .format = format,
+        .width = width,
+        .height = height,
+        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+        .initial = initial,
+        .name = name,
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("{}", made.error());
+        return {};
+    }
+    return std::move(*made);
+}
+
+gpu::Owned<gpu::Buffer> make_buffer(gpu::Device& gpu, const gpu::BufferDesc& desc) {
+    auto made = gpu.create(desc);
+    if (!made) {
+        FJELL_GFX_ERROR("{}", made.error());
+        return {};
+    }
+    return std::move(*made);
+}
+
+// The indirect output, at the screen's size or half of it.
+glm::uvec2 output_extent(const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h) {
+    if (!config.half_res_output) return {screen_w, screen_h};
+    return {std::max(1U, screen_w / 2), std::max(1U, screen_h / 2)};
+}
+
+// The editor's view of a texture being replaced may still be in a frame's
+// draw data; it goes when that frame is done, and the next *_imgui_texture()
+// call makes one for the new texture.
+void drop_imgui_texture(gpu::Device* gpu, VkDescriptorSet& set) {
+    if (set == VK_NULL_HANDLE || gpu == nullptr) return;
+    gpu::vulkan::defer(*gpu, [doomed = set] { ImGui_ImplVulkan_RemoveTexture(doomed); });
+    set = VK_NULL_HANDLE;
+}
+
+} // namespace
+
+void DdgiPass::Images::create(gpu::Device& gpu, const DdgiConfig& config,
+                              uint32_t screen_w, uint32_t screen_h) {
+    device = &gpu;
     compute_atlas_dims(config, irr_width, irr_height, vis_width, vis_height, total_probes);
-
-    // Returns what the image was made as.
-    auto create_image = [&](VkImage& img, VmaAllocation& alloc, VkImageView& view,
-                            uint32_t w, uint32_t h, VkFormat format,
-                            VkImageUsageFlags usage) {
-        VkImageCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D;
-        info.format = format;
-        info.extent = {w, h, 1};
-        info.mipLevels = 1;
-        info.arrayLayers = 1;
-        info.samples = VK_SAMPLE_COUNT_1_BIT;
-        info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        info.usage = usage;
-        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        create_vma_image(allocator, &info, &img, &alloc);
-
-        VkImageViewCreateInfo view_info{};
-        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = img;
-        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_info.format = format;
-        view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        vkCreateImageView(device, &view_info, nullptr, &view);
-        return info;
-    };
-
-    VkImageUsageFlags storage_sampled = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    // The probe atlases are cleared whenever the probes start over.
-    VkImageUsageFlags probe_atlas = storage_sampled | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     // Radiance: one row per probe traced THIS FRAME, not per probe in the
     // pool. The trace writes to `probe_index - probe_update_offset`, so
@@ -118,598 +136,171 @@ void DdgiPass::Images::create(gpu::Device& gpu, VkDevice device, VmaAllocator al
     radiance_rows = (config.probes_per_frame_batch > 0)
         ? std::min(config.probes_per_frame_batch, total_probes)
         : total_probes;
-    create_image(radiance_image, radiance_memory, radiance_view,
-                 static_cast<uint32_t>(config.probe_rays),
-                 static_cast<uint32_t>(radiance_rows),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
+    radiance = make_texture(gpu, gpu::Format::rgba16_float, static_cast<uint32_t>(config.probe_rays),
+                            static_cast<uint32_t>(radiance_rows), gpu::Clear{}, "ddgi_radiance");
 
-    // Irradiance atlas
-    create_image(irradiance_image, irradiance_memory, irradiance_view,
-                 static_cast<uint32_t>(irr_width),
-                 static_cast<uint32_t>(irr_height),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
-
-    // Visibility atlas
-    create_image(visibility_image, visibility_memory, visibility_view,
-                 static_cast<uint32_t>(vis_width),
-                 static_cast<uint32_t>(vis_height),
-                 VK_FORMAT_R16G16_SFLOAT, probe_atlas);
-
+    // The probe field starts empty, as a reset leaves it.
+    irradiance = make_texture(gpu, gpu::Format::rgba16_float, static_cast<uint32_t>(irr_width),
+                              static_cast<uint32_t>(irr_height), gpu::Clear{}, "ddgi_irradiance");
+    visibility = make_texture(gpu, gpu::Format::rg16_float, static_cast<uint32_t>(vis_width),
+                              static_cast<uint32_t>(vis_height), gpu::Clear{}, "ddgi_visibility");
     // Probe offsets: total_probes stored as 2D (probes_xy x probes_z)
-    int probes_xy = config.probe_counts.x * config.probe_counts.y;
-    create_image(probe_offset_image, probe_offset_memory, probe_offset_view,
-                 static_cast<uint32_t>(probes_xy),
-                 static_cast<uint32_t>(config.probe_counts.z),
-                 VK_FORMAT_R16G16B16A16_SFLOAT, probe_atlas);
+    const int probes_xy = config.probe_counts.x * config.probe_counts.y;
+    probe_offset = make_texture(gpu, gpu::Format::rgba16_float, static_cast<uint32_t>(probes_xy),
+                                static_cast<uint32_t>(config.probe_counts.z), gpu::Clear{},
+                                "ddgi_probe_offset");
 
-    // Probe status SSBO
-    VkDeviceSize status_size = static_cast<VkDeviceSize>(total_probes) * sizeof(uint32_t);
-    probe_status_buffer = std::make_unique<Buffer>(
-        allocator, status_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Constants UBO, one per frame in flight
-    for (auto& ubo : constants_ubo) {
-        ubo = std::make_unique<Buffer>(
-            allocator, sizeof(GpuDdgiConstants),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        ubo->map();
+    const uint64_t status_size = static_cast<uint64_t>(total_probes) * sizeof(uint32_t);
+    probe_status = make_buffer(gpu, {.size = status_size,
+                                     .use = gpu::BufferUse::storage,
+                                     .name = "ddgi_probe_status"});
+    if (probe_status) {
+        gpu.upload().to_buffer(probe_status, 0,
+                               std::vector<uint32_t>(static_cast<size_t>(total_probes),
+                                                     PROBE_STATUS_UNINITIALIZED));
     }
 
-    // Light list, one per frame in flight, filled on the GPU
+    for (auto& slot : constants) {
+        slot = make_buffer(gpu, {.size = sizeof(GpuDdgiConstants),
+                                 .use = gpu::BufferUse::uniform,
+                                 .memory = gpu::Memory::upload,
+                                 .name = "ddgi_constants"});
+        // RT reflections read a slot before DDGI has written it when DDGI is
+        // off; they find zeros, not whatever the memory held.
+        if (slot) std::ranges::fill(gpu.mapped(slot), std::byte{0});
+    }
     for (auto& list : light_list) {
-        list = std::make_unique<Buffer>(
-            allocator, DDGI_LIGHT_LIST_BYTES,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VMA_MEMORY_USAGE_AUTO);
+        list = make_buffer(gpu, {.size = DDGI_LIGHT_LIST_BYTES,
+                                 .use = gpu::BufferUse::storage,
+                                 .name = "ddgi_light_list"});
     }
 
-    // Indirect output (screen-res or half-res)
-    uint32_t out_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
-    uint32_t out_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
-    indirect_extent = {out_w, out_h};
+    indirect_extent = output_extent(config, screen_w, screen_h);
+    indirect = make_texture(gpu, gpu::Format::rgba16_float, indirect_extent.x, indirect_extent.y,
+                            std::nullopt, "ddgi_indirect");
+    indirect_written = false;
 
-    const VkImageCreateInfo indirect_info =
-        create_image(indirect_image, indirect_memory, indirect_view, out_w, out_h,
-                     VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
-    indirect_texture = gpu::vulkan::adopt(gpu, indirect_image, indirect_view, indirect_info);
-
-    images_need_init = true;
-    indirect_needs_init = true;
-    // Every atlas is new and in UNDEFINED, whatever these said about the
-    // images they replace: the next record has to take them all out of it.
-    // A screen resize arriving before that record recreates the indirect
-    // image too, and must not turn this into a resize-only init.
+    // Every probe starts over, whatever the atlases these replace held.
     first_frame_ = true;
-    resized_only_ = false;
+    probe_update_offset = 0;
 }
 
-void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
-    auto destroy_img = [&](VkImageView& view, VkImage& img, VmaAllocation& alloc) {
-        if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
-        destroy_vma_image(allocator, img, alloc);
-        view = VK_NULL_HANDLE;
-        img = VK_NULL_HANDLE;
-        alloc = VK_NULL_HANDLE;
-    };
-
-    if (desc_pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, desc_pool, nullptr);
-        desc_pool = VK_NULL_HANDLE;
-        trace_set.fill(VK_NULL_HANDLE);
-        rt_trace_set.fill(VK_NULL_HANDLE);
-        update_set.fill(VK_NULL_HANDLE);
-        sample_set.fill(VK_NULL_HANDLE);
-        light_select_set.fill(VK_NULL_HANDLE);
-    }
-
-    destroy_img(radiance_view, radiance_image, radiance_memory);
-    destroy_img(irradiance_view, irradiance_image, irradiance_memory);
-    destroy_img(visibility_view, visibility_image, visibility_memory);
-    destroy_img(probe_offset_view, probe_offset_image, probe_offset_memory);
-    indirect_texture.reset();
-    destroy_img(indirect_view, indirect_image, indirect_memory);
-
-    probe_status_buffer.reset();
-    for (auto& ubo : constants_ubo) ubo.reset();
+void DdgiPass::Images::destroy() {
+    invalidate_imgui_texture();
+    radiance.reset();
+    irradiance.reset();
+    visibility.reset();
+    probe_offset.reset();
+    probe_status.reset();
+    for (auto& slot : constants) slot.reset();
     for (auto& list : light_list) list.reset();
+    indirect.reset();
+    indirect_extent = {0, 0};
+    indirect_written = false;
+    first_frame_ = true;
 }
 
-void DdgiPass::Images::resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                               const DdgiConfig& config,
-                               uint32_t screen_w, uint32_t screen_h) {
-    // First call: create everything
-    if (radiance_image == VK_NULL_HANDLE) {
-        create(gpu, device, allocator, config, screen_w, screen_h);
-        return;
-    }
-
+void DdgiPass::Images::resize(gpu::Device& gpu, const DdgiConfig& config,
+                              uint32_t screen_w, uint32_t screen_h) {
     // Probe count drives the size of every probe atlas, so a change to it
     // means rebuilding all of them. Everything accumulated is discarded —
     // a probe's irradiance belongs to a grid position that no longer
     // exists once the grid is re-divided.
-    int wanted_probes = config.probe_counts.x * config.probe_counts.y * config.probe_counts.z;
-    if (wanted_probes != total_probes) {
-        // Unlike a swapchain resize, this is driven by a settings change, so
-        // frames referencing these images may still be in flight.
-        vkDeviceWaitIdle(device);
-        destroy(device, allocator);
-        create(gpu, device, allocator, config, screen_w, screen_h);
+    const int wanted_probes = config.probe_counts.x * config.probe_counts.y * config.probe_counts.z;
+    if (!radiance || wanted_probes != total_probes) {
+        remake(gpu, config, screen_w, screen_h);
         return;
     }
 
-    // Subsequent calls: only recreate indirect_image if screen size changed
-    uint32_t new_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
-    uint32_t new_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
-    if (indirect_extent.width == new_w && indirect_extent.height == new_h) return;
+    // Otherwise only the indirect output follows the screen; the probe
+    // field keeps what it holds.
+    const glm::uvec2 wanted = output_extent(config, screen_w, screen_h);
+    if (wanted == indirect_extent) return;
+    drop_imgui_texture(device, indirect_imgui_desc);
+    indirect_extent = wanted;
+    indirect = make_texture(gpu, gpu::Format::rgba16_float, indirect_extent.x, indirect_extent.y,
+                            std::nullopt, "ddgi_indirect");
+    indirect_written = false;
+}
 
-    // Only destroy/recreate the indirect output image, not the probe images
-    vkDeviceWaitIdle(device);
-    indirect_texture.reset();
-    if (indirect_view != VK_NULL_HANDLE) vkDestroyImageView(device, indirect_view, nullptr);
-    destroy_vma_image(allocator, indirect_image, indirect_memory);
-    indirect_view = VK_NULL_HANDLE;
-    indirect_image = VK_NULL_HANDLE;
-    indirect_memory = VK_NULL_HANDLE;
-
-    indirect_extent = {new_w, new_h};
-
-    VkImageCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    info.imageType = VK_IMAGE_TYPE_2D;
-    info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    info.extent = {new_w, new_h, 1};
-    info.mipLevels = 1;
-    info.arrayLayers = 1;
-    info.samples = VK_SAMPLE_COUNT_1_BIT;
-    info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    create_vma_image(allocator, &info, &indirect_image, &indirect_memory);
-
-    VkImageViewCreateInfo view_info{};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = indirect_image;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    vkCreateImageView(device, &view_info, nullptr, &indirect_view);
-    indirect_texture = gpu::vulkan::adopt(gpu, indirect_image, indirect_view, info);
-
-    // Descriptors reference indirect_view, so they need rewriting. The probe
-    // atlases were not touched: only this image is back in UNDEFINED, and
-    // only its barrier may treat it that way.
-    images_need_init = true;
-    indirect_needs_init = true;
-    resized_only_ = true;
+void DdgiPass::Images::remake(gpu::Device& gpu, const DdgiConfig& config,
+                              uint32_t screen_w, uint32_t screen_h) {
+    drop_imgui_texture(device, indirect_imgui_desc);
+    drop_imgui_texture(device, irradiance_imgui_desc);
+    create(gpu, config, screen_w, screen_h);
 }
 
 void DdgiPass::Images::invalidate_imgui_texture() {
-    if (indirect_imgui_desc != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(indirect_imgui_desc);
-        indirect_imgui_desc = VK_NULL_HANDLE;
-    }
-    if (irradiance_imgui_desc != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(irradiance_imgui_desc);
-        irradiance_imgui_desc = VK_NULL_HANDLE;
+    for (VkDescriptorSet* set : {&indirect_imgui_desc, &irradiance_imgui_desc}) {
+        if (*set != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(*set);
+            *set = VK_NULL_HANDLE;
+        }
     }
 }
 
-VkDescriptorSet DdgiPass::Images::indirect_imgui_texture(VkSampler sampler) {
-    if (indirect_view == VK_NULL_HANDLE || images_need_init) return VK_NULL_HANDLE;
+VkDescriptorSet DdgiPass::Images::indirect_imgui_texture(gpu::Sampler sampler) {
+    if (!indirect || !indirect_written) return VK_NULL_HANDLE;
     if (indirect_imgui_desc == VK_NULL_HANDLE) {
         indirect_imgui_desc = ImGui_ImplVulkan_AddTexture(
-            sampler, indirect_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, indirect),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return indirect_imgui_desc;
 }
 
-VkDescriptorSet DdgiPass::Images::irradiance_imgui_texture(VkSampler sampler) {
-    if (irradiance_view == VK_NULL_HANDLE || images_need_init) return VK_NULL_HANDLE;
+VkDescriptorSet DdgiPass::Images::irradiance_imgui_texture(gpu::Sampler sampler) {
+    if (!irradiance) return VK_NULL_HANDLE;
     if (irradiance_imgui_desc == VK_NULL_HANDLE) {
         irradiance_imgui_desc = ImGui_ImplVulkan_AddTexture(
-            sampler, irradiance_view, VK_IMAGE_LAYOUT_GENERAL);
+            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, irradiance),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     return irradiance_imgui_desc;
 }
 
 // ── DdgiPass ────────────────────────────────────────────────────────────
 
-Result<> DdgiPass::create(Device& device, const PassResources& resources) {
-    device_ = &device;
-    vk_device_ = device.handle();
+Result<> DdgiPass::create(Device& /*device*/, const PassResources& resources) {
+    gpu::Device& device = *resources.device;
 
-    // Linear sampler for SDF and atlas textures
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    // Linear sampler for the SDF, the atlases and the screen
+    linear_sampler_ = device.sampler({.filter = gpu::Filter::linear,
+                                      .mip_filter = gpu::Filter::nearest,
+                                      .address = gpu::Address::clamp});
 
-    if (vkCreateSampler(vk_device_, &sampler_ci, nullptr, &linear_sampler_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI sampler");
-    }
-
-    // Descriptor set layout for SDF trace:
-    // binding 0: DDGIConstants UBO
-    // binding 1: scene SDF (sampler3D)
-    // binding 2: radiance output (storage image)
-    // binding 3: sky cubemap (samplerCube)
-    // binding 4: probe status SSBO
-    // binding 5: probe offset texture (sampler2D)
-    // binding 6: irradiance atlas (sampler2D) — the bounce at a hit
-    // binding 7: visibility atlas (sampler2D) — the bounce at a hit
-    // binding 8: light list (SSBO) — the local lights at a hit
-    // binding 9: scene SDF index volume (usampler3D) — the object at a hit
-    // binding 10: scene SDF object table (SSBO) — its materials
-    std::array<VkDescriptorSetLayoutBinding, 11> bindings{};
-
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[2].binding = 2;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[3].binding = 3;
-    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[4].binding = 4;
-    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[4].descriptorCount = 1;
-    bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[5].binding = 5;
-    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[5].descriptorCount = 1;
-    bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    bindings[6] = {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    bindings[7] = {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    bindings[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
-    layout_ci.pBindings = bindings.data();
-
-    if (vkCreateDescriptorSetLayout(vk_device_, &layout_ci, nullptr, &trace_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI trace set layout");
-    }
-
-    // Pipeline layout: the trace set, then the bindless set (the hit's
-    // materials), + push constants
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(TracePushConstants);
-
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    const std::array trace_set_layouts = {trace_set_layout_, resources.material_set_layout};
-    pipe_layout_ci.setLayoutCount = static_cast<uint32_t>(trace_set_layouts.size());
-    pipe_layout_ci.pSetLayouts = trace_set_layouts.data();
-    pipe_layout_ci.pushConstantRangeCount = 1;
-    pipe_layout_ci.pPushConstantRanges = &push_range;
-
-    if (vkCreatePipelineLayout(vk_device_, &pipe_layout_ci, nullptr, &trace_pipeline_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI trace pipeline layout");
-    }
-
-    // Compute pipeline
-    auto spirv = read_spirv(base_path::resolve("shaders/ddgi_probe_trace_sdf.comp.spv"));
-    VkShaderModule module = create_shader_module(vk_device_, spirv);
-
-    VkPipelineShaderStageCreateInfo stage{};
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = module;
-    stage.pName = "main";
-
-    VkComputePipelineCreateInfo pipe_ci{};
-    pipe_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipe_ci.stage = stage;
-    pipe_ci.layout = trace_pipeline_layout_;
-
-    VkResult result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &pipe_ci, nullptr, &trace_pipeline_);
-    vkDestroyShaderModule(vk_device_, module, nullptr);
-
-    if (result != VK_SUCCESS) {
-        return make_error("Failed to create DDGI SDF trace pipeline");
-    }
-
-    // ── Update descriptor set layout ──
-    // binding 0: DDGIConstants UBO
-    // binding 1: radiance texture (sampler2D)
-    // binding 2: irradiance image (storage, rw)
-    // binding 3: visibility image (storage, rw)
-    // binding 4: probe offset image (storage, rw)
-    // binding 5: probe status SSBO (rw)
-    std::array<VkDescriptorSetLayoutBinding, 6> update_bindings{};
-    update_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    update_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    update_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    update_bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    update_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    update_bindings[5] = {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-
-    VkDescriptorSetLayoutCreateInfo update_layout_ci{};
-    update_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    update_layout_ci.bindingCount = static_cast<uint32_t>(update_bindings.size());
-    update_layout_ci.pBindings = update_bindings.data();
-
-    if (vkCreateDescriptorSetLayout(vk_device_, &update_layout_ci, nullptr, &update_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI update set layout");
-    }
-
-    // Update pipeline layout: descriptor set + push constants (max_trace_dist)
-    VkPushConstantRange update_push{};
-    update_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    update_push.offset = 0;
-    update_push.size = sizeof(float);
-
-    VkPipelineLayoutCreateInfo update_pipe_layout_ci{};
-    update_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    update_pipe_layout_ci.setLayoutCount = 1;
-    update_pipe_layout_ci.pSetLayouts = &update_set_layout_;
-    update_pipe_layout_ci.pushConstantRangeCount = 1;
-    update_pipe_layout_ci.pPushConstantRanges = &update_push;
-
-    if (vkCreatePipelineLayout(vk_device_, &update_pipe_layout_ci, nullptr, &update_pipeline_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI update pipeline layout");
-    }
-
-    // Helper: create compute pipeline from SPIR-V path
-    auto create_compute = [&](const std::string& spv_path, VkPipeline& out_pipeline) -> VkResult {
-        auto code = read_spirv(base_path::resolve(spv_path));
-        VkShaderModule mod = create_shader_module(vk_device_, code);
-        VkPipelineShaderStageCreateInfo s{};
-        s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        s.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        s.module = mod;
-        s.pName = "main";
-        VkComputePipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        ci.stage = s;
-        ci.layout = update_pipeline_layout_;
-        VkResult r = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &ci, nullptr, &out_pipeline);
-        vkDestroyShaderModule(vk_device_, mod, nullptr);
-        return r;
-    };
-
-    if (create_compute("shaders/ddgi_probe_update.comp.spv", probe_update_pipeline_) != VK_SUCCESS)
-        return make_error("Failed to create DDGI probe update pipeline");
-
-    // ── Sampling descriptor set layout ──
-    // binding 0: DDGIConstants UBO
-    // binding 1: depth texture (sampler2D)
-    // binding 2: normal texture (sampler2D)
-    // binding 3: irradiance atlas (sampler2D)
-    // binding 4: visibility atlas (sampler2D)
-    // binding 5: probe offset texture (sampler2D)
-    // binding 6: probe status SSBO
-    // binding 7: indirect output (storage image)
-    std::array<VkDescriptorSetLayoutBinding, 8> sample_bindings{};
-    sample_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[4] = {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-    sample_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-
-    // Enable UPDATE_AFTER_BIND on sampler bindings (1,2 = depth, normal) so they
-    // can be rewritten per-frame while the set is referenced by pending command buffers
-    std::array<VkDescriptorBindingFlags, 8> sample_binding_flags{};
-    sample_binding_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth
-    sample_binding_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfo sample_flags_ci{};
-    sample_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    sample_flags_ci.bindingCount = static_cast<uint32_t>(sample_binding_flags.size());
-    sample_flags_ci.pBindingFlags = sample_binding_flags.data();
-
-    VkDescriptorSetLayoutCreateInfo sample_layout_ci{};
-    sample_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    sample_layout_ci.pNext = &sample_flags_ci;
-    sample_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    sample_layout_ci.bindingCount = static_cast<uint32_t>(sample_bindings.size());
-    sample_layout_ci.pBindings = sample_bindings.data();
-
-    if (vkCreateDescriptorSetLayout(vk_device_, &sample_layout_ci, nullptr, &sample_set_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI sample set layout");
-    }
-
-    VkPushConstantRange sample_push{};
-    sample_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    sample_push.offset = 0;
-    sample_push.size = sizeof(uint32_t);
-
-    VkPipelineLayoutCreateInfo sample_pipe_layout_ci{};
-    sample_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    sample_pipe_layout_ci.setLayoutCount = 1;
-    sample_pipe_layout_ci.pSetLayouts = &sample_set_layout_;
-    sample_pipe_layout_ci.pushConstantRangeCount = 1;
-    sample_pipe_layout_ci.pPushConstantRanges = &sample_push;
-
-    if (vkCreatePipelineLayout(vk_device_, &sample_pipe_layout_ci, nullptr, &sample_pipeline_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create DDGI sample pipeline layout");
-    }
-
-    {
-        auto sample_spirv = read_spirv(base_path::resolve("shaders/ddgi_sample_irradiance.comp.spv"));
-        VkShaderModule sample_mod = create_shader_module(vk_device_, sample_spirv);
-        VkPipelineShaderStageCreateInfo sample_stage{};
-        sample_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        sample_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        sample_stage.module = sample_mod;
-        sample_stage.pName = "main";
-        VkComputePipelineCreateInfo sample_ci{};
-        sample_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        sample_ci.stage = sample_stage;
-        sample_ci.layout = sample_pipeline_layout_;
-        VkResult sample_result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &sample_ci, nullptr, &sample_pipeline_);
-        vkDestroyShaderModule(vk_device_, sample_mod, nullptr);
-        if (sample_result != VK_SUCCESS)
-            return make_error("Failed to create DDGI sample irradiance pipeline");
-    }
-
-    // ── Light select: the lights that reach the grid, out of the world light
-    // buffer the global set binds (set 0) into this slot's list (set 1) ──
-    {
-        const VkDescriptorSetLayoutBinding list_binding{
-            0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-        VkDescriptorSetLayoutCreateInfo list_layout_ci{};
-        list_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        list_layout_ci.bindingCount = 1;
-        list_layout_ci.pBindings = &list_binding;
-        if (vkCreateDescriptorSetLayout(vk_device_, &list_layout_ci, nullptr, &light_select_set_layout_) != VK_SUCCESS) {
-            return make_error("Failed to create DDGI light select set layout");
-        }
-
-        const VkPushConstantRange select_push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightSelectPushConstants)};
-        const std::array select_set_layouts = {resources.global_set_layout, light_select_set_layout_};
-        VkPipelineLayoutCreateInfo select_layout_ci{};
-        select_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        select_layout_ci.setLayoutCount = static_cast<uint32_t>(select_set_layouts.size());
-        select_layout_ci.pSetLayouts = select_set_layouts.data();
-        select_layout_ci.pushConstantRangeCount = 1;
-        select_layout_ci.pPushConstantRanges = &select_push;
-        if (vkCreatePipelineLayout(vk_device_, &select_layout_ci, nullptr, &light_select_pipeline_layout_) != VK_SUCCESS) {
-            return make_error("Failed to create DDGI light select pipeline layout");
-        }
-
-        auto select_spirv = read_spirv(base_path::resolve("shaders/ddgi_light_select.comp.spv"));
-        VkShaderModule select_mod = create_shader_module(vk_device_, select_spirv);
-        VkComputePipelineCreateInfo select_ci{};
-        select_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        select_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        select_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        select_ci.stage.module = select_mod;
-        select_ci.stage.pName = "main";
-        select_ci.layout = light_select_pipeline_layout_;
-        VkResult select_result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &select_ci,
-                                                          nullptr, &light_select_pipeline_);
-        vkDestroyShaderModule(vk_device_, select_mod, nullptr);
-        if (select_result != VK_SUCCESS)
-            return make_error("Failed to create DDGI light select pipeline");
-    }
-
+    FJELL_TRY(trace_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                   .shader = "shaders/ddgi_probe_trace_sdf.comp",
+                                   .shared = {resources.bindless},
+                                   .name = "ddgi_probe_trace_sdf",
+                               }));
+    FJELL_TRY(probe_update_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                          .shader = "shaders/ddgi_probe_update.comp",
+                                          .name = "ddgi_probe_update",
+                                      }));
+    FJELL_TRY(sample_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                    .shader = "shaders/ddgi_sample_irradiance.comp",
+                                    .name = "ddgi_sample_irradiance",
+                                }));
+    FJELL_TRY(light_select_pipeline_, device.create(gpu::ComputePipelineDesc{
+                                          .shader = "shaders/ddgi_light_select.comp",
+                                          .shared = {resources.globals},
+                                          .name = "ddgi_light_select",
+                                      }));
     FJELL_GFX_DEBUG("DDGI pass created (SDF trace + probe update + sample pipelines)");
 
     // ── RT trace pipeline (optional): compute, tracing with ray queries ──
-    if (device.ray_tracing_supported()) {
-        FJELL_GFX_DEBUG("DDGI: Creating RT trace pipeline...");
-        // RT trace set layout:
-        // binding 0: DDGIConstants UBO
-        // binding 1: TLAS
-        // binding 2: radiance output (storage image)
-        // binding 3: sky cubemap (samplerCube)
-        // binding 4: probe status SSBO
-        // binding 5: probe offset texture (sampler2D)
-        // binding 6: vertex buffer SSBO (for the hit's normal)
-        // binding 7: index buffer SSBO (for the hit's triangle)
-        // binding 8: per-instance data SSBO (material_id, first_index, vertex_offset)
-        // binding 9:  irradiance atlas (for multi-bounce GI at the hit)
-        // binding 10: visibility atlas (for multi-bounce GI at the hit)
-        // binding 11: scene SDF (burial test)
-        // binding 12: light list (the local lights at a hit)
-        const VkShaderStageFlags rt_stages = VK_SHADER_STAGE_COMPUTE_BIT;
-        std::array<VkDescriptorSetLayoutBinding, 13> rt_bindings{};
-        rt_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, rt_stages, nullptr};
-        rt_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, rt_stages, nullptr};
-        rt_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, rt_stages, nullptr};
-        rt_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
-        rt_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
-        rt_bindings[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
-        rt_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
-        rt_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
-        rt_bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
-        rt_bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
-        rt_bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
-        rt_bindings[11] = {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, rt_stages, nullptr};
-        rt_bindings[12] = {12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, rt_stages, nullptr};
-
-        // Enable UPDATE_AFTER_BIND on bindings updated every frame
-        std::array<VkDescriptorBindingFlags, 13> rt_bind_flags{};
-        rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
-        rt_bind_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // vertex buffer
-        rt_bind_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // index buffer
-        rt_bind_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // per-instance data
-
-        VkDescriptorSetLayoutBindingFlagsCreateInfo rt_flags_ci{};
-        rt_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-        rt_flags_ci.bindingCount = static_cast<uint32_t>(rt_bind_flags.size());
-        rt_flags_ci.pBindingFlags = rt_bind_flags.data();
-
-        VkDescriptorSetLayoutCreateInfo rt_layout_ci{};
-        rt_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        rt_layout_ci.pNext = &rt_flags_ci;
-        rt_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        rt_layout_ci.bindingCount = static_cast<uint32_t>(rt_bindings.size());
-        rt_layout_ci.pBindings = rt_bindings.data();
-
-        if (vkCreateDescriptorSetLayout(vk_device_, &rt_layout_ci, nullptr, &rt_trace_set_layout_) != VK_SUCCESS) {
-            return make_error("Failed to create DDGI RT trace set layout");
-        }
-
-        // RT pipeline layout: set 0 = RT trace set, set 1 = bindless set (the hit's material)
-        VkPushConstantRange rt_push{};
-        rt_push.stageFlags = rt_stages;
-        rt_push.offset = 0;
-        rt_push.size = sizeof(RtTracePushConstants);
-
-        std::array rt_set_layouts = {rt_trace_set_layout_, resources.material_set_layout};
-
-        VkPipelineLayoutCreateInfo rt_pipe_layout_ci{};
-        rt_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        rt_pipe_layout_ci.setLayoutCount = static_cast<uint32_t>(rt_set_layouts.size());
-        rt_pipe_layout_ci.pSetLayouts = rt_set_layouts.data();
-        rt_pipe_layout_ci.pushConstantRangeCount = 1;
-        rt_pipe_layout_ci.pPushConstantRanges = &rt_push;
-
-        if (vkCreatePipelineLayout(vk_device_, &rt_pipe_layout_ci, nullptr, &rt_trace_pipeline_layout_) != VK_SUCCESS) {
-            return make_error("Failed to create DDGI RT trace pipeline layout");
-        }
-
-        auto rt_spirv = read_spirv(base_path::resolve("shaders/ddgi_probe_trace_rt.comp.spv"));
-        VkShaderModule rt_mod = create_shader_module(vk_device_, rt_spirv);
-        VkComputePipelineCreateInfo rt_ci{};
-        rt_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        rt_ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        rt_ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        rt_ci.stage.module = rt_mod;
-        rt_ci.stage.pName = "main";
-        rt_ci.layout = rt_trace_pipeline_layout_;
-        VkResult rt_result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &rt_ci,
-                                                      nullptr, &rt_trace_pipeline_);
-        vkDestroyShaderModule(vk_device_, rt_mod, nullptr);
-
-        if (rt_result != VK_SUCCESS) {
-            FJELL_GFX_WARN("Failed to create DDGI RT trace pipeline, falling back to SDF");
-            rt_trace_pipeline_ = VK_NULL_HANDLE;
+    if (device.caps().ray_queries) {
+        auto rt = device.create(gpu::ComputePipelineDesc{
+            .shader = "shaders/ddgi_probe_trace_rt.comp",
+            .shared = {resources.bindless},
+            .name = "ddgi_probe_trace_rt",
+        });
+        if (!rt) {
+            FJELL_GFX_WARN("Failed to create DDGI RT trace pipeline, falling back to SDF: {}", rt.error());
             backend_ = DdgiBackend::sdf_fallback;
         } else {
+            rt_trace_pipeline_ = std::move(*rt);
             backend_ = DdgiBackend::ray_traced;
             FJELL_GFX_INFO("DDGI RT trace pipeline created (ray queries)");
         }
@@ -719,31 +310,11 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
 }
 
 void DdgiPass::destroy() {
-    if (vk_device_ == VK_NULL_HANDLE) return;
-
-    auto safe_destroy = [&](auto destroy_fn, auto& handle) {
-        if (handle != VK_NULL_HANDLE) { destroy_fn(vk_device_, handle, nullptr); handle = VK_NULL_HANDLE; }
-    };
-
-    safe_destroy(vkDestroyPipeline, trace_pipeline_);
-    safe_destroy(vkDestroyPipeline, probe_update_pipeline_);
-    safe_destroy(vkDestroyPipeline, sample_pipeline_);
-    safe_destroy(vkDestroyPipeline, rt_trace_pipeline_);
-    safe_destroy(vkDestroyPipeline, light_select_pipeline_);
-    safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
-    safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
-    safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
-    safe_destroy(vkDestroyPipelineLayout, rt_trace_pipeline_layout_);
-    safe_destroy(vkDestroyPipelineLayout, light_select_pipeline_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, rt_trace_set_layout_);
-    safe_destroy(vkDestroyDescriptorSetLayout, light_select_set_layout_);
-    safe_destroy(vkDestroySampler, linear_sampler_);
-
-    vk_device_ = VK_NULL_HANDLE;
-    device_ = nullptr;
+    trace_pipeline_.reset();
+    probe_update_pipeline_.reset();
+    sample_pipeline_.reset();
+    light_select_pipeline_.reset();
+    rt_trace_pipeline_.reset();
 }
 
 void DdgiPass::record(const FrameContext& ctx) {
@@ -751,133 +322,10 @@ void DdgiPass::record(const FrameContext& ctx) {
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->ddgi() : nullptr;
     if (imgs == nullptr) { return; }
     FJELL_PROFILE_SCOPE_N("record_ddgi");
-    FJELL_GPU_ZONE(ctx, "DDGI");
-    // Stopping before sampling leaves the output holding what it held.
     record_into(ctx, *imgs);
-    imgs->indirect_needs_init = false;
 }
 
-static void write_trace_descriptors(VkDevice device, gpu::Device& gpu, VkDescriptorSet set, uint32_t slot,
-                                     DdgiPass::Images& imgs,
-                                     VkImageView sdf_view, VkSampler sdf_sampler,
-                                     VkImageView sky_view, VkSampler sky_sampler,
-                                     VkSampler linear_sampler, const SceneSdfPass& scene_sdf) {
-    // 0: constants UBO
-    VkDescriptorBufferInfo ubo_info{};
-    ubo_info.buffer = imgs.constants_ubo[slot]->handle();
-    ubo_info.offset = 0;
-    ubo_info.range = sizeof(GpuDdgiConstants);
-
-    // 1: scene SDF
-    VkDescriptorImageInfo sdf_info{};
-    sdf_info.sampler = sdf_sampler;
-    sdf_info.imageView = sdf_view;
-    sdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    // 2: radiance output (storage)
-    VkDescriptorImageInfo radiance_info{};
-    radiance_info.imageView = imgs.radiance_view;
-    radiance_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    // 3: sky cubemap
-    VkDescriptorImageInfo sky_info{};
-    sky_info.sampler = sky_sampler;
-    sky_info.imageView = sky_view;
-    sky_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    // 4: probe status SSBO
-    VkDescriptorBufferInfo status_info{};
-    status_info.buffer = imgs.probe_status_buffer->handle();
-    status_info.offset = 0;
-    status_info.range = VK_WHOLE_SIZE;
-
-    // 5: probe offset texture
-    VkDescriptorImageInfo offset_info{};
-    offset_info.sampler = linear_sampler;
-    offset_info.imageView = imgs.probe_offset_view;
-    offset_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    // 6, 7: the probe field, for the bounce at a hit
-    VkDescriptorImageInfo irradiance_info{};
-    irradiance_info.sampler = linear_sampler;
-    irradiance_info.imageView = imgs.irradiance_view;
-    irradiance_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkDescriptorImageInfo visibility_info{};
-    visibility_info.sampler = linear_sampler;
-    visibility_info.imageView = imgs.visibility_view;
-    visibility_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    // 8: the local lights at a hit
-    VkDescriptorBufferInfo lights_info{};
-    lights_info.buffer = imgs.light_list[slot]->handle();
-    lights_info.range = VK_WHOLE_SIZE;
-
-    // 9, 10: the object at a hit, and its materials
-    VkDescriptorImageInfo index_info{};
-    index_info.sampler = gpu::vulkan::native_sampler(gpu, scene_sdf.index_sampler());
-    index_info.imageView = gpu::vulkan::native_view(gpu, scene_sdf.index_volume());
-    index_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorBufferInfo objects_info{};
-    objects_info.buffer = gpu::vulkan::native_buffer(gpu, scene_sdf.slot_table(slot));
-    objects_info.range = VK_WHOLE_SIZE;
-
-    std::array<VkWriteDescriptorSet, 11> writes{};
-    for (auto& w : writes) {
-        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        w.dstSet = set;
-        w.descriptorCount = 1;
-    }
-
-    writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].pBufferInfo = &ubo_info;
-
-    writes[1].dstBinding = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[1].pImageInfo = &sdf_info;
-
-    writes[2].dstBinding = 2;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writes[2].pImageInfo = &radiance_info;
-
-    writes[3].dstBinding = 3;
-    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[3].pImageInfo = &sky_info;
-
-    writes[4].dstBinding = 4;
-    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[4].pBufferInfo = &status_info;
-
-    writes[5].dstBinding = 5;
-    writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[5].pImageInfo = &offset_info;
-
-    writes[6].dstBinding = 6;
-    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[6].pImageInfo = &irradiance_info;
-
-    writes[7].dstBinding = 7;
-    writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[7].pImageInfo = &visibility_info;
-
-    writes[8].dstBinding = 8;
-    writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[8].pBufferInfo = &lights_info;
-
-    writes[9].dstBinding = 9;
-    writes[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[9].pImageInfo = &index_info;
-
-    writes[10].dstBinding = 10;
-    writes[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[10].pBufferInfo = &objects_info;
-
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-}
-
-void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
+GpuDdgiConstants DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     GpuDdgiConstants constants{};
     constants.probe_grid_position = config_.grid_position;
     constants.probe_sphere_scale = 0.1f;
@@ -897,10 +345,10 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
 
     // Round-robin a slice of probes each frame to cut per-frame ray cost.
     //
-    // The count can never exceed the radiance image's height: the trace
+    // The count can never exceed the radiance texture's height: the trace
     // writes one row per probe at `probe_index - probe_update_offset`, so a
-    // wider window writes past the end of the image and the device is lost.
-    // That is a real hazard now the image is sized to the batch rather than
+    // wider window writes past the end of the texture and the device is lost.
+    // That is a real hazard now the texture is sized to the batch rather than
     // to the whole pool, and it is not only a first-frame concern — a grid
     // re-fit takes the same path.
     int total = imgs.total_probes;
@@ -944,57 +392,40 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.resolution = glm::vec2(ctx.target ? ctx.target->extent().width : 1920,
                                      ctx.target ? ctx.target->extent().height : 1080);
 
-    std::memcpy(imgs.constants_ubo[ctx.frame_index]->mapped(), &constants, sizeof(constants));
+    const std::span<std::byte> slot = ctx.device->mapped(imgs.constants[ctx.frame_index]);
+    std::memcpy(slot.data(), &constants, sizeof(constants));
+    return constants;
 }
 
 void DdgiPass::record_light_select(const FrameContext& ctx, Images& imgs) {
     FJELL_PROFILE_SCOPE_N("ddgi_light_select");
-    FJELL_GPU_ZONE(ctx, "DDGI Light Select");
-    const VkBuffer list = imgs.light_list[ctx.frame_index]->handle();
-
-    auto list_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                            VkAccessFlags2 dst_access) {
-        VkBufferMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        b.srcStageMask = src_stage;
-        b.srcAccessMask = src_access;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = dst_access;
-        b.buffer = list;
-        b.offset = 0;
-        b.size = VK_WHOLE_SIZE;
-        VkDependencyInfo d{};
-        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        d.bufferMemoryBarrierCount = 1;
-        d.pBufferMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(ctx.cmd, &d);
-    };
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("DDGI Light Select");
+    const gpu::Buffer list = imgs.light_list[ctx.frame_index];
 
     // The count starts at zero and the select appends after it. Without the
     // global set there is no light buffer to read, and the list stays empty.
-    vkCmdFillBuffer(ctx.cmd, list, 0, sizeof(uint32_t), 0);
-    list_barrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                 VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    const gpu::BufferRange count{list, 0, sizeof(uint32_t)};
+    cmd.fill(count, 0);
+    cmd.barrier(count, gpu::Access::clear, gpu::Access::storage_buffer_read_write_compute);
 
-    if (ctx.global_descriptor_set != VK_NULL_HANDLE) {
-        const std::array sets = {ctx.global_descriptor_set, imgs.light_select_set[ctx.frame_index]};
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, light_select_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, light_select_pipeline_layout_,
-                                0, static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
+    if (ctx.globals.valid()) {
+        cmd.set_pipeline(light_select_pipeline_);
+        cmd.bind(ctx.globals);
+        cmd.bind({{"DdgiLightList", gpu::storage(list)}});
         const AABB reach = trace_reach_bounds();
-        const LightSelectPushConstants push{reach.min, 0.0f, reach.max, 0.0f};
-        vkCmdPushConstants(ctx.cmd, light_select_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDispatch(ctx.cmd, MAX_DDGI_LIGHTS / LIGHT_SELECT_GROUP, 1, 1);
+        cmd.push(LightSelectPushConstants{reach.min, 0.0f, reach.max, 0.0f});
+        cmd.dispatch(MAX_DDGI_LIGHTS / LIGHT_SELECT_GROUP, 1, 1);
     }
 
     // The tracer reads what the select wrote.
-    list_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-                 VK_ACCESS_2_SHADER_READ_BIT);
+    cmd.barrier(gpu::BufferRange(list), gpu::Access::storage_buffer_read_write_compute,
+                gpu::Access::storage_buffer_read_compute);
 }
 
 void DdgiPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
     scene_sdf_ = passes.try_get<SceneSdfPass>("scene_sdf");
+    sky_ = passes.try_get<SkyCubemapPass>("sky_cubemap");
 }
 
 void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
@@ -1014,630 +445,191 @@ AABB DdgiPass::trace_reach_bounds() const {
 }
 
 void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (trace_pipeline_ == VK_NULL_HANDLE) return;
-    if (imgs.radiance_image == VK_NULL_HANDLE) return;
-    if (ctx.registry == nullptr) return;
+    // What declare() checks before it declares anything: without it the
+    // pass does nothing, and the graph has not touched the probe field.
+    if (!imgs.irradiance || scene_sdf_ == nullptr || sky_ == nullptr) return;
+    const bool use_rt = backend_ == DdgiBackend::ray_traced && rt_trace_pipeline_;
+    const gpu::AccelerationStructure tlas =
+        use_rt && accel_manager_ != nullptr && ctx.scene != nullptr
+            ? accel_manager_->tlas(ctx.scene->id(), ctx.frame_index)
+            : gpu::AccelerationStructure{};
+    if (use_rt && !tlas.valid()) return;
 
-    const auto* sky_res = ctx.registry->find_image("sky_cubemap");
-    auto sdf_view = scene_sdf_ != nullptr ? gpu::vulkan::native_view(*ctx.device, scene_sdf_->volume())
-                                          : VK_NULL_HANDLE;
-    auto sdf_sampler = scene_sdf_ != nullptr
-                           ? gpu::vulkan::native_sampler(*ctx.device, scene_sdf_->sampler())
-                           : VK_NULL_HANDLE;
-    auto sky_cubemap_view = sky_res != nullptr ? sky_res->view : VK_NULL_HANDLE;
-    auto sky_cubemap_sampler = sky_res != nullptr ? sky_res->sampler : VK_NULL_HANDLE;
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("DDGI");
+    const std::array<gpu::TextureView, 3> atlases{imgs.irradiance, imgs.visibility, imgs.probe_offset};
 
-    // Sky cubemap identity changed (HDRI loaded or cleared) — force a
-    // descriptor rewrite on trace_set / rt_trace_set. The old handles may
-    // already be destroyed, so this must happen before we use them.
-    if (sky_cubemap_view != imgs.last_sky_view ||
-        sky_cubemap_sampler != imgs.last_sky_sampler) {
-        imgs.images_need_init = true;
-        // Rewriting the descriptor only points the trace at the new sky; the
-        // atlases still hold irradiance integrated from the old one. An HDRI
-        // finishing its async load a few frames into a scene would otherwise
-        // leave every probe lit by the placeholder sky until something else
-        // invalidated the grid.
-        if (imgs.last_sky_view != VK_NULL_HANDLE) invalidate_probe_lighting();
-        imgs.last_sky_view = sky_cubemap_view;
-        imgs.last_sky_sampler = sky_cubemap_sampler;
-    }
-
-    // Allocate descriptor pool + sets for this Images instance if needed
-    if (imgs.desc_pool == VK_NULL_HANDLE) {
-        bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
-        // Four sets per frame slot without RT (trace, update, sample, light
-        // select), holding 12 samplers, 5 storage images and 6 storage
-        // buffers between them. With RT, one RT trace set per slot on top;
-        // each adds 1 UBO, 5 samplers, 1 storage image, 5 storage buffers
-        // and 1 acceleration structure.
-        constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
-        constexpr uint32_t RT_SLOTS = MAX_FRAMES_IN_FLIGHT;
-        uint32_t max_sets = has_rt ? 4u * SLOTS + RT_SLOTS : 4u * SLOTS;
-
-        std::array<VkDescriptorPoolSize, 5> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 3u * SLOTS + RT_SLOTS : 3u * SLOTS};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 12u * SLOTS + 5u * RT_SLOTS : 12u * SLOTS};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 5u * SLOTS + RT_SLOTS : 5u * SLOTS};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 6u * SLOTS + 5u * RT_SLOTS : 6u * SLOTS};
-        pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? RT_SLOTS : 0u};
-        uint32_t pool_size_count = has_rt ? 5u : 4u;
-
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        pool_ci.maxSets = max_sets;
-        pool_ci.poolSizeCount = pool_size_count;
-        pool_ci.pPoolSizes = pool_sizes.data();
-
-        vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
-
-        // Slot s owns layouts[4s..4s+3]; the RT sets follow.
-        std::array<VkDescriptorSetLayout, 4 * SLOTS + RT_SLOTS> layouts{};
-        for (uint32_t s = 0; s < SLOTS; ++s) {
-            layouts[4 * s + 0] = trace_set_layout_;
-            layouts[4 * s + 1] = update_set_layout_;
-            layouts[4 * s + 2] = sample_set_layout_;
-            layouts[4 * s + 3] = light_select_set_layout_;
-        }
-        for (uint32_t s = 0; s < RT_SLOTS; ++s) layouts[4 * SLOTS + s] = rt_trace_set_layout_;
-        std::array<VkDescriptorSet, 4 * SLOTS + RT_SLOTS> sets{};
-
-        VkDescriptorSetAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = imgs.desc_pool;
-        alloc_info.descriptorSetCount = max_sets;
-        alloc_info.pSetLayouts = layouts.data();
-
-        vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
-        for (uint32_t s = 0; s < SLOTS; ++s) {
-            imgs.trace_set[s] = sets[4 * s + 0];
-            imgs.update_set[s] = sets[4 * s + 1];
-            imgs.sample_set[s] = sets[4 * s + 2];
-            imgs.light_select_set[s] = sets[4 * s + 3];
-        }
-        if (has_rt) {
-            for (uint32_t s = 0; s < RT_SLOTS; ++s) imgs.rt_trace_set[s] = sets[4 * SLOTS + s];
-        }
-        imgs.images_need_init = true;
-    }
-
-    // Update constants UBO
-    update_constants(imgs, ctx);
-
-    // Write descriptors on first use or when views become available
-    if (imgs.images_need_init) {
-        if (sdf_view == VK_NULL_HANDLE || scene_sdf_ == nullptr) {
-            FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
-            frame_counter_++;
-            return;
-        }
-        if (sky_cubemap_view == VK_NULL_HANDLE) {
-            FJELL_GFX_WARN("DDGI: Sky cubemap view not available, skipping");
-            frame_counter_++;
-            return;
-        }
-        // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
-    }
-    if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && scene_sdf_ != nullptr
-        && sky_cubemap_view != VK_NULL_HANDLE) {
-        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-            write_trace_descriptors(vk_device_, *ctx.device, imgs.trace_set[s], s, imgs,
-                                    sdf_view, sdf_sampler,
-                                    sky_cubemap_view, sky_cubemap_sampler,
-                                    linear_sampler_, *scene_sdf_);
-        }
-
-        // Write update set descriptors, the same into every slot's set but
-        // for that slot's UBO
-        VkDescriptorBufferInfo ubo_info{};
-        ubo_info.range = sizeof(GpuDdgiConstants);
-
-        VkDescriptorImageInfo radiance_info{};
-        radiance_info.sampler = linear_sampler_;
-        radiance_info.imageView = imgs.radiance_view;
-        radiance_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo irr_info{};
-        irr_info.imageView = imgs.irradiance_view;
-        irr_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorImageInfo vis_info{};
-        vis_info.imageView = imgs.visibility_view;
-        vis_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorImageInfo offset_info{};
-        offset_info.imageView = imgs.probe_offset_view;
-        offset_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorBufferInfo status_info{};
-        status_info.buffer = imgs.probe_status_buffer->handle();
-        status_info.range = VK_WHOLE_SIZE;
-
-        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-            ubo_info.buffer = imgs.constants_ubo[s]->handle();
-            std::array<VkWriteDescriptorSet, 6> writes{};
-            for (auto& w : writes) {
-                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                w.dstSet = imgs.update_set[s];
-                w.descriptorCount = 1;
-            }
-            writes[0].dstBinding = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[0].pBufferInfo = &ubo_info;
-            writes[1].dstBinding = 1; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[1].pImageInfo = &radiance_info;
-            writes[2].dstBinding = 2; writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[2].pImageInfo = &irr_info;
-            writes[3].dstBinding = 3; writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[3].pImageInfo = &vis_info;
-            writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[4].pImageInfo = &offset_info;
-            writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[5].pBufferInfo = &status_info;
-
-            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-        }
-
-        // Write sample set static descriptors (irradiance, visibility, offset, status, indirect)
-        // Depth + normal are written every frame since they change with viewport resize
-        {
-            VkDescriptorBufferInfo s_ubo{};
-            s_ubo.range = sizeof(GpuDdgiConstants);
-
-            VkDescriptorImageInfo s_irr{};
-            s_irr.sampler = linear_sampler_;
-            s_irr.imageView = imgs.irradiance_view;
-            s_irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo s_vis{};
-            s_vis.sampler = linear_sampler_;
-            s_vis.imageView = imgs.visibility_view;
-            s_vis.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo s_offset{};
-            s_offset.sampler = linear_sampler_;
-            s_offset.imageView = imgs.probe_offset_view;
-            s_offset.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorBufferInfo s_status{};
-            s_status.buffer = imgs.probe_status_buffer->handle();
-            s_status.range = VK_WHOLE_SIZE;
-
-            VkDescriptorImageInfo s_indirect{};
-            s_indirect.imageView = imgs.indirect_view;
-            s_indirect.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-                s_ubo.buffer = imgs.constants_ubo[s]->handle();
-                std::array<VkWriteDescriptorSet, 6> sw{};
-                for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set[s]; w.descriptorCount = 1; }
-                sw[0].dstBinding = 0; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; sw[0].pBufferInfo = &s_ubo;
-                sw[1].dstBinding = 3; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_irr;
-                sw[2].dstBinding = 4; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_vis;
-                sw[3].dstBinding = 5; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_offset;
-                sw[4].dstBinding = 6; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[4].pBufferInfo = &s_status;
-                sw[5].dstBinding = 7; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[5].pImageInfo = &s_indirect;
-
-                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
-            }
-        }
-
-        // Light select: each slot's set writes that slot's list
-        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-            VkDescriptorBufferInfo list_info{};
-            list_info.buffer = imgs.light_list[s]->handle();
-            list_info.range = VK_WHOLE_SIZE;
-            VkWriteDescriptorSet list_write{};
-            list_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            list_write.dstSet = imgs.light_select_set[s];
-            list_write.dstBinding = 0;
-            list_write.descriptorCount = 1;
-            list_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            list_write.pBufferInfo = &list_info;
-            vkUpdateDescriptorSets(vk_device_, 1, &list_write, 0, nullptr);
-        }
-
-        // Write RT trace descriptors (static bindings only — TLAS updated
-        // per-frame), the same into every slot's set.
-        if (imgs.rt_trace_set[0] != VK_NULL_HANDLE) {
-            VkDescriptorBufferInfo rt_ubo{};
-            rt_ubo.range = sizeof(GpuDdgiConstants);
-
-            VkDescriptorImageInfo rt_radiance{};
-            rt_radiance.imageView = imgs.radiance_view;
-            rt_radiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo rt_sky{};
-            rt_sky.sampler = sky_cubemap_sampler;
-            rt_sky.imageView = sky_cubemap_view;
-            rt_sky.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkDescriptorBufferInfo rt_status{};
-            rt_status.buffer = imgs.probe_status_buffer->handle();
-            rt_status.range = VK_WHOLE_SIZE;
-
-            VkDescriptorImageInfo rt_offset{};
-            rt_offset.sampler = linear_sampler_;
-            rt_offset.imageView = imgs.probe_offset_view;
-            rt_offset.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            // Irradiance + visibility atlases for multi-bounce GI in closest-hit
-            VkDescriptorImageInfo rt_irradiance{};
-            rt_irradiance.sampler = linear_sampler_;
-            rt_irradiance.imageView = imgs.irradiance_view;
-            rt_irradiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            VkDescriptorImageInfo rt_visibility{};
-            rt_visibility.sampler = linear_sampler_;
-            rt_visibility.imageView = imgs.visibility_view;
-            rt_visibility.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-            // Scene SDF — raygen burial test
-            VkDescriptorImageInfo rt_sdf{};
-            rt_sdf.sampler = sdf_sampler;
-            rt_sdf.imageView = sdf_view;
-            rt_sdf.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            // Write bindings 0, 2-5, 9-12 (skip 1=TLAS, 6-8=buffers, updated per-frame)
-            for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-            VkDescriptorSet rt_set = imgs.rt_trace_set[s];
-            rt_ubo.buffer = imgs.constants_ubo[s]->handle();
-            VkDescriptorBufferInfo rt_lights{};
-            rt_lights.buffer = imgs.light_list[s]->handle();
-            rt_lights.range = VK_WHOLE_SIZE;
-            std::array<VkWriteDescriptorSet, 9> rtw{};
-            for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = rt_set; w.descriptorCount = 1; }
-            rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
-            rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
-            rtw[2].dstBinding = 3; rtw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[2].pImageInfo = &rt_sky;
-            rtw[3].dstBinding = 4; rtw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[3].pBufferInfo = &rt_status;
-            rtw[4].dstBinding = 5; rtw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[4].pImageInfo = &rt_offset;
-            rtw[5].dstBinding = 9; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[5].pImageInfo = &rt_irradiance;
-            rtw[6].dstBinding = 10; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[6].pImageInfo = &rt_visibility;
-            rtw[7].dstBinding = 11; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_sdf;
-            rtw[8].dstBinding = 12; rtw[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[8].pBufferInfo = &rt_lights;
-
-            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
-            }
-        }
-
-        // A rewrite triggered by a screen resize leaves the atlases intact —
-        // only a fresh create() has no probe data to preserve.
-        if (!imgs.resized_only_) imgs.first_frame_ = true;
-        imgs.resized_only_ = false;
-        imgs.images_need_init = false;
-    }
-
-    // SDF backend requires the SDF view
-    if (backend_ == DdgiBackend::sdf_fallback && sdf_view == VK_NULL_HANDLE) {
-        frame_counter_++;
+    // Past here the probe field is the graph's; a pass that cannot run still
+    // leaves it where declare() said it would be.
+    if (!imgs.radiance || !imgs.probe_status || !imgs.constants[ctx.frame_index]
+        || !imgs.light_list[ctx.frame_index] || (use_rt && ctx.mega_buffer == nullptr)) {
+        cmd.barrier(atlases, gpu::Access::storage_read_write_compute, ATLAS_REST);
         return;
     }
 
-    auto barrier_image = [&](VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
-                             VkAccessFlags2 src_access, VkAccessFlags2 dst_access) {
-        VkImageMemoryBarrier2 b{};
-        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask = src_access;
-        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = dst_access;
-        b.oldLayout = old_layout;
-        b.newLayout = new_layout;
-        b.image = image;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo d{};
-        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        d.imageMemoryBarrierCount = 1;
-        d.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(ctx.cmd, &d);
-    };
+    // The probes integrate the sky; a sky that changes identity (an HDRI
+    // finishing its async load a few frames into a scene, or being cleared)
+    // leaves every probe lit by the one before, so they start over.
+    const gpu::Texture sky = sky_->sky_texture();
+    if (sky != imgs.last_sky) {
+        if (imgs.last_sky.valid()) invalidate_probe_lighting();
+        imgs.last_sky = sky;
+    }
 
-    auto barrier_memory = [&]() {
-        VkMemoryBarrier2 m{};
-        m.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        m.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        m.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        m.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        m.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        VkDependencyInfo d{};
-        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        d.memoryBarrierCount = 1;
-        d.pMemoryBarriers = &m;
-        vkCmdPipelineBarrier2(ctx.cmd, &d);
-    };
-
-    GpuDdgiConstants* constants =
-        static_cast<GpuDdgiConstants*>(imgs.constants_ubo[ctx.frame_index]->mapped());
+    const GpuDdgiConstants constants = update_constants(imgs, ctx);
+    const gpu::BufferRange constants_buffer = imgs.constants[ctx.frame_index];
 
     // ── 0. A reset: every probe starts over ──
-    // A new grid (a refit, a sky that changed identity) or new images. The
-    // atlases hold probes of another grid, or nothing yet, so they are
-    // cleared, and every probe is marked untraced: until its batch is traced
-    // the update gives it no history and the cage passes over it.
-    bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
+    // A new grid (a refit, a sky that changed identity) or new textures. The
+    // atlases hold probes of another grid, so they are cleared, and every
+    // probe is marked untraced: until its batch is traced the update gives
+    // it no history and the cage passes over it.
+    const bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
     if (resetting_atlases) {
-        constexpr uint32_t PROBE_STATUS_UNINITIALIZED = 6;
-        VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
-        vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size,
-                        PROBE_STATUS_UNINITIALIZED);
+        cmd.barrier(gpu::BufferRange(imgs.probe_status), gpu::Access::storage_buffer_read_write_compute,
+                    gpu::Access::clear);
+        cmd.fill(imgs.probe_status, PROBE_STATUS_UNINITIALIZED);
+        cmd.barrier(gpu::BufferRange(imgs.probe_status), gpu::Access::clear,
+                    gpu::Access::storage_buffer_read_write_compute);
 
-        const std::array<VkImage, 3> atlases = {imgs.irradiance_image, imgs.visibility_image,
-                                                imgs.probe_offset_image};
-        std::array<VkImageMemoryBarrier2, 3> to_clear{};
-        for (size_t i = 0; i < atlases.size(); ++i) {
-            VkImageMemoryBarrier2& b = to_clear[i];
-            b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-            b.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-            b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            b.oldLayout = imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL;
-            b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-            b.image = atlases[i];
-            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        }
-        VkDependencyInfo clear_dep{};
-        clear_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        clear_dep.imageMemoryBarrierCount = static_cast<uint32_t>(to_clear.size());
-        clear_dep.pImageMemoryBarriers = to_clear.data();
-        vkCmdPipelineBarrier2(ctx.cmd, &clear_dep);
-
-        const VkClearColorValue zero{};
-        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        for (VkImage atlas : atlases) {
-            vkCmdClearColorImage(ctx.cmd, atlas, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
-        }
-
-        VkMemoryBarrier2 reset_barrier{};
-        reset_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        reset_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        reset_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        reset_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        reset_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        VkDependencyInfo reset_dep{};
-        reset_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        reset_dep.memoryBarrierCount = 1;
-        reset_dep.pMemoryBarriers = &reset_barrier;
-        vkCmdPipelineBarrier2(ctx.cmd, &reset_dep);
+        cmd.barrier(atlases, gpu::Access::storage_read_write_compute, gpu::Access::clear);
+        for (const gpu::TextureView& atlas : atlases) cmd.clear(atlas, gpu::Clear{});
+        // The trace reads the field through samplers.
+        cmd.barrier(atlases, gpu::Access::clear, gpu::Access::sampled_compute);
+    } else {
+        cmd.barrier(atlases, gpu::Access::storage_read_write_compute, gpu::Access::sampled_compute);
     }
 
-    // ── 1. Pre-trace barriers ──
-    barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-
-
-    // ── 2. Trace (RT or SDF) ──
-    // The TLAS the RT trace reads was built for this scene by the rt_scene
-    // pass, before any tracer.
-    const VkAccelerationStructureKHR tlas =
-        accel_manager_ != nullptr && ctx.scene != nullptr
-            ? gpu::vulkan::native_acceleration(*ctx.device, accel_manager_->tlas(ctx.scene->id(), ctx.frame_index))
-            : VK_NULL_HANDLE;
-
-    // Keep vertex/index buffer descriptors current (MegaBuffer may
-    // reallocate) on this slot's set; a pending frame keeps the retired
-    // buffer its own set still points at.
-    if (imgs.rt_trace_set[ctx.frame_index] != VK_NULL_HANDLE && ctx.mega_buffer) {
-        VkDescriptorBufferInfo verts_info{};
-        verts_info.buffer = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer());
-        verts_info.range = VK_WHOLE_SIZE;
-
-        VkDescriptorBufferInfo indices_info{};
-        indices_info.buffer = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer());
-        indices_info.range = VK_WHOLE_SIZE;
-
-        VkWriteDescriptorSet verts_write{};
-        verts_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        verts_write.dstSet = imgs.rt_trace_set[ctx.frame_index];
-        verts_write.dstBinding = 6;
-        verts_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        verts_write.descriptorCount = 1;
-        verts_write.pBufferInfo = &verts_info;
-
-        VkWriteDescriptorSet indices_write{};
-        indices_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        indices_write.dstSet = imgs.rt_trace_set[ctx.frame_index];
-        indices_write.dstBinding = 7;
-        indices_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        indices_write.descriptorCount = 1;
-        indices_write.pBufferInfo = &indices_info;
-
-        std::array buf_writes = {verts_write, indices_write};
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(buf_writes.size()), buf_writes.data(), 0, nullptr);
-    }
-
-    bool use_rt = backend_ == DdgiBackend::ray_traced
-                  && rt_trace_pipeline_ != VK_NULL_HANDLE
-                  && tlas != VK_NULL_HANDLE
-                  && imgs.rt_trace_set[ctx.frame_index] != VK_NULL_HANDLE;
-
-    if (!use_rt && backend_ != DdgiBackend::sdf_fallback) {
-        // RT backend but no TLAS this frame (nothing in reach) — skip the
-        // trace, keep previous radiance and the previous indirect output. The probe offsets are
-        // left in the layout the next frame expects to find them in: only a
-        // trace that runs moves them.
-        frame_counter_++;
-        return;
-    }
-
-    // The trace reads each probe's offset through a sampler. Every atlas is
-    // in GENERAL here: the reset left it there on a first frame, the last
-    // update on any other.
-    barrier_image(imgs.probe_offset_image,
-                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    // ── 1. The trace writes the radiance whole, after last frame's update read it ──
+    cmd.barrier(imgs.radiance, RADIANCE_REST, gpu::Access::storage_write_compute);
 
     // The lights that reach the grid, for the tracer to pick from at its hits.
     record_light_select(ctx, imgs);
 
+    // ── 2. Trace (RT or SDF) ──
+    const gpu::Buffer lights = imgs.light_list[ctx.frame_index];
+    const uint32_t rays = static_cast<uint32_t>(config_.probe_rays);
+    const uint32_t probes = static_cast<uint32_t>(constants.probe_update_count);
     if (use_rt) {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_rt");
-        FJELL_GPU_ZONE(ctx, "DDGI Trace RT");
-        // Update TLAS descriptor (changes every frame) on this slot's set
-        VkDescriptorSet rt_set = imgs.rt_trace_set[ctx.frame_index];
-        VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
-        tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-        tlas_write_as.accelerationStructureCount = 1;
-        tlas_write_as.pAccelerationStructures = &tlas;
-
-        VkWriteDescriptorSet tlas_write{};
-        tlas_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        tlas_write.dstSet = rt_set;
-        tlas_write.dstBinding = 1;
-        tlas_write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-        tlas_write.descriptorCount = 1;
-        tlas_write.pNext = &tlas_write_as;
-
-        // Per-instance data (material + geometry offsets)
-        VkDescriptorBufferInfo inst_data_info{};
-        inst_data_info.buffer = gpu::vulkan::native_buffer(*ctx.device, accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index));
-        inst_data_info.range = VK_WHOLE_SIZE;
-
-        VkWriteDescriptorSet inst_write{};
-        inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        inst_write.dstSet = rt_set;
-        inst_write.dstBinding = 8;
-        inst_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        inst_write.descriptorCount = 1;
-        inst_write.pBufferInfo = &inst_data_info;
-
-        std::array writes = {tlas_write, inst_write};
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-
-        std::array rt_sets = {rt_set, ctx.bindless_set};
-        RtTracePushConstants rt_push{};
-        rt_push.light_direction = light_direction_;
-        rt_push.light_intensity = light_intensity_;
-        rt_push.light_color = light_color_;
-        rt_push.max_trace_dist = MAX_TRACE_DIST;
-        rt_push.sdf_volume_min = sdf_volume_min_;
-        rt_push.random_seed = frame_counter_;
-        rt_push.sdf_volume_max = sdf_volume_max_;
-        rt_push.sky_intensity = sky_intensity_;
-        rt_push.gi_intensity = config_.gi_intensity;
-        const uint32_t rays = static_cast<uint32_t>(config_.probe_rays);
-        const uint32_t probes = static_cast<uint32_t>(constants->probe_update_count);
-
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rt_trace_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                rt_trace_pipeline_layout_, 0,
-                                static_cast<uint32_t>(rt_sets.size()), rt_sets.data(),
-                                0, nullptr);
-        vkCmdPushConstants(ctx.cmd, rt_trace_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(rt_push), &rt_push);
-
+        auto trace_zone = cmd.zone("DDGI Trace RT");
+        // The TLAS was built for this scene by the rt_scene pass, before any
+        // tracer.
+        cmd.set_pipeline(rt_trace_pipeline_);
+        cmd.bind({{"ddgi", gpu::uniform(constants_buffer)},
+                  {"tlas", gpu::acceleration(tlas)},
+                  {"radiance_out", gpu::storage(imgs.radiance)},
+                  {"sky_cubemap", gpu::sampled(sky, sky_->sky_sampler())},
+                  {"DdgiProbeStatusSSBO", gpu::storage(imgs.probe_status)},
+                  {"ddgi_probe_offset_tex", gpu::sampled(imgs.probe_offset, linear_sampler_)},
+                  {"VertexBuffer", gpu::storage(ctx.mega_buffer->vertex_buffer())},
+                  {"IndexBuffer", gpu::storage(ctx.mega_buffer->index_buffer())},
+                  {"InstanceDataBuffer",
+                   gpu::storage(accel_manager_->instance_data_buffer(ctx.scene->id(), ctx.frame_index))},
+                  {"ddgi_irradiance_tex", gpu::sampled(imgs.irradiance, linear_sampler_)},
+                  {"ddgi_visibility_tex", gpu::sampled(imgs.visibility, linear_sampler_)},
+                  {"scene_sdf", gpu::sampled(scene_sdf_->volume(), scene_sdf_->sampler())},
+                  {"DdgiLightList", gpu::storage(lights)}});
+        cmd.bind(ctx.bindless);
+        cmd.push(RtTracePushConstants{
+            .light_direction = light_direction_,
+            .light_intensity = light_intensity_,
+            .light_color = light_color_,
+            .max_trace_dist = MAX_TRACE_DIST,
+            .sdf_volume_min = sdf_volume_min_,
+            .random_seed = frame_counter_,
+            .sdf_volume_max = sdf_volume_max_,
+            .sky_intensity = sky_intensity_,
+            .gi_intensity = config_.gi_intensity,
+        });
         // One invocation per ray: x the ray, y the probe in this frame's batch,
         // in workgroups of 32 rays as the SDF trace dispatches.
-        vkCmdDispatch(ctx.cmd, (rays + 31) / 32, probes, 1);
+        cmd.dispatch((rays + 31) / 32, probes, 1);
     } else {
         FJELL_PROFILE_SCOPE_N("ddgi_trace_sdf");
-        FJELL_GPU_ZONE(ctx, "DDGI Trace SDF");
+        auto trace_zone = cmd.zone("DDGI Trace SDF");
         // SDF fallback trace (only when explicitly configured for SDF)
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
-        const std::array sdf_sets = {imgs.trace_set[ctx.frame_index], ctx.bindless_set};
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                trace_pipeline_layout_, 0, static_cast<uint32_t>(sdf_sets.size()),
-                                sdf_sets.data(), 0, nullptr);
-
-        TracePushConstants push{};
-        push.light_direction = light_direction_;
-        push.light_intensity = light_intensity_;
-        push.light_color = light_color_;
-        push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
-        push.sdf_volume_min = sdf_volume_min_;
-        push.random_seed = frame_counter_;
-        push.sdf_volume_max = sdf_volume_max_;
-        push.sky_intensity = sky_intensity_;
-        push.gi_intensity = config_.gi_intensity;
-
-        vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
-                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-
-        uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
-        uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
-        vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
+        cmd.set_pipeline(trace_pipeline_);
+        cmd.bind({{"ddgi", gpu::uniform(constants_buffer)},
+                  {"scene_sdf", gpu::sampled(scene_sdf_->volume(), scene_sdf_->sampler())},
+                  {"radiance_out", gpu::storage(imgs.radiance)},
+                  {"sky_cubemap", gpu::sampled(sky, sky_->sky_sampler())},
+                  {"DdgiProbeStatusSSBO", gpu::storage(imgs.probe_status)},
+                  {"ddgi_probe_offset_tex", gpu::sampled(imgs.probe_offset, linear_sampler_)},
+                  {"ddgi_irradiance_tex", gpu::sampled(imgs.irradiance, linear_sampler_)},
+                  {"ddgi_visibility_tex", gpu::sampled(imgs.visibility, linear_sampler_)},
+                  {"DdgiLightList", gpu::storage(lights)},
+                  {"scene_sdf_index", gpu::sampled(scene_sdf_->index_volume(), scene_sdf_->index_sampler())},
+                  {"SdfSlots", gpu::storage(scene_sdf_->slot_table(ctx.frame_index))}});
+        cmd.bind(ctx.bindless);
+        cmd.push(TracePushConstants{
+            .light_direction = light_direction_,
+            .light_intensity = light_intensity_,
+            .light_color = light_color_,
+            .sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION),
+            .sdf_volume_min = sdf_volume_min_,
+            .random_seed = frame_counter_,
+            .sdf_volume_max = sdf_volume_max_,
+            .sky_intensity = sky_intensity_,
+            .gi_intensity = config_.gi_intensity,
+        });
+        cmd.dispatch((rays + 31) / 32, probes, 1);
     }
 
-    // ── 3. Barrier: radiance write → read ──
-    // Both tracers write it in compute, where the updates read it.
-    barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-
-    // ── 4. The probe atlases to GENERAL for the update ──
-    barrier_image(imgs.irradiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
-    barrier_image(imgs.visibility_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
-    // The trace read the offsets through a sampler; the update rewrites them.
-    barrier_image(imgs.probe_offset_image,
-                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    // ── 3. The update reads the radiance, and rewrites the field the trace read ──
+    cmd.barrier(imgs.radiance, gpu::Access::storage_write_compute, RADIANCE_REST);
+    cmd.barrier(atlases, gpu::Access::sampled_compute, gpu::Access::storage_read_write_compute);
 
     struct UpdatePush {
         float max_trace_dist;
-    } update_push{MAX_TRACE_DIST};
+    };
 
-    // ── 5. Probe update: one workgroup per probe traced this frame ──
+    // ── 4. Probe update: one workgroup per probe traced this frame ──
     // Irradiance, visibility, both tiles' border rings, offset and status,
     // all from the probe's rays read once.
     {
         FJELL_PROFILE_SCOPE_N("ddgi_probe_update");
-        FJELL_GPU_ZONE(ctx, "DDGI Probe Update");
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_update_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                update_pipeline_layout_, 0, 1, &imgs.update_set[ctx.frame_index], 0, nullptr);
-        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(update_push), &update_push);
-        vkCmdDispatch(ctx.cmd, static_cast<uint32_t>(constants->probe_update_count), 1, 1);
+        auto update_zone = cmd.zone("DDGI Probe Update");
+        cmd.set_pipeline(probe_update_pipeline_);
+        cmd.bind({{"ddgi", gpu::uniform(constants_buffer)},
+                  {"radiance_tex", gpu::sampled(imgs.radiance, linear_sampler_)},
+                  {"irradiance_image", gpu::storage(imgs.irradiance)},
+                  {"visibility_image", gpu::storage(imgs.visibility)},
+                  {"probe_offset_image", gpu::storage(imgs.probe_offset)},
+                  {"ProbeStatusSSBO", gpu::storage(imgs.probe_status)}});
+        cmd.push(UpdatePush{MAX_TRACE_DIST});
+        cmd.dispatch(probes, 1, 1);
     }
 
-    // What the update wrote (atlases, offsets, status), for the sample pass.
-    barrier_memory();
+    // What the update wrote, for the sample and for whoever reads the field
+    // after this pass: the field at rest, where declare() says it is left.
+    cmd.barrier(atlases, gpu::Access::storage_read_write_compute, ATLAS_REST);
+    cmd.barrier(gpu::BufferRange(imgs.probe_status), gpu::Access::storage_buffer_read_write_compute,
+                gpu::Access::storage_buffer_read_compute);
 
-    // ── 6. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
+    // ── 5. Screen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!imgs.first_frame_) {
         FJELL_PROFILE_SCOPE_N("ddgi_sample");
-        FJELL_GPU_ZONE(ctx, "DDGI Sample");
-        // Rewrite the depth/normal sample descriptors only when the views
-        // change (on viewport resize) — they're stable frame to frame, so the
-        // per-frame UPDATE_AFTER_BIND write is wasted work otherwise. Mirrors
-        // the sky-view caching above.
-        VkImageView depth_view = ctx.target->depth_view();
-        VkImageView normal_view = ctx.target->normal_view();
-        if (depth_view != imgs.last_depth_view || normal_view != imgs.last_normal_view) {
-            VkDescriptorImageInfo s_depth{};
-            s_depth.sampler = linear_sampler_;
-            s_depth.imageView = depth_view;
-            s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo s_normal{};
-            s_normal.sampler = linear_sampler_;
-            s_normal.imageView = normal_view;
-            s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            for (VkDescriptorSet sample_set : imgs.sample_set) {
-                std::array<VkWriteDescriptorSet, 2> sw{};
-                for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = sample_set; w.descriptorCount = 1; }
-                sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
-                sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
-
-                vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
-            }
-            imgs.last_depth_view = depth_view;
-            imgs.last_normal_view = normal_view;
-        }
-
-        uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                sample_pipeline_layout_, 0, 1, &imgs.sample_set[ctx.frame_index], 0, nullptr);
-        vkCmdPushConstants(ctx.cmd, sample_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(uint32_t), &half_res_val);
-        vkCmdDispatch(ctx.cmd,
-                      (imgs.indirect_extent.width + 7) / 8,
-                      (imgs.indirect_extent.height + 7) / 8, 1);
-    }
-
-    if (imgs.first_frame_) {
+        auto sample_zone = cmd.zone("DDGI Sample");
+        // The graph has the indirect output in GENERAL.
+        cmd.set_pipeline(sample_pipeline_);
+        cmd.bind({{"ddgi", gpu::uniform(constants_buffer)},
+                  {"depth_tex", gpu::sampled(ctx.target->depth_texture(), linear_sampler_)},
+                  {"normal_tex", gpu::sampled(ctx.target->normal_texture(), linear_sampler_)},
+                  {"ddgi_irradiance_tex", gpu::sampled(imgs.irradiance, linear_sampler_)},
+                  {"ddgi_visibility_tex", gpu::sampled(imgs.visibility, linear_sampler_)},
+                  {"ddgi_probe_offset_tex", gpu::sampled(imgs.probe_offset, linear_sampler_)},
+                  {"DdgiProbeStatusSSBO", gpu::storage(imgs.probe_status)},
+                  {"indirect_out", gpu::storage(imgs.indirect)}});
+        cmd.push(config_.half_res_output ? 1U : 0U);
+        cmd.dispatch((imgs.indirect_extent.x + 7) / 8, (imgs.indirect_extent.y + 7) / 8, 1);
+        imgs.indirect_written = true;
+    } else {
         FJELL_GFX_DEBUG("DDGI: First frame dispatched ({} probes, {} rays, indirect {}x{})",
                         imgs.total_probes, config_.probe_rays,
-                        imgs.indirect_extent.width, imgs.indirect_extent.height);
+                        imgs.indirect_extent.x, imgs.indirect_extent.y);
     }
+
     imgs.first_frame_ = false;
     imgs.reset_generation_ = grid_generation_;
     frame_counter_++;
@@ -1652,18 +644,37 @@ PassSetup DdgiPass::setup() const {
 }
 
 void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto depth = builder.import_named(ctx, "depth");
-    auto normal = builder.import_named(ctx, "normal");
-    builder.read(depth, gpu::Access::sampled_compute);
-    builder.read(normal, gpu::Access::sampled_compute);
-    // The ray-traced tracer traces the scene the rt_scene pass built.
-    if (config_.enabled && backend_ == DdgiBackend::ray_traced) {
-        AccelStructureManager::declare_trace(builder, ctx);
+    if (!config_.enabled || scene_sdf_ == nullptr || sky_ == nullptr) return;
+    // This viewport's probe field, where it has one.
+    const std::array atlases{builder.import_named_optional(ctx, IRRADIANCE_NAME),
+                             builder.import_named_optional(ctx, VISIBILITY_NAME),
+                             builder.import_named_optional(ctx, PROBE_OFFSET_NAME)};
+    const FgBuffer status = builder.import_named_buffer(ctx, PROBE_STATUS_NAME);
+    if (!std::ranges::all_of(atlases, [](FgTexture atlas) { return atlas.valid(); }) || !status.valid()) {
+        return;
     }
+    // The ray-traced tracer traces the scene the rt_scene pass built. With
+    // nothing in reach there is no structure, and the pass does nothing: the
+    // probes keep what they hold and the output what it held.
+    if (backend_ == DdgiBackend::ray_traced && rt_trace_pipeline_
+        && !AccelStructureManager::declare_trace(builder, ctx)) {
+        return;
+    }
+
+    // The trace samples the field, the update rewrites it, and the pass
+    // leaves it at rest for the sample and for RT reflections after it.
+    for (FgTexture atlas : atlases) {
+        builder.read_write(atlas, gpu::Access::storage_read_write_compute);
+        builder.leaves(atlas, gpu::Access::storage_read_write_compute, ATLAS_REST);
+    }
+    builder.read_write(status, gpu::Access::storage_buffer_read_write_compute);
+
+    // The sample reads the surface.
+    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "normal"), gpu::Access::sampled_compute);
     // The SDF tracer marches the scene SDF and names the object at a hit
-    // from its index volume; the ray-traced one tests burial in it. Both
-    // through their own sets, after the frame's compose.
-    for (const char* name : {SceneSdfPass::VOLUME_NAME, SceneSdfPass::INDEX_NAME}) {
+    // from its index volume; the ray-traced one tests burial in it.
+    for (std::string_view name : {SceneSdfPass::VOLUME_NAME, SceneSdfPass::INDEX_NAME}) {
         if (auto sdf = builder.import_named_optional(ctx, name); sdf.valid()) {
             builder.read(sdf, gpu::Access::sampled_compute);
         }
@@ -1674,15 +685,9 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     }
     // The per-pixel indirect light the surfaces sample. The graph moves it
     // into GENERAL, and back to rest afterwards however record() ends.
-    if (config_.enabled) {
-        if (auto out = builder.import_named_optional(ctx, "ddgi_indirect"); out.valid()) {
-            builder.write(out, gpu::Access::storage_write_compute);
-        }
+    if (auto out = builder.import_named_optional(ctx, OUTPUT_NAME); out.valid()) {
+        builder.write(out, gpu::Access::storage_write_compute);
     }
-    // Writes pass-private probe atlases (irradiance, visibility,
-    // probe_offset) bound through the global descriptor. Graph can't
-    // see that consumer edge.
-    builder.has_side_effects();
 }
 
 } // namespace fjell

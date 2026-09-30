@@ -97,9 +97,11 @@ AccelStructureManager::AccelStructureManager(gpu::Device& device) : device_(devi
     }
 }
 
-void AccelStructureManager::declare_trace(PassBuilder& builder, const DeclareContext& ctx) {
-    builder.read(builder.import_named_acceleration(ctx, TLAS_NAME), gpu::Access::acceleration_trace_compute);
+bool AccelStructureManager::declare_trace(PassBuilder& builder, const DeclareContext& ctx) {
+    const FgAcceleration tlas = builder.import_named_acceleration(ctx, TLAS_NAME);
+    builder.read(tlas, gpu::Access::acceleration_trace_compute);
     builder.read(builder.import_named_buffer(ctx, INSTANCES_NAME), gpu::Access::storage_buffer_read_compute);
+    return tlas.valid();
 }
 
 std::vector<Blas> AccelStructureManager::make_blases(std::span<const MegaMeshEntry> entries,

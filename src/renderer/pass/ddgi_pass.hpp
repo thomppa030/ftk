@@ -1,24 +1,27 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "gpu/buffer.hpp"
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
-#include <memory>
+#include <string_view>
 
 namespace fjell {
 
 class AccelStructureManager;
 class SceneSdfPass;
+class SkyCubemapPass;
 
 enum class DdgiBackend : uint8_t {
     sdf_fallback,
@@ -154,58 +157,57 @@ struct DdgiConfig {
 
 class DdgiPass : public RenderPass {
 public:
-    /// Per-viewport resolution-dependent image state.
-    struct Images {
-        // Radiance: probe_rays x total_probes, R16G16B16A16_SFLOAT
-        VkImage radiance_image{VK_NULL_HANDLE};
-        VmaAllocation radiance_memory{VK_NULL_HANDLE};
-        VkImageView radiance_view{VK_NULL_HANDLE};
+    /// The names each viewport's probe field is exported under: the three
+    /// atlases, which rest where compute shaders and the editor sample them,
+    /// and the probe status. RT reflections light their hits from them.
+    static constexpr std::string_view IRRADIANCE_NAME = "ddgi_irradiance";
+    static constexpr std::string_view VISIBILITY_NAME = "ddgi_visibility";
+    static constexpr std::string_view PROBE_OFFSET_NAME = "ddgi_probe_offset";
+    static constexpr std::string_view PROBE_STATUS_NAME = "ddgi_probe_status";
+    static constexpr std::string_view OUTPUT_NAME = "ddgi_indirect";
 
-        // Irradiance atlas: R16G16B16A16_SFLOAT
-        VkImage irradiance_image{VK_NULL_HANDLE};
-        VmaAllocation irradiance_memory{VK_NULL_HANDLE};
-        VkImageView irradiance_view{VK_NULL_HANDLE};
+    /// Where the atlases rest between the passes that declare them.
+    static constexpr gpu::AccessSet ATLAS_REST = gpu::Access::sampled_compute | gpu::Access::sampled_fragment;
+
+    /// Per-viewport resolution-dependent state.
+    struct Images {
+        /// What this frame's batch of probes traced: probe_rays wide, one row
+        /// per probe traced this frame. The trace writes it, the update reads it.
+        gpu::Owned<gpu::Texture> radiance;
+        /// The probe field: irradiance (RGBA16F), visibility (RG16F: mean hit
+        /// distance and its square) and each probe's offset (RGBA16F,
+        /// probes_xy x probes_z). Made cleared.
+        gpu::Owned<gpu::Texture> irradiance;
+        gpu::Owned<gpu::Texture> visibility;
+        gpu::Owned<gpu::Texture> probe_offset;
+        /// A uint per probe; made with every probe untraced.
+        gpu::Owned<gpu::Buffer> probe_status;
+
+        /// Constants, written by the CPU every frame, so one per frame in
+        /// flight: a frame still tracing must not see the next frame's grid
+        /// origin or batch cursor. RT reflections read the slot's copy.
+        std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> constants;
+
+        // The point and spot lights that reach the grid, as the tracers read
+        // them (DDGI_LIGHT_LIST_BYTES): filled on the GPU each frame by the
+        // light select, one per frame in flight.
+        std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> light_list;
+
+        /// The indirect light the surfaces sample: screen-res or half-res.
+        gpu::Owned<gpu::Texture> indirect;
+        glm::uvec2 indirect_extent{0, 0};
+        /// The sample has written `indirect` since it was made; until it
+        /// has, the surfaces sample the fallback.
+        bool indirect_written{false};
 
         /// Grid generation this viewport last discarded its atlases at.
         uint32_t reset_generation_{0};
 
         /// Whether this viewport has recorded a frame yet. Per-viewport for
         /// the same reason as reset_generation_: record_into() runs once per
-        /// viewport, so a pass-level flag is consumed by whichever records
-        /// first, and the rest transition their images from GENERAL when
-        /// those images have never been transitioned out of UNDEFINED.
+        /// viewport, so a pass-level flag would be consumed by whichever
+        /// records first.
         bool first_frame_{true};
-
-        // Visibility atlas: R16G16_SFLOAT
-        VkImage visibility_image{VK_NULL_HANDLE};
-        VmaAllocation visibility_memory{VK_NULL_HANDLE};
-        VkImageView visibility_view{VK_NULL_HANDLE};
-
-        // Probe offsets: R16G16B16A16_SFLOAT
-        VkImage probe_offset_image{VK_NULL_HANDLE};
-        VmaAllocation probe_offset_memory{VK_NULL_HANDLE};
-        VkImageView probe_offset_view{VK_NULL_HANDLE};
-
-        // Probe status SSBO (uint per probe)
-        std::unique_ptr<Buffer> probe_status_buffer;
-
-        // Constants UBO, host-mapped and written every frame, so one per
-        // frame in flight: a frame still tracing must not see the next
-        // frame's grid origin or batch cursor.
-        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> constants_ubo;
-
-        // The point and spot lights that reach the grid, as the tracers read
-        // them (DDGI_LIGHT_LIST_BYTES): filled on the GPU each frame by the
-        // light select, so one per frame in flight too.
-        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_list;
-
-        // Indirect output: screen-res or half-res, R16G16B16A16_SFLOAT
-        VkImage indirect_image{VK_NULL_HANDLE};
-        VmaAllocation indirect_memory{VK_NULL_HANDLE};
-        VkImageView indirect_view{VK_NULL_HANDLE};
-        /// The indirect output as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> indirect_texture;
-        VkExtent2D indirect_extent{};
 
         // Atlas dimensions (computed from config)
         int32_t irr_width{0};
@@ -213,66 +215,40 @@ public:
         int32_t vis_width{0};
         int32_t vis_height{0};
         int32_t total_probes{0};
-        /// Rows in the radiance image — the cap on probes traceable in one
+        /// Rows in the radiance texture — the cap on probes traceable in one
         /// frame, since the trace writes one row per probe.
         int32_t radiance_rows{0};
 
         // Round-robin batch cursor — per-viewport, since each viewport owns its
-        // own radiance image and atlases (a shared cursor would desync them).
+        // own radiance texture and atlases (a shared cursor would desync them).
         int32_t probe_update_offset{0};
 
-        bool images_need_init{true};
-        /// The indirect image was just (re)created and is still in UNDEFINED
-        /// layout. Tracked apart from first_frame_ because a screen resize
-        /// recreates only this image: the probe atlases keep their contents
-        /// and their GENERAL layout, and transitioning them from UNDEFINED
-        /// would discard converged irradiance on every window resize.
-        bool indirect_needs_init{true};
-        /// The pending descriptor rewrite came from a screen resize, which
-        /// leaves probe data valid. Distinguishes it from a fresh create().
-        bool resized_only_{false};
+        /// The sky cubemap the probes last integrated, so a sky that changes
+        /// identity (an HDRI loaded or cleared) discards what they hold.
+        gpu::Texture last_sky{};
 
-        // Cached sky cubemap identity — if the registry entry swaps
-        // (e.g. HDRI loaded/cleared), bump images_need_init to rewrite
-        // the static cubemap binding on trace_set / rt_trace_set.
-        VkImageView last_sky_view{VK_NULL_HANDLE};
-        VkSampler last_sky_sampler{VK_NULL_HANDLE};
-
-        // Cached depth/normal views on the sample set — only change on resize,
-        // so skip the per-frame descriptor rewrite when they're unchanged.
-        VkImageView last_depth_view{VK_NULL_HANDLE};
-        VkImageView last_normal_view{VK_NULL_HANDLE};
+        gpu::Device* device{nullptr};
 
         // ImGui debug textures
         VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
         VkDescriptorSet irradiance_imgui_desc{VK_NULL_HANDLE};
 
-        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(VkSampler sampler);
-        [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(VkSampler sampler);
+        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(gpu::Sampler sampler);
+        [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(gpu::Sampler sampler);
 
-        // Descriptor sets — written by DdgiPass after Images::create(). One
-        // of each per frame in flight: every set binds that slot's constants
-        // UBO, and the RT trace set also binds the slot's TLAS and
-        // per-instance table. Rewriting one shared set would hand a
-        // still-pending frame this frame's slot, a TLAS built three frames
-        // ago against an instance table just overwritten with a different
-        // layout. Bindings that are the same for every slot are written into
-        // all of them together.
-        VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};     // SDF trace
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rt_trace_set{};  // RT trace
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> update_set{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sample_set{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> light_select_set{};
+        void create(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        /// Releases everything; the frames still reading the textures keep
+        /// them until they are done, but the editor's views go at once.
+        void destroy();
+        /// Everything is made again when the probe count changes, which
+        /// discards what the probes hold; a new screen size makes only the
+        /// indirect output again.
+        void resize(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        /// Makes everything again for `config`, discarding what the probes
+        /// hold, while frames may still be using what it replaces.
+        void remake(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
 
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const DdgiConfig& config,
-                     uint32_t screen_w, uint32_t screen_h);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const DdgiConfig& config,
-                     uint32_t screen_w, uint32_t screen_h);
-
+        /// Drops the editor's views at once: nothing may still be drawing them.
         void invalidate_imgui_texture();
     };
 
@@ -309,7 +285,7 @@ public:
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
-    [[nodiscard]] VkSampler linear_sampler() const { return linear_sampler_; }
+    [[nodiscard]] gpu::Sampler linear_sampler() const { return linear_sampler_; }
 
     void set_backend(DdgiBackend b) { backend_ = b; }
     [[nodiscard]] DdgiBackend backend() const { return backend_; }
@@ -376,13 +352,13 @@ public:
     [[nodiscard]] AABB trace_reach_bounds() const;
 
 private:
-    void update_constants(Images& imgs, const FrameContext& ctx);
+    /// Writes this frame's constants into the slot's buffer, and returns
+    /// them.
+    GpuDdgiConstants update_constants(Images& imgs, const FrameContext& ctx);
     /// Fills this slot's light list with the lights that reach the grid, from
     /// the world light buffer the global set binds.
     void record_light_select(const FrameContext& ctx, Images& imgs);
 
-    Device* device_{nullptr};
-    VkDevice vk_device_{VK_NULL_HANDLE};
     DdgiConfig config_;
     uint32_t frame_counter_{0};
 
@@ -397,25 +373,15 @@ private:
     glm::vec3 sdf_volume_min_{-10.0f};
     glm::vec3 sdf_volume_max_{10.0f};
 
-    // Compute pipelines
-    VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline trace_pipeline_{VK_NULL_HANDLE};
+    /// The SDF tracer (set 1 the bindless material set a hit's surface is
+    /// read from), the probe update, the screen sample, and the light select
+    /// (set 0 the global set, whose light buffer it reads).
+    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> probe_update_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> sample_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> light_select_pipeline_;
 
-    VkDescriptorSetLayout update_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout update_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline probe_update_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline sample_pipeline_{VK_NULL_HANDLE};
-
-    // The light select: set 0 is the global set, set 1 the slot's list.
-    VkDescriptorSetLayout light_select_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout light_select_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline light_select_pipeline_{VK_NULL_HANDLE};
-
-    VkSampler linear_sampler_{VK_NULL_HANDLE};
+    gpu::Sampler linear_sampler_;
     /// Bumped by refit_grid(). Each viewport compares this against the
     /// generation it last reset at, so every viewport discards its own
     /// atlases exactly once per refit — record_into() runs per viewport,
@@ -423,18 +389,19 @@ private:
     /// first and leave the rest holding stale irradiance.
     uint32_t grid_generation_{0};
 
-    // The scene SDF, whose index volume and object table colour the SDF
-    // tracer's hits.
-    SceneSdfPass* scene_sdf_{nullptr};
+    // The scene SDF, which the SDF tracer marches and whose index volume and
+    // object table colour its hits; the ray-traced tracer tests burial in it.
+    const SceneSdfPass* scene_sdf_{nullptr};
+    /// Where a probe ray that misses finds the sky.
+    const SkyCubemapPass* sky_{nullptr};
 
     // RT backend
     DdgiBackend backend_{DdgiBackend::sdf_fallback};
     AccelStructureManager* accel_manager_{nullptr};
 
-    // The ray-traced tracer: compute, tracing with ray queries.
-    VkDescriptorSetLayout rt_trace_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout rt_trace_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline rt_trace_pipeline_{VK_NULL_HANDLE};
+    /// The ray-traced tracer, tracing with ray queries (set 1 the bindless
+    /// material set); null on a device without them.
+    gpu::Owned<gpu::ComputePipeline> rt_trace_pipeline_;
 };
 
 } // namespace fjell

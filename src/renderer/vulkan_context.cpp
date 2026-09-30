@@ -1598,11 +1598,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         VkImageView gi_view = gpu_.gi_fallback_view();
         bound_gi_indirect_ = {};
         auto* ddgi_imgs = default_pp_->ddgi();
-        if (ddgi_pass().config().enabled
-            && ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
-            && !ddgi_imgs->images_need_init) {
-            gi_view = ddgi_imgs->indirect_view;
-            bound_gi_indirect_ = ddgi_imgs->indirect_texture;
+        if (ddgi_pass().config().enabled && ddgi_imgs && ddgi_imgs->indirect_written) {
+            gi_view = gpu::vulkan::native_view(gpu_device(), ddgi_imgs->indirect);
+            bound_gi_indirect_ = ddgi_imgs->indirect;
         }
         gb.write_image(current_frame_, "gi_indirect",
             gi_view, gpu_.gi_fallback_sampler(),
@@ -1702,23 +1700,20 @@ void VulkanContext::apply_pending_ddgi_toggle() {
 }
 
 void VulkanContext::rebuild_ddgi_resources() {
-    submit_and_present();
-    vkDeviceWaitIdle(gpu_.device());
-
-    // Destroy first: resize() early-outs when neither the probe count nor
-    // the screen size changed, and this rebuild must happen even then.
-    if (auto* imgs = default_pp_->ddgi()) {
-        imgs->invalidate_imgui_texture();
-        imgs->destroy(gpu_.device(), gpu_.allocator());
-    }
-
     uint32_t w = 256, h = 256;
     auto* tm = default_pp_->post();
     if (tm && tm->extent.x > 0) {
         w = tm->extent.x;
         h = tm->extent.y;
     }
-    default_pp_->resize(w, h);
+    // Remade outright: resize() keeps the probe field when the probe count
+    // is unchanged, and this rebuild must happen even then. The frames
+    // still using the old one keep it until they are done.
+    if (auto* imgs = default_pp_->ddgi()) {
+        imgs->remake(gpu_device(), ddgi_pass().config(), w, h);
+    } else {
+        default_pp_->resize(w, h);
+    }
 
     // The fresh atlases carry no lighting, so re-fit and re-seed the grid
     // against the current scene rather than resuming the old fit.

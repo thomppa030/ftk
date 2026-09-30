@@ -40,6 +40,13 @@ public:
     /// Whether an HDRI replaces the procedural cubemap.
     [[nodiscard]] bool has_hdri() const { return static_cast<bool>(hdri_cubemap_); }
 
+    /// The cubemap the surfaces sample now: the HDRI's when there is one.
+    [[nodiscard]] gpu::Texture sky_texture() const {
+        return hdri_cubemap_ ? hdri_cubemap_.get() : cubemap_.get();
+    }
+    /// The sampler the surfaces read it with.
+    [[nodiscard]] gpu::Sampler sky_sampler() const { return cubemap_sampler_; }
+
     void set_project(const class Project* p) { project_ = p; }
 
 private:
@@ -56,10 +63,6 @@ private:
                         float rayleigh_scale, float mie_scale,
                         float mie_g, float mie_coeff);
 
-    /// The cubemap the surfaces sample now: the HDRI's when there is one.
-    [[nodiscard]] gpu::Texture sky_texture() const {
-        return hdri_cubemap_ ? hdri_cubemap_.get() : cubemap_.get();
-    }
     /// Points the global set and the registry at sky_texture(). Every frame
     /// slot's set is rewritten, so nothing may be in flight.
     void bind_sky(GpuContext& gpu);

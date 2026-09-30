@@ -74,7 +74,7 @@ public:
     [[nodiscard]] const glm::mat4& world_to_uv() const { return world_to_uv_; }
 
     /// For the viewport's debug source.
-    [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
+    [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
 
 private:
     /// One moving thing, as the splat shader reads it.

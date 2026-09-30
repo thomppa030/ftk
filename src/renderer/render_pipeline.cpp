@@ -252,14 +252,22 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // The GI outputs, under their producers' names. Both rest where the
         // surfaces sample them through the global set, in the fragment
         // shader; neither holds anything before its pass first runs.
-        if (auto* ddgi = pp_resources->ddgi();
-            ddgi != nullptr && ddgi->indirect_image != VK_NULL_HANDLE) {
-            ImportedImage img{};
-            img.view = ddgi->indirect_texture;
-            img.persistent = true;   // the opaque pass reads it the next frame
-            img.resting = gpu::Access::sampled_fragment;
-            img.unwritten = ddgi->indirect_needs_init;
-            decl_ctx.imports.emplace(fg_name_hash("ddgi_indirect"), img);
+        if (auto* ddgi = pp_resources->ddgi(); ddgi != nullptr && ddgi->indirect) {
+            decl_ctx.export_texture(DdgiPass::OUTPUT_NAME, ddgi->indirect,
+                                    {.persistent = true,   // the opaque pass reads it the next frame
+                                     .resting = gpu::Access::sampled_fragment,
+                                     .unwritten = !ddgi->indirect_written});
+        }
+        // DDGI's probe field, which it keeps from frame to frame and RT
+        // reflections light their hits from. Made cleared, the atlases rest
+        // where compute shaders and the editor's view of them sample them.
+        if (auto* ddgi = pp_resources->ddgi(); ddgi != nullptr && ddgi->irradiance) {
+            const TextureExport field{.persistent = true, .resting = DdgiPass::ATLAS_REST};
+            decl_ctx.export_texture(DdgiPass::IRRADIANCE_NAME, ddgi->irradiance, field);
+            decl_ctx.export_texture(DdgiPass::VISIBILITY_NAME, ddgi->visibility, field);
+            decl_ctx.export_texture(DdgiPass::PROBE_OFFSET_NAME, ddgi->probe_offset, field);
+            decl_ctx.buffer_imports.emplace(fg_name_hash(DdgiPass::PROBE_STATUS_NAME),
+                                            BufferImport{.buffer = ddgi->probe_status, .persistent = true});
         }
         if (auto* ss_gi = pp_resources->ss_gi(); ss_gi != nullptr && ss_gi->indirect) {
             decl_ctx.export_texture(SsGiPass::OUTPUT_NAME, ss_gi->indirect,
@@ -332,7 +340,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             const ImportedImage img = it->second;
             decl_ctx.imports.emplace(fg_name_hash(slot), img);
         };
-        name_if_bound("gi_indirect", "ddgi_indirect", ctx.bound_gi_indirect);
+        name_if_bound("gi_indirect", DdgiPass::OUTPUT_NAME, ctx.bound_gi_indirect);
         name_if_bound("ss_gi_emissive", SsGiPass::OUTPUT_NAME, ctx.bound_ss_gi_emissive);
     }
 

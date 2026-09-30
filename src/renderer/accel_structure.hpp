@@ -63,7 +63,9 @@ public:
     /// Declares a tracer's reads of the scene's TLAS and the hit data beside
     /// it, which order its traces after `rt_scene`'s build: what every pass
     /// that traces declares.
-    static void declare_trace(PassBuilder& builder, const DeclareContext& ctx);
+    /// @return whether there is a TLAS to trace this frame; none when no
+    /// tracer's reach held anything.
+    static bool declare_trace(PassBuilder& builder, const DeclareContext& ctx);
 
     AccelStructureManager(const AccelStructureManager&) = delete;
     AccelStructureManager& operator=(const AccelStructureManager&) = delete;
