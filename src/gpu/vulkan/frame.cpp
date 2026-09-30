@@ -189,6 +189,7 @@ Result<> Device::end_frame(Frame& frame) {
     Impl& self = *impl_;
     Frame::Impl& f = frame.impl();
     f.open = false;
+    self.ended = f.serial;
 
     // Uploads recorded since the last frame go first; the frame's first list
     // waits for them.

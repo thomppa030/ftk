@@ -1,5 +1,6 @@
 #include "gpu/readback.hpp"
 
+#include "gpu/command_list.hpp"
 #include "gpu/device.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
@@ -11,12 +12,14 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 
-// Readbacks on the Vulkan device: a compute pass on the upload context's image
-// lane samples the texture into a buffer the CPU maps, and a barrier hands the
-// buffer to the host. The lane's timeline says when it is done.
+// Readbacks on the Vulkan device: a compute pass samples the texture into a
+// buffer the CPU maps, and a barrier hands the buffer to the host. It records
+// on the upload context's image lane, whose timeline says when it is done, or
+// into a frame's list, done with that frame.
 
 namespace fjell::gpu {
 
@@ -42,8 +45,11 @@ struct Readback::Impl {
     Device* device{nullptr};
     Owned<Buffer> pixels;
     Owned<BindGroup> group;
-    /// The image lane batch the read went with: 0 until it is sent.
+    /// The image lane batch the read went with: 0 until it is sent. None for
+    /// a read in a frame's list.
     std::shared_ptr<const uint64_t> batch;
+    /// The frame whose list holds the read; 0 for one on the image lane.
+    uint64_t frame{0};
     uint32_t width{0};
     uint32_t height{0};
     /// Finished, with what the GPU wrote visible to the CPU.
@@ -65,32 +71,54 @@ Readback::Readback(Readback&&) noexcept = default;
 
 Readback& Readback::operator=(Readback&& other) noexcept {
     if (this != &other) {
-        wait();
+        if (impl_ && impl_->frame == 0) wait();
         impl_ = std::move(other.impl_);
     }
     return *this;
 }
 
 Readback::~Readback() {
-    // What it holds is released as it goes, and the GPU may still be writing
-    // it.
-    wait();
+    // What it holds is released as it goes. A frame's read is kept by the
+    // release until its frame is done; the image lane's is not, and the GPU
+    // may still be writing it.
+    if (impl_ && impl_->frame == 0) wait();
 }
 
 bool Readback::ready() const {
     if (!impl_) return false;
     if (impl_->done) return true;
-    UploadContext& lanes = impl_->device->impl().core.upload_context();
-    if (!lanes.image_done(*impl_->batch)) return false;
+    if (impl_->frame != 0) {
+        if (impl_->device->finished_frame() < impl_->frame) return false;
+    } else {
+        UploadContext& lanes = impl_->device->impl().core.upload_context();
+        if (!lanes.image_done(*impl_->batch)) return false;
+    }
     impl_->finish();
     return true;
 }
 
 void Readback::wait() {
     if (!impl_ || impl_->done) return;
-    UploadContext& lanes = impl_->device->impl().core.upload_context();
-    if (*impl_->batch == 0) lanes.flush();
-    lanes.wait_image(*impl_->batch);
+    Device::Impl& self = impl_->device->impl();
+    if (impl_->frame != 0) {
+        if (self.ended < impl_->frame) {
+            self.report_once("A readback waits for its frame before the frame is sent; it would never finish");
+            return;
+        }
+        VkSemaphoreWaitInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        info.semaphoreCount = 1;
+        info.pSemaphores = &self.frame_timeline;
+        info.pValues = &impl_->frame;
+        if (vkWaitSemaphores(self.device, &info, std::numeric_limits<uint64_t>::max()) != VK_SUCCESS) {
+            self.report_once("Waiting for a readback's frame failed");
+            return;
+        }
+    } else {
+        UploadContext& lanes = self.core.upload_context();
+        if (*impl_->batch == 0) lanes.flush();
+        lanes.wait_image(*impl_->batch);
+    }
     impl_->finish();
 }
 
@@ -109,8 +137,13 @@ uint32_t Readback::height() const {
     return impl_ ? impl_->height : 0;
 }
 
-Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& desc) {
-    Impl& self = *impl_;
+namespace {
+
+// Records into `cmd` the read of `view` that `desc` asks for, and makes what
+// it writes into.
+Result<std::unique_ptr<Readback::Impl>> record_read(Device& device, CommandList& cmd, const TextureView& view,
+                                                    const ReadbackDesc& desc) {
+    Device::Impl& self = device.impl();
     const auto* record = self.textures.get(view.texture);
     if (record == nullptr) return make_error("Readback: the texture no longer exists");
     const ResolvedView resolved = resolve(view, record->info);
@@ -145,10 +178,10 @@ Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& 
     }
 
     auto impl = std::make_unique<Readback::Impl>();
-    impl->device = this;
+    impl->device = &device;
     impl->width = width;
     impl->height = height;
-    auto pixels = create(BufferDesc{
+    auto pixels = device.create(BufferDesc{
         .size = uint64_t{width} * height * 4,
         .use = BufferUse::storage,
         .memory = Memory::readback,
@@ -156,19 +189,16 @@ Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& 
     });
     if (!pixels) return std::unexpected(pixels.error());
     impl->pixels = std::move(*pixels);
-    auto group = create(BindGroupDesc{
+    auto group = device.create(BindGroupDesc{
         .pipeline = self.read_back_pipeline,
-        .entries = {{"source", sampled(view, sampler({.filter = Filter::linear,
-                                                      .address = Address::clamp}))},
+        .entries = {{"source", sampled(view, device.sampler({.filter = Filter::linear,
+                                                              .address = Address::clamp}))},
                     {"pixels", storage(impl->pixels)}},
         .name = "readback",
     });
     if (!group) return std::unexpected(group.error());
     impl->group = std::move(*group);
 
-    UploadContext& lanes = self.core.upload_context();
-    vulkan::CommandBufferList recorder(*this, lanes.image_cb());
-    CommandList& cmd = recorder.list();
     cmd.barrier(view, desc.use, Access::sampled_compute);
     cmd.set_pipeline(self.read_back_pipeline);
     cmd.bind(impl->group);
@@ -182,8 +212,29 @@ Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& 
     cmd.dispatch((width + GROUP - 1) / GROUP, (height + GROUP - 1) / GROUP, 1);
     cmd.barrier(view, Access::sampled_compute, desc.use);
     cmd.barrier(BufferRange(impl->pixels), Access::storage_buffer_write_compute, Access::host_read);
-    impl->batch = lanes.image_batch();
-    return Readback(std::move(impl));
+    return impl;
+}
+
+} // namespace
+
+Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& desc) {
+    UploadContext& lanes = impl_->core.upload_context();
+    vulkan::CommandBufferList recorder(*this, lanes.image_cb());
+    auto impl = record_read(*this, recorder.list(), view, desc);
+    if (!impl) return std::unexpected(impl.error());
+    (*impl)->batch = lanes.image_batch();
+    return Readback(std::move(*impl));
+}
+
+Result<Readback> CommandList::read_back(const TextureView& view, const ReadbackDesc& desc) {
+    const uint64_t frame = device_->impl().recording;
+    if (frame == 0 || device_->impl().ended >= frame) {
+        return make_error("Readback: a list reads back in the frame being recorded, and none is");
+    }
+    auto impl = record_read(*device_, *this, view, desc);
+    if (!impl) return std::unexpected(impl.error());
+    (*impl)->frame = frame;
+    return Readback(std::move(*impl));
 }
 
 } // namespace fjell::gpu

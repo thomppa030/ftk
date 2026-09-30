@@ -309,6 +309,8 @@ struct Device::Impl {
     /// The serial of the frame recording now, which what is released is
     /// kept alive for.
     uint64_t recording{0};
+    /// The serial of the newest frame sent to the GPU.
+    uint64_t ended{0};
     /// The frames in flight, one per slot, made when first used, and the
     /// serial of the last frame begun.
     std::vector<std::unique_ptr<FrameSlot>> frames;
