@@ -640,7 +640,6 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             builders_[pp.builder],
             [p = pp.pass, &ctx](VkCommandBuffer cb) {
                 FrameContext local = ctx;
-                local.cmd = cb;
                 const gpu::Queue queue = cb == ctx.async_compute_cmd ? gpu::Queue::compute
                                                                       : gpu::Queue::graphics;
                 gpu::vulkan::CommandBufferList commands(*ctx.device, cb, queue);

@@ -137,17 +137,10 @@ public:
 
   // ── Forwarding accessors to GpuContext ────────────────────────────────
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
-  [[nodiscard]] VkDevice device() const { return gpu_.device(); }
-  [[nodiscard]] VkPhysicalDevice physical_device() const { return gpu_.physical_device(); }
-  [[nodiscard]] VmaAllocator allocator() const { return gpu_.allocator(); }
-  [[nodiscard]] VkCommandPool command_pool() const { return gpu_.command_pool(); }
-  [[nodiscard]] VkQueue graphics_queue() const { return gpu_.graphics_queue(); }
   [[nodiscard]] UploadContext& upload_context() { return gpu_.upload_context(); }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
-  [[nodiscard]] VkInstance instance() const { return gpu_.instance(); }
   /// The main window's images' format, what ImGui and the game UI draw into.
   [[nodiscard]] gpu::Format swapchain_format() const;
-  [[nodiscard]] uint32_t graphics_family() const { return gpu_.graphics_family(); }
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
@@ -423,7 +416,7 @@ private:
   /// `view.viewport_graph` decides which passes this call runs, and so
   /// whether the GPU-driven meshlet buffers may be handed to the color
   /// passes; null = the global pass state governs.
-  FrameContext build_frame_context(VkCommandBuffer cmd, const ViewportRenderRequest &view,
+  FrameContext build_frame_context(const ViewportRenderRequest &view,
                                    Scene *scene, float dt, uint32_t selected_id,
                                    PostProcessResources *pp);
 

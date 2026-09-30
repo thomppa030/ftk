@@ -348,12 +348,11 @@ void VulkanContext::reload_fjgraph(const std::string& path) {
 
 // ── Command buffer recording ────────────────────────────────────────────
 
-FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const ViewportRenderRequest& view,
+FrameContext VulkanContext::build_frame_context(const ViewportRenderRequest& view,
                                                  Scene* scene, float dt, uint32_t selected_id,
                                                  PostProcessResources* pp) {
     OffscreenPass& target = *view.target;
     FrameContext ctx{};
-    ctx.cmd = cmd;
     // Async compute CB is set on the main-viewport path in render_frame
     // (after build_frame_context returns). Preview viewports never hit
     // the async path — they submit their own single-CB bundle.
@@ -520,7 +519,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
                                          meshlet_instance_pass()->visible_buffer_size(current_frame_));
     }
 
-    current_ctx_ = build_frame_context(cmd, view, scene, dt, selected_id, pp);
+    current_ctx_ = build_frame_context(view, scene, dt, selected_id, pp);
     // Only the main view splits its passes across the frame's lists: the
     // compute list runs after the whole of the list before it and before the
     // whole of the one after, so a second view's passes there would land in

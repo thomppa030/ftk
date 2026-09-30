@@ -50,11 +50,6 @@ public:
 
     [[nodiscard]] Window& window() { return core_.window(); }
     [[nodiscard]] VkDevice device() const { return core_.vk_device(); }
-    [[nodiscard]] VkPhysicalDevice physical_device() const { return core_.physical_device(); }
-    [[nodiscard]] VmaAllocator allocator() const { return core_.allocator(); }
-    [[nodiscard]] VkInstance instance() const { return core_.instance(); }
-    [[nodiscard]] VkQueue graphics_queue() const { return core_.graphics_queue(); }
-    [[nodiscard]] uint32_t graphics_family() const { return core_.graphics_family(); }
     [[nodiscard]] const std::string& gpu_name() const { return core_.device().gpu_name(); }
     [[nodiscard]] Device& device_ref() { return core_.device(); }
 
@@ -64,7 +59,6 @@ public:
     [[nodiscard]] const gpu::Swapchain& swapchain() const { return *swapchain_; }
 
     // ── Command infrastructure ──────────────────────────────────────────
-    [[nodiscard]] VkCommandPool command_pool() const { return core_.command_pool(); }
     [[nodiscard]] ThreadCommandPools& secondary_pools() { return secondary_pools_; }
     void ensure_secondary_pools(uint32_t thread_count);
 
@@ -111,7 +105,6 @@ public:
 
     // ── Pipelines ───────────────────────────────────────────────────────
     [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
-    [[nodiscard]] VkPipelineCache vk_pipeline_cache() const { return vk_pipeline_cache_; }
 
     // ── Light data (global descriptor bindings) ─────────────────────────
     [[nodiscard]] gpu::Buffer tile_light_ssbo(uint32_t frame_index) const { return tile_light_ssbo_[frame_index]; }

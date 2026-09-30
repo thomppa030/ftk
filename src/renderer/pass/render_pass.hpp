@@ -69,9 +69,7 @@ class TransientImagePool;
 
 // Shared state that every pass can read during recording.
 struct FrameContext {
-    VkCommandBuffer cmd{VK_NULL_HANDLE};
-    /// The pass's commands through the GPU interface, recorded into `cmd` in
-    /// order with what is recorded there directly.
+    /// The pass's commands.
     [[nodiscard]] gpu::CommandList& commands() const { return *command_list; }
     /// Set by the frame graph for each pass it records; read through
     /// `commands()`.
