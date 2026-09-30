@@ -174,8 +174,23 @@ public:
     /// @return the group, or which entry or binding is wrong (named).
     [[nodiscard]] Result<Owned<BindGroup>> create(const BindGroupDesc& desc);
 
+    /// A shared layout the device makes from its description: pipelines that
+    /// name it take it at the set their shaders declare it at, and groups of
+    /// it are made by `create(SharedGroupDesc)`. It lasts as long as the
+    /// device.
+    /// @return the layout, or which binding is wrong.
+    [[nodiscard]] Result<SharedLayout> create(const SharedLayoutDesc& desc);
+
+    /// A group of a shared layout the device made, bound wherever a pipeline
+    /// names the layout.
+    /// @return the group, or which entry is wrong or missing (named).
+    [[nodiscard]] Result<Owned<BindGroup>> create(const SharedGroupDesc& desc);
+
     /// Fills a persistent group anew, safe at any time: commands recorded
     /// after it bind the new resources, those recorded before keep the old.
+    /// A shared group's entries replace only what they name, and the rest
+    /// stays; several updates between two binds of it cost one new version.
+    /// Not called while another thread binds the same group.
     /// @return nothing, or which entry is wrong, in which case the group keeps
     ///         what it held.
     [[nodiscard]] Result<> update(BindGroup group, std::span<const BindEntry> entries);

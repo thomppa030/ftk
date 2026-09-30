@@ -134,11 +134,48 @@ struct PlacedSet {
 /// A set layout the engine shares between every pipeline that binds it (the
 /// globals, the bindless table, draw data, meshlets), described by its
 /// bindings. `usual_set` is the set most shaders declare it at.
+///
+/// For one the device makes (`Device::create`), each binding is named, as
+/// its shared group's entries name it, and holds its `count` of elements;
+/// the elements of an array may be left empty, and a shader's array sized at
+/// run time reads it. `stages` are the stages that read it, or none for
+/// every stage.
 struct SharedLayoutDesc {
     std::string name;
     uint32_t usual_set{0};
     std::vector<ShaderBinding> bindings;
 };
+
+/// What `Device::create` makes a shared group from: resources for a shared
+/// layout the device made, bound wherever a pipeline naming the layout takes
+/// it. Every binding that is not an array is given; an array's elements may
+/// be, or left empty for later updates.
+///
+/// @code
+/// auto table = device.create(gpu::SharedGroupDesc{
+///     .layout = bindless_layout_,
+///     .entries = {{"materials", gpu::storage(materials_)},
+///                 {"params", gpu::storage(params_)}},
+///     .name = "bindless",
+/// });
+/// device.update(*table, {{{"textures", gpu::texture(albedo), 7}}});
+/// @endcode
+struct SharedGroupDesc {
+    SharedLayout layout{};
+    std::vector<BindEntry> entries{};
+    /// Shown by debuggers, on every version of the group, and in error
+    /// messages.
+    std::string_view name{};
+};
+
+/// Places entries in a shared layout's group, each naming one of `layout`'s
+/// bindings and, for an array, the element it fills. The group keeps what the
+/// entries do not name, so unlike `place` they need not fill the set; an
+/// element given twice is refused.
+/// @return the placed entries in binding and element order, or which entry is
+///         wrong (named).
+[[nodiscard]] Result<PlacedSet> place_some(const SharedLayoutDesc& layout,
+                                           std::span<const BindEntry> entries);
 
 /// The set each of `shared` takes in `layout`, in the same order. A pipeline
 /// names the shared layouts it binds; this finds where its shaders declare
