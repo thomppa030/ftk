@@ -5,7 +5,7 @@
 #include "gpu/device.hpp"
 #include "gpu/frame.hpp"
 #include "gpu/swapchain.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 #include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
 

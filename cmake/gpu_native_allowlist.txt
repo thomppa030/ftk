@@ -6,6 +6,4 @@
 # the commit that teaches the check a new pattern, and then only the files
 # already using it.
 src/renderer/frame_graph.cpp
-src/renderer/gpu/window.cpp
-src/renderer/gpu/window.hpp
 tests/library_link/gpu.cpp

@@ -8,7 +8,7 @@
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 #include "ui/imgui_layer.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/standalone_window.hpp"

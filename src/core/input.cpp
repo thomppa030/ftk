@@ -4,7 +4,7 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/sdl_input_codes.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 
 #include <SDL3/SDL.h>
 

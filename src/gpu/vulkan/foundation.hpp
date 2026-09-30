@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -51,7 +53,7 @@ class Foundation {
 public:
     /// Brings everything up for a GPU that can show `window`.
     /// Throws std::runtime_error when there is none, or the driver refuses.
-    explicit Foundation(Window& window);
+    explicit Foundation(const Window& window);
     ~Foundation();
 
     Foundation(const Foundation&) = delete;
@@ -59,9 +61,9 @@ public:
     Foundation(Foundation&&) = delete;
     Foundation& operator=(Foundation&&) = delete;
 
-    /// The window the GPU was chosen to show, and the surface made for it.
-    [[nodiscard]] Window& window() const { return window_; }
-    [[nodiscard]] VkSurfaceKHR surface() const { return surface_; }
+    /// A surface for `window` to present to, which the caller destroys.
+    /// @return the surface, or why the platform could not make one
+    [[nodiscard]] Result<VkSurfaceKHR> create_surface(const Window& window) const;
 
     [[nodiscard]] VkInstance instance() const { return instance_; }
     [[nodiscard]] VkDevice handle() const { return device_; }
@@ -105,7 +107,9 @@ public:
     [[nodiscard]] const uint32_t* concurrent_queue_families(uint32_t& out_count) const;
     [[nodiscard]] const std::string& gpu_name() const { return gpu_name_; }
 
-    [[nodiscard]] QueueFamilyIndices find_queue_families() const;
+    /// The queue families chosen: graphics, present (for the window the GPU
+    /// was chosen to show), and the dedicated ones where there are.
+    [[nodiscard]] const QueueFamilyIndices& queue_families() const { return families_; }
     [[nodiscard]] SwapchainSupport query_swapchain_support(VkSurfaceKHR surface) const;
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
@@ -151,24 +155,21 @@ public:
 private:
     void create_instance();
     void setup_debug_messenger();
-    void create_surface();
-    void pick_physical_device();
+    void pick_physical_device(VkSurfaceKHR shown);
     void create_logical_device();
     void create_allocator();
 
     [[nodiscard]] bool check_validation_layer_support() const;
     [[nodiscard]] std::vector<const char*> get_required_extensions() const;
-    [[nodiscard]] QueueFamilyIndices find_queue_families(VkPhysicalDevice device) const;
-    [[nodiscard]] bool is_device_suitable(VkPhysicalDevice device) const;
+    [[nodiscard]] QueueFamilyIndices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR shown) const;
+    [[nodiscard]] bool is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR shown) const;
     [[nodiscard]] bool check_device_extension_support(VkPhysicalDevice device) const;
     [[nodiscard]] SwapchainSupport query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface) const;
 
-    Window& window_;
-
     VkInstance instance_{VK_NULL_HANDLE};
     VkDebugUtilsMessengerEXT debug_messenger_{VK_NULL_HANDLE};
-    VkSurfaceKHR surface_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    QueueFamilyIndices families_;
     VkDevice device_{VK_NULL_HANDLE};
     VkQueue graphics_queue_{VK_NULL_HANDLE};
     VkQueue present_queue_{VK_NULL_HANDLE};

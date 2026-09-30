@@ -85,7 +85,6 @@ fjell_library(platform
 # its headers declare SDL's window and event types without including SDL.
 fjell_library(gpu
     SOURCES
-        renderer/gpu/window.cpp
         gpu/binding.cpp
         gpu/command_list.cpp
         gpu/release_queue.cpp
@@ -113,6 +112,7 @@ fjell_library(gpu
         gpu/vulkan/transitions.cpp
         gpu/vulkan/vma_impl.cpp
         gpu/vulkan/zones.cpp
+        gpu/window.cpp
     HEADERS
         gpu/acceleration.hpp
         gpu/access.hpp
@@ -150,7 +150,7 @@ fjell_library(gpu
         gpu/vulkan/translate.hpp
         gpu/vulkan/upload_lanes.hpp
         gpu/vulkan/vk_check.hpp
-        renderer/gpu/window.hpp
+        gpu/window.hpp
     LINKS
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
         PRIVATE SDL3::SDL3 spirv-cross-core

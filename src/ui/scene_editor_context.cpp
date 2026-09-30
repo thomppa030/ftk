@@ -18,7 +18,7 @@
 #include "core/log.hpp"
 #include "core/play_controller.hpp"
 #include "core/project_manager.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/skeleton.hpp"

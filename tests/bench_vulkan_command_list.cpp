@@ -15,7 +15,7 @@
 #include "gpu/device.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 
 #include <algorithm>
 #include <array>
