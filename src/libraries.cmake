@@ -80,9 +80,21 @@ fjell_library(platform
         PRIVATE ${CMAKE_DL_LIBS}
 )
 
-# fjell-gpu is Vulkan without a renderer: the window, device, swapchain,
-# allocator, buffers, images, descriptors and uploads. SDL stays inside it:
-# its headers declare SDL's window and event types without including SDL.
+# The Vulkan backend's code, in whichever target holds it: Vulkan and VMA for
+# that target alone, so nothing outside the backend can include them. VMA's
+# headers warn under our flags and come in as system headers.
+function(fjell_vulkan_backend target)
+    target_link_libraries(${target} PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
+    get_target_property(vma_dirs GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
+    if(vma_dirs)
+        target_include_directories(${target} SYSTEM PRIVATE ${vma_dirs})
+    endif()
+endfunction()
+
+# fjell-gpu is the GPU interface and its Vulkan backend: the window, device,
+# swapchain, pipelines, bindings, command lists, uploads and readbacks. SDL,
+# Vulkan and VMA stay inside it: its headers declare SDL's window and event
+# types without including SDL, and the interface names nothing of Vulkan.
 fjell_library(gpu
     SOURCES
         gpu/binding.cpp
@@ -152,17 +164,13 @@ fjell_library(gpu
         gpu/vulkan/vk_check.hpp
         gpu/window.hpp
     LINKS
-        PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
+        PUBLIC fjell-core
         PRIVATE SDL3::SDL3 spirv-cross-core
 )
+fjell_vulkan_backend(fjell-gpu)
 # The device's own shaders, compiled into it.
 fjell_embed_shader(fjell-gpu "${FJELL_SOURCE_ROOT}/gpu/shaders/read_back.comp")
-# VMA's headers warn under our flags, so everything using fjell-gpu sees them
-# as system headers, and its implementation compiles without warnings.
-get_target_property(VMA_INCLUDE_DIRS GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
-if(VMA_INCLUDE_DIRS)
-    target_include_directories(fjell-gpu SYSTEM PUBLIC ${VMA_INCLUDE_DIRS})
-endif()
+# VMA's implementation compiles without warnings.
 if(MSVC)
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/gpu/vulkan/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
 else()
@@ -318,6 +326,7 @@ fjell_library(gpu-imgui
         PUBLIC fjell-core fjell-gpu fjell-imgui-headless
         PRIVATE fjell-imgui
 )
+fjell_vulkan_backend(fjell-gpu-imgui)
 
 # fjell-editor-shell is what an editor window needs around the kit: the
 # ImGui layer on a window of its own, the console, undo history and its
@@ -372,7 +381,7 @@ add_library(fjell-imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
 target_include_directories(fjell-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless Vulkan::Vulkan PRIVATE SDL3::SDL3)
+target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 
 foreach(imgui_target fjell-imgui-headless fjell-imgui)
     if(MSVC)
