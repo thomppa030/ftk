@@ -38,7 +38,7 @@ UploadLanes::UploadLanes(Foundation& foundation)
     lanes_[BUFFER].queue = foundation.transfer_queue_supported()
         ? foundation.transfer_queue() : foundation.graphics_queue();
 
-    auto indices = foundation.find_queue_families();
+    const auto& indices = foundation.queue_families();
     std::array<uint32_t, LANE_COUNT> lane_families{};
     lane_families[IMAGE] = indices.graphics.value();
     lane_families[BUFFER] = indices.transfer.value_or(indices.graphics.value());

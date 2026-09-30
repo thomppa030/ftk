@@ -189,7 +189,7 @@ Device::Impl::Impl(Window& window)
     // command buffer of its own.
     VkCommandPoolCreateInfo profiler_pool_info{};
     profiler_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    profiler_pool_info.queueFamilyIndex = vk.find_queue_families().graphics.value();
+    profiler_pool_info.queueFamilyIndex = vk.queue_families().graphics.value();
     vk_check(vkCreateCommandPool(device, &profiler_pool_info, nullptr, &profiler_pool),
              "Failed to create the profiler's command pool");
     VkCommandBufferAllocateInfo calibration_info{};
@@ -233,7 +233,7 @@ Device::Impl::Impl(Window& window)
     caps.frames_in_flight = MAX_FRAMES_IN_FLIGHT;
     caps.max_samples = vulkan::from_vk(vk.max_msaa_samples());
     frames.resize(MAX_FRAMES_IN_FLIGHT);
-    const auto found = vk.find_queue_families();
+    const auto& found = vk.queue_families();
     queues[0] = vk.graphics_queue();
     families[0] = found.graphics.value();
     caps.async_compute = vk.async_compute_supported();

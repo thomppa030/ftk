@@ -2,7 +2,7 @@
 
 #include "core/delegate.hpp"
 
-#include <vulkan/vulkan.h>
+#include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <string>
@@ -16,7 +16,7 @@ namespace fjell {
 
 /// An OS window on SDL. SDL has one event queue for the whole program, so
 /// whichever window's poll_events() runs hands every waiting event to the
-/// window it belongs to.
+/// window it belongs to. What the GPU draws into it is the swapchain's.
 class Window {
 public:
     Window(std::string_view title, uint32_t width, uint32_t height);
@@ -46,7 +46,8 @@ public:
     /// reported, or give it back.
     void set_cursor_captured(bool captured);
 
-    /// SDL's window, for the ImGui platform backend.
+    /// SDL's window, for the ImGui platform backend and the GPU backend's
+    /// surface.
     [[nodiscard]] SDL_Window* handle() const { return window_; }
     /// The size in pixels, as of the last event that changed it.
     [[nodiscard]] uint32_t width() const { return width_; }
@@ -54,16 +55,10 @@ public:
 
     /// The drawable size in pixels, asked of the platform now, which the
     /// swapchain is sized from. Zero in either axis while minimised.
-    [[nodiscard]] VkExtent2D framebuffer_size() const;
+    [[nodiscard]] glm::uvec2 framebuffer_size() const;
 
     [[nodiscard]] bool was_resized() const { return framebuffer_resized_; }
     void reset_resized() { framebuffer_resized_ = false; }
-
-    [[nodiscard]] VkSurfaceKHR create_surface(VkInstance instance) const;
-
-    /// The Vulkan instance extensions a surface on this platform's windows
-    /// needs. Valid once a Window exists, which initialises the platform.
-    [[nodiscard]] static std::vector<const char*> required_instance_extensions();
 
     /// Fired when files are dragged and dropped onto this window, once per
     /// drop with every file in it.

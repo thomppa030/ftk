@@ -3,7 +3,9 @@
 #include "core/log.hpp"
 #include "gpu/vulkan/upload_lanes.hpp"
 #include "gpu/vulkan/vk_check.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
+
+#include <SDL3/SDL_vulkan.h>
 
 #include <cstring>
 #include <set>
@@ -70,12 +72,18 @@ static void destroy_debug_utils_messenger(
     }
 }
 
-Foundation::Foundation(Window& window) : window_{window} {
+Foundation::Foundation(const Window& window) {
     FJELL_GFX_INFO("Initializing Vulkan device");
     create_instance();
     setup_debug_messenger();
-    create_surface();
-    pick_physical_device();
+    // The GPU is chosen by whether it can show the window, asked through a
+    // surface made for the choice; each swapchain makes the one it presents
+    // to.
+    auto probe = create_surface(window);
+    if (!probe) throw std::runtime_error(probe.error());
+    pick_physical_device(*probe);
+    families_ = find_queue_families(physical_device_, *probe);
+    vkDestroySurfaceKHR(instance_, *probe, nullptr);
     create_logical_device();
     create_allocator();
     lanes_ = std::make_unique<UploadLanes>(*this);
@@ -93,8 +101,6 @@ Foundation::~Foundation() {
             destroy_debug_utils_messenger(instance_, debug_messenger_, nullptr);
         }
     }
-    if (surface_ != VK_NULL_HANDLE)
-        vkDestroySurfaceKHR(instance_, surface_, nullptr);
     if (instance_ != VK_NULL_HANDLE)
         vkDestroyInstance(instance_, nullptr);
 }
@@ -154,11 +160,15 @@ void Foundation::setup_debug_messenger() {
     }
 }
 
-void Foundation::create_surface() {
-    surface_ = window_.create_surface(instance_);
+Result<VkSurfaceKHR> Foundation::create_surface(const Window& window) const {
+    VkSurfaceKHR surface{VK_NULL_HANDLE};
+    if (!SDL_Vulkan_CreateSurface(window.handle(), instance_, nullptr, &surface)) {
+        return make_error(std::string("Failed to create a window surface: ") + SDL_GetError());
+    }
+    return surface;
 }
 
-void Foundation::pick_physical_device() {
+void Foundation::pick_physical_device(VkSurfaceKHR shown) {
     uint32_t count = 0;
     vkEnumeratePhysicalDevices(instance_, &count, nullptr);
 
@@ -170,7 +180,7 @@ void Foundation::pick_physical_device() {
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
 
     for (const auto& device : devices) {
-        if (is_device_suitable(device)) {
+        if (is_device_suitable(device, shown)) {
             physical_device_ = device;
             break;
         }
@@ -295,7 +305,7 @@ void Foundation::pick_physical_device() {
 }
 
 void Foundation::create_logical_device() {
-    auto indices = find_queue_families(physical_device_);
+    const QueueFamilyIndices& indices = families_;
 
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     std::set<uint32_t> unique_families = {
@@ -523,11 +533,7 @@ const uint32_t* Foundation::concurrent_queue_families(uint32_t& out_count) const
     return concurrent_families_.data();
 }
 
-QueueFamilyIndices Foundation::find_queue_families() const {
-    return find_queue_families(physical_device_);
-}
-
-QueueFamilyIndices Foundation::find_queue_families(VkPhysicalDevice device) const {
+QueueFamilyIndices Foundation::find_queue_families(VkPhysicalDevice device, VkSurfaceKHR shown) const {
     QueueFamilyIndices indices;
 
     uint32_t count = 0;
@@ -542,7 +548,7 @@ QueueFamilyIndices Foundation::find_queue_families(VkPhysicalDevice device) cons
         }
 
         VkBool32 present_support = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface_, &present_support);
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, shown, &present_support);
         if (present_support) {
             indices.present = i;
         }
@@ -604,13 +610,13 @@ SwapchainSupport Foundation::query_swapchain_support(VkPhysicalDevice device, Vk
     return support;
 }
 
-bool Foundation::is_device_suitable(VkPhysicalDevice device) const {
-    auto indices = find_queue_families(device);
+bool Foundation::is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR shown) const {
+    auto indices = find_queue_families(device, shown);
     bool extensions_ok = check_device_extension_support(device);
 
     bool swapchain_ok = false;
     if (extensions_ok) {
-        auto support = query_swapchain_support(device, surface_);
+        auto support = query_swapchain_support(device, shown);
         swapchain_ok = !support.formats.empty() && !support.present_modes.empty();
     }
 
@@ -652,7 +658,12 @@ bool Foundation::check_validation_layer_support() const {
 }
 
 std::vector<const char*> Foundation::get_required_extensions() const {
-    auto extensions = Window::required_instance_extensions();
+    // What a surface on this platform's windows needs; SDL knows once a
+    // window exists, which the foundation is made from.
+    Uint32 count = 0;
+    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
+    std::vector<const char*> extensions;
+    if (names != nullptr) extensions.assign(names, names + count);
 
     if (enable_validation_) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);

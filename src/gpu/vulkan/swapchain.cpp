@@ -5,11 +5,10 @@
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "gpu/vulkan/foundation.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 
 #include <algorithm>
 #include <array>
-#include <exception>
 #include <limits>
 #include <string>
 #include <vector>
@@ -50,26 +49,25 @@ VkPresentModeKHR choose_present_mode(const std::vector<VkPresentModeKHR>& offere
 
 // The surface's own size where it has one, else the window's drawable size
 // within what the surface allows.
-VkExtent2D choose_extent(const VkSurfaceCapabilitiesKHR& capabilities, VkExtent2D drawable) {
+VkExtent2D choose_extent(const VkSurfaceCapabilitiesKHR& capabilities, glm::uvec2 drawable) {
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
     }
-    return {std::clamp(drawable.width, capabilities.minImageExtent.width,
+    return {std::clamp(drawable.x, capabilities.minImageExtent.width,
                        capabilities.maxImageExtent.width),
-            std::clamp(drawable.height, capabilities.minImageExtent.height,
+            std::clamp(drawable.y, capabilities.minImageExtent.height,
                        capabilities.maxImageExtent.height)};
 }
 
 } // namespace
 
 struct Swapchain::Impl {
-    Impl(Device& gpu_device, Window& shown, VkSurfaceKHR on, bool own_surface)
-        : device(gpu_device), foundation(gpu_device.impl().foundation), window(shown), surface(on),
-          owns_surface(own_surface) {}
+    Impl(Device& gpu_device, Window& shown, VkSurfaceKHR on)
+        : device(gpu_device), foundation(gpu_device.impl().foundation), window(shown), surface(on) {}
 
     ~Impl() {
         tear_down();
-        if (owns_surface) vkDestroySurfaceKHR(foundation.instance(), surface, nullptr);
+        vkDestroySurfaceKHR(foundation.instance(), surface, nullptr);
     }
 
     Impl(const Impl&) = delete;
@@ -88,10 +86,8 @@ struct Swapchain::Impl {
     Device& device;
     vulkan::Foundation& foundation;
     Window& window;
+    /// Made for the window with the swapchain, and destroyed with it.
     VkSurfaceKHR surface{VK_NULL_HANDLE};
-    /// A window other than the one the device was made for brings its own
-    /// surface, which the swapchain destroys.
-    bool owns_surface{false};
 
     VkSwapchainKHR swapchain{VK_NULL_HANDLE};
     Format format{Format::undefined};
@@ -111,8 +107,8 @@ struct Swapchain::Impl {
 };
 
 Result<> Swapchain::Impl::build() {
-    VkExtent2D drawable = window.framebuffer_size();
-    while (drawable.width == 0 || drawable.height == 0) {
+    glm::uvec2 drawable = window.framebuffer_size();
+    while (drawable.x == 0 || drawable.y == 0) {
         window.wait_events();
         drawable = window.framebuffer_size();
     }
@@ -140,7 +136,7 @@ Result<> Swapchain::Impl::build() {
         (support.capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (sampled) info.imageUsage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    const auto families = foundation.find_queue_families();
+    const auto& families = foundation.queue_families();
     const std::array<uint32_t, 2> both{families.graphics.value(), families.present.value()};
     if (both[0] != both[1]) {
         info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -231,28 +227,18 @@ void Swapchain::Impl::rebuild() {
 // ── Swapchain ───────────────────────────────────────────────────────────
 
 Result<std::unique_ptr<Swapchain>> Swapchain::create(Device& device, Window& window) {
-    Device::Impl& self = device.impl();
-    vulkan::Foundation& foundation = self.foundation;
-    std::unique_ptr<Impl> impl;
-    if (&window == &foundation.window()) {
-        impl = std::make_unique<Impl>(device, window, foundation.surface(), false);
-    } else {
-        VkSurfaceKHR surface{VK_NULL_HANDLE};
-        try {
-            surface = window.create_surface(foundation.instance());
-        } catch (const std::exception& e) {
-            return make_error(e.what());
-        }
-        VkBool32 supported = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(foundation.physical_device(),
-                                             foundation.find_queue_families().present.value(), surface,
-                                             &supported);
-        if (supported == VK_FALSE) {
-            vkDestroySurfaceKHR(foundation.instance(), surface, nullptr);
-            return make_error("The GPU cannot present to the window");
-        }
-        impl = std::make_unique<Impl>(device, window, surface, true);
+    const vulkan::Foundation& foundation = device.impl().foundation;
+    const auto surface = foundation.create_surface(window);
+    if (!surface) return std::unexpected(surface.error());
+    VkBool32 supported = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(foundation.physical_device(),
+                                         foundation.queue_families().present.value(), *surface,
+                                         &supported);
+    if (supported == VK_FALSE) {
+        vkDestroySurfaceKHR(foundation.instance(), *surface, nullptr);
+        return make_error("The GPU cannot present to the window");
     }
+    auto impl = std::make_unique<Impl>(device, window, *surface);
     if (auto built = impl->build(); !built) return std::unexpected(built.error());
     return std::make_unique<Swapchain>(device, std::move(impl));
 }

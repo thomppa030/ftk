@@ -1,7 +1,7 @@
 #include "ui/imgui_layer.hpp"
 #include "ui/editor_view_settings.hpp"
 #include "ui/theme.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>

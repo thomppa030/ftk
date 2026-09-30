@@ -1,8 +1,7 @@
-#include "renderer/gpu/window.hpp"
+#include "gpu/window.hpp"
 #include "core/log.hpp"
 
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
 #include <stdexcept>
@@ -174,7 +173,7 @@ void Window::set_cursor_captured(bool captured) {
     }
 }
 
-VkExtent2D Window::framebuffer_size() const {
+glm::uvec2 Window::framebuffer_size() const {
     // A minimised window can go on reporting its restored size, which would
     // build a swapchain it cannot present to.
     if ((SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0) {
@@ -184,21 +183,6 @@ VkExtent2D Window::framebuffer_size() const {
     int height = 0;
     SDL_GetWindowSizeInPixels(window_, &width, &height);
     return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
-}
-
-VkSurfaceKHR Window::create_surface(VkInstance instance) const {
-    VkSurfaceKHR surface{};
-    if (!SDL_Vulkan_CreateSurface(window_, instance, nullptr, &surface)) {
-        throw sdl_failure("Failed to create window surface");
-    }
-    return surface;
-}
-
-std::vector<const char*> Window::required_instance_extensions() {
-    Uint32 count = 0;
-    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
-    if (names == nullptr) return {};
-    return {names, names + count};
 }
 
 } // namespace fjell
