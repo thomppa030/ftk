@@ -203,10 +203,9 @@ uint32_t BindlessTextures::add(const Texture& texture) {
 
 uint32_t BindlessTextures::reserve_index() {
     uint32_t index = static_cast<uint32_t>(entries_.size());
+    // Empty until update_entry() gives it a texture: update_descriptors()
+    // leaves it unwritten, which the partially bound array allows.
     entries_.push_back(Entry{VK_NULL_HANDLE, VK_NULL_HANDLE});
-    // Push dirty marker past the reserved slot so update_descriptors()
-    // doesn't try to write a VK_NULL_HANDLE descriptor.
-    tex_dirty_from_ = static_cast<uint32_t>(entries_.size());
     return index;
 }
 
@@ -266,28 +265,37 @@ void BindlessTextures::update_descriptors() {
 
     uint32_t count = static_cast<uint32_t>(entries_.size()) - tex_dirty_from_;
 
-    // Pre-allocate to avoid reallocation (which would invalidate pImageInfo pointers)
-    std::vector<VkDescriptorImageInfo> image_infos(count);
-    std::vector<VkWriteDescriptorSet> writes(count);
+    // Reserved up front: a reallocation would move what pImageInfo points at.
+    std::vector<VkDescriptorImageInfo> image_infos;
+    std::vector<VkWriteDescriptorSet> writes;
+    image_infos.reserve(count);
+    writes.reserve(count);
 
-    for (uint32_t i = 0; i < count; ++i) {
-        uint32_t idx = tex_dirty_from_ + i;
+    for (uint32_t idx = tex_dirty_from_; idx < entries_.size(); ++idx) {
+        const Entry& entry = entries_[idx];
+        // A reserved slot holds nothing until update_entry() fills it, and
+        // the array is partially bound: it stays unwritten.
+        if (entry.view == VK_NULL_HANDLE) continue;
 
-        image_infos[i].sampler = entries_[idx].sampler;
-        image_infos[i].imageView = entries_[idx].view;
-        image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkDescriptorImageInfo& info = image_infos.emplace_back();
+        info.sampler = entry.sampler;
+        info.imageView = entry.view;
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = set_;
-        writes[i].dstBinding = 0;
-        writes[i].dstArrayElement = idx;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[i].descriptorCount = 1;
-        writes[i].pImageInfo = &image_infos[i];
+        VkWriteDescriptorSet& write = writes.emplace_back();
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = set_;
+        write.dstBinding = 0;
+        write.dstArrayElement = idx;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &info;
     }
 
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
+    if (!writes.empty()) {
+        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
+    }
 
     tex_dirty_from_ = static_cast<uint32_t>(entries_.size());
 }
