@@ -1,17 +1,16 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
-#include <memory>
 
 namespace fjell {
 
@@ -46,7 +45,7 @@ private:
     };
 
     void update_impl(const Scene& scene, const glm::mat4& view_projection, uint32_t frame_index);
-    void record_bucket(const FrameContext& ctx, Bucket bucket);
+    void draw(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline);
 
     struct GpuTile {
         glm::vec2 position; // 8
@@ -66,24 +65,11 @@ private:
         float _pad;
     };
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout tile_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout layout_{VK_NULL_HANDLE};
-    std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
-    VkPipeline depth_pipeline_{VK_NULL_HANDLE};
-
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_ssbos_;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> tile_sets_{};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
-    VkFormat color_format_{VK_FORMAT_UNDEFINED};
-    VkFormat depth_format_{VK_FORMAT_UNDEFINED};
-    VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
+    gpu::Device* gpu_{nullptr};
+    std::array<gpu::Owned<gpu::GraphicsPipeline>, static_cast<size_t>(Bucket::Count)> pipelines_;
+    gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
+    /// The frame slot's tiles, written by update() and read by its frame.
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> tile_buffers_;
 
     // Per-frame tile count + which bucket the (single) drawn tilemap fell into.
     // Multi-tilemap support would split this into per-bucket ranges.
@@ -92,7 +78,7 @@ private:
     std::array<PushConstants, MAX_FRAMES_IN_FLIGHT> push_constants_{};
 
     static constexpr uint32_t MAX_TILES = 16384;
-    static constexpr VkDeviceSize SSBO_SIZE = MAX_TILES * sizeof(GpuTile);
+    static constexpr uint64_t TILE_BUFFER_SIZE = MAX_TILES * sizeof(GpuTile);
 };
 
 } // namespace fjell
