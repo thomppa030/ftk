@@ -11,7 +11,6 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/resources/lut_asset.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/pipeline_cache.hpp"

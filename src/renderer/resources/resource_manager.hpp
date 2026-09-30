@@ -19,7 +19,6 @@
 #include "scene/preset_asset.hpp"
 
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
 
 #include <cstdint>
 #include <filesystem>

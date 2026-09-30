@@ -13,7 +13,6 @@
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <functional>

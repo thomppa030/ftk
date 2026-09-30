@@ -411,7 +411,7 @@ void ProjectSettingsWindow::draw_rendering() {
     if (ui::subheading_foldable("Frame graph", false)) {
         if (auto t = ui::PropertyTable("##frame_graph")) {
             ui::row("Aliasing",
-                    "When off, each transient image gets its own VkImage. Use to isolate "
+                    "When off, each transient image gets memory of its own. Use to isolate "
                     "regressions caused by aliasing reuse.",
                     [&] { edit |= ui::checkbox("##aliasing", s.frame_graph_aliasing); });
             ui::row("Async compute",

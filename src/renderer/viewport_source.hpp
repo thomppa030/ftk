@@ -4,7 +4,6 @@
 #include "gpu/binding.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 

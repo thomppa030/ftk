@@ -4,7 +4,6 @@
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <vector>

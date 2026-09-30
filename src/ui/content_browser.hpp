@@ -7,7 +7,6 @@
 #include "ui/folder_colors.hpp"
 #include "ui/texture_preview.hpp"
 
-#include <vulkan/vulkan.h>
 
 #include <filesystem>
 #include <string>

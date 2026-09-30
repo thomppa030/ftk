@@ -55,19 +55,15 @@ src/renderer/pass/ss_gi_pass.cpp
 src/renderer/pass/ss_gi_pass.hpp
 src/renderer/pass/uv_viz_pass.hpp
 src/renderer/pass/wireframe_pass.hpp
-src/renderer/pass_builder.hpp
 src/renderer/post_process_resources.cpp
 src/renderer/post_process_resources.hpp
 src/renderer/render_pipeline.cpp
 src/renderer/render_pipeline.hpp
-src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
-src/renderer/resources/resource_manager.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/scene_viewport.cpp
 src/renderer/scene_viewport.hpp
-src/renderer/viewport_source.hpp
 src/renderer/viz_image.cpp
 src/renderer/viz_image.hpp
 src/renderer/vulkan_context.cpp
@@ -78,7 +74,6 @@ src/ui/asset_ref_widget.cpp
 src/ui/asset_thumbnail_renderer.cpp
 src/ui/asset_thumbnail_renderer.hpp
 src/ui/content_browser.cpp
-src/ui/content_browser.hpp
 src/ui/font_editor_context.cpp
 src/ui/game_ui/font_atlas.cpp
 src/ui/game_ui/font_atlas.hpp
@@ -86,8 +81,6 @@ src/ui/icon_cache.cpp
 src/ui/icon_cache.hpp
 src/ui/imgui_layer.cpp
 src/ui/imgui_layer.hpp
-src/ui/project_settings_window.cpp
-src/ui/scene_editor_context.hpp
 src/ui/sdf_debug_panel.cpp
 src/ui/texture_preview.cpp
 src/ui/ui_editor_context.cpp
