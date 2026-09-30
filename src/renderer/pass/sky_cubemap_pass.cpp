@@ -128,9 +128,9 @@ void SkyCubemapPass::destroy() {
 }
 
 void SkyCubemapPass::bind_sky(GpuContext& gpu) {
-    // Every frame slot's global set points at the sky cubemap, and so do the
-    // descriptor sets DDGI keeps for every slot, which it rewrites when the
-    // cubemap it finds in the registry changes: nothing may still read them.
+    // Every frame slot's global set points at the sky cubemap and is
+    // rewritten here at once, and previews copy the current slot's set
+    // whenever they render: nothing may still read any of them.
     gpu::vulkan::wait_idle(*device_);
     gpu.global_bindings().set("sky_cubemap", gpu::sampled(sky_texture(), cubemap_sampler_));
 }
