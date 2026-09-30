@@ -362,10 +362,8 @@ AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
 }
 
 void Engine::init_content_browser() {
-    icon_cache_ = std::make_unique<IconCache>(
-        vulkan_context_->gpu_device(), vulkan_context_->device(), vulkan_context_->physical_device(),
-        vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
-        base_path::resolve("engine_assets/icons"));
+    icon_cache_ = std::make_unique<IconCache>(vulkan_context_->gpu_device(),
+                                              base_path::resolve("engine_assets/icons"));
     IconCache::set_instance(icon_cache_.get());
 
     AssetThumbnailRenderer::set_instance(&asset_thumbnails_);

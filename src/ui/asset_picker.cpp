@@ -208,15 +208,12 @@ ImTextureID thumbnail_for(const Entry& entry, int& requests) {
     auto* thumbnails = AssetThumbnailRenderer::instance();
     if (thumbnails == nullptr || !thumbnails->supports(entry.absolute)) return 0;
 
-    VkDescriptorSet desc = thumbnails->descriptor(entry.absolute);
-    if (desc == VK_NULL_HANDLE) {
-        if (requests < MAX_REQUESTS_PER_FRAME) {
-            thumbnails->request(entry.absolute);
-            ++requests;
-        }
-        return 0;
+    const ImTextureID texture = thumbnails->texture(entry.absolute);
+    if (!texture && requests < MAX_REQUESTS_PER_FRAME) {
+        thumbnails->request(entry.absolute);
+        ++requests;
     }
-    return reinterpret_cast<ImTextureID>(desc);
+    return texture;
 }
 
 /// Turn the listing into the picker's groups: one per source, or one per

@@ -461,20 +461,18 @@ void ContentBrowser::draw_file_grid() {
 
         // Its picture: a texture's own thumbnail or an asset's rendered one;
         // else its kind's icon, a folder in the colour it was given.
-        ImTextureID picture = 0;
+        ImTextureID picture{};
         if (entry.type == FileType::texture && icons_) {
             const std::string thumb_path = entry.path.string();
-            VkDescriptorSet desc = icons_->thumbnail_cached(thumb_path);
-            if (!desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
-                desc = icons_->thumbnail(thumb_path);
+            picture = icons_->thumbnail_cached(thumb_path);
+            if (!picture && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
+                picture = icons_->thumbnail(thumb_path);
                 ++thumbs_loaded_this_frame;
             }
-            picture = reinterpret_cast<ImTextureID>(desc);
         } else if (asset_thumbnails_ && entry.type != FileType::folder && asset_thumbnails_->supports(entry.path)) {
             const auto asset_path = entry.path.string();
-            VkDescriptorSet desc = asset_thumbnails_->descriptor(asset_path);
-            if (!desc) asset_thumbnails_->request(asset_path);
-            picture = reinterpret_cast<ImTextureID>(desc);
+            picture = asset_thumbnails_->texture(asset_path);
+            if (!picture) asset_thumbnails_->request(asset_path);
         }
         const auto& kind = ui::asset_kind(entry.path.extension().string());
         std::optional<ImVec4> tint;

@@ -1,6 +1,5 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "gpu/vulkan/device_impl.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/window.hpp"
 #include "core/log.hpp"
 

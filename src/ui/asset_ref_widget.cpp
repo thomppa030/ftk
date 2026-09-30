@@ -152,16 +152,16 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     if (slot.clicked()) asset_picker::open(config.id);
 
     // A texture shows its picture: in the field, and bigger when hovered.
-    VkDescriptorSet thumb = VK_NULL_HANDLE;
+    ImTextureID thumb{};
     std::string resolved;
     if (has_value && !shown_path.empty() && is_image(shown_path) && config.ctx && config.ctx->icons) {
         resolved = base_path::resolve_asset(path, project);
         if (std::filesystem::exists(resolved)) thumb = config.ctx->icons->thumbnail(resolved);
     }
     if (slot.hovered() && !shown_path.empty()) {
-        if (thumb != VK_NULL_HANDLE) {
+        if (thumb) {
             if (ImGui::BeginItemTooltip()) {
-                ImGui::Image(reinterpret_cast<ImTextureID>(thumb), {HOVER_THUMB, HOVER_THUMB});
+                ImGui::Image(thumb, {HOVER_THUMB, HOVER_THUMB});
                 ImGui::TextUnformatted(shown_path.c_str());
                 if (const ImVec2 px = image_size(resolved); px.x > 0.0f) {
                     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
@@ -204,7 +204,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     ui::SlotFace face = ui::asset_face(
         name, presence, config.extensions.empty() ? std::string_view{} : std::string_view{config.extensions.front()},
         text);
-    if (thumb != VK_NULL_HANDLE && !missing) face.picture = reinterpret_cast<ImTextureID>(thumb);
+    if (thumb && !missing) face.picture = thumb;
 
     // What is wrong with what the field holds: a scene written by hand or
     // before the slot said what it takes.

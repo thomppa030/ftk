@@ -5,7 +5,6 @@
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/engine_file_browser.hpp"
-#include "ui/icon_cache.hpp"
 #include "ui/kit/dialog.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"

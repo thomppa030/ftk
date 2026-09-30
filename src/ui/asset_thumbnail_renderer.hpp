@@ -1,12 +1,13 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/viewport_source.hpp"
 #include "scene/scene.hpp"
-#include "ui/icon_cache.hpp"
 
-#include <vulkan/vulkan.h>
+#include <imgui.h>
+
 
 #include <cstdint>
 #include <deque>
@@ -21,6 +22,7 @@
 namespace fjell {
 
 class GameUi;
+class IconCache;
 class OffscreenPass;
 class PostProcessResources;
 class Project;
@@ -41,7 +43,7 @@ struct FjGraph;
 /// `.fjcache/<file>.thumb.png` next to the asset, and served from that file
 /// on later runs until the asset or a file it references is newer.
 ///
-/// UI code only ever calls request(), refresh() and descriptor(); the engine
+/// UI code only ever calls request(), refresh() and texture(); the engine
 /// calls tick() once per frame in the window where offscreen previews render,
 /// after the frame fence and before the main command buffer is recorded. One
 /// render per frame, since each is a blocking submit and readback.
@@ -49,8 +51,8 @@ class AssetThumbnailRenderer {
 public:
     static constexpr uint32_t SIZE = 128;
     /// Thumbnails kept on the GPU at once. Beyond this the ones drawn least
-    /// recently are retired; they come back from the disk cache when shown
-    /// again. Bounds both memory and the ImGui descriptors they hold.
+    /// recently are let go; they come back from the disk cache when shown
+    /// again. Bounds both memory and the ImGui images they hold.
     static constexpr size_t MAX_RESIDENT = 512;
 
     struct Deps {
@@ -73,7 +75,7 @@ public:
 
     /// Queue a thumbnail for an absolute asset path the renderer knows
     /// nothing about yet. Cheap and idempotent, so draw code may call it
-    /// every frame a descriptor comes back null; an asset that failed to
+    /// every frame texture() comes back empty; an asset that failed to
     /// render stays failed until refresh() or invalidate(). Unsupported
     /// files are ignored.
     void request(const std::string& path);
@@ -89,15 +91,13 @@ public:
     /// any material using it and any mesh using such a material.
     void refresh_all();
 
-    /// The thumbnail's ImGui descriptor, or VK_NULL_HANDLE while it is not
-    /// ready. Never loads or renders; marks the thumbnail as in use so it
-    /// is not the next one evicted.
-    [[nodiscard]] VkDescriptorSet descriptor(const std::string& path);
+    /// The thumbnail as ImGui draws it, or none while it is not ready. Never
+    /// loads or renders; marks the thumbnail as in use so it is not the next
+    /// one evicted.
+    [[nodiscard]] ImTextureID texture(const std::string& path);
 
-    /// Forget a thumbnail and delete its cache file. The descriptor is
-    /// retired, not destroyed: a draw list recorded this frame may still
-    /// hold it, so it is freed at the next frame boundary together with the
-    /// icon cache's retired thumbnails.
+    /// Forget a thumbnail and delete its cache file. The frames still
+    /// drawing it keep it until they are done.
     void invalidate(const std::string& path);
 
     /// A camera to shoot a scene with.
@@ -122,8 +122,7 @@ public:
     /// the offscreen preview window.
     void tick(const Deps& deps, float dt);
 
-    /// Release GPU resources and retire every descriptor. Call after the
-    /// device is idle and before the icon cache is destroyed.
+    /// Release GPU resources. Call after the device is idle.
     void shutdown(const Deps& deps);
 
     /// The engine's renderer, for asset-type preview callbacks that receive
@@ -238,14 +237,13 @@ private:
     std::vector<std::unique_ptr<Subject>> subjects_;
 
     struct Entry {
-        VkDescriptorSet descriptor{VK_NULL_HANDLE};
-        // The image behind the descriptor, owned here until retired.
-        IconCache::IconEntry descriptor_entry{};
+        // The thumbnail; none for one that failed.
+        gpu::Owned<gpu::Texture> texture;
         // Newest timestamp among the asset and the files it references when
         // this entry was produced.
         std::filesystem::file_time_type source_time;
         bool failed{false};
-        // tick() count when descriptor() last handed this out.
+        // tick() count when texture() last handed this out.
         uint64_t last_used{0};
     };
 
@@ -261,18 +259,14 @@ private:
     bool store_pixels(const Deps& deps, const std::string& path, const Pixels& pixels,
                       std::filesystem::file_time_type newest);
     void render_pending_capture(const Deps& deps, float dt);
-    void retire(const Deps& deps, Entry& entry);
-    void evict_least_recent(const Deps& deps);
-    // Store a fresh upload, or fail it when ImGui could not register it.
-    bool store(const Deps& deps, const std::string& path, IconCache::IconEntry entry,
+    void evict_least_recent();
+    // Store a fresh upload, or fail when there is none.
+    bool store(const std::string& path, gpu::Owned<gpu::Texture> texture,
                std::filesystem::file_time_type newest);
 
     std::deque<std::string> queue_;
     std::unordered_set<std::string> queued_;
     std::unordered_map<std::string, Entry> entries_;
-    // Entries invalidated outside tick(), handed to the icon cache on the
-    // next tick so they are freed at a frame boundary.
-    std::vector<IconCache::IconEntry> pending_retire_;
 
     SceneStage stage_;
     uint64_t ticks_{0};

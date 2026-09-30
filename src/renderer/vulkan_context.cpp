@@ -10,7 +10,6 @@
 #include "renderer/pass_setup.hpp"
 #include "renderer/render_settings.hpp"
 #include "renderer/gpu/vk_check.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "scripting/debug_draw_queue.hpp"
 #include "animation/animation_system.hpp"
 #include "renderer/components/mesh_component.hpp"

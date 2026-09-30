@@ -117,8 +117,7 @@ void VfxEditorContext::init() {
         if (module.type() != ModuleType::initial_texture || deps_.icon_cache == nullptr) return {};
         const auto& texture = static_cast<const InitialTextureModule&>(module);
         if (texture.texture_path.empty()) return {};
-        return reinterpret_cast<ImTextureID>(
-            deps_.icon_cache->thumbnail(base_path::resolve_asset(texture.texture_path, deps_.project_mgr->active())));
+        return deps_.icon_cache->thumbnail(base_path::resolve_asset(texture.texture_path, deps_.project_mgr->active()));
     });
 
     init_shared_panels(deps_.vulkan_context);

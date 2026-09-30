@@ -24,7 +24,6 @@ src/renderer/gpu/upload_context.cpp
 src/renderer/gpu/upload_context.hpp
 src/renderer/gpu/vk_check.hpp
 src/renderer/gpu/vk_utils.hpp
-src/renderer/gpu/vma_image.hpp
 src/renderer/gpu/vma_impl.cpp
 src/renderer/gpu/window.cpp
 src/renderer/gpu/window.hpp
@@ -36,13 +35,5 @@ src/renderer/render_pipeline.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/vulkan_context.cpp
 src/renderer/vulkan_context.hpp
-src/scripting/asset_type_registrations.cpp
-src/ui/asset_picker.cpp
-src/ui/asset_ref_widget.cpp
 src/ui/asset_thumbnail_renderer.cpp
-src/ui/asset_thumbnail_renderer.hpp
-src/ui/content_browser.cpp
-src/ui/icon_cache.cpp
-src/ui/icon_cache.hpp
-src/ui/texture_preview.cpp
 tests/library_link/gpu.cpp

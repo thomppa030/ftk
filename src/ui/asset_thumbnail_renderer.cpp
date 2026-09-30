@@ -35,6 +35,7 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/imgui_layer.hpp"
 
 #include <stb_image.h>
 #include <stb_image_resize2.h>
@@ -737,25 +738,18 @@ void AssetThumbnailRenderer::refresh_all() {
     for (const auto& [path, entry] : entries_) refresh(path);
 }
 
-VkDescriptorSet AssetThumbnailRenderer::descriptor(const std::string& path) {
+ImTextureID AssetThumbnailRenderer::texture(const std::string& path) {
     auto it = entries_.find(path);
-    if (it == entries_.end()) return VK_NULL_HANDLE;
+    if (it == entries_.end()) return {};
     it->second.last_used = ticks_;
-    return it->second.descriptor;
+    return it->second.texture ? imgui_texture(it->second.texture) : ImTextureID{};
 }
 
 void AssetThumbnailRenderer::invalidate(const std::string& path) {
     std::error_code ec;
     fs::remove(cache_path(path), ec);
 
-    auto it = entries_.find(path);
-    if (it == entries_.end()) return;
-    if (it->second.descriptor != VK_NULL_HANDLE) {
-        // The icon cache frees retired entries at the next frame boundary;
-        // without a Deps here the entry is handed over on the next tick.
-        pending_retire_.push_back(it->second.descriptor_entry);
-    }
-    entries_.erase(it);
+    entries_.erase(path);
 }
 
 void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
@@ -763,9 +757,7 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
     if (!deps.vulkan_context || !deps.resource_manager || !deps.icon_cache || !deps.thread_pool) return;
 
     ++ticks_;
-    for (auto& entry : pending_retire_) deps.icon_cache->retire(entry);
-    pending_retire_.clear();
-    evict_least_recent(deps);
+    evict_least_recent();
 
     if (stage_.draining()) {
         stage_.advance_drain();
@@ -789,7 +781,6 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
         auto newest = subject->source_time(path, deps.project);
         if (auto it = entries_.find(path); it != entries_.end()) {
             if (it->second.source_time >= newest) continue;
-            retire(deps, it->second);
             entries_.erase(it);
         }
 
@@ -807,17 +798,14 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
             return;
         }
         if (!render(deps, dt, *subject, path, newest)) {
-            entries_[path] = Entry{.source_time = newest, .failed = true};
+            entries_[path] = Entry{.texture = {}, .source_time = newest, .failed = true};
         }
         return;
     }
 }
 
 void AssetThumbnailRenderer::shutdown(const Deps& deps) {
-    for (auto& [path, entry] : entries_) retire(deps, entry);
     entries_.clear();
-    for (auto& entry : pending_retire_) deps.icon_cache->retire(entry);
-    pending_retire_.clear();
     queue_.clear();
     queued_.clear();
 
@@ -844,9 +832,11 @@ bool AssetThumbnailRenderer::serve_from_cache(const Deps& deps, const std::strin
     int channels = 0;
     auto* pixels = stbi_load(cached.string().c_str(), &w, &h, &channels, 4);
     if (pixels == nullptr) return false;
-    auto entry = deps.icon_cache->upload_rgba(pixels, w, h, "asset thumbnail " + path);
+    auto texture = deps.icon_cache->upload_rgba(std::span(pixels, static_cast<size_t>(w) * h * 4),
+                                                static_cast<uint32_t>(w), static_cast<uint32_t>(h),
+                                                "asset thumbnail " + path);
     stbi_image_free(pixels);
-    return store(deps, path, entry, newest);
+    return store(path, std::move(texture), newest);
 }
 
 // ── Scene stage ──────────────────────────────────────────────────────────
@@ -994,10 +984,7 @@ void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) 
     auto* subject = subject_for(capture.path);
     auto newest = subject != nullptr ? subject->source_time(capture.path, deps.project)
                                      : file_time(capture.path);
-    if (auto it = entries_.find(capture.path); it != entries_.end()) {
-        retire(deps, it->second);
-        entries_.erase(it);
-    }
+    entries_.erase(capture.path);
     store_pixels(deps, capture.path, pixels, newest);
 }
 
@@ -1019,55 +1006,39 @@ bool AssetThumbnailRenderer::store_pixels(const Deps& deps, const std::string& p
         }
     }
 
-    auto entry = deps.icon_cache->upload_rgba(pixels.rgba.data(), static_cast<int>(pixels.width),
-                                              static_cast<int>(pixels.height),
-                                              "asset thumbnail " + path);
-    return store(deps, path, entry, newest);
+    auto texture = deps.icon_cache->upload_rgba(pixels.rgba, pixels.width, pixels.height, "asset thumbnail " + path);
+    return store(path, std::move(texture), newest);
 }
 
-bool AssetThumbnailRenderer::store(const Deps& deps, const std::string& path,
-                                   IconCache::IconEntry entry, fs::file_time_type newest) {
-    // The image exists either way; without a descriptor nothing can draw
-    // it, so it goes straight back rather than sitting unreachable.
-    if (entry.descriptor == VK_NULL_HANDLE) {
-        FJELL_CORE_ERROR("Asset thumbnail: ImGui could not register {}", path);
-        deps.icon_cache->retire(entry);
-        return false;
-    }
+bool AssetThumbnailRenderer::store(const std::string& path, gpu::Owned<gpu::Texture> texture,
+                                   fs::file_time_type newest) {
+    // The icon cache reported why there is none.
+    if (!texture) return false;
     entries_[path] = Entry{
-        .descriptor = entry.descriptor,
-        .descriptor_entry = entry,
+        .texture = std::move(texture),
         .source_time = newest,
         .last_used = ticks_,
     };
     return true;
 }
 
-void AssetThumbnailRenderer::retire(const Deps& deps, Entry& entry) {
-    if (entry.descriptor_entry.image == VK_NULL_HANDLE) return;
-    deps.icon_cache->retire(entry.descriptor_entry);
-    entry.descriptor_entry = {};
-    entry.descriptor = VK_NULL_HANDLE;
-}
-
-void AssetThumbnailRenderer::evict_least_recent(const Deps& deps) {
+void AssetThumbnailRenderer::evict_least_recent() {
     // Only entries with an image count; failed ones hold nothing. An entry
     // handed out this tick is on screen and stays.
     size_t resident = 0;
     for (const auto& [path, entry] : entries_) {
-        if (entry.descriptor_entry.image != VK_NULL_HANDLE) ++resident;
+        if (entry.texture) ++resident;
     }
     while (resident > MAX_RESIDENT) {
         auto oldest = entries_.end();
         for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-            if (it->second.descriptor_entry.image == VK_NULL_HANDLE) continue;
+            if (!it->second.texture) continue;
             if (it->second.last_used >= ticks_) continue;
             if (oldest == entries_.end() || it->second.last_used < oldest->second.last_used) {
                 oldest = it;
             }
         }
         if (oldest == entries_.end()) return;
-        retire(deps, oldest->second);
         entries_.erase(oldest);
         --resident;
     }

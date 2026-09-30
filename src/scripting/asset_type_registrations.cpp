@@ -183,10 +183,10 @@ static const bool reg_material = [] {
 
             // The sphere render streams in a frame or two after the first
             // request; the material icon holds the space until then.
-            auto thumb = thumbnails->descriptor(abs_mat);
+            ImTextureID thumb = thumbnails->texture(abs_mat);
             if (!thumb) {
                 thumbnails->request(abs_mat);
-                thumb = icons ? icons->icon("material") : VK_NULL_HANDLE;
+                thumb = icons ? icons->icon("material") : ImTextureID{};
             }
             // Drawn at the thumbnail's own size: stretched to the panel it
             // is a blur, and a sphere does not need to be wider than that.

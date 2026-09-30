@@ -1,6 +1,8 @@
 #include "ui/texture_preview.hpp"
 
 #include "core/log.hpp"
+#include "ui/icon_cache.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/icons.hpp"
@@ -100,18 +102,14 @@ void TexturePreview::load() {
 
 void TexturePreview::upload() {
     if (icons_ == nullptr) return;
-    // The picture on screen this frame may still be in a draw list, so the
-    // old one is retired, not destroyed.
-    icons_->retire(picture_);
+    // The frames still drawing the old picture keep it until they are done.
     const std::vector<uint8_t> shown = show_channels(pixels_, mask_);
-    picture_ = icons_->upload_rgba(shown.data(), width_, height_,
+    picture_ = icons_->upload_rgba(shown, static_cast<uint32_t>(width_), static_cast<uint32_t>(height_),
                                    "texture preview " + std::filesystem::path(path_).filename().string());
-    icons_->add_pixel_view(picture_);
     uploaded_mask_ = mask_;
 }
 
 void TexturePreview::release() {
-    if (icons_ != nullptr) icons_->retire(picture_);
     picture_ = {};
     pixels_.clear();
     pixels_.shrink_to_fit();
@@ -139,7 +137,7 @@ void TexturePreview::draw() {
             ui::status(ui::Severity::Error, "The file couldn't be read as an image; the console says why.");
             return;
         }
-        if (picture_.descriptor == VK_NULL_HANDLE) return;  // read at the next update()
+        if (!picture_) return;  // read at the next update()
 
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -175,8 +173,10 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
     const ImVec2 b = view_.to_screen({static_cast<float>(width_), static_cast<float>(height_)});
     checkerboard(dl, {std::max(a.x, origin.x), std::max(a.y, origin.y)}, {std::min(b.x, max.x), std::min(b.y, max.y)});
     // Enlarged, each pixel is a square rather than a blur between them.
-    const VkDescriptorSet picture = view_.scale_x() >= 1.0f ? picture_.pixel_descriptor : picture_.descriptor;
-    dl->AddImage(reinterpret_cast<ImTextureID>(picture), a, b);
+    const ImTextureID picture = view_.scale_x() >= 1.0f && icons_ != nullptr
+                                    ? imgui_texture(picture_, icons_->pixel_sampler())
+                                    : imgui_texture(picture_);
+    dl->AddImage(picture, a, b);
 
     // The pixel under the mouse, and what it holds as read from the file.
     if (hovered && !view_.panning()) {

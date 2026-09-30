@@ -1,14 +1,15 @@
 #pragma once
 
-#include "core/delegate.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 
 #include <imgui.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace fjell {
 
@@ -16,25 +17,17 @@ namespace gpu {
 class Device;
 }
 
+/// The editor's pictures read from image files: its icons, and small
+/// thumbnails of textures for the content browser and asset fields. What it
+/// hands out is drawn through the current ImGui context's layer.
 class IconCache {
 public:
-    struct IconEntry {
-        VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        VkSampler sampler{VK_NULL_HANDLE};
-        VkDescriptorSet descriptor{VK_NULL_HANDLE};
-        /// The same image sampled without filtering, for showing it
-        /// enlarged pixel by pixel; only after add_pixel_view().
-        VkSampler pixel_sampler{VK_NULL_HANDLE};
-        VkDescriptorSet pixel_descriptor{VK_NULL_HANDLE};
-    };
+    /// Thumbnails fit in a square this many pixels a side.
+    static constexpr int THUMBNAIL_SIZE = 80;
 
-    /// `gpu` is the GPU interface's device, which keeps a retired entry
-    /// alive until the frames that may draw it are done.
-    IconCache(gpu::Device& gpu, VkDevice device, VkPhysicalDevice physical_device,
-              VkCommandPool command_pool, VkQueue queue,
-              const std::string& icons_dir);
+    /// Loads every PNG in `icons_dir` as an icon named by its file, less an
+    /// `icon_` prefix.
+    IconCache(gpu::Device& device, const std::string& icons_dir);
     ~IconCache();
 
     IconCache(const IconCache&) = delete;
@@ -42,65 +35,34 @@ public:
     IconCache(IconCache&&) = delete;
     IconCache& operator=(IconCache&&) = delete;
 
-    /// Returns the ImGui descriptor set for a named icon (e.g. "folder", "mesh").
-    /// The descriptor is for the editor's ImGui context (created at load time).
-    [[nodiscard]] VkDescriptorSet icon(const std::string& name) const;
+    /// A named icon (e.g. "folder", "mesh") as ImGui draws it; none when
+    /// there is no such icon.
+    [[nodiscard]] ImTextureID icon(const std::string& name) const;
 
-    /// Returns an ImGui texture ID for a named icon, registered in the
-    /// *current* ImGui context. Use this from secondary windows (file browser,
-    /// import dialog) that have their own ImGui context.
-    [[nodiscard]] ImTextureID icon_for_current_context(const std::string& name);
+    /// The thumbnail of the image file at `path` as ImGui draws it, decoded
+    /// on the first ask, from its `.fjcache` copy when that is newer than the
+    /// file; none when the file does not read.
+    [[nodiscard]] ImTextureID thumbnail(const std::string& path);
 
-    /// Forget the descriptor sets registered for an ImGui context that is being
-    /// destroyed. The sets are not freed individually — they belong to that
-    /// context's descriptor pool, which goes away with its backend. Call this
-    /// before tearing the context down, or a later context reusing the same
-    /// address would be handed sets from the destroyed pool.
-    void forget_context(void* context);
+    /// The thumbnail if it has been decoded, without decoding it.
+    [[nodiscard]] ImTextureID thumbnail_cached(const std::string& path) const;
 
-    /// Draw a small icon inline (for panel headers). Call right after ImGui::Begin().
-    inline void draw_panel_icon(const char* icon_name) const {
-        auto desc = icon(icon_name);
-        if (!desc) return;
-        float size = ImGui::GetTextLineHeight();
-        ImGui::Image(reinterpret_cast<ImTextureID>(desc), {size, size});
-        ImGui::SameLine();
-    }
-
-    [[nodiscard]] size_t count() const { return icons_.size(); }
-
-    /// Get or create a thumbnail for an arbitrary image file.
-    /// Returns VK_NULL_HANDLE on failure. Thumbnails are cached by path.
-    [[nodiscard]] VkDescriptorSet thumbnail(const std::string& path);
-
-    /// Return cached thumbnail only (no loading). VK_NULL_HANDLE if not yet loaded.
-    [[nodiscard]] VkDescriptorSet thumbnail_cached(const std::string& path) const;
-
-    /// Forget all cached thumbnails. Their GPU resources are retired, not
-    /// destroyed: a descriptor handed out earlier in the current frame may
-    /// already sit in ImGui's draw list, so freeing it here would leave that
-    /// draw referencing a dead set. They go once the GPU has finished the
-    /// frame recording now.
+    /// Forgets every thumbnail.
     void clear_thumbnails();
 
-    /// Generate .fjcache thumbnail on disk for an image file (no GPU work).
-    /// Safe to call from any thread. Skips if cache is already valid.
+    /// Writes the `.fjcache` thumbnail of the image file at `path`, unless a
+    /// current one is there. No GPU work; safe from any thread.
     static void ensure_thumbnail_cache(const std::string& path);
 
-    /// Upload RGBA pixel data as a Vulkan image + ImGui descriptor.
-    /// Reusable for icons, thumbnails, material previews, etc. `debug_name`
-    /// labels the image for validation messages and captures, so a leaked
-    /// or misused entry names the file it came from.
-    IconEntry upload_rgba(const uint8_t* pixels, int w, int h, const std::string& debug_name);
+    /// A texture of `pixels`, RGBA8 in sRGB row after row, `width` × `height`,
+    /// ready for the frames sent from now on. `name` labels it in debuggers
+    /// and validation messages. None when the device cannot make it.
+    [[nodiscard]] gpu::Owned<gpu::Texture> upload_rgba(std::span<const uint8_t> pixels, uint32_t width,
+                                                       uint32_t height, const std::string& name);
 
-    /// Gives an entry from upload_rgba() its pixel_descriptor, freed with it.
-    void add_pixel_view(IconEntry& entry);
-
-    /// Hand an entry from upload_rgba() back for destruction once the GPU has
-    /// finished the frame recording now, with the same lifetime rule as
-    /// clear_thumbnails(): its descriptor may still sit in this frame's draw
-    /// list.
-    void retire(IconEntry entry);
+    /// Nearest filtering, clamped: for showing a picture enlarged pixel by
+    /// pixel.
+    [[nodiscard]] gpu::Sampler pixel_sampler() const { return pixel_sampler_; }
 
     /// Global instance — set once at engine init, used by all panels.
     [[nodiscard]] static IconCache* instance() { return s_instance; }
@@ -111,29 +73,11 @@ private:
 
     void load_icon(const std::string& name, const std::string& path);
 
-    gpu::Device& gpu_;
-    VkDevice device_;
-    VkPhysicalDevice physical_device_;
-    VkCommandPool command_pool_;
-    VkQueue queue_;
+    gpu::Device& device_;
+    gpu::Sampler pixel_sampler_;
 
-    std::unordered_map<std::string, IconEntry> icons_;
-    std::unordered_map<std::string, IconEntry> thumbnails_;
-
-    // Per-context icon descriptors for secondary ImGui contexts.
-    // Key: (ImGuiContext*, icon_name) → VkDescriptorSet
-    struct ContextKey {
-        void* context;
-        std::string name;
-        bool operator==(const ContextKey& o) const { return context == o.context && name == o.name; }
-    };
-    struct ContextKeyHash {
-        size_t operator()(const ContextKey& k) const {
-            return std::hash<void*>{}(k.context) ^ (std::hash<std::string>{}(k.name) << 1);
-        }
-    };
-    std::unordered_map<ContextKey, VkDescriptorSet, ContextKeyHash> context_descriptors_;
-    Connection context_destroyed_conn_;
+    std::unordered_map<std::string, gpu::Owned<gpu::Texture>> icons_;
+    std::unordered_map<std::string, gpu::Owned<gpu::Texture>> thumbnails_;
 };
 
 } // namespace fjell

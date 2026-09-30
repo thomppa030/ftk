@@ -1,6 +1,7 @@
 #pragma once
 
-#include "ui/icon_cache.hpp"
+#include "gpu/owned.hpp"
+#include "gpu/texture.hpp"
 #include "ui/kit/canvas.hpp"
 #include "ui/texture_channels.hpp"
 
@@ -9,6 +10,8 @@
 #include <vector>
 
 namespace fjell {
+
+class IconCache;
 
 /// A texture on its own (sheet 33, T1), opened from the content browser:
 /// the picture as a canvas over a checkerboard, so its alpha reads (the
@@ -25,7 +28,7 @@ public:
     TexturePreview& operator=(TexturePreview&&) = delete;
     ~TexturePreview() = default;
 
-    /// The cache that uploads the picture and retires it. Set before open().
+    /// The cache that uploads the picture. Set before open().
     void init(IconCache* icons) { icons_ = icons; }
 
     /// Shows the image at `path`, read at the next update().
@@ -33,12 +36,12 @@ public:
 
     /// Reads a newly opened file, rebuilds the picture after the channels
     /// changed, and lets go of it once the panel is closed. Call once a
-    /// frame before anything draws, when no draw list can hold the old one.
+    /// frame before anything draws.
     void update();
 
     void draw();
 
-    /// Lets go of the picture now; before the icon cache goes away.
+    /// Lets go of the picture now.
     void shutdown();
 
 private:
@@ -64,7 +67,7 @@ private:
 
     ChannelMask mask_{};
     ChannelMask uploaded_mask_{};
-    IconCache::IconEntry picture_{};
+    gpu::Owned<gpu::Texture> picture_;
 
     ui::CanvasView view_{{.zoom = ui::CanvasZoom::Uniform, .min_scale = 1.0f / 64.0f, .max_scale = 64.0f}};
     bool framed_{false};

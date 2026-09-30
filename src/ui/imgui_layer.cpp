@@ -100,8 +100,6 @@ ImGuiLayer::ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_fo
   }
 }
 
-Delegate<void(void*)> ImGuiLayer::on_context_destroyed;
-
 ImGuiLayer::~ImGuiLayer() {
   event_connection_.disconnect();
 
@@ -109,8 +107,6 @@ ImGuiLayer::~ImGuiLayer() {
   if (prev == context_) prev = nullptr; // don't restore ourselves
 
   ImGui::SetCurrentContext(context_);
-  // Announce while the context is still current, so listeners can inspect it.
-  on_context_destroyed.broadcast(static_cast<void*>(context_));
   renderer_.reset();
   ImGui_ImplSDL3_Shutdown();
   theme::forget_fonts(context_);
