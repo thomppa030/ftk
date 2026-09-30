@@ -20,7 +20,6 @@
 #include "core/thread_pool.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
-#include "renderer/gpu/vk_check.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>

@@ -4,7 +4,6 @@
 #include "ui/game_ui/font_library.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "renderer/bindless.hpp"
-#include "renderer/gpu/device.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "core/base_path.hpp"
