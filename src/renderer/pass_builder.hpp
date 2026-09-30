@@ -11,7 +11,6 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -187,7 +186,7 @@ struct DeclareContext {
 ///
 /// A pass declares:
 ///   - created resources: the graph allocates them (future: with aliasing)
-///   - imported resources: externally-owned VkImage/VkBuffer handed to the graph
+///   - imported resources: externally-owned textures and buffers handed to the graph
 ///   - reads / writes: accesses against handles
 ///
 /// Writes and reads carry a gpu::Access that drives both the DAG edge
@@ -196,7 +195,7 @@ class PassBuilder {
 public:
     // ── Resource creation & import ─────────────────────────────────────
 
-    /// Declare a new transient resource. The graph allocates the VkImage
+    /// Declare a new transient resource. The graph allocates the texture
     /// and may alias it with other non-overlapping resources.
     FgTexture create(std::string_view name, const TextureDesc& desc);
     FgBuffer create(std::string_view name, const BufferDesc& desc);
