@@ -3,7 +3,6 @@
 #include "core/small_vector.hpp"
 #include "gpu/vulkan/access.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 
 #include <algorithm>
 #include <string>
@@ -189,7 +188,7 @@ Result<const TextureRecord*> mip_chain(Device::Impl& device, Texture texture, Qu
         return make_error("only a colour texture read as floats is filtered down");
     }
     VkFormatProperties properties{};
-    vkGetPhysicalDeviceFormatProperties(device.core.physical_device(),
+    vkGetPhysicalDeviceFormatProperties(device.foundation.vk.physical_device(),
                                         vulkan::to_vk(record->info.format), &properties);
     constexpr VkFormatFeatureFlags NEEDED = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
                                             VK_FORMAT_FEATURE_BLIT_DST_BIT |

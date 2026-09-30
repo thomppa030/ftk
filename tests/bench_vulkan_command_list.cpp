@@ -15,7 +15,6 @@
 #include "gpu/device.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 
 #include <algorithm>
@@ -64,8 +63,12 @@ int main(int argc, char** argv) {
     int status = 1;
     {
         fjell::Window window("fjell-bench-command-list", 320, 240);
-        fjell::GpuCore core(window);
-        gpu::Device& device = core.gpu_device();
+        auto made_device = gpu::Device::create(window);
+        if (!made_device) {
+            std::fprintf(stderr, "%s\n", made_device.error().c_str());
+            return 1;
+        }
+        gpu::Device& device = **made_device;
         device.set_shader_locator([](const std::string& relative) {
             return std::string(FJELL_TEST_SHADER_DIR "/") + relative;
         });
@@ -147,16 +150,16 @@ int main(int argc, char** argv) {
         VkCommandPoolCreateInfo pool_info{};
         pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        pool_info.queueFamilyIndex = *core.device().find_queue_families().graphics;
+        pool_info.queueFamilyIndex = device.impl().families[0];
         VkCommandPool pool{VK_NULL_HANDLE};
-        vkCreateCommandPool(core.vk_device(), &pool_info, nullptr, &pool);
+        vkCreateCommandPool(device.impl().device, &pool_info, nullptr, &pool);
         VkCommandBufferAllocateInfo allocate{};
         allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocate.commandPool = pool;
         allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate.commandBufferCount = 1;
         VkCommandBuffer cb{VK_NULL_HANDLE};
-        vkAllocateCommandBuffers(core.vk_device(), &allocate, &cb);
+        vkAllocateCommandBuffers(device.impl().device, &allocate, &cb);
 
         // Only the ways asked for, longer, when profiling.
         const bool profiling = argc > 1;
@@ -187,7 +190,7 @@ int main(int argc, char** argv) {
                 way.ns_per_dispatch.push_back(ns / DISPATCHES);
             }
         }
-        vkDestroyCommandPool(core.vk_device(), pool, nullptr);
+        vkDestroyCommandPool(device.impl().device, pool, nullptr);
 
         if (device.impl().reported.size() != reported_before) {
             std::fprintf(stderr, "the command list refused something; the times mean nothing\n");
@@ -235,7 +238,7 @@ int main(int argc, char** argv) {
                             (void)frame_sets.acquire(set_layout, described);
                         }));
         }
-        core.wait_idle();
+        device.wait_idle();
     }
     fjell::log::shutdown();
     return status;

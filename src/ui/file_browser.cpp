@@ -78,8 +78,8 @@ std::string FileBrowser::format_time(fs::file_time_type time) {
 
 void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
                        const std::vector<std::string>& extensions) {
-    if (!gpu_) {
-        FJELL_CORE_ERROR("FileBrowser::open() called without set_gpu()");
+    if (!device_) {
+        FJELL_CORE_ERROR("FileBrowser::open() called without set_device()");
         return;
     }
     if (is_open()) close();
@@ -106,7 +106,7 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
     }
     navigate(start, false);
 
-    window_ = std::make_unique<StandaloneWindow>(*gpu_, title, BROWSER_WIDTH, BROWSER_HEIGHT, imgui_files_);
+    window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, imgui_files_);
 }
 
 void FileBrowser::tick() {

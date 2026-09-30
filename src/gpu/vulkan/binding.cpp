@@ -2,7 +2,6 @@
 
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>

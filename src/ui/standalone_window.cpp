@@ -5,7 +5,6 @@
 #include "gpu/device.hpp"
 #include "gpu/frame.hpp"
 #include "gpu/swapchain.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 #include "ui/imgui_layer.hpp"
 
@@ -20,20 +19,20 @@ constexpr gpu::Clear CLEAR{0.012f, 0.012f, 0.015f, 1.0f};
 
 } // namespace
 
-StandaloneWindow::StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height,
+StandaloneWindow::StandaloneWindow(gpu::Device& device, const std::string& title, int width, int height,
                                    const ImGuiLayerFiles& files)
-    : gpu_{gpu} {
+    : device_{device} {
     window_ = std::make_unique<Window>(title, width, height);
-    auto made = gpu::Swapchain::create(gpu_.gpu_device(), *window_);
+    auto made = gpu::Swapchain::create(device_, *window_);
     if (!made) throw std::runtime_error(made.error());
     swapchain_ = std::move(*made);
-    imgui_ = std::make_unique<ImGuiLayer>(*window_, gpu_.gpu_device(), swapchain_->format(), files);
+    imgui_ = std::make_unique<ImGuiLayer>(*window_, device_, swapchain_->format(), files);
 }
 
 StandaloneWindow::~StandaloneWindow() {
     // ImGui destroys its vertex buffers at once, which the GPU may still be
     // drawing from.
-    gpu_.wait_idle();
+    device_.wait_idle();
     imgui_.reset();
     swapchain_.reset();
     window_.reset();
@@ -48,7 +47,7 @@ bool StandaloneWindow::close_requested() const {
 }
 
 void StandaloneWindow::frame(const std::function<void(float width, float height)>& draw) {
-    gpu::Device& device = gpu_.gpu_device();
+    gpu::Device& device = device_;
     gpu::Frame& frame = device.begin_frame();
     const auto image = swapchain_->acquire(frame);
     if (!image) {

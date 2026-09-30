@@ -22,6 +22,10 @@
 #include <string>
 #include <vector>
 
+namespace fjell {
+class Window;
+}
+
 namespace fjell::gpu {
 
 /// What the device can do, where it differs between GPUs.
@@ -57,11 +61,17 @@ using ShaderLocator = std::function<std::string(const std::string& relative)>;
 /// Creating and releasing belong to one thread, the one that submits frames;
 /// any thread may look up what exists (views and samplers included).
 ///
-/// The backend's state lives in `Impl`, which only the backend defines. The
-/// Vulkan backend makes a device with `vulkan::create_device()`.
+/// The backend's state lives in `Impl`, which only the backend defines.
 class Device {
 public:
     struct Impl;
+
+    /// The device for a GPU that can show `window`, with everything it runs
+    /// on brought up. A program makes one and keeps it for as long as it
+    /// draws; what it made must be released before the device goes.
+    /// @return the device, or why none could be made (no GPU the engine runs
+    ///         on, or the driver refused)
+    [[nodiscard]] static Result<std::unique_ptr<Device>> create(Window& window);
 
     explicit Device(std::unique_ptr<Impl> impl);
     ~Device();
@@ -225,9 +235,10 @@ public:
     /// The newest frame the GPU has finished.
     [[nodiscard]] uint64_t finished_frame() const;
 
-    /// Waits until the GPU has finished everything sent to it. What is
-    /// released waits for the frames that may use it on its own; this is for
-    /// teardown, and for code that has yet to rely on that.
+    /// Sends the uploads not yet sent and waits until the GPU has finished
+    /// everything sent to it. What is released waits for the frames that may
+    /// use it on its own; this is for teardown, and for code that has yet to
+    /// rely on that.
     void wait_idle();
 
     /// Where data from the CPU goes into buffers and textures, landing before

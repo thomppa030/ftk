@@ -2,7 +2,6 @@
 
 #include "gpu/command_list.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 
 #include <algorithm>
 #include <string>

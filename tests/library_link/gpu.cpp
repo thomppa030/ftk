@@ -11,7 +11,6 @@
 #include "gpu/device.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 
 #include <array>
@@ -26,8 +25,20 @@ int main() {
     bool ran = false;
     {
         fjell::Window window("fjell-link-gpu", 320, 240);
-        fjell::GpuCore core(window);
-        fjell::gpu::Device& device = core.gpu_device();
+        auto made_device = fjell::gpu::Device::create(window);
+        if (!made_device) {
+            std::fprintf(stderr, "%s\n", made_device.error().c_str());
+            return 1;
+        }
+        fjell::gpu::Device& device = **made_device;
+        const VkDevice vk_device = device.impl().device;
+        const VkQueue graphics_queue = device.impl().queues[0];
+        const uint32_t graphics_family = device.impl().families[0];
+        VkCommandPoolCreateInfo one_shot_info{};
+        one_shot_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        one_shot_info.queueFamilyIndex = graphics_family;
+        VkCommandPool one_shot_pool{VK_NULL_HANDLE};
+        vkCreateCommandPool(vk_device, &one_shot_info, nullptr, &one_shot_pool);
 
         auto buffer = device.create(fjell::gpu::BufferDesc{
             .size = 256,
@@ -143,11 +154,11 @@ int main() {
         auto run = [&](auto&& record) {
             VkCommandBufferAllocateInfo allocate{};
             allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            allocate.commandPool = core.command_pool();
+            allocate.commandPool = one_shot_pool;
             allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate.commandBufferCount = 1;
             VkCommandBuffer cb{VK_NULL_HANDLE};
-            vkAllocateCommandBuffers(core.vk_device(), &allocate, &cb);
+            vkAllocateCommandBuffers(vk_device, &allocate, &cb);
             VkCommandBufferBeginInfo begin{};
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -172,15 +183,15 @@ int main() {
             VkFenceCreateInfo fence_info{};
             fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             VkFence fence{VK_NULL_HANDLE};
-            vkCreateFence(core.vk_device(), &fence_info, nullptr, &fence);
+            vkCreateFence(vk_device, &fence_info, nullptr, &fence);
             VkSubmitInfo submit{};
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submit.commandBufferCount = 1;
             submit.pCommandBuffers = &cb;
-            vkQueueSubmit(core.graphics_queue(), 1, &submit, fence);
-            vkWaitForFences(core.vk_device(), 1, &fence, VK_TRUE, UINT64_MAX);
-            vkDestroyFence(core.vk_device(), fence, nullptr);
-            vkFreeCommandBuffers(core.vk_device(), core.command_pool(), 1, &cb);
+            vkQueueSubmit(graphics_queue, 1, &submit, fence);
+            vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+            vkDestroyFence(vk_device, fence, nullptr);
+            vkFreeCommandBuffers(vk_device, one_shot_pool, 1, &cb);
         };
         auto word = [&](fjell::gpu::Buffer read_back, uint32_t index) {
             uint32_t value = 0;
@@ -262,7 +273,7 @@ int main() {
                 // The same resource again, the set bound: nothing to write.
                 shared_groups = shared_groups && element(5) && current_set() == version;
                 (void)device.end_frame(binding_frame);
-                vkDeviceWaitIdle(core.vk_device());
+                vkDeviceWaitIdle(vk_device);
                 shared_groups = shared_groups && element(6) && current_set() == version;
 
                 const fjell::gpu::BindEntry emptied[] = {{"textures", fjell::gpu::sampled({}, {}), 5}};
@@ -307,14 +318,14 @@ int main() {
             for (size_t i = 0; i < 2; ++i) {
                 VkCommandPoolCreateInfo pool_info{};
                 pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-                pool_info.queueFamilyIndex = *core.device().find_queue_families().graphics;
-                vkCreateCommandPool(core.vk_device(), &pool_info, nullptr, &pools[i]);
+                pool_info.queueFamilyIndex = graphics_family;
+                vkCreateCommandPool(vk_device, &pool_info, nullptr, &pools[i]);
                 VkCommandBufferAllocateInfo allocate{};
                 allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
                 allocate.commandPool = pools[i];
                 allocate.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
                 allocate.commandBufferCount = 1;
-                vkAllocateCommandBuffers(core.vk_device(), &allocate, &secondaries[i]);
+                vkAllocateCommandBuffers(vk_device, &allocate, &secondaries[i]);
             }
             fjell::gpu::vulkan::CommandBufferList here(device, secondaries[0]);
             fjell::gpu::vulkan::CommandBufferList there(device, secondaries[1]);
@@ -345,7 +356,7 @@ int main() {
                 const std::array<fjell::gpu::CommandList*, 2> lists{&here.list(), &there.list()};
                 cmd.execute(lists);
             });
-            for (VkCommandPool pool : pools) vkDestroyCommandPool(core.vk_device(), pool, nullptr);
+            for (VkCommandPool pool : pools) vkDestroyCommandPool(vk_device, pool, nullptr);
             parallel = true;
             for (uint32_t i = 0; parallel && i < 32; ++i) {
                 parallel = word(*halves, i) == 5 * i && word(*halves, 64 + i) == 100 + 6 * i;
@@ -422,7 +433,7 @@ int main() {
                               {.x = 1, .y = 2, .width = 2, .height = 1},
                               std::as_bytes(std::span(box)),
                               {.before = Access::sampled_fragment, .after = Access::sampled_fragment});
-            core.upload_context().wait_all();
+            device.wait_idle();
             run([&](fjell::gpu::CommandList& cmd) {
                 cmd.copy(fjell::gpu::BufferRange(*upload_target, 16, 16),
                          fjell::gpu::BufferRange(*results, 0, 16));
@@ -684,13 +695,14 @@ int main() {
             ran = bytes.size() == 256 && level != VK_NULL_HANDLE && same_sampler &&
                   device.info(*texture).mips == 2;
         }
-        core.upload_context().wait_all();
+        device.wait_idle();
         if (buffer) buffer->reset();
         if (texture) texture->reset();
         if (compute) compute->reset();
         if (graphics) graphics->reset();
         if (mesh) mesh->reset();
-        core.wait_idle();
+        device.wait_idle();
+        vkDestroyCommandPool(vk_device, one_shot_pool, nullptr);
     }
     fjell::log::shutdown();
     return ran ? 0 : 1;
