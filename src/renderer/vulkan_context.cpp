@@ -735,13 +735,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
     FJELL_PROFILE_SCOPE_N("record_command_buffer");
     current_environment_ = &environment;
 
-    // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
-    if (scene_sdf_pass().has_pending_update()) {
-        scene_sdf_pass().compose_pending(cmd, current_frame_);
-    }
-    // The SDF debug window's slice, once the field is up to date.
-    scene_sdf_pass().record_slice(cmd, current_frame_);
-
     // Once-per-frame pass preparation: each pass scans the scene for the
     // nodes it needs (shadow cascades, fog params, sky colors, etc.)
     {

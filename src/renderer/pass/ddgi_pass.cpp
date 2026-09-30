@@ -757,7 +757,7 @@ void DdgiPass::record(const FrameContext& ctx) {
     imgs->indirect_needs_init = false;
 }
 
-static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32_t slot,
+static void write_trace_descriptors(VkDevice device, gpu::Device& gpu, VkDescriptorSet set, uint32_t slot,
                                      DdgiPass::Images& imgs,
                                      VkImageView sdf_view, VkSampler sdf_sampler,
                                      VkImageView sky_view, VkSampler sky_sampler,
@@ -815,12 +815,12 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set, uint32
 
     // 9, 10: the object at a hit, and its materials
     VkDescriptorImageInfo index_info{};
-    index_info.sampler = scene_sdf.index_sampler();
-    index_info.imageView = scene_sdf.index_view();
+    index_info.sampler = gpu::vulkan::native_sampler(gpu, scene_sdf.index_sampler());
+    index_info.imageView = gpu::vulkan::native_view(gpu, scene_sdf.index_volume());
     index_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkDescriptorBufferInfo objects_info{};
-    objects_info.buffer = scene_sdf.slot_table(slot);
+    objects_info.buffer = gpu::vulkan::native_buffer(gpu, scene_sdf.slot_table(slot));
     objects_info.range = VK_WHOLE_SIZE;
 
     std::array<VkWriteDescriptorSet, 11> writes{};
@@ -1018,10 +1018,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.radiance_image == VK_NULL_HANDLE) return;
     if (ctx.registry == nullptr) return;
 
-    const auto* sdf_res = ctx.registry->find_image("scene_sdf");
     const auto* sky_res = ctx.registry->find_image("sky_cubemap");
-    auto sdf_view = sdf_res != nullptr ? sdf_res->view : VK_NULL_HANDLE;
-    auto sdf_sampler = sdf_res != nullptr ? sdf_res->sampler : VK_NULL_HANDLE;
+    auto sdf_view = scene_sdf_ != nullptr ? gpu::vulkan::native_view(*ctx.device, scene_sdf_->volume())
+                                          : VK_NULL_HANDLE;
+    auto sdf_sampler = scene_sdf_ != nullptr
+                           ? gpu::vulkan::native_sampler(*ctx.device, scene_sdf_->sampler())
+                           : VK_NULL_HANDLE;
     auto sky_cubemap_view = sky_res != nullptr ? sky_res->view : VK_NULL_HANDLE;
     auto sky_cubemap_sampler = sky_res != nullptr ? sky_res->sampler : VK_NULL_HANDLE;
 
@@ -1120,7 +1122,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && scene_sdf_ != nullptr
         && sky_cubemap_view != VK_NULL_HANDLE) {
         for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
-            write_trace_descriptors(vk_device_, imgs.trace_set[s], s, imgs,
+            write_trace_descriptors(vk_device_, *ctx.device, imgs.trace_set[s], s, imgs,
                                     sdf_view, sdf_sampler,
                                     sky_cubemap_view, sky_cubemap_sampler,
                                     linear_sampler_, *scene_sdf_);
@@ -1657,6 +1659,14 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // The ray-traced tracer traces the scene the rt_scene pass built.
     if (config_.enabled && backend_ == DdgiBackend::ray_traced) {
         AccelStructureManager::declare_trace(builder, ctx);
+    }
+    // The SDF tracer marches the scene SDF and names the object at a hit
+    // from its index volume; the ray-traced one tests burial in it. Both
+    // through their own sets, after the frame's compose.
+    for (const char* name : {SceneSdfPass::VOLUME_NAME, SceneSdfPass::INDEX_NAME}) {
+        if (auto sdf = builder.import_named_optional(ctx, name); sdf.valid()) {
+            builder.read(sdf, gpu::Access::sampled_compute);
+        }
     }
     // Probe rays that miss read the sky, in either tracer's compute shader.
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {

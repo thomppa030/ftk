@@ -2,12 +2,17 @@
 
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/uniform_types.hpp"
 
+#include <gpu/buffer.hpp>
+#include <gpu/format.hpp>
+#include <gpu/owned.hpp>
+#include <gpu/pipeline.hpp>
+#include <gpu/sampler.hpp>
+#include <gpu/texture.hpp>
+
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -24,6 +29,10 @@ class Device;
 class Model;
 class TerrainAsset;
 struct PassResources;
+
+namespace gpu {
+class CommandList;
+}
 
 // What an instance's grid holds: a baked mesh distance field, or a terrain's
 // height samples that the shader turns into a distance on the fly.
@@ -54,25 +63,37 @@ struct GpuSdfInstance {
 };
 static_assert(sizeof(GpuSdfInstance) == 176);
 
+/// The scene's signed distance field: one volume of distances clamped at
+/// max_distance(), and beside it the index volume naming the object nearest
+/// each voxel. Every frame the caller gathers the placed meshes and terrains
+/// (begin_gather() .. end_gather()); the pass turns what moved, came or went
+/// into regions and composes only those, first thing in the frame.
+///
+/// The volumes are exported as `scene_sdf` and `scene_sdf_index` and rest
+/// where fragment and compute shaders sample them, which is how most readers
+/// see them: through the global set. One compose a frame, in the first
+/// viewport's graph that holds the pass; the others find nothing pending.
 class SceneSdfPass : public RenderPass {
 public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
-    static constexpr VkFormat SDF_FORMAT = VK_FORMAT_R16_SFLOAT;
+    static constexpr gpu::Format SDF_FORMAT = gpu::Format::r16_float;
     /// The index volume: per voxel, the slot of the object nearest it within
     /// max_distance(), or NO_SDF_SLOT. A slot is an object's id for as long
     /// as it is in the scene, so a voxel left alone by later composes still
     /// names the right object.
-    static constexpr VkFormat SDF_INDEX_FORMAT = VK_FORMAT_R16_UINT;
+    static constexpr gpu::Format SDF_INDEX_FORMAT = gpu::Format::r16_uint;
+    /// What the volumes and the debug slice are exported under.
+    static constexpr const char* VOLUME_NAME = "scene_sdf";
+    static constexpr const char* INDEX_NAME = "scene_sdf_index";
+    static constexpr const char* SLICE_NAME = "scene_sdf_slice";
 
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
-    void record(const FrameContext&) override {}
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
-    void register_resources(ResourceRegistry& registry) override;
-
-    // Legacy create — forwards to standard create
-    void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator,
-                VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
+    void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void collect_exports(DeclareContext& ctx) override;
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
     bool register_model_sdf(const Model& model, uintptr_t model_id);
@@ -107,7 +128,7 @@ public:
     /// The field is rebuilt only where it can have changed. Each frame the
     /// caller hands over every placed mesh between begin_gather() and
     /// end_gather(); the pass remembers where each one was and turns moved,
-    /// added and vanished instances into voxel regions for compose_pending().
+    /// added and vanished instances into voxel regions it composes.
     void begin_gather();
     /// `world_bounds` is the mesh's bounding box in world space, `moved` says
     /// its transform changed since the previous frame, `materials` are the
@@ -121,9 +142,6 @@ public:
     [[nodiscard]] bool has_pending_update() const {
         return full_rebuild_ || !dirty_regions_.empty();
     }
-    /// Records the outstanding region updates, or a full rebuild, into `cmd`,
-    /// the command buffer of frame slot `frame_index`.
-    void compose_pending(VkCommandBuffer cmd, uint32_t frame_index);
 
     // Set world-space bounds of the global SDF volume
     void set_bounds(const glm::vec3& min, const glm::vec3& max);
@@ -133,32 +151,27 @@ public:
     /// and a moved mesh only touches voxels within this band of its bounds.
     [[nodiscard]] float max_distance() const;
 
-    [[nodiscard]] VkImageView view() const { return sdf_view_; }
-    [[nodiscard]] VkSampler sampler() const { return sdf_sampler_; }
-    [[nodiscard]] VkImage image() const { return sdf_image_; }
+    /// The distances, sampled trilinearly and clamped to the edge.
+    [[nodiscard]] gpu::Texture volume() const { return volume_; }
+    [[nodiscard]] gpu::Sampler sampler() const { return volume_sampler_; }
     /// The index volume (SDF_INDEX_FORMAT), read with texelFetch.
-    [[nodiscard]] VkImageView index_view() const { return index_view_; }
-    [[nodiscard]] VkSampler index_sampler() const { return index_sampler_; }
+    [[nodiscard]] gpu::Texture index_volume() const { return index_volume_; }
+    [[nodiscard]] gpu::Sampler index_sampler() const { return index_sampler_; }
     /// Frame slot `frame_index`'s GpuSdfSlot per slot the index volume names.
-    [[nodiscard]] VkBuffer slot_table(uint32_t frame_index) const {
-        return slot_tables_[frame_index]->handle();
+    [[nodiscard]] gpu::Buffer slot_table(uint32_t frame_index) const {
+        return slot_tables_[frame_index];
     }
     [[nodiscard]] const glm::vec3& volume_min() const { return volume_min_; }
     [[nodiscard]] const glm::vec3& volume_max() const { return volume_max_; }
     [[nodiscard]] uint32_t resolution() const { return resolution_; }
 
     /// Asks for a slice through the field across `axis` (0 X, 1 Y, 2 Z) at
-    /// `slice_pos` (0..1 through the volume), drawn in this frame's command
-    /// buffer. The SDF debug window asks every frame it is open.
+    /// `slice_pos` (0..1 through the volume), drawn this frame once the field
+    /// is composed. The SDF debug window asks every frame it is open.
     /// `texel`, when set, is the slice texel under the mouse, whose distance
     /// hovered_distance() reports a few frames later.
     void request_slice(uint32_t axis, float slice_pos, std::optional<glm::uvec2> texel = {});
-    /// Draws the slice asked for since the last call, after the field is
-    /// composed; nothing when none was asked for or there is no field yet.
-    /// `frame_index` picks the frame-in-flight's part of the distances,
-    /// whose fence has been waited, so the last one written there is read.
-    void record_slice(VkCommandBuffer cmd, uint32_t frame_index);
-    /// The slice for ImGui; none until the first slice has been drawn.
+    /// The slice for ImGui; none until the first slice has been asked for.
     [[nodiscard]] VkDescriptorSet slice_imgui_set() const { return slice_imgui_set_; }
     /// Texels across and down the slice.
     static constexpr uint32_t SLICE_SIZE = 256;
@@ -184,44 +197,35 @@ public:
     [[nodiscard]] const MeshSdfEntry* model_entry(uintptr_t model_id) const;
 
 private:
-    void create_volume_image();
-    void create_compute_pipeline();
+    /// Records the outstanding region updates, or a full rebuild, with frame
+    /// slot `frame_index`'s instance list.
+    void compose(gpu::CommandList& cmd, uint32_t frame_index);
+    /// Draws the slice asked for, into the slot's part of the distances.
+    void draw_slice(gpu::CommandList& cmd, uint32_t frame_index);
+    /// The slice's texture, readback and pipeline, made at the first
+    /// request; false when they could not be, which is reported.
+    [[nodiscard]] bool make_slice();
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    gpu::Device* device_{nullptr};
 
-    // Global SDF 3D texture
-    VkImage sdf_image_{VK_NULL_HANDLE};
-    VmaAllocation sdf_memory_{VK_NULL_HANDLE};
-    VkImageView sdf_view_{VK_NULL_HANDLE};
-    VkSampler sdf_sampler_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::Texture> volume_;
+    gpu::Owned<gpu::Texture> index_volume_;
+    gpu::Sampler volume_sampler_{};
+    gpu::Sampler index_sampler_{};
+    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
 
-    // The index volume, beside it
-    VkImage index_image_{VK_NULL_HANDLE};
-    VmaAllocation index_memory_{VK_NULL_HANDLE};
-    VkImageView index_view_{VK_NULL_HANDLE};
-    VkSampler index_sampler_{VK_NULL_HANDLE};
-
-    // Compositing compute pipeline
-    VkDescriptorSetLayout composite_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout composite_layout_{VK_NULL_HANDLE};
-    VkPipeline composite_pipeline_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> composite_sets_{};
-
-    // Per-mesh SDF data packed into a single SSBO
-    std::unique_ptr<Buffer> mesh_sdf_buffer_;
+    // Per-mesh SDF data packed into a single SSBO, written by the CPU
+    gpu::Owned<gpu::Buffer> mesh_sdf_buffer_;
     uint32_t mesh_sdf_offset_{0}; // next free offset in int16 units
 
     // Per-instance metadata, host-written when a compose is recorded, so one
     // per frame in flight: a compose still running on the GPU must not read
     // the next frame's instance list.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;
 
     // Each slot's materials, rewritten every frame from the gather, so one
     // table per frame in flight; `slots_` is the CPU copy, by slot.
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> slot_tables_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> slot_tables_;
     std::vector<GpuSdfSlot> slots_;
     // Slots given back by objects that left, handed out again first.
     std::vector<uint32_t> free_slots_;
@@ -231,8 +235,9 @@ private:
     glm::vec3 volume_min_{-10.0f};
     glm::vec3 volume_max_{10.0f};
     uint32_t resolution_{DEFAULT_RESOLUTION};
-    // The layout the distance and index volumes both hold between composes
-    VkImageLayout image_layout_{VK_IMAGE_LAYOUT_UNDEFINED};
+    /// Whether the field has been composed at all: before, it holds only the
+    /// empty distance it was made with, and the slice has nothing to show.
+    bool composed_{false};
 
     std::unordered_map<uintptr_t, MeshSdfEntry> model_sdf_entries_;
     std::unordered_map<const TerrainAsset*, TerrainSdfEntry> terrain_sdf_entries_;
@@ -258,31 +263,20 @@ private:
 
     [[nodiscard]] glm::vec3 voxel_size() const;
     void add_dirty_region(AABB region);
-    void compose_region(VkCommandBuffer cmd, const glm::ivec3& voxel_min,
-                        const glm::ivec3& voxel_extent, uint32_t instance_offset,
-                        uint32_t instance_count);
 
     // Slice visualization
-    VkImage slice_image_{VK_NULL_HANDLE};
-    VmaAllocation slice_memory_{VK_NULL_HANDLE};
-    VkImageView slice_view_{VK_NULL_HANDLE};
-    VkSampler slice_sampler_{VK_NULL_HANDLE};
-    VkPipelineLayout slice_layout_{VK_NULL_HANDLE};
-    VkPipeline slice_pipeline_{VK_NULL_HANDLE};
-    VkDescriptorSetLayout slice_set_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool slice_pool_{VK_NULL_HANDLE};
-    VkDescriptorSet slice_set_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::ComputePipeline> slice_pipeline_;
+    gpu::Owned<gpu::Texture> slice_texture_;
+    gpu::Sampler slice_sampler_{};
     VkDescriptorSet slice_imgui_set_{VK_NULL_HANDLE};
-    bool slice_initialized_{false};
     bool slice_requested_{false};
     uint32_t slice_axis_{1};
     float slice_pos_{0.5f};
     std::optional<glm::uvec2> slice_texel_{};
     std::optional<float> hovered_distance_{};
-    // MAX_FRAMES_IN_FLIGHT slices of distances, host-visible.
-    std::unique_ptr<Buffer> slice_distances_;
+    // MAX_FRAMES_IN_FLIGHT slices of distances, read back by the CPU.
+    gpu::Owned<gpu::Buffer> slice_distances_;
     std::array<bool, MAX_FRAMES_IN_FLIGHT> slice_written_{};
-    void create_slice_resources();
 };
 
 } // namespace fjell
