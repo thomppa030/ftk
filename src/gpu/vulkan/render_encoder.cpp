@@ -12,6 +12,9 @@
 
 namespace fjell::gpu {
 
+static_assert(sizeof(DrawArgs) == sizeof(VkDrawIndirectCommand) &&
+              offsetof(DrawArgs, first_vertex) == offsetof(VkDrawIndirectCommand, firstVertex) &&
+              offsetof(DrawArgs, first_instance) == offsetof(VkDrawIndirectCommand, firstInstance));
 static_assert(sizeof(DrawIndexedArgs) == sizeof(VkDrawIndexedIndirectCommand) &&
               offsetof(DrawIndexedArgs, vertex_offset) == offsetof(VkDrawIndexedIndirectCommand, vertexOffset) &&
               offsetof(DrawIndexedArgs, first_instance) == offsetof(VkDrawIndexedIndirectCommand, firstInstance));
@@ -342,6 +345,17 @@ void RenderEncoder::draw_indexed(uint32_t index_count, uint32_t instance_count,
     if (!open_ || !vertices_ready(*device_, list_->impl(), true)) return;
     vkCmdDrawIndexed(list_->impl().cb, index_count, instance_count, first_index, vertex_offset,
                      first_instance);
+}
+
+void RenderEncoder::draw_indirect(BufferRange args, uint32_t count, uint32_t stride) {
+    if (!open_ || !vertices_ready(*device_, list_->impl(), false)) return;
+    const auto* buffer = device_->impl().buffers.get(args.buffer);
+    if (buffer == nullptr) {
+        vulkan::refuse(*device_, list_->impl(),
+                       "draws from arguments in a buffer that no longer exists");
+        return;
+    }
+    vkCmdDrawIndirect(list_->impl().cb, buffer->buffer, args.offset, count, stride);
 }
 
 void RenderEncoder::draw_indexed_indirect(BufferRange args, uint32_t count, uint32_t stride) {

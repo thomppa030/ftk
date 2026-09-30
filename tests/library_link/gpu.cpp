@@ -513,6 +513,14 @@ int main() {
             auto resolved = target(Format::rgba8_unorm, fjell::gpu::TextureUse::color_target, x1);
             auto drawn = device.create(fjell::gpu::BufferDesc{
                 .size = 3 * 64, .memory = fjell::gpu::Memory::readback, .name = "link_drawn"});
+            // The green triangle is drawn from arguments in a buffer.
+            auto draw_args = device.create(fjell::gpu::BufferDesc{
+                .size = sizeof(fjell::gpu::DrawArgs), .use = fjell::gpu::BufferUse::indirect,
+                .memory = fjell::gpu::Memory::upload, .name = "link_draw_args"});
+            if (draw_args) {
+                const fjell::gpu::DrawArgs args{.vertex_count = 3, .instance_count = 1};
+                std::memcpy(device.mapped(*draw_args).data(), &args, sizeof(args));
+            }
             auto vertex_pipeline = device.create(fjell::gpu::GraphicsPipelineDesc{
                 .vertex = "draw.vert",
                 .fragment = "draw.frag",
@@ -535,7 +543,7 @@ int main() {
             struct Colour {
                 float r, g, b, a;
             };
-            if (colour && depth && samples && resolved && drawn && vertex_pipeline &&
+            if (colour && depth && samples && resolved && drawn && draw_args && vertex_pipeline &&
                 sampled_pipeline && (mesh_pipeline || !has_mesh)) {
                 const size_t reported_before = device.impl().reported.size();
                 run([&](fjell::gpu::CommandList& cmd) {
@@ -552,7 +560,7 @@ int main() {
                         cmd.copy(*source, *drawn);
                         pass.set_pipeline(*vertex_pipeline);
                         pass.push(Colour{0.0f, 1.0f, 0.0f, 1.0f});
-                        pass.draw(3);
+                        pass.draw_indirect(*draw_args, 1, sizeof(fjell::gpu::DrawArgs));
                     }
                     cmd.barrier(*colour, Access::color_attachment, Access::copy_src);
                     cmd.copy(*colour, fjell::gpu::BufferRange(*drawn, 0, 64));

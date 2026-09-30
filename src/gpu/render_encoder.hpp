@@ -112,6 +112,16 @@ struct Rect {
     uint32_t height{0};
 };
 
+/// One draw's arguments as `RenderEncoder::draw_indirect` reads them from a
+/// buffer, in this order on every backend.
+struct DrawArgs {
+    uint32_t vertex_count{0};
+    uint32_t instance_count{0};
+    uint32_t first_vertex{0};
+    uint32_t first_instance{0};
+};
+static_assert(sizeof(DrawArgs) == 16);
+
 /// One draw's arguments as `RenderEncoder::draw_indexed_indirect` reads them
 /// from a buffer, in this order on every backend.
 struct DrawIndexedArgs {
@@ -201,6 +211,9 @@ public:
               uint32_t first_instance = 0);
     void draw_indexed(uint32_t index_count, uint32_t instance_count = 1, uint32_t first_index = 0,
                       int32_t vertex_offset = 0, uint32_t first_instance = 0);
+    /// `count` draws whose arguments (`DrawArgs`) `args` holds, `stride`
+    /// bytes apart.
+    void draw_indirect(BufferRange args, uint32_t count, uint32_t stride);
     /// `count` indexed draws whose arguments `args` holds, `stride` bytes apart.
     void draw_indexed_indirect(BufferRange args, uint32_t count, uint32_t stride);
 
