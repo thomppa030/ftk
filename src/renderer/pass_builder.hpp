@@ -57,10 +57,13 @@ struct BufferImport {
 };
 
 /// A buffer a render subsystem's compute step writes and its draws then
-/// read, with how the draws read it.
+/// read, with how the draws read it. A run that only draws what an earlier
+/// run wrote declares the reads and not the write.
 struct SubsystemDrawInput {
     BufferImport buffer;
     gpu::Access draw_access{gpu::Access::storage_buffer_read_vertex};
+    /// Whether this run's compute step writes it.
+    bool written{true};
 };
 
 /// FNV-1a over a string_view. Used to key the DeclareContext::imports
