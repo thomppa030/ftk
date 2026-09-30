@@ -443,7 +443,7 @@ fs::path stylesheet_for(const fs::path& markup) {
 // The design-frame pixels the tree's content covers: the union of every
 // node below the root. The root itself is laid out to the frame, so it
 // says nothing about the widget's own size.
-VkRect2D content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame_height) {
+gpu::TextureRegion content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame_height) {
     float min_x = std::numeric_limits<float>::max();
     float min_y = std::numeric_limits<float>::max();
     float max_x = std::numeric_limits<float>::lowest();
@@ -465,14 +465,17 @@ VkRect2D content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame
 
     auto fw = static_cast<float>(frame_width);
     auto fh = static_cast<float>(frame_height);
-    if (min_x >= max_x || min_y >= max_y) return {{0, 0}, {frame_width, frame_height}};
+    const gpu::TextureRegion whole{.width = frame_width, .height = frame_height};
+    if (min_x >= max_x || min_y >= max_y) return whole;
     min_x = std::clamp(std::floor(min_x), 0.0F, fw);
     min_y = std::clamp(std::floor(min_y), 0.0F, fh);
     max_x = std::clamp(std::ceil(max_x), 0.0F, fw);
     max_y = std::clamp(std::ceil(max_y), 0.0F, fh);
-    if (max_x - min_x < 1.0F || max_y - min_y < 1.0F) return {{0, 0}, {frame_width, frame_height}};
-    return {{static_cast<int32_t>(min_x), static_cast<int32_t>(min_y)},
-            {static_cast<uint32_t>(max_x - min_x), static_cast<uint32_t>(max_y - min_y)}};
+    if (max_x - min_x < 1.0F || max_y - min_y < 1.0F) return whole;
+    return {.x = static_cast<uint32_t>(min_x),
+            .y = static_cast<uint32_t>(min_y),
+            .width = static_cast<uint32_t>(max_x - min_x),
+            .height = static_cast<uint32_t>(max_y - min_y)};
 }
 
 // What every subject drawn by the game UI shares: one GameUi, one target
@@ -492,7 +495,7 @@ public:
 protected:
     // The UI and a target sized to the project's design frame, ready to load
     // into. Returns the frame size.
-    VkExtent2D prepare(const AssetThumbnailRenderer::Deps& deps) {
+    glm::uvec2 prepare(const AssetThumbnailRenderer::Deps& deps) {
         auto& vk = *deps.vulkan_context;
         if (!ui_) {
             ui_ = std::make_unique<GameUi>();
@@ -517,10 +520,10 @@ protected:
     // Lays the loaded tree out in the frame, renders it into the frame and
     // reads its content back.
     std::optional<AssetThumbnailRenderer::Capture> capture(const AssetThumbnailRenderer::Deps& deps,
-                                                           VkExtent2D frame) {
+                                                           glm::uvec2 frame) {
         auto& vk = *deps.vulkan_context;
-        const uint32_t frame_w = frame.width;
-        const uint32_t frame_h = frame.height;
+        const uint32_t frame_w = frame.x;
+        const uint32_t frame_h = frame.y;
         // Laid out in the design frame at the design size, so layout rects
         // are target pixels.
         ui_->set_design_frame({static_cast<float>(frame_w), static_cast<float>(frame_h)});
@@ -530,18 +533,15 @@ protected:
 
         // Crop to the content, read it back near its own size, and let the
         // CPU do the real shrink: one linear blit aliases past about 2:1.
-        VkRect2D crop = content_bounds(*ui_->root(), frame_w, frame_h);
+        const gpu::TextureRegion crop = content_bounds(*ui_->root(), frame_w, frame_h);
         constexpr uint32_t READBACK_MAX = 1024;
         float read_scale = std::min(1.0F, static_cast<float>(READBACK_MAX) /
-                                              static_cast<float>(std::max(crop.extent.width, crop.extent.height)));
-        auto read_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.width) * read_scale)));
-        auto read_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.height) * read_scale)));
+                                              static_cast<float>(std::max(crop.width, crop.height)));
+        auto read_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.width) * read_scale)));
+        auto read_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.height) * read_scale)));
         auto readback = vk.read_back_in_frame(
             target_->color_texture(),
-            {.region = {.x = static_cast<uint32_t>(crop.offset.x),
-                        .y = static_cast<uint32_t>(crop.offset.y),
-                        .width = crop.extent.width,
-                        .height = crop.extent.height},
+            {.region = crop,
              .width = read_w,
              .height = read_h,
              .use = gpu::Access::sampled_fragment});

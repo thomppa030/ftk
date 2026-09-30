@@ -35,5 +35,4 @@ src/renderer/render_pipeline.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/vulkan_context.cpp
 src/renderer/vulkan_context.hpp
-src/ui/asset_thumbnail_renderer.cpp
 tests/library_link/gpu.cpp
