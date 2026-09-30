@@ -634,21 +634,29 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
 
     // The preview's own global set takes what the frame slot's holds, with
-    // this view's depth, AO and screen colour in place of the frame's.
+    // this view's depth, AO, contact shadows and screen colour in place of
+    // the frame's.
     {
-        // The preview doesn't run GTAO; its colour pass reads the main
-        // view's AO, which rests where the fragment shaders sample it.
-        const gpu::Texture ao =
-            default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
+        // AO and contact shadows are what this view's run computes: its own
+        // AO image, and the shared contact shadow image once its run has
+        // traced it. A view that runs neither reads nothing occluding, not
+        // the main view's, which lie over other pixels.
+        const gpu::BindResource unoccluded = gpu::sampled(gpu_.unoccluded(), gpu_.gi_fallback_sampler());
+        const auto* view_ao = req.pp_resources != nullptr ? req.pp_resources->gtao() : nullptr;
+        const bool traces_contact = req.viewport_graph != nullptr
+            ? runs_pass(req.viewport_graph, "contact_shadow")
+            : render_pipeline_.is_pass_enabled("contact_shadow");
         const gpu::BindResource gi_fallback = gpu::sampled(gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
         const gpu::BindEntry view_images[] = {
             {"depth_texture", gpu::sampled(req.target->depth_texture(), gpu_.depth_sampler())},
-            {"ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler())},
+            {"ao_texture", view_ao != nullptr && view_ao->ao ? gpu::sampled(view_ao->ao, gtao_pass().ao_sampler())
+                                                            : unoccluded},
             {"screen_color", gpu::sampled(req.target->screen_color_texture(), post_pass().output_sampler())},
             {"gi_indirect", gi_fallback},
             {"ss_gi_emissive", gi_fallback},
-            {"contact_shadow",
-             gpu::sampled(contact_shadow_pass().shadow(), contact_shadow_pass().shadow_sampler())},
+            {"contact_shadow", traces_contact ? gpu::sampled(contact_shadow_pass().shadow(),
+                                                             contact_shadow_pass().shadow_sampler())
+                                              : unoccluded},
         };
         gpu_.global_bindings().refresh_view(req.global_group, current_frame_, view_images);
     }

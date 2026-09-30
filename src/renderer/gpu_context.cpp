@@ -150,6 +150,7 @@ GpuContext::~GpuContext() {
                           &fog_volume_ssbo_}) {
         for (auto& buffer : *buffers) buffer.reset();
     }
+    unoccluded_.reset();
     volume_fallback_.reset();
     gi_fallback_.reset();
 
@@ -210,20 +211,21 @@ void GpuContext::create_descriptor_resources() {
     // it samples by a strength that is zero when the real image is missing,
     // and zero times whatever garbage new memory holds is not zero when that
     // garbage is a NaN.
-    auto fallback = [&](gpu::TextureKind kind, gpu::Format format, std::string_view name) {
+    auto fallback = [&](gpu::TextureKind kind, gpu::Format format, float value, std::string_view name) {
         auto made = device.create(gpu::TextureDesc{
             .kind = kind,
             .format = format,
             .use = gpu::TextureUse::sampled,
             .queues = gpu::Queues::graphics_and_compute,
-            .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+            .initial = gpu::Clear{value, value, value, value},
             .name = name,
         });
         if (!made) throw std::runtime_error(made.error());
         return std::move(*made);
     };
-    gi_fallback_ = fallback(gpu::TextureKind::tex2d, gpu::Format::rgba16_float, "gi_fallback");
-    volume_fallback_ = fallback(gpu::TextureKind::tex3d, gpu::Format::r16_float, "volume_fallback");
+    gi_fallback_ = fallback(gpu::TextureKind::tex2d, gpu::Format::rgba16_float, 0.0f, "gi_fallback");
+    volume_fallback_ = fallback(gpu::TextureKind::tex3d, gpu::Format::r16_float, 0.0f, "volume_fallback");
+    unoccluded_ = fallback(gpu::TextureKind::tex2d, gpu::Format::r8_unorm, 1.0f, "unoccluded");
 
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }

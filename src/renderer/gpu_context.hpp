@@ -136,6 +136,10 @@ public:
     [[nodiscard]] gpu::Texture gi_fallback() const { return gi_fallback_; }
     /// A 1x1x1 volume, readable, for a 3D binding with nothing to hold.
     [[nodiscard]] gpu::Texture volume_fallback() const { return volume_fallback_; }
+    /// A 1x1 image reading one, nothing occluding: the AO and contact
+    /// shadows of a view that computes neither. Read through
+    /// `gi_fallback_sampler()`.
+    [[nodiscard]] gpu::Texture unoccluded() const { return unoccluded_; }
     [[nodiscard]] gpu::Sampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
@@ -205,6 +209,7 @@ private:
     // single empty texel for the 3D samplers.
     gpu::Owned<gpu::Texture> gi_fallback_;
     gpu::Owned<gpu::Texture> volume_fallback_;
+    gpu::Owned<gpu::Texture> unoccluded_;
     gpu::Sampler gi_fallback_sampler_{};
 
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
