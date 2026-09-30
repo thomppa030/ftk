@@ -1,8 +1,6 @@
 #include "renderer/gpu_context.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/vk_utils.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
@@ -145,26 +143,12 @@ GpuContext::~GpuContext() {
         vk_pipeline_cache_ = VK_NULL_HANDLE;
     }
 
-    for (auto& ub : uniform_buffers_)
-        ub.reset();
-    for (auto& eb : environment_buffers_)
-        eb.reset();
-    for (auto& lb : light_ssbo_)
-        lb.reset();
-    for (auto& tb : tile_light_ssbo_)
-        tb.reset();
-    for (auto& fv : fog_volume_ssbo_)
-        fv.reset();
-    if (depth_sampler_ != VK_NULL_HANDLE)
-        vkDestroySampler(vk_device, depth_sampler_, nullptr);
-
-    if (volume_fallback_view_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(vk_device, volume_fallback_view_, nullptr);
+    for (auto* buffers : {&uniform_buffers_, &environment_buffers_, &light_ssbo_, &tile_light_ssbo_,
+                          &fog_volume_ssbo_}) {
+        for (auto& buffer : *buffers) buffer.reset();
     }
-    destroy_vma_image(core_.allocator(), volume_fallback_image_, volume_fallback_alloc_);
-    if (gi_fallback_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk_device, gi_fallback_view_, nullptr);
-    if (gi_fallback_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_device, gi_fallback_sampler_, nullptr);
-    destroy_vma_image(core_.allocator(), gi_fallback_image_, gi_fallback_alloc_);
+    volume_fallback_.reset();
+    gi_fallback_.reset();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -183,167 +167,60 @@ GpuContext::~GpuContext() {
 }
 
 void GpuContext::create_descriptor_resources() {
-    auto vk_device = core_.vk_device();
-
-    // GlobalBindings constructor already registered the 11 builtin bindings.
+    // GlobalBindings constructor already registered the builtin bindings.
     // Buffers, samplers, and fallback images are created here.
     // Layout/pool/set creation happens in finalize_descriptors() to allow
     // additional bindings to be declared before the layout is locked.
+    gpu::Device& device = core_.gpu_device();
 
     // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
-    constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
+    constexpr uint64_t light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
     // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
-    constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
-                                             MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
+    constexpr uint64_t tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
+                                        MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
     // Fog volume SSBO: the scene's local fog volumes (~7 KB)
-    constexpr VkDeviceSize fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
+    constexpr uint64_t fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
 
+    auto make = [&](uint64_t size, gpu::BufferUse use, gpu::Memory memory, std::string_view name) {
+        auto made = device.create(gpu::BufferDesc{.size = size, .use = use, .memory = memory, .name = name});
+        if (!made) throw std::runtime_error(made.error());
+        return std::move(*made);
+    };
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        uniform_buffers_[i] = std::make_unique<Buffer>(
-            core_.allocator(), sizeof(GlobalUbo),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        uniform_buffers_[i]->map();
-
-        environment_buffers_[i] = std::make_unique<Buffer>(
-            core_.allocator(), sizeof(EnvironmentUbo),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        environment_buffers_[i]->map();
-
-        // Light SSBO (host-visible for CPU upload)
-        light_ssbo_[i] = std::make_unique<Buffer>(
-            core_.allocator(), light_ssbo_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        light_ssbo_[i]->map();
-
-        // Tile light index SSBO (device-local, compute writes, fragment reads).
-        // Light cull may write it on the async compute queue while fragment
-        // shaders read it on graphics, so it is shared by both families:
-        // an exclusive buffer would need an ownership transfer each frame.
-        uint32_t family_count = 0;
-        const uint32_t* families = core_.device().concurrent_queue_families(family_count);
-        tile_light_ssbo_[i] = std::make_unique<Buffer>(
-            core_.allocator(), tile_ssbo_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO, 0, 0,
-            std::span<const uint32_t>{families, family_count});
-        tile_light_ssbo_[i]->share(core_.gpu_device());
-
-        // Fog volume SSBO (host-visible for CPU upload)
-        fog_volume_ssbo_[i] = std::make_unique<Buffer>(
-            core_.allocator(), fog_volume_ssbo_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        fog_volume_ssbo_[i]->map();
+        uniform_buffers_[i] = make(sizeof(GlobalUbo), gpu::BufferUse::uniform, gpu::Memory::upload, "global_ubo");
+        environment_buffers_[i] =
+            make(sizeof(EnvironmentUbo), gpu::BufferUse::uniform, gpu::Memory::upload, "environment_ubo");
+        light_ssbo_[i] = make(light_ssbo_size, gpu::BufferUse::storage, gpu::Memory::upload, "light_ssbo");
+        // Light cull writes it, maybe on the async compute queue, and the
+        // fragment shaders read it on graphics.
+        tile_light_ssbo_[i] = make(tile_ssbo_size, gpu::BufferUse::storage, gpu::Memory::gpu, "tile_light_ssbo");
+        fog_volume_ssbo_[i] =
+            make(fog_volume_ssbo_size, gpu::BufferUse::storage, gpu::Memory::upload, "fog_volume_ssbo");
     }
 
-    // Depth sampler for compute light culling (nearest, clamp-to-edge)
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_NEAREST;
-    sampler_ci.minFilter = VK_FILTER_NEAREST;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(vk_device, &sampler_ci, nullptr, &depth_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth sampler for light culling");
-    }
+    depth_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
+                                     .mip_filter = gpu::Filter::nearest,
+                                     .address = gpu::Address::clamp});
+    gi_fallback_sampler_ = device.sampler({.address = gpu::Address::clamp});
 
-    // 1x1 black fallback for GI indirect texture (when DDGI disabled)
-    {
-        VkImageCreateInfo gi_img_ci{};
-        gi_img_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        gi_img_ci.imageType = VK_IMAGE_TYPE_2D;
-        gi_img_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        gi_img_ci.extent = {1, 1, 1};
-        gi_img_ci.mipLevels = 1;
-        gi_img_ci.arrayLayers = 1;
-        gi_img_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-        gi_img_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        gi_img_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        gi_img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        create_vma_image(core_.allocator(), &gi_img_ci, &gi_fallback_image_, &gi_fallback_alloc_);
-
-        // The same, with a depth axis, for the 3D samplers.
-        VkImageCreateInfo vol_img_ci = gi_img_ci;
-        vol_img_ci.imageType = VK_IMAGE_TYPE_3D;
-        vol_img_ci.format = VK_FORMAT_R16_SFLOAT;
-        create_vma_image(core_.allocator(), &vol_img_ci,
-                         &volume_fallback_image_, &volume_fallback_alloc_);
-
-        VkImageViewCreateInfo vol_view_ci{};
-        vol_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vol_view_ci.image = volume_fallback_image_;
-        vol_view_ci.viewType = VK_IMAGE_VIEW_TYPE_3D;
-        vol_view_ci.format = VK_FORMAT_R16_SFLOAT;
-        vol_view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCreateImageView(vk_device, &vol_view_ci, nullptr, &volume_fallback_view_);
-
-        VkImageViewCreateInfo gi_view_ci{};
-        gi_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        gi_view_ci.image = gi_fallback_image_;
-        gi_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        gi_view_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        gi_view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCreateImageView(vk_device, &gi_view_ci, nullptr, &gi_fallback_view_);
-
-        VkSamplerCreateInfo gi_samp_ci{};
-        gi_samp_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        gi_samp_ci.magFilter = VK_FILTER_LINEAR;
-        gi_samp_ci.minFilter = VK_FILTER_LINEAR;
-        gi_samp_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        gi_samp_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        gi_samp_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(vk_device, &gi_samp_ci, nullptr, &gi_fallback_sampler_);
-
-        // Transition to SHADER_READ_ONLY_OPTIMAL via one-shot command buffer
-        VkCommandBufferAllocateInfo cmd_alloc{};
-        cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmd_alloc.commandPool = core_.command_pool();
-        cmd_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmd_alloc.commandBufferCount = 1;
-        VkCommandBuffer init_cmd;
-        vkAllocateCommandBuffers(vk_device, &cmd_alloc, &init_cmd);
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(init_cmd, &begin);
-        // Cleared to zero before anything samples them. A reader multiplies
-        // what it samples by a strength that is zero when the real image is
-        // missing, and zero times whatever garbage new memory holds is not
-        // zero when that garbage is a NaN.
-        for (VkImage fallback : {gi_fallback_image_, volume_fallback_image_}) {
-            vk_utils::transition_image(init_cmd, fallback,
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_PIPELINE_STAGE_2_NONE, 0,
-                VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT);
-            const VkClearColorValue zero{};
-            const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            vkCmdClearColorImage(init_cmd, fallback, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                 &zero, 1, &all);
-            vk_utils::transition_image(init_cmd, fallback,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT);
-        }
-        vkEndCommandBuffer(init_cmd);
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &init_cmd;
-        vkQueueSubmit(core_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(core_.graphics_queue());
-        vkFreeCommandBuffers(vk_device, core_.command_pool(), 1, &init_cmd);
-    }
+    // Cleared to zero before anything samples them. A reader multiplies what
+    // it samples by a strength that is zero when the real image is missing,
+    // and zero times whatever garbage new memory holds is not zero when that
+    // garbage is a NaN.
+    auto fallback = [&](gpu::TextureKind kind, gpu::Format format, std::string_view name) {
+        auto made = device.create(gpu::TextureDesc{
+            .kind = kind,
+            .format = format,
+            .use = gpu::TextureUse::sampled,
+            .queues = gpu::Queues::graphics_and_compute,
+            .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+            .name = name,
+        });
+        if (!made) throw std::runtime_error(made.error());
+        return std::move(*made);
+    };
+    gi_fallback_ = fallback(gpu::TextureKind::tex2d, gpu::Format::rgba16_float, "gi_fallback");
+    volume_fallback_ = fallback(gpu::TextureKind::tex3d, gpu::Format::r16_float, "volume_fallback");
 
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
@@ -374,32 +251,15 @@ void GpuContext::finalize_descriptors() {
     global_bindings_.finalize(vk_device, MAX_FRAMES_IN_FLIGHT, core_.gpu_device());
 
     // Write initial descriptor values for static bindings
-    constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
-    constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
-                                             MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
-    constexpr VkDeviceSize fog_volume_ssbo_size = MAX_FOG_VOLUMES * sizeof(GpuFogVolume);
-
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        global_bindings_.write_buffer(i, "global_ubo",
-            uniform_buffers_[i]->handle(), 0, sizeof(GlobalUbo));
-        global_bindings_.write_buffer(i, "environment_ubo",
-            environment_buffers_[i]->handle(), 0, sizeof(EnvironmentUbo));
-        global_bindings_.write_buffer(i, "light_ssbo",
-            light_ssbo_[i]->handle(), 0, light_ssbo_size);
-        global_bindings_.write_buffer(i, "tile_light_ssbo",
-            tile_light_ssbo_[i]->handle(), 0, tile_ssbo_size);
-        global_bindings_.write_buffer(i, "fog_volume_ssbo",
-            fog_volume_ssbo_[i]->handle(), 0, fog_volume_ssbo_size);
-        global_bindings_.write_image(i, "gi_indirect",
-            gi_fallback_view_, gi_fallback_sampler_,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        global_bindings_.write_image(i, "ss_gi_emissive",
-            gi_fallback_view_, gi_fallback_sampler_,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        global_bindings_.write_image(i, "fog_density_field",
-            volume_fallback_view_, gi_fallback_sampler_,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        global_bindings_.flush_writes();
+        global_bindings_.set(i, "global_ubo", gpu::uniform(uniform_buffers_[i]));
+        global_bindings_.set(i, "environment_ubo", gpu::uniform(environment_buffers_[i]));
+        global_bindings_.set(i, "light_ssbo", gpu::storage(light_ssbo_[i]));
+        global_bindings_.set(i, "tile_light_ssbo", gpu::storage(tile_light_ssbo_[i]));
+        global_bindings_.set(i, "fog_volume_ssbo", gpu::storage(fog_volume_ssbo_[i]));
+        global_bindings_.set(i, "gi_indirect", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
+        global_bindings_.set(i, "ss_gi_emissive", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
+        global_bindings_.set(i, "fog_density_field", gpu::sampled(volume_fallback_, gi_fallback_sampler_));
     }
 
     // The GPU interface's pipelines name these to bind the engine's own sets.

@@ -414,7 +414,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.show_grid = view.show_grid;
 
     // Read inv_view_proj from the already-written GlobalUbo
-    auto* ubo_data = static_cast<const GlobalUbo*>(gpu_.uniform_buffer(current_frame_).mapped());
+    const auto* ubo_data =
+        reinterpret_cast<const GlobalUbo*>(gpu_device().mapped(gpu_.uniform_buffer(current_frame_)).data());
     ctx.inv_view_proj = ubo_data->inv_view_proj;
 
     // Extended context for self-registering passes
@@ -657,7 +658,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         // then overwrite only the view-dependent images.
         gb.copy_from_frame(req.global_set, current_frame_);
         gb.write_image_to(req.global_set, "depth_texture",
-            req.target->depth_view(), gpu_.depth_sampler(),
+            req.target->depth_view(), gpu::vulkan::native_sampler(gpu_device(), gpu_.depth_sampler()),
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
         gb.write_image_to(req.global_set, "ao_texture",
             gpu::vulkan::native_view(gpu_device(), ao),
@@ -666,11 +667,11 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         gb.write_image_to(req.global_set, "screen_color",
             req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "gi_indirect",
-            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+        const VkImageView gi_fallback = gpu::vulkan::native_view(gpu_device(), gpu_.gi_fallback());
+        const VkSampler gi_fallback_sampler = gpu::vulkan::native_sampler(gpu_device(), gpu_.gi_fallback_sampler());
+        gb.write_image_to(req.global_set, "gi_indirect", gi_fallback, gi_fallback_sampler,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "ss_gi_emissive",
-            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+        gb.write_image_to(req.global_set, "ss_gi_emissive", gi_fallback, gi_fallback_sampler,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         gb.write_image_to(req.global_set, "contact_shadow",
             gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
@@ -919,7 +920,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.prev_view = history.view;
     ubo.time = elapsed_time_;
 
-    gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
+    std::memcpy(gpu_device().mapped(gpu_.uniform_buffer(frame_index)).data(), &ubo, sizeof(ubo));
     EnvironmentUbo env_ubo = make_environment_ubo(environment);
     // The cloud shadow map's placement is the renderer's, following the
     // camera, so it joins the block here rather than in the resolved state.
@@ -935,7 +936,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         env_ubo.fog_density_field_vp = density->world_to_uv();
         env_ubo.fog_density_field_texture = density->active() ? 1u : 0u;
     }
-    gpu_.environment_buffer(frame_index).write(&env_ubo, sizeof(env_ubo));
+    std::memcpy(gpu_device().mapped(gpu_.environment_buffer(frame_index)).data(), &env_ubo, sizeof(env_ubo));
 
     history.advance(view, jittered_projection, projection);
 }
@@ -957,7 +958,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         point_shadow_map[block.light_index] = &block;
     }
 
-    auto* dst = static_cast<uint8_t*>(gpu_.light_ssbo(frame_index).mapped());
+    auto* dst = reinterpret_cast<uint8_t*>(gpu_device().mapped(gpu_.light_ssbo(frame_index)).data());
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
 
@@ -1053,7 +1054,7 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
     if (current_environment_ == nullptr) return;
 
     const auto& volumes = current_environment_->fog_volumes;
-    auto* dst = static_cast<GpuFogVolume*>(gpu_.fog_volume_ssbo(frame_index).mapped());
+    auto* dst = reinterpret_cast<GpuFogVolume*>(gpu_device().mapped(gpu_.fog_volume_ssbo(frame_index)).data());
 
     const uint32_t count = std::min(static_cast<uint32_t>(volumes.size()), MAX_FOG_VOLUMES);
     for (uint32_t i = 0; i < count; ++i) {
@@ -1217,8 +1218,7 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
     // harmless even when a scene request did already refresh the full
     // UBO this frame (same value either way).
     float live_time = elapsed_time_;
-    std::memcpy(static_cast<uint8_t*>(gpu_.uniform_buffer(frame_index).mapped()) +
-                    offsetof(GlobalUbo, time),
+    std::memcpy(gpu_device().mapped(gpu_.uniform_buffer(frame_index)).data() + offsetof(GlobalUbo, time),
                 &live_time, sizeof(live_time));
 
     gpu_.bindless_textures().flush(frame_index);
@@ -1559,17 +1559,15 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     if (!viewports.empty() && viewports[0].target) {
         auto& gb = gpu_.global_bindings();
 
-        gb.write_image(current_frame_, "depth_texture",
-            viewports[0].target->depth_view(), gpu_.depth_sampler(),
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        gb.set(current_frame_, "depth_texture",
+               gpu::sampled(viewports[0].target->depth_texture(), gpu_.depth_sampler()));
 
         const gpu::Texture ao =
             default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
         gb.set(current_frame_, "ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler()));
 
-        gb.write_image(current_frame_, "screen_color",
-            viewports[0].target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.set(current_frame_, "screen_color",
+               gpu::sampled(viewports[0].target->screen_color_texture(), post_pass().output_sampler()));
 
         // GI indirect: DDGI handles sun bounce indirect.
         //
@@ -1579,36 +1577,28 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         // everything — a ghost that follows the camera because it is screen
         // space. Falling back to the black fallback image is what actually
         // turns the contribution off.
-        VkImageView gi_view = gpu_.gi_fallback_view();
+        gpu::Texture gi = gpu_.gi_fallback();
         bound_gi_indirect_ = {};
         auto* ddgi_imgs = default_pp_->ddgi();
         if (ddgi_pass().config().enabled && ddgi_imgs && ddgi_imgs->indirect_written) {
-            gi_view = gpu::vulkan::native_view(gpu_device(), ddgi_imgs->indirect);
+            gi = ddgi_imgs->indirect;
             bound_gi_indirect_ = ddgi_imgs->indirect;
         }
-        gb.write_image(current_frame_, "gi_indirect",
-            gi_view, gpu_.gi_fallback_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.set(current_frame_, "gi_indirect", gpu::sampled(gi, gpu_.gi_fallback_sampler()));
 
         // SS-GI emissive: screen-space emissive color bleeding (supplements DDGI)
-        VkImageView ss_gi_view = gpu_.gi_fallback_view();
+        gpu::Texture ss_gi = gpu_.gi_fallback();
         bound_ss_gi_emissive_ = {};
         auto* ss_gi_imgs = default_pp_->ss_gi();
         // Same ghost as DDGI above: a disabled pass keeps its last output.
         if (ss_gi_pass().config().enabled && ss_gi_imgs && ss_gi_imgs->written) {
-            ss_gi_view = gpu::vulkan::native_view(gpu_device(), ss_gi_imgs->indirect);
+            ss_gi = ss_gi_imgs->indirect;
             bound_ss_gi_emissive_ = ss_gi_imgs->indirect;
         }
-        gb.write_image(current_frame_, "ss_gi_emissive",
-            ss_gi_view, gpu_.gi_fallback_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.set(current_frame_, "ss_gi_emissive", gpu::sampled(ss_gi, gpu_.gi_fallback_sampler()));
 
-        gb.write_image(current_frame_, "contact_shadow",
-            gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
-            gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        gb.flush_writes();
+        gb.set(current_frame_, "contact_shadow",
+               gpu::sampled(contact_shadow_pass().shadow(), contact_shadow_pass().shadow_sampler()));
     }
 
     // The frame's lists: pre, and, where there is a compute queue, the

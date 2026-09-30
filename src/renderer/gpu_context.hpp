@@ -94,12 +94,14 @@ public:
     [[nodiscard]] VkDescriptorSet global_descriptor_set(uint32_t frame_index) const {
         return global_bindings_.descriptor_set(frame_index);
     }
-    [[nodiscard]] Buffer& uniform_buffer(uint32_t frame_index) {
-        return *uniform_buffers_[frame_index];
+    /// The frame slot's GlobalUbo behind global binding "global_ubo", written
+    /// through `mapped()`.
+    [[nodiscard]] gpu::Buffer uniform_buffer(uint32_t frame_index) const {
+        return uniform_buffers_[frame_index];
     }
-    /// The per-frame EnvironmentUbo behind global binding "environment_ubo".
-    [[nodiscard]] Buffer& environment_buffer(uint32_t frame_index) {
-        return *environment_buffers_[frame_index];
+    /// The frame slot's EnvironmentUbo behind global binding "environment_ubo".
+    [[nodiscard]] gpu::Buffer environment_buffer(uint32_t frame_index) const {
+        return environment_buffers_[frame_index];
     }
 
     /// Finalize global descriptor layout, pool, and initial writes.
@@ -128,14 +130,17 @@ public:
     [[nodiscard]] VkPipelineCache vk_pipeline_cache() const { return vk_pipeline_cache_; }
 
     // ── Light data (global descriptor bindings) ─────────────────────────
-    [[nodiscard]] Buffer& light_ssbo(uint32_t frame_index) { return *light_ssbo_[frame_index]; }
-    [[nodiscard]] Buffer& tile_light_ssbo(uint32_t frame_index) { return *tile_light_ssbo_[frame_index]; }
-    [[nodiscard]] Buffer& fog_volume_ssbo(uint32_t frame_index) { return *fog_volume_ssbo_[frame_index]; }
-    [[nodiscard]] VkSampler depth_sampler() const { return depth_sampler_; }
-    [[nodiscard]] VkImageView gi_fallback_view() const { return gi_fallback_view_; }
+    [[nodiscard]] gpu::Buffer light_ssbo(uint32_t frame_index) const { return light_ssbo_[frame_index]; }
+    [[nodiscard]] gpu::Buffer tile_light_ssbo(uint32_t frame_index) const { return tile_light_ssbo_[frame_index]; }
+    [[nodiscard]] gpu::Buffer fog_volume_ssbo(uint32_t frame_index) const { return fog_volume_ssbo_[frame_index]; }
+    /// Nearest, clamped: for depth, which means nothing between two texels.
+    [[nodiscard]] gpu::Sampler depth_sampler() const { return depth_sampler_; }
+    /// A 1x1 black image for a 2D binding with nothing to hold, read through
+    /// `gi_fallback_sampler()`.
+    [[nodiscard]] gpu::Texture gi_fallback() const { return gi_fallback_; }
     /// A 1x1x1 volume, readable, for a 3D binding with nothing to hold.
-    [[nodiscard]] VkImageView volume_fallback_view() const { return volume_fallback_view_; }
-    [[nodiscard]] VkSampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
+    [[nodiscard]] gpu::Texture volume_fallback() const { return volume_fallback_; }
+    [[nodiscard]] gpu::Sampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
@@ -185,8 +190,8 @@ private:
 
     // Descriptors
     GlobalBindings global_bindings_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> environment_buffers_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> environment_buffers_;
 
     BindlessTextures bindless_textures_;
     TransientImagePool transient_pool_;
@@ -209,25 +214,19 @@ private:
     AdoptedGroups meshlets_groups_;
 
     // Light data
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> fog_volume_ssbo_;
-    VkSampler depth_sampler_{VK_NULL_HANDLE};
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
+    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> fog_volume_ssbo_;
+    gpu::Sampler depth_sampler_{};
 
-    // 1x1 black fallback for GI indirect (binding 10 when DDGI disabled)
-    // A single empty texel for any 3D sampler whose writer is not in the graph
-    // being drawn. A binding is only written by the pass that owns it, and a
-    // graph need not contain that pass — a shader sampling an unwritten
-    // descriptor is undefined, so every one of them needs somewhere harmless to
-    // point.
-    VkImage volume_fallback_image_{VK_NULL_HANDLE};
-    VmaAllocation volume_fallback_alloc_{VK_NULL_HANDLE};
-    VkImageView volume_fallback_view_{VK_NULL_HANDLE};
-
-    VkImage gi_fallback_image_{VK_NULL_HANDLE};
-    VmaAllocation gi_fallback_alloc_{VK_NULL_HANDLE};
-    VkImageView gi_fallback_view_{VK_NULL_HANDLE};
-    VkSampler gi_fallback_sampler_{VK_NULL_HANDLE};
+    // Somewhere harmless for a binding whose writer is not in the graph being
+    // drawn: a binding is only written by the pass that owns it, and a graph
+    // need not contain that pass, while a shader sampling an unwritten
+    // descriptor is undefined. Black for GI indirect when DDGI is off, and a
+    // single empty texel for the 3D samplers.
+    gpu::Owned<gpu::Texture> gi_fallback_;
+    gpu::Owned<gpu::Texture> volume_fallback_;
+    gpu::Sampler gi_fallback_sampler_{};
 
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
     std::unique_ptr<RenderStats> render_stats_;
