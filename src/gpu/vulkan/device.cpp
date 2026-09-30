@@ -370,8 +370,7 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = desc.size;
     create_info.usage = vulkan::to_vk(desc.use);
-    const auto families = foundation.upload_sharing_families();
-    share_with_upload_families(create_info, families);
+    share_with_upload_families(create_info, foundation.upload_sharing_families());
 
     if (desc.reserve != 0 && sparse_queue != VK_NULL_HANDLE) {
         // Made as large as it may grow, in whole pages, with memory bound
