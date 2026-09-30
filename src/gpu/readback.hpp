@@ -24,9 +24,12 @@ struct ReadbackDesc {
 };
 
 /// A texture's texels on their way to the CPU as 8-bit RGBA, sRGB-encoded,
-/// row after row. It reads what the GPU was given to do before
-/// `Device::read_back`, and is sent with the next frame's uploads, or at
-/// `wait()`. Dropping it waits for the GPU to finish with it.
+/// row after row. From `Device::read_back`, it reads what the GPU was given
+/// to do before, and is sent with the next frame's uploads, or at `wait()`;
+/// dropping it waits for the GPU to finish with it. From
+/// `CommandList::read_back`, it reads what the frame's list recorded before
+/// it and is ready once that frame has finished; dropping it waits for
+/// nothing, since what it holds goes once that frame is done.
 ///
 /// @code
 /// auto read = device.read_back(output, {.use = gpu::Access::sampled_fragment});
@@ -51,7 +54,9 @@ public:
     /// Whether the GPU has finished and `pixels()` holds the texels.
     [[nodiscard]] bool ready() const;
 
-    /// Sends the read if it has not gone yet and waits until it is ready.
+    /// Sends the read if it has not gone yet and waits until it is ready. A
+    /// read in a frame's list waits for that frame, which has to have been
+    /// sent: before then it is reported and nothing waits.
     void wait();
 
     /// `width() * height() * 4` bytes once ready; empty before.

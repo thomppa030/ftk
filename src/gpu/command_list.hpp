@@ -6,6 +6,7 @@
 #include "gpu/binding.hpp"
 #include "gpu/clear.hpp"
 #include "gpu/pipeline.hpp"
+#include "gpu/readback.hpp"
 #include "gpu/render_encoder.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/texture.hpp"
@@ -164,6 +165,14 @@ public:
     /// bottom levels they name are built, and read with the records as
     /// `Access::acceleration_build_input`.
     void build(AccelerationStructure structure, BufferRange instances, uint32_t count);
+
+    /// Reads a box of one mip and layer of a colour texture back to the CPU,
+    /// as `Device::read_back` does, from this list of the frame being
+    /// recorded: the read sees what the list records before it, and is ready
+    /// once that frame has finished.
+    /// @return the read on its way, or why it cannot be made (the message
+    ///         says what the texture lacks, or that no frame is recording)
+    [[nodiscard]] Result<Readback> read_back(const TextureView& view, const ReadbackDesc& desc = {});
 
     /// Begins drawing into `targets` until the returned encoder goes out of
     /// scope. Targets that cannot be drawn to are reported, and the encoder
