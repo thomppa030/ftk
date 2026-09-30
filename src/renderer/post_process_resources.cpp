@@ -77,9 +77,12 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
     if (config_.rt_reflection && width > 0 && height > 0) {
         rt_reflection_images_.create(*gpu_, width, height);
     }
-    // DDGI images are NOT created in the constructor — they're created on first
-    // resize() to the real viewport size. This avoids the placeholder 256x256
-    // images being destroyed while in-flight command buffers reference them.
+    if (config_.ddgi && width > 0 && height > 0) {
+        ddgi_images_.resize(*gpu_, passes_->ddgi.config(), width, height);
+    }
+    if (config_.ss_gi && width > 0 && height > 0) {
+        ss_gi_images_.resize(*gpu_, passes_->ss_gi.config(), width, height);
+    }
 }
 
 PostProcessResources::~PostProcessResources() {
@@ -184,7 +187,6 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     } else if (ddgi_images_.radiance) {
         ddgi_images_.destroy();
     }
-    // SS-GI: deferred creation like DDGI
     if (config_.ss_gi) {
         ss_gi_images_.resize(*gpu_, passes_->ss_gi.config(), width, height);
     } else if (ss_gi_images_.indirect) {
