@@ -1,6 +1,7 @@
 #include "ui/viewport_manager.hpp"
 #include "core/profiler.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/kit/button.hpp"
 #include "ui/kit/icons.hpp"
 #include "ui/kit/overlay.hpp"
@@ -15,6 +16,49 @@
 #include <format>
 
 namespace fjell {
+
+namespace {
+
+/// What `source` shows of the main view's frame, as ImGui draws it; none
+/// until the pass behind it has drawn.
+ImTextureID shown(ViewportSource source, VulkanContext& ctx) {
+    auto& pp = ctx.default_pp();
+    switch (source) {
+        case ViewportSource::final_color:
+            return pp.post() ? imgui_texture(pp.post()->texture, ctx.post_pass().output_sampler()) : ImTextureID{};
+        case ViewportSource::ao:
+            return pp.gtao() ? imgui_texture(pp.gtao()->ao, ctx.gtao_pass().ao_sampler()) : ImTextureID{};
+        case ViewportSource::depth:         return imgui_texture(ctx.depth_viz_pass().picture());
+        case ViewportSource::wireframe:     return imgui_texture(ctx.wireframe_pass().picture());
+        case ViewportSource::normals:       return imgui_texture(ctx.normal_pass().picture());
+        case ViewportSource::overdraw:      return imgui_texture(ctx.overdraw_pass().picture());
+        case ViewportSource::uv:            return imgui_texture(ctx.uv_viz_pass().picture());
+        case ViewportSource::light_heatmap: return imgui_texture(ctx.light_heatmap_pass().picture());
+        case ViewportSource::light_grid:    return imgui_texture(ctx.light_grid_pass().picture());
+        case ViewportSource::meshlet_viz: {
+            const auto* meshlets = ctx.meshlet_viz_pass();
+            return meshlets ? imgui_texture(meshlets->picture()) : ImTextureID{};
+        }
+        case ViewportSource::gi_indirect: {
+            // Screen-space GI once it has drawn, else the probes'.
+            if (const auto* ss_gi = pp.ss_gi(); ss_gi && ss_gi->written) {
+                return imgui_texture(ss_gi->indirect, ctx.ss_gi_pass().linear_sampler());
+            }
+            const auto* ddgi = pp.ddgi();
+            return ddgi && ddgi->indirect_written ? imgui_texture(ddgi->indirect, ctx.ddgi_pass().linear_sampler())
+                                                  : ImTextureID{};
+        }
+        case ViewportSource::gi_irradiance: {
+            const auto* ddgi = pp.ddgi();
+            return ddgi ? imgui_texture(ddgi->irradiance, ctx.ddgi_pass().linear_sampler()) : ImTextureID{};
+        }
+        case ViewportSource::motion_field:
+            return imgui_texture(ctx.motion_field_pass().map(), ctx.ddgi_pass().linear_sampler());
+    }
+    return {};
+}
+
+} // namespace
 
 void ViewportManager::init(gpu::Samples msaa_samples) {
     msaa_samples_ = msaa_samples;
@@ -185,12 +229,6 @@ std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
     return requests;
 }
 
-void ViewportManager::release_textures() {
-    for (auto& panel : panels_) {
-        if (panel.offscreen) panel.offscreen->release_imgui_texture();
-    }
-}
-
 void ViewportManager::resize_active(uint32_t width, uint32_t height) {
     auto* panel = active_panel();
     if (panel && panel->offscreen && width > 0 && height > 0) {
@@ -199,42 +237,10 @@ void ViewportManager::resize_active(uint32_t width, uint32_t height) {
     }
 }
 
-VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
-    auto* panel = active_panel();
-    if (!panel || !panel->offscreen) return VK_NULL_HANDLE;
-
-    auto& pp = ctx.default_pp();
-    switch (panel->source) {
-        case ViewportSource::final_color:
-            return pp.post() ? pp.post()->imgui_texture(ctx.post_pass().output_sampler()) : VK_NULL_HANDLE;
-        case ViewportSource::ao:
-            return pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE;
-        case ViewportSource::depth:        return ctx.depth_viz_pass().imgui_texture();
-        case ViewportSource::wireframe:    return ctx.wireframe_pass().imgui_texture();
-        case ViewportSource::normals:      return ctx.normal_pass().imgui_texture();
-        case ViewportSource::overdraw:     return ctx.overdraw_pass().imgui_texture();
-        case ViewportSource::uv:           return ctx.uv_viz_pass().imgui_texture();
-        case ViewportSource::light_heatmap:return ctx.light_heatmap_pass().imgui_texture();
-        case ViewportSource::light_grid:   return ctx.light_grid_pass().imgui_texture();
-        case ViewportSource::meshlet_viz: {
-            auto* mv = ctx.meshlet_viz_pass();
-            return mv ? mv->imgui_texture() : VK_NULL_HANDLE;
-        }
-        case ViewportSource::gi_indirect: {
-            auto* si = ctx.default_pp().ss_gi();
-            if (si && si->written)
-                return si->indirect_imgui_texture(ctx.ss_gi_pass().linear_sampler());
-            auto* di = ctx.default_pp().ddgi();
-            return di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
-        }
-        case ViewportSource::gi_irradiance: {
-            auto* di = ctx.default_pp().ddgi();
-            return di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
-        }
-        case ViewportSource::motion_field:
-            return ctx.motion_field_pass().imgui_texture(ctx.ddgi_pass().linear_sampler());
-    }
-    return panel->offscreen->imgui_texture();
+ImTextureID ViewportManager::active_texture(VulkanContext& ctx) {
+    const auto* panel = active_panel();
+    if (!panel || !panel->offscreen) return {};
+    return shown(panel->source, ctx);
 }
 
 uint32_t ViewportManager::active_source_mask() const {
@@ -289,45 +295,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         panel.img_pos = {panel.pos.x + pad_x, panel.pos.y + pad_y};
         panel.img_size = {img_w, img_h};
 
-        // Display texture
-        VkDescriptorSet tex = VK_NULL_HANDLE;
-        if (panel.offscreen) {
-            auto& pp = ctx.default_pp();
-            switch (panel.source) {
-                case ViewportSource::final_color:
-                    tex = pp.post() ? pp.post()->imgui_texture(ctx.post_pass().output_sampler()) : VK_NULL_HANDLE; break;
-                case ViewportSource::ao:
-                    tex = pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE; break;
-                case ViewportSource::depth:        tex = ctx.depth_viz_pass().imgui_texture(); break;
-                case ViewportSource::wireframe:    tex = ctx.wireframe_pass().imgui_texture(); break;
-                case ViewportSource::normals:      tex = ctx.normal_pass().imgui_texture(); break;
-                case ViewportSource::overdraw:     tex = ctx.overdraw_pass().imgui_texture(); break;
-                case ViewportSource::uv:           tex = ctx.uv_viz_pass().imgui_texture(); break;
-                case ViewportSource::light_heatmap:tex = ctx.light_heatmap_pass().imgui_texture(); break;
-                case ViewportSource::light_grid:   tex = ctx.light_grid_pass().imgui_texture(); break;
-                case ViewportSource::meshlet_viz: {
-                    auto* mv = ctx.meshlet_viz_pass();
-                    tex = mv ? mv->imgui_texture() : VK_NULL_HANDLE;
-                } break;
-                case ViewportSource::gi_indirect: {
-                    auto* si = ctx.default_pp().ss_gi();
-                    if (si && si->written) {
-                        tex = si->indirect_imgui_texture(ctx.ss_gi_pass().linear_sampler());
-                    } else {
-                        auto* di = ctx.default_pp().ddgi();
-                        tex = di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
-                    }
-                } break;
-                case ViewportSource::gi_irradiance: {
-                    auto* di = ctx.default_pp().ddgi();
-                    tex = di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
-                } break;
-                case ViewportSource::motion_field:
-                    tex = ctx.motion_field_pass().imgui_texture(ctx.ddgi_pass().linear_sampler());
-                    break;
-            }
-        }
-
+        const ImTextureID tex = panel.offscreen ? shown(panel.source, ctx) : ImTextureID{};
         if (tex && img_w > 0 && img_h > 0) {
             if (pad_x > 0 || pad_y > 0) {
                 ImGui::SetCursorScreenPos({panel.img_pos.x, panel.img_pos.y});

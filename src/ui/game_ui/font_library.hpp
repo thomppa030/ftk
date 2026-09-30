@@ -37,8 +37,6 @@ class ThreadPool;
 class FontLibrary {
 public:
     void create(const FontAtlasGpu& gpu, const std::string& fallback_recipe);
-    /// Returns every atlas's ImGui image while the backend is still up.
-    void release_imgui_textures();
     void destroy();
 
     /// Loads run on this pool once it is set; before that, and without one,

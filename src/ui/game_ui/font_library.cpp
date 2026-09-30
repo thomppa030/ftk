@@ -68,13 +68,6 @@ void FontLibrary::create(const FontAtlasGpu& gpu, const std::string& fallback_re
     }
 }
 
-void FontLibrary::release_imgui_textures() {
-    if (fallback_) fallback_->release_imgui_texture();
-    for (auto& [key, entry] : entries_) {
-        if (entry.atlas) entry.atlas->release_imgui_texture();
-    }
-}
-
 void FontLibrary::destroy() {
 #ifndef NDEBUG
     watcher_.clear();

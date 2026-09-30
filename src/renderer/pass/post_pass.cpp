@@ -6,7 +6,6 @@
 #include "gpu/device.hpp"
 #include "gpu/render_encoder.hpp"
 #include "gpu/shader.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -17,8 +16,6 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 
-#include <imgui_impl_vulkan.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -27,7 +24,6 @@ namespace fjell {
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void PostPass::Images::create(gpu::Device& gpu, uint32_t width, uint32_t height) {
-    device = &gpu;
     written = false;
     auto made = gpu.create(gpu::TextureDesc{
         .format = OUTPUT_FORMAT,
@@ -45,39 +41,15 @@ void PostPass::Images::create(gpu::Device& gpu, uint32_t width, uint32_t height)
 }
 
 void PostPass::Images::destroy() {
-    invalidate_imgui_texture();
     texture.reset();
     extent = {0, 0};
 }
 
 void PostPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (texture && extent.x == width && extent.y == height) return;
-    // The editor's view of the old output may still be in a frame's draw
-    // data; it goes when that frame is done, and the next imgui_texture()
-    // call makes one for the new output.
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        gpu::vulkan::defer(gpu, [set = imgui_descriptor] { ImGui_ImplVulkan_RemoveTexture(set); });
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
     texture.reset();
     extent = {0, 0};
     if (width > 0 && height > 0) create(gpu, width, height);
-}
-
-VkDescriptorSet PostPass::Images::imgui_texture(gpu::Sampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && texture) {
-        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, texture),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor;
-}
-
-void PostPass::Images::invalidate_imgui_texture() {
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
 }
 
 // ── PostPass (singleton) ────────────────────────────────────────────────────

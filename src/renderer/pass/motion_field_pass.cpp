@@ -1,5 +1,4 @@
 #include "renderer/pass/motion_field_pass.hpp"
-#include "gpu/vulkan/native.hpp"
 
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -8,8 +7,6 @@
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
-
-#include <backends/imgui_impl_vulkan.h>
 
 #include <algorithm>
 #include <cmath>
@@ -200,15 +197,6 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     elapsed_ += ctx.delta_time;
     still_seconds_ = moving_count_ > 0 ? 0.0f : still_seconds_ + ctx.delta_time;
     settled_ = still_seconds_ >= MEMORY_SECONDS;
-}
-
-VkDescriptorSet MotionFieldPass::imgui_texture(gpu::Sampler sampler) {
-    if (imgui_set_ == VK_NULL_HANDLE && maps_[cur_]) {
-        imgui_set_ = ImGui_ImplVulkan_AddTexture(gpu::vulkan::native_sampler(*device_, sampler),
-                                                 gpu::vulkan::native_view(*device_, maps_[cur_]),
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_set_;
 }
 
 } // namespace fjell

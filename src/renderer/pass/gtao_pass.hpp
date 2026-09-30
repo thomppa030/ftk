@@ -7,7 +7,6 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 
@@ -64,8 +63,6 @@ public:
         /// queue, so it is shared by both.
         gpu::Owned<gpu::Texture> ao;
         glm::uvec2 extent{0, 0};
-        gpu::Device* device{nullptr};
-        VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
 
         /// No occlusion until the first trace writes it.
         void create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h);
@@ -74,9 +71,6 @@ public:
         void destroy();
         /// Made again at half of `width` × `height` when that changes.
         void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
-
-        [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
-        void invalidate_imgui_texture();
     };
 
     Result<> create(Device& device, const PassResources& resources) final;
@@ -90,9 +84,6 @@ public:
     /// The placeholder AO for views without their own.
     [[nodiscard]] gpu::Texture ao_texture() const { return default_images_.ao; }
     [[nodiscard]] gpu::Sampler ao_sampler() const { return ao_sampler_; }
-
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    void invalidate_imgui_texture();
 
     void set_radius(float r) { radius_ = r; }
     void set_intensity(float i) { intensity_ = i; }

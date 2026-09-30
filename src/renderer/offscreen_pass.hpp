@@ -6,7 +6,6 @@
 #include "gpu/texture.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <string>
@@ -35,7 +34,6 @@ public:
 
     OffscreenPass(gpu::Device& gpu, uint32_t width, uint32_t height,
                   gpu::Samples samples = gpu::Samples::x1, Contents contents = Contents::scene);
-    ~OffscreenPass();
 
     OffscreenPass(const OffscreenPass&) = delete;
     OffscreenPass& operator=(const OffscreenPass&) = delete;
@@ -46,11 +44,6 @@ public:
 
     [[nodiscard]] glm::uvec2 extent() const { return extent_; }
     [[nodiscard]] gpu::Samples samples() const { return samples_; }
-    /// The colour target as ImGui shows it; made on first ask, and let go
-    /// with the target or its resize once the frames drawing it are done.
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    /// Lets that go now, for an owner shutting down before ImGui does.
-    void release_imgui_texture();
 
     static constexpr gpu::Format COLOR_FORMAT = gpu::Format::rgba16_float;
     static constexpr gpu::Format MR_FORMAT = gpu::Format::rg8_unorm;
@@ -120,11 +113,8 @@ private:
     Contents contents_{Contents::scene};
     /// Names this target's images in debuggers and validation messages.
     std::string name_;
-    /// Linear, clamped: how ImGui samples the colour target.
-    gpu::Sampler sampler_{};
     glm::uvec2 extent_{0, 0};
     Textures textures_;
-    VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

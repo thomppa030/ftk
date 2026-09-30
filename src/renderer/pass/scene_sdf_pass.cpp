@@ -2,7 +2,6 @@
 
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -11,9 +10,6 @@
 
 #include <gpu/command_list.hpp>
 #include <gpu/device.hpp>
-
-#include <imgui.h>
-#include <backends/imgui_impl_vulkan.h>
 
 #include <algorithm>
 #include <cmath>
@@ -125,9 +121,6 @@ void SceneSdfPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
 }
 
 void SceneSdfPass::destroy() {
-    // The ImGui backend may already be shut down during engine destruction,
-    // so the slice's ImGui texture is left to it.
-    slice_imgui_set_ = VK_NULL_HANDLE;
     slice_pipeline_.reset();
     slice_texture_.reset();
     slice_distances_.reset();
@@ -580,9 +573,6 @@ bool SceneSdfPass::make_slice() {
     slice_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
                                        .mip_filter = gpu::Filter::nearest,
                                        .address = gpu::Address::clamp});
-    slice_imgui_set_ = ImGui_ImplVulkan_AddTexture(gpu::vulkan::native_sampler(*device_, slice_sampler_),
-                                                   gpu::vulkan::native_view(*device_, slice_texture_),
-                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     return true;
 }
 

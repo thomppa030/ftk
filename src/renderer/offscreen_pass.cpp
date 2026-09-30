@@ -1,9 +1,6 @@
 #include "renderer/offscreen_pass.hpp"
 
-#include "gpu/device.hpp"
-#include "gpu/vulkan/native.hpp"
-
-#include <imgui_impl_vulkan.h>
+#include <gpu/device.hpp>
 
 #include <optional>
 #include <stdexcept>
@@ -15,17 +12,11 @@ OffscreenPass::OffscreenPass(gpu::Device& gpu, uint32_t width, uint32_t height, 
     : gpu_{gpu}, samples_{samples}, contents_{contents} {
     static uint32_t made = 0;
     name_ = "offscreen#" + std::to_string(made++);
-    sampler_ = gpu_.sampler({.filter = gpu::Filter::linear, .address = gpu::Address::clamp});
     create(width, height);
-}
-
-OffscreenPass::~OffscreenPass() {
-    release_imgui_texture();
 }
 
 void OffscreenPass::resize(uint32_t width, uint32_t height) {
     if (extent_.x == width && extent_.y == height) return;
-    release_imgui_texture();
     create(width, height);
 }
 
@@ -115,22 +106,6 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     textures_.screen_color =
         make("screen_color", COLOR_FORMAT, gpu::Samples::x1, Use::sampled, gpu::Queues::graphics, black);
     textures_.distortion = make("distortion", DISTORTION_FORMAT, gpu::Samples::x1, sampled_target);
-}
-
-VkDescriptorSet OffscreenPass::imgui_texture() {
-    if (imgui_descriptor_ == VK_NULL_HANDLE) {
-        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(gpu::vulkan::native_sampler(gpu_, sampler_),
-                                                        gpu::vulkan::native_view(gpu_, color_texture()),
-                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor_;
-}
-
-void OffscreenPass::release_imgui_texture() {
-    if (imgui_descriptor_ == VK_NULL_HANDLE) return;
-    // It may sit in a draw list the GPU has yet to finish.
-    gpu::vulkan::defer(gpu_, [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
-    imgui_descriptor_ = VK_NULL_HANDLE;
 }
 
 } // namespace fjell

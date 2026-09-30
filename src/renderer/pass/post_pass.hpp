@@ -9,7 +9,6 @@
 #include "renderer/post_layers.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <functional>
 #include <span>
@@ -61,8 +60,6 @@ public:
         /// What the viewport shows, in OUTPUT_FORMAT.
         gpu::Owned<gpu::Texture> texture;
         glm::uvec2 extent{0, 0};
-        gpu::Device* device{nullptr};
-        VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         /// Whether the pass has drawn into the image since it was made.
         bool written{false};
 
@@ -71,9 +68,6 @@ public:
         /// they are done.
         void destroy();
         void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
-
-        [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
-        void invalidate_imgui_texture();
     };
 
     Result<> create(Device& device, const PassResources& resources) override;

@@ -123,12 +123,4 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     }
 }
 
-void PostProcessResources::invalidate_imgui_textures() {
-    gtao_images_.invalidate_imgui_texture();
-    fog_images_.invalidate_imgui_texture();
-    post_images_.invalidate_imgui_texture();
-    ddgi_images_.invalidate_imgui_texture();
-    ss_gi_images_.invalidate_imgui_texture();
-}
-
 } // namespace fjell

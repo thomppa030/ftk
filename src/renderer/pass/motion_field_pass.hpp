@@ -8,7 +8,6 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -73,8 +72,8 @@ public:
     /// World position → map uv, for the environment UBO.
     [[nodiscard]] const glm::mat4& world_to_uv() const { return world_to_uv_; }
 
-    /// For the viewport's debug source.
-    [[nodiscard]] VkDescriptorSet imgui_texture(gpu::Sampler sampler);
+    /// The map the last run wrote, for the viewport's debug source.
+    [[nodiscard]] gpu::Texture map() const { return maps_[cur_]; }
 
 private:
     /// One moving thing, as the splat shader reads it.
@@ -130,7 +129,6 @@ private:
     float elapsed_{0.0f};
 
     gpu::Owned<gpu::ComputePipeline> pipeline_;
-    VkDescriptorSet imgui_set_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

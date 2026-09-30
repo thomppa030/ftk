@@ -900,13 +900,6 @@ Engine::~Engine() {
     content_browser_.shutdown();
     IconCache::set_instance(nullptr);
     icon_cache_.reset();
-    // Release ImGui descriptor sets before ImGui shuts down. hud_target_ is
-    // a plain PlayController member, so without this it would destroy
-    // itself later, after imgui_layer_ below is already gone — its own
-    // teardown removes an ImGui texture the same way the other release
-    // calls here do.
-    play_controller_.shutdown();
-    vulkan_context_->release_imgui_textures();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");
 }
@@ -2384,8 +2377,8 @@ void Engine::run() {
         active_context().apply_resize(*vulkan_context_);
 
         // Editor capture: resize the editor viewport + PP to the capture
-        // resolution BEFORE draw_ui, so ImGui::Image picks up the new
-        // post output's descriptor instead of one we're about to free.
+        // resolution BEFORE draw_ui, so ImGui::Image shows the new post
+        // output this frame.
         capture_service_.resize_for_capture(*vulkan_context_,
                                             scene_context_->viewport_manager());
 

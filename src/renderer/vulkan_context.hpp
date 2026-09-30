@@ -115,7 +115,6 @@ public:
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void update_fog_volume_ssbo(uint32_t frame_index);
   void wait_idle();
-  void release_imgui_textures();
   void reload_pipeline();
   /// Rebuild only the FJSL pipelines naming one of `changed_paths`. What does
   /// not name a changed file keeps its pipelines and its generation, so a

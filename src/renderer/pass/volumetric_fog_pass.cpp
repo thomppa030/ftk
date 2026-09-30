@@ -115,11 +115,6 @@ void FogCore::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t scree
     create(gpu, screen_w, screen_h);
 }
 
-void FogCore::Images::invalidate_imgui_texture() {
-    // No ImGui resources owned by Images — symmetry only, called by
-    // PostProcessResources::invalidate_imgui_textures().
-}
-
 // ── FogCore ─────────────────────────────────────────────────────────────────
 
 Result<> FogCore::create(Device& /*device*/, const PassResources& resources) {

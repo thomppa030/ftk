@@ -105,8 +105,6 @@ public:
         void destroy();
         void resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
 
-        void invalidate_imgui_texture();
-
         [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
     };

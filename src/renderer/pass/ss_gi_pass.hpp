@@ -8,7 +8,6 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <string_view>
@@ -86,9 +85,6 @@ public:
         glm::mat4 prev_inv_view_proj{1.0f};
         bool history_valid{false};
 
-        gpu::Device* device{nullptr};
-        VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
-
         void create(gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Releases the textures; the frames still reading them keep them
         /// until they are done.
@@ -99,9 +95,6 @@ public:
         /// The render pipeline calls it before exporting the copy, for the
         /// target the viewport draws into this frame.
         void fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth);
-
-        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(gpu::Sampler sampler);
-        void invalidate_imgui_texture();
     };
 
     Result<> create(Device& device, const PassResources& resources) override;

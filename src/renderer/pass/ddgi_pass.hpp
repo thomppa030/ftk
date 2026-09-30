@@ -11,7 +11,6 @@
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -227,18 +226,9 @@ public:
         /// identity (an HDRI loaded or cleared) discards what they hold.
         gpu::Texture last_sky{};
 
-        gpu::Device* device{nullptr};
-
-        // ImGui debug textures
-        VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
-        VkDescriptorSet irradiance_imgui_desc{VK_NULL_HANDLE};
-
-        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(gpu::Sampler sampler);
-        [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(gpu::Sampler sampler);
-
         void create(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Releases everything; the frames still reading the textures keep
-        /// them until they are done, but the editor's views go at once.
+        /// them until they are done.
         void destroy();
         /// Everything is made again when the probe count changes, which
         /// discards what the probes hold; a new screen size makes only the
@@ -247,9 +237,6 @@ public:
         /// Makes everything again for `config`, discarding what the probes
         /// hold, while frames may still be using what it replaces.
         void remake(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
-
-        /// Drops the editor's views at once: nothing may still be drawing them.
-        void invalidate_imgui_texture();
     };
 
     Result<> create(Device& device, const PassResources& resources) override;

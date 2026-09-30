@@ -93,10 +93,6 @@ void WaterEditorContext::init() {
     history_panel().init(&command_history());
 }
 
-void WaterEditorContext::shutdown() {
-    viewport_manager_.release_textures();
-}
-
 std::vector<ViewportRenderRequest> WaterEditorContext::build_render_requests() {
     // The sky, not the studio backdrop the material and VFX editors use. A
     // sea is lit by what is above it and reflects it — the Fresnel term reads

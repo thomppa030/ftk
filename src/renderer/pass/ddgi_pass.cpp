@@ -1,7 +1,6 @@
 #include "renderer/pass/ddgi_pass.hpp"
 #include "gpu/device.hpp"
 #include "gpu/upload.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "core/profiler.hpp"
 #include "renderer/accel_structure.hpp"
 #include "renderer/pass_builder.hpp"
@@ -14,8 +13,6 @@
 #include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
 #include "core/log.hpp"
-
-#include <imgui_impl_vulkan.h>
 
 #include <glm/gtc/random.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -111,20 +108,10 @@ glm::uvec2 output_extent(const DdgiConfig& config, uint32_t screen_w, uint32_t s
     return {std::max(1U, screen_w / 2), std::max(1U, screen_h / 2)};
 }
 
-// The editor's view of a texture being replaced may still be in a frame's
-// draw data; it goes when that frame is done, and the next *_imgui_texture()
-// call makes one for the new texture.
-void drop_imgui_texture(gpu::Device* gpu, VkDescriptorSet& set) {
-    if (set == VK_NULL_HANDLE || gpu == nullptr) return;
-    gpu::vulkan::defer(*gpu, [doomed = set] { ImGui_ImplVulkan_RemoveTexture(doomed); });
-    set = VK_NULL_HANDLE;
-}
-
 } // namespace
 
 void DdgiPass::Images::create(gpu::Device& gpu, const DdgiConfig& config,
                               uint32_t screen_w, uint32_t screen_h) {
-    device = &gpu;
     compute_atlas_dims(config, irr_width, irr_height, vis_width, vis_height, total_probes);
 
     // Radiance: one row per probe traced THIS FRAME, not per probe in the
@@ -186,7 +173,6 @@ void DdgiPass::Images::create(gpu::Device& gpu, const DdgiConfig& config,
 }
 
 void DdgiPass::Images::destroy() {
-    invalidate_imgui_texture();
     radiance.reset();
     irradiance.reset();
     visibility.reset();
@@ -216,7 +202,6 @@ void DdgiPass::Images::resize(gpu::Device& gpu, const DdgiConfig& config,
     // field keeps what it holds.
     const glm::uvec2 wanted = output_extent(config, screen_w, screen_h);
     if (wanted == indirect_extent) return;
-    drop_imgui_texture(device, indirect_imgui_desc);
     indirect_extent = wanted;
     indirect = make_texture(gpu, gpu::Format::rgba16_float, indirect_extent.x, indirect_extent.y,
                             std::nullopt, "ddgi_indirect");
@@ -225,38 +210,7 @@ void DdgiPass::Images::resize(gpu::Device& gpu, const DdgiConfig& config,
 
 void DdgiPass::Images::remake(gpu::Device& gpu, const DdgiConfig& config,
                               uint32_t screen_w, uint32_t screen_h) {
-    drop_imgui_texture(device, indirect_imgui_desc);
-    drop_imgui_texture(device, irradiance_imgui_desc);
     create(gpu, config, screen_w, screen_h);
-}
-
-void DdgiPass::Images::invalidate_imgui_texture() {
-    for (VkDescriptorSet* set : {&indirect_imgui_desc, &irradiance_imgui_desc}) {
-        if (*set != VK_NULL_HANDLE) {
-            ImGui_ImplVulkan_RemoveTexture(*set);
-            *set = VK_NULL_HANDLE;
-        }
-    }
-}
-
-VkDescriptorSet DdgiPass::Images::indirect_imgui_texture(gpu::Sampler sampler) {
-    if (!indirect || !indirect_written) return VK_NULL_HANDLE;
-    if (indirect_imgui_desc == VK_NULL_HANDLE) {
-        indirect_imgui_desc = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, indirect),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return indirect_imgui_desc;
-}
-
-VkDescriptorSet DdgiPass::Images::irradiance_imgui_texture(gpu::Sampler sampler) {
-    if (!irradiance) return VK_NULL_HANDLE;
-    if (irradiance_imgui_desc == VK_NULL_HANDLE) {
-        irradiance_imgui_desc = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, irradiance),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return irradiance_imgui_desc;
 }
 
 // ── DdgiPass ────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 #include "renderer/viewport_source.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include <imgui.h>
 
 #include <cstdint>
 #include <memory>
@@ -79,11 +79,9 @@ public:
     // Resize the active viewport's offscreen (for play mode fullscreen)
     void resize_active(uint32_t width, uint32_t height);
 
-    // Get the active viewport's ImGui texture descriptor set (respects source)
-    [[nodiscard]] VkDescriptorSet active_texture(VulkanContext& ctx);
-
-    // Release all offscreen ImGui textures (call before destroying ImGui)
-    void release_textures();
+    /// What the active viewport shows, as ImGui draws it; none without an
+    /// active viewport or before its view has drawn.
+    [[nodiscard]] ImTextureID active_texture(VulkanContext& ctx);
 
     // Bitmask of which ViewportSource values are active across all panels
     [[nodiscard]] uint32_t active_source_mask() const;

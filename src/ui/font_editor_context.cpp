@@ -2,7 +2,6 @@
 #include "core/commands.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
@@ -10,6 +9,7 @@
 #include "ui/game_ui/font_library.hpp"
 #include "ui/game_ui/font_sample.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/kit/feedback.hpp"
 #include "ui/kit/field.hpp"
 #include "ui/kit/icons.hpp"
@@ -283,11 +283,10 @@ void FontEditorContext::draw_recipe_panel() {
     }
     const FontAtlas* atlas = deps_.vulkan_context->font_library().get(recipe_abs_path_);
     if (atlas != nullptr) {
-        if (auto tex = const_cast<FontAtlas*>(atlas)->imgui_texture()) {
+        if (const ImTextureID tex = imgui_texture(atlas->texture(), atlas->sampler())) {
             const float avail = ImGui::GetContentRegionAvail().x;
             const float scale = avail / static_cast<float>(std::max(atlas->atlas_width(), 1u));
-            ImGui::Image(reinterpret_cast<ImTextureID>(tex),
-                         {avail, static_cast<float>(atlas->atlas_height()) * scale});
+            ImGui::Image(tex, {avail, static_cast<float>(atlas->atlas_height()) * scale});
         }
     }
 }
@@ -314,9 +313,8 @@ void FontEditorContext::draw_preview_panel() {
     wanted_height_ = static_cast<uint32_t>(std::max(avail.y, 64.0f));
 
     if (preview_target_) {
-        if (auto tex = preview_target_->imgui_texture()) {
-            ImGui::Image(reinterpret_cast<ImTextureID>(tex),
-                         {static_cast<float>(preview_width_), static_cast<float>(preview_height_)});
+        if (const ImTextureID tex = imgui_texture(preview_target_->color_texture())) {
+            ImGui::Image(tex, {static_cast<float>(preview_width_), static_cast<float>(preview_height_)});
         }
     } else {
         ui::empty_state(ui::icon::font, "Baking", "The sample draws once the atlas is ready");
@@ -346,9 +344,8 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
         preview_ui_->set_resource_manager(deps_.resource_manager);
     }
     if (resized || !preview_target_) {
-        // The previous frame's ImGui draw may still read the old target, so
-        // it waits for that frame rather than going at once.
-        if (preview_target_) gpu::vulkan::retire(vk.gpu_device(), std::move(preview_target_));
+        // The frames still drawing the old target keep its image until they
+        // are done.
         preview_width_ = wanted_width_;
         preview_height_ = wanted_height_;
         preview_target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), preview_width_, preview_height_,

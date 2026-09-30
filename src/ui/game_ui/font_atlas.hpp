@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/sampler.hpp"
+#include "gpu/texture.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -8,7 +10,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -105,13 +106,10 @@ public:
 
     [[nodiscard]] const std::string& recipe_path() const { return recipe_path_; }
 
-    /// The atlas as an ImGui image, for an editor to show. Created on first
-    /// use; a reload replaces it once the frames still drawing the old one
-    /// are done.
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    /// Gives the ImGui image back. Must run while the ImGui backend is still
-    /// up, which is before this atlas is destroyed at shutdown.
-    void release_imgui_texture();
+    /// The atlas and how it is sampled, for an editor to show; invalid until
+    /// loaded. A reload replaces the texture.
+    [[nodiscard]] gpu::Texture texture() const;
+    [[nodiscard]] gpu::Sampler sampler() const;
     /// The font file the recipe names, resolved; empty until loaded.
     [[nodiscard]] const std::string& source_path() const { return source_path_; }
 
@@ -146,7 +144,6 @@ private:
     std::unordered_map<std::pair<uint32_t, uint32_t>, float, PairHash> kerning_;
     FontMetrics metrics_{};
     std::unique_ptr<Texture> atlas_texture_;
-    VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
     uint32_t atlas_index_{0};
     uint32_t atlas_width_{0};
     uint32_t atlas_height_{0};

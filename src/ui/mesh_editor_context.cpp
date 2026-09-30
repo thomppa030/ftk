@@ -61,10 +61,6 @@ void MeshEditorContext::init() {
     history_panel().init(&command_history());
 }
 
-void MeshEditorContext::shutdown() {
-    viewport_manager_.release_textures();
-}
-
 void MeshEditorContext::draw(float dt) {
     name_preview(viewport_manager_);
     preview_scene_.compute_world_matrices(nullptr);

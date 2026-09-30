@@ -128,7 +128,6 @@ void VfxEditorContext::init() {
 void VfxEditorContext::shutdown() {
     timeline_connections_.clear();
     deps_.vulkan_context->release_scene_particles(preview_scene_);
-    viewport_manager_.release_textures();
 }
 
 void VfxEditorContext::draw(float dt) {

@@ -25,6 +25,7 @@ extern "C" void fjell_input_clear_connections();
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
+#include "ui/imgui_layer.hpp"
 
 
 #include <filesystem>
@@ -306,9 +307,9 @@ void PlayController::record_hud(uint32_t frame_index) {
         *hud_target_, frame_index);
 }
 
-VkDescriptorSet PlayController::hud_texture() {
-    if (!hud_target_) return VK_NULL_HANDLE;
-    return hud_target_->imgui_texture();
+ImTextureID PlayController::hud_texture() {
+    if (!hud_target_) return {};
+    return imgui_texture(hud_target_->color_texture());
 }
 
 void PlayController::start() {
@@ -468,12 +469,6 @@ void PlayController::stop() {
     }
     FJELL_CORE_INFO("Play mode stopped");
     on_stopped.broadcast();
-}
-
-void PlayController::shutdown() {
-    if (!hud_target_) return;
-    s_.vulkan->wait_idle();
-    hud_target_.reset();
 }
 
 } // namespace fjell

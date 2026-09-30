@@ -46,7 +46,6 @@ public:
     [[nodiscard]] Result<> restore(const std::string& text) override;
 
     void init() override;
-    void shutdown() override;
 
     void draw(float dt) override;
     bool handle_shortcuts() override;

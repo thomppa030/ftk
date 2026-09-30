@@ -38,6 +38,7 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/imgui_layer.hpp"
 
 #include <imgui.h>
 
@@ -421,24 +422,24 @@ void UiEditorContext::draw_preview(float dt) {
     // earlier, with no guarantee that stale content ever became
     // current again while continuously re-editing.
     {
-        VkDescriptorSet tex = VK_NULL_HANDLE;
+        ImTextureID tex{};
         uint32_t latest = latest_rendered_offscreen_.load(std::memory_order_acquire);
         if (latest < PREVIEW_FRAMES && offscreen_[latest]) {
-            tex = offscreen_[latest]->imgui_texture();
+            tex = imgui_texture(offscreen_[latest]->color_texture());
         }
         if (!tex) {
             // Fall back to any valid texture before the first real
             // render has completed (e.g. the very first frame).
             for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
                 if (offscreen_[i]) {
-                    tex = offscreen_[i]->imgui_texture();
+                    tex = imgui_texture(offscreen_[i]->color_texture());
                     if (tex) break;
                 }
             }
         }
         if (tex) {
             ImGui::SetCursorScreenPos(origin);
-            ImGui::Image(reinterpret_cast<ImTextureID>(tex), {scaled_w, scaled_h});
+            ImGui::Image(tex, {scaled_w, scaled_h});
         }
     }
 

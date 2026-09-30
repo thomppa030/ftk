@@ -88,10 +88,8 @@ void CaptureService::request(const Request& r) {
 void CaptureService::resize_for_capture(VulkanContext& vk,
                                         ViewportManager& viewports) {
     // Called BEFORE draw_ui. Resizes the editor viewport's offscreen + PP
-    // to the capture resolution if a scene capture is active. Must run
-    // before ImGui draws the editor viewport panel so the ImGui texture
-    // descriptor reflects the resized post output — resizing AFTER
-    // draw_ui would leave ImGui referencing a freed descriptor.
+    // to the capture resolution if a scene capture is active, so the
+    // viewport panel drawn this frame already shows the resized post output.
     if (state_ != State::armed && state_ != State::warming
             && state_ != State::capture_ready) {
         return;
@@ -123,9 +121,7 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     panel->size.x = static_cast<float>(request_.width);
     panel->size.y = static_cast<float>(request_.height);
 
-    // Resize the offscreen + PP. PP::resize touches ImGui descriptors via
-    // PostPass::Images::resize → destroy → invalidate_imgui_texture.
-    // wait_idle ensures no in-flight CB references them.
+    // Resize the offscreen + PP.
     if (panel->offscreen) {
         if (panel->offscreen->extent().x != request_.width
                 || panel->offscreen->extent().y != request_.height) {

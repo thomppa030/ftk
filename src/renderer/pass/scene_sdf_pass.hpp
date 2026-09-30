@@ -13,7 +13,6 @@
 #include <gpu/texture.hpp>
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -171,8 +170,10 @@ public:
     /// `texel`, when set, is the slice texel under the mouse, whose distance
     /// hovered_distance() reports a few frames later.
     void request_slice(uint32_t axis, float slice_pos, std::optional<glm::uvec2> texel = {});
-    /// The slice for ImGui; none until the first slice has been asked for.
-    [[nodiscard]] VkDescriptorSet slice_imgui_set() const { return slice_imgui_set_; }
+    /// The slice to show, and the nearest sampler to show it with, so each
+    /// texel stays a square; none until the first slice has been asked for.
+    [[nodiscard]] gpu::Texture slice_texture() const { return slice_texture_; }
+    [[nodiscard]] gpu::Sampler slice_sampler() const { return slice_sampler_; }
     /// Texels across and down the slice.
     static constexpr uint32_t SLICE_SIZE = 256;
     /// The distance in metres at the texel last asked about, as the GPU
@@ -268,7 +269,6 @@ private:
     gpu::Owned<gpu::ComputePipeline> slice_pipeline_;
     gpu::Owned<gpu::Texture> slice_texture_;
     gpu::Sampler slice_sampler_{};
-    VkDescriptorSet slice_imgui_set_{VK_NULL_HANDLE};
     bool slice_requested_{false};
     uint32_t slice_axis_{1};
     float slice_pos_{0.5f};

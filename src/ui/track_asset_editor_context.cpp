@@ -45,10 +45,6 @@ void TrackAssetEditorContext::init() {
     history_panel().init(&command_history());
 }
 
-void TrackAssetEditorContext::shutdown() {
-    viewport_manager_.release_textures();
-}
-
 std::vector<ViewportRenderRequest> TrackAssetEditorContext::build_render_requests() {
     // The scene's own sky, not the studio backdrop: the sky is part of what
     // these assets shape.

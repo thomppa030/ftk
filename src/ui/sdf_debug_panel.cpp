@@ -1,6 +1,7 @@
 #include "ui/sdf_debug_panel.hpp"
 
 #include "renderer/pass/scene_sdf_pass.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/kit/canvas.hpp"
 #include "ui/kit/choice.hpp"
 #include "ui/kit/field.hpp"
@@ -69,8 +70,8 @@ void SdfDebugPanel::draw(SceneSdfPass& sdf) {
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(origin, max, ImGui::GetColorU32(theme::surface_sunken()));
-    if (VkDescriptorSet slice = sdf.slice_imgui_set()) {
-        dl->AddImage(reinterpret_cast<ImTextureID>(slice), a, b);
+    if (const ImTextureID slice = imgui_texture(sdf.slice_texture(), sdf.slice_sampler())) {
+        dl->AddImage(slice, a, b);
     }
 
     // Which texel is under the mouse, for the pass to read back.

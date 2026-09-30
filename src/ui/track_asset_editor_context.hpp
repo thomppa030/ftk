@@ -41,7 +41,6 @@ public:
     [[nodiscard]] std::string asset_path() const override { return path_; }
 
     void init() override;
-    void shutdown() override;
     void draw(float dt) final;
     bool handle_shortcuts() override { return false; }
     // The preview renders the engine's scene, so render_scene() stays null.

@@ -3,7 +3,6 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "gpu/device.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/accel_structure.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -11,9 +10,6 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "scene/scene.hpp"
-
-#include <imgui.h>
-#include <backends/imgui_impl_vulkan.h>
 
 #include <array>
 #include <optional>
@@ -53,7 +49,6 @@ constexpr gpu::Access REST = gpu::Access::sampled_compute;
 
 void SsGiPass::Images::create(gpu::Device& gpu, const SsGiConfig& config,
                               uint32_t screen_w, uint32_t screen_h) {
-    device = &gpu;
     probe_count = {
         (screen_w + config.probe_spacing - 1) / config.probe_spacing,
         (screen_h + config.probe_spacing - 1) / config.probe_spacing
@@ -106,14 +101,6 @@ void SsGiPass::Images::resize(gpu::Device& gpu, const SsGiConfig& config,
         && config.rays_per_probe == rays_per_probe) {
         return;
     }
-
-    // The editor's view of the old output may still be in a frame's draw
-    // data; it goes when that frame is done, and the next
-    // indirect_imgui_texture() call makes one for the new output.
-    if (indirect_imgui_desc != VK_NULL_HANDLE) {
-        gpu::vulkan::defer(gpu, [set = indirect_imgui_desc] { ImGui_ImplVulkan_RemoveTexture(set); });
-        indirect_imgui_desc = VK_NULL_HANDLE;
-    }
     create(gpu, config, screen_w, screen_h);
 }
 
@@ -143,7 +130,6 @@ void SsGiPass::Images::fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth
 }
 
 void SsGiPass::Images::destroy() {
-    invalidate_imgui_texture();
     raw_radiance.reset();
     resolved.reset();
     history.reset();
@@ -153,22 +139,6 @@ void SsGiPass::Images::destroy() {
     probe_count = {0, 0};
     written = false;
     history_valid = false;
-}
-
-VkDescriptorSet SsGiPass::Images::indirect_imgui_texture(gpu::Sampler sampler) {
-    if (indirect_imgui_desc == VK_NULL_HANDLE && indirect) {
-        indirect_imgui_desc = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, indirect),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return indirect_imgui_desc;
-}
-
-void SsGiPass::Images::invalidate_imgui_texture() {
-    if (indirect_imgui_desc != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(indirect_imgui_desc);
-        indirect_imgui_desc = VK_NULL_HANDLE;
-    }
 }
 
 // ── Pass create ─────────────────────────────────────────────────────────

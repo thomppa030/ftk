@@ -21,8 +21,8 @@ public:
 
     void set_mode(uint32_t mode) { mode_ = mode; }
 
-    [[nodiscard]] VkDescriptorSet imgui_texture() { return viz_image_.imgui_texture(); }
-    void invalidate_imgui_texture() { viz_image_.invalidate_imgui_texture(); }
+    /// What the pass drew, for a viewport to show; none before its first draw.
+    [[nodiscard]] gpu::Texture picture() const { return viz_image_.picture(); }
     void resize(uint32_t width, uint32_t height) { viz_image_.resize(width, height); }
 
 private:

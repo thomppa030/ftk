@@ -104,7 +104,6 @@ void AnimationEditorContext::init() {
 }
 
 void AnimationEditorContext::shutdown() {
-    viewport_manager_.release_textures();
     connections_.clear();
 }
 

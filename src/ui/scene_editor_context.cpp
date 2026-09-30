@@ -56,6 +56,7 @@
 #include "physics/physics_subsystem.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/resources/terrain_asset.hpp"
+#include "ui/imgui_layer.hpp"
 #include "ui/inspector_widgets.hpp"
 
 #include <ImGuizmo.h>
@@ -310,8 +311,6 @@ void SceneEditorContext::shutdown() {
     camera_preview_pp_.reset();
     camera_preview_target_.reset();
     camera_preview_node_id_ = 0;
-
-    viewport_manager_.release_textures();
     connections_.clear();
 }
 
@@ -322,8 +321,8 @@ void SceneEditorContext::draw(float dt) {
     if (camera_preview_skip_frames_ < 0 && camera_preview_pp_ && camera_preview_pp_->post()) {
         auto* vp = viewport_manager_.active_panel();
         if (vp && vp->img_size.x > 0 && vp->img_size.y > 0) {
-            auto tex = camera_preview_pp_->post()->imgui_texture(
-                deps_.vulkan_context->post_pass().output_sampler());
+            const ImTextureID tex = imgui_texture(camera_preview_pp_->post()->texture,
+                                                  deps_.vulkan_context->post_pass().output_sampler());
             if (tex) {
                 bool visible = ImGui::Begin(vp->title.c_str());
                 if (visible) {

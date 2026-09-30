@@ -45,10 +45,6 @@ void MaterialEditorContext::init() {
     history_panel().init(&command_history());
 }
 
-void MaterialEditorContext::shutdown() {
-    viewport_manager_.release_textures();
-}
-
 void MaterialEditorContext::draw(float dt) {
     // Update viewport title with context suffix
     name_preview(viewport_manager_);

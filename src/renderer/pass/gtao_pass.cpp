@@ -11,13 +11,10 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "gpu/device.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
-
-#include <imgui_impl_vulkan.h>
 
 #include <algorithm>
 
@@ -69,7 +66,6 @@ void record_blur(const FrameContext& ctx, AoPass& owner, const AoPass::Images& g
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void AoPass::Images::create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h) {
-    device = &gpu;
     auto made = gpu.create(gpu::TextureDesc{
         .format = gpu::Format::r8_unorm,
         .width = half_w,
@@ -88,7 +84,6 @@ void AoPass::Images::create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h) 
 }
 
 void AoPass::Images::destroy() {
-    invalidate_imgui_texture();
     ao.reset();
     extent = {0, 0};
 }
@@ -99,31 +94,7 @@ void AoPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
     const uint32_t half_w = std::max(1U, width / 2);
     const uint32_t half_h = std::max(1U, height / 2);
     if (ao && extent.x == half_w && extent.y == half_h) return;
-
-    // The editor's view of the old texture may still be in a frame's draw
-    // data; it goes when that frame is done, and the next imgui_texture()
-    // call makes one for the new texture.
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        gpu::vulkan::defer(gpu, [set = imgui_descriptor] { ImGui_ImplVulkan_RemoveTexture(set); });
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
     create(gpu, half_w, half_h);
-}
-
-VkDescriptorSet AoPass::Images::imgui_texture(gpu::Sampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && ao) {
-        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device, sampler), gpu::vulkan::native_view(*device, ao),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor;
-}
-
-void AoPass::Images::invalidate_imgui_texture() {
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
 }
 
 // ── AoPass ──────────────────────────────────────────────────────────────────
@@ -156,14 +127,6 @@ void AoPass::destroy() {
 
 void AoPass::resize(uint32_t width, uint32_t height) {
     default_images_.resize(*device_, width, height);
-}
-
-VkDescriptorSet AoPass::imgui_texture() {
-    return default_images_.imgui_texture(ao_sampler_);
-}
-
-void AoPass::invalidate_imgui_texture() {
-    default_images_.invalidate_imgui_texture();
 }
 
 void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {

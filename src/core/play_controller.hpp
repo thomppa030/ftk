@@ -6,7 +6,7 @@
 #include "core/step_input_latch.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include <imgui.h>
 
 #include <cstdint>
 #include <memory>
@@ -91,14 +91,6 @@ public:
     /// meaningful while a session is starting or playing.
     void flush_spawned();
     void toggle();
-
-    /// Destroys the HUD target now, while ImGui and Vulkan are still alive.
-    /// Call once, from Engine's destructor, before it starts tearing down
-    /// ImGui — the default destructor would otherwise run this same
-    /// teardown later, after ImGui is already gone, since hud_target_ is a
-    /// plain member that destructs on its own. A no-op if the target was
-    /// never created.
-    void shutdown();
 
     [[nodiscard]] PlayState state() const { return state_; }
     [[nodiscard]] bool playing() const { return state_ != PlayState::stopped; }
@@ -221,10 +213,9 @@ public:
     /// not called directly.
     void record_hud(uint32_t frame_index);
 
-    /// The HUD target's ImGui descriptor, valid only after record_hud() has
-    /// run at least once this session. Null while stopped or before the
+    /// The HUD target as ImGui draws it. None while stopped or before the
     /// first size is known.
-    [[nodiscard]] VkDescriptorSet hud_texture();
+    [[nodiscard]] ImTextureID hud_texture();
 
     /// Fires after every subsystem has started and the scene is live.
     Delegate<void()> on_started;

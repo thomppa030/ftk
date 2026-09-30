@@ -1525,24 +1525,6 @@ void VulkanContext::wait_idle() {
     vkDeviceWaitIdle(gpu_.device());
 }
 
-void VulkanContext::release_imgui_textures() {
-    // Anything retired in the last frames — a font atlas swapped out, an
-    // editor preview target — may hold an ImGui image and would otherwise
-    // return it from the deleter after the backend is gone.
-    vkDeviceWaitIdle(gpu_.device());
-    gpu::vulkan::release_all(gpu_device());
-    font_library_->release_imgui_textures();
-    default_pp_->invalidate_imgui_textures();
-    depth_viz_pass().invalidate_imgui_texture();
-    wireframe_pass().invalidate_imgui_texture();
-    normal_pass().invalidate_imgui_texture();
-    overdraw_pass().invalidate_imgui_texture();
-    uv_viz_pass().invalidate_imgui_texture();
-    if (auto* mv = passes_.try_get<MeshletVizPass>("meshlet_viz")) mv->invalidate_imgui_texture();
-    light_heatmap_pass().invalidate_imgui_texture();
-    light_grid_pass().invalidate_imgui_texture();
-}
-
 void VulkanContext::apply_pending_ddgi_toggle() {
     if (!has_pending_ddgi_toggle_) return;
     has_pending_ddgi_toggle_ = false;

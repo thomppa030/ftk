@@ -2,29 +2,18 @@
 
 #include "core/log.hpp"
 #include <gpu/device.hpp>
-#include "gpu/vulkan/native.hpp"
 #include "renderer/pass_builder.hpp"
 
-#include <imgui_impl_vulkan.h>
-
 namespace fjell {
-
-VizImage::~VizImage() {
-    cleanup();
-}
 
 void VizImage::init(gpu::Device& device, gpu::Format format, std::string name) {
     device_ = &device;
     format_ = format;
     name_ = std::move(name);
-    sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                               .mip_filter = gpu::Filter::nearest,
-                               .address = gpu::Address::clamp});
     create(64, 64);
 }
 
 void VizImage::cleanup() {
-    invalidate_imgui_texture();
     texture_.reset();
     extent_ = {0, 0};
 }
@@ -48,12 +37,6 @@ void VizImage::create(uint32_t width, uint32_t height) {
 
 void VizImage::resize(uint32_t width, uint32_t height) {
     if (device_ == nullptr || (texture_ && extent_.x == width && extent_.y == height)) return;
-    // The editor's view of the old image may still be in a frame's draw
-    // data; it goes when that frame is done.
-    if (imgui_descriptor_ != VK_NULL_HANDLE) {
-        gpu::vulkan::defer(*device_, [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
-        imgui_descriptor_ = VK_NULL_HANDLE;
-    }
     create(width, height);
 }
 
@@ -79,23 +62,6 @@ gpu::RenderTargets VizImage::targets(const gpu::Clear& clear) const {
 
 gpu::RenderTargets VizImage::targets() const {
     return {.color = {{.view = texture_, .load = gpu::Load::discard}}};
-}
-
-VkDescriptorSet VizImage::imgui_texture() {
-    if (!has_rendered_) return VK_NULL_HANDLE;
-    if (imgui_descriptor_ == VK_NULL_HANDLE && texture_) {
-        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*device_, sampler_), gpu::vulkan::native_view(*device_, texture_),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor_;
-}
-
-void VizImage::invalidate_imgui_texture() {
-    if (imgui_descriptor_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
-        imgui_descriptor_ = VK_NULL_HANDLE;
-    }
 }
 
 } // namespace fjell

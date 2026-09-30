@@ -83,9 +83,6 @@ public:
     /// above reproject through it.
     [[nodiscard]] ViewHistory& view_history() { return view_history_; }
 
-    /// Lets the ImGui images of these go, before ImGui shuts down.
-    void invalidate_imgui_textures();
-
 private:
     gpu::Device* gpu_{nullptr};
     PostProcessConfig config_;

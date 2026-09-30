@@ -5,8 +5,6 @@
 # no Vulkan left, so the list only shrinks. The one time files are added is
 # the commit that teaches the check a new pattern, and then only the files
 # already using it.
-src/core/play_controller.cpp
-src/core/play_controller.hpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp
@@ -32,33 +30,10 @@ src/renderer/gpu/window.cpp
 src/renderer/gpu/window.hpp
 src/renderer/gpu_context.cpp
 src/renderer/gpu_context.hpp
-src/renderer/offscreen_pass.cpp
-src/renderer/offscreen_pass.hpp
-src/renderer/pass/ddgi_pass.cpp
-src/renderer/pass/ddgi_pass.hpp
-src/renderer/pass/depth_viz_pass.hpp
-src/renderer/pass/gtao_pass.cpp
-src/renderer/pass/gtao_pass.hpp
-src/renderer/pass/light_viz_pass.hpp
-src/renderer/pass/meshlet_viz_pass.hpp
-src/renderer/pass/motion_field_pass.cpp
-src/renderer/pass/motion_field_pass.hpp
-src/renderer/pass/normal_pass.hpp
-src/renderer/pass/overdraw_pass.hpp
-src/renderer/pass/post_pass.cpp
-src/renderer/pass/post_pass.hpp
 src/renderer/pass/render_pass.hpp
-src/renderer/pass/scene_sdf_pass.cpp
-src/renderer/pass/scene_sdf_pass.hpp
-src/renderer/pass/ss_gi_pass.cpp
-src/renderer/pass/ss_gi_pass.hpp
-src/renderer/pass/uv_viz_pass.hpp
-src/renderer/pass/wireframe_pass.hpp
 src/renderer/render_pipeline.cpp
 src/renderer/render_pipeline.hpp
 src/renderer/resources/vertex.hpp
-src/renderer/viz_image.cpp
-src/renderer/viz_image.hpp
 src/renderer/vulkan_context.cpp
 src/renderer/vulkan_context.hpp
 src/scripting/asset_type_registrations.cpp
@@ -67,14 +42,7 @@ src/ui/asset_ref_widget.cpp
 src/ui/asset_thumbnail_renderer.cpp
 src/ui/asset_thumbnail_renderer.hpp
 src/ui/content_browser.cpp
-src/ui/font_editor_context.cpp
-src/ui/game_ui/font_atlas.cpp
-src/ui/game_ui/font_atlas.hpp
 src/ui/icon_cache.cpp
 src/ui/icon_cache.hpp
-src/ui/sdf_debug_panel.cpp
 src/ui/texture_preview.cpp
-src/ui/ui_editor_context.cpp
-src/ui/viewport_manager.cpp
-src/ui/viewport_manager.hpp
 tests/library_link/gpu.cpp

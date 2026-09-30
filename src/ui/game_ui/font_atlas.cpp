@@ -4,9 +4,7 @@
 #include "ui/game_ui/font_atlas_build.hpp"
 #endif
 #include "renderer/bindless.hpp"
-#include "gpu/vulkan/native.hpp"
 
-#include <imgui_impl_vulkan.h>
 #include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 
@@ -21,29 +19,18 @@ FontAtlas::~FontAtlas() {
     destroy();
 }
 
+gpu::Texture FontAtlas::texture() const {
+    return atlas_texture_ ? atlas_texture_->texture() : gpu::Texture{};
+}
+
+gpu::Sampler FontAtlas::sampler() const {
+    return atlas_texture_ ? atlas_texture_->sampler() : gpu::Sampler{};
+}
+
 void FontAtlas::destroy() {
-    // The ImGui image is not returned here: destruction runs after the
-    // ImGui backend is gone, and release_imgui_texture() ran before that.
     atlas_texture_.reset();
     glyphs_.clear();
     kerning_.clear();
-}
-
-void FontAtlas::release_imgui_texture() {
-    if (imgui_descriptor_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
-        imgui_descriptor_ = VK_NULL_HANDLE;
-    }
-}
-
-VkDescriptorSet FontAtlas::imgui_texture() {
-    if (imgui_descriptor_ == VK_NULL_HANDLE && atlas_texture_) {
-        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            gpu::vulkan::native_sampler(*gpu_.gpu_device, atlas_texture_->sampler()),
-            gpu::vulkan::native_view(*gpu_.gpu_device, atlas_texture_->texture()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor_;
 }
 
 namespace {
@@ -188,14 +175,7 @@ void FontAtlas::reload(FontAtlasData data) {
     auto fresh = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
                                            atlas_height_, gpu::Format::rgba8_unorm, 1, true);
     gpu_.bindless->update_entry(atlas_index_, fresh->texture());
-    // The old texture goes when the frames reading it are done. The editor's
-    // view of it may still be in a frame's draw data; it goes then too, and
-    // the next imgui_texture() call makes one for the new texture.
-    if (imgui_descriptor_ != VK_NULL_HANDLE) {
-        gpu::vulkan::defer(*gpu_.gpu_device,
-                           [set = imgui_descriptor_] { ImGui_ImplVulkan_RemoveTexture(set); });
-        imgui_descriptor_ = VK_NULL_HANDLE;
-    }
+    // The old texture goes when the frames reading it are done.
     atlas_texture_ = std::move(fresh);
 
     FJELL_GFX_INFO("Font atlas reloaded: {} ({}x{}, {} glyphs)",
