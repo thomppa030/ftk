@@ -543,33 +543,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     current_ctx_.bound_gi_indirect = is_main_cb ? bound_gi_indirect_ : gpu::Texture{};
     current_ctx_.bound_ss_gi_emissive = is_main_cb ? bound_ss_gi_emissive_ : gpu::Texture{};
 
-
-    // Init screen color image on first use (or after resize) so the descriptor
-    // at binding 8 doesn't point to an UNDEFINED-layout image.
-    if (target.screen_color_needs_init()) {
-        vk_utils::transition_image(cmd, target.screen_color_image(),
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        target.mark_screen_color_initialized();
-    }
-
-    // First-frame seed for color/resolve_color. Pre-baked descriptors (ImGui
-    // texture, post-process inputs) hold this image at SHADER_READ_ONLY and
-    // are bound by draws across both graphics_pre and graphics_post when
-    // async-compute is on. The framegraph slice tracker resets the image to
-    // UNDEFINED at begin_frame; on the very first frame, before any pass has
-    // written to it, the image is genuinely UNDEFINED, which trips a draw-
-    // time descriptor-vs-layout check (VUID-vkCmdDraw-None-09600). Seeding
-    // matches what frame N+1 already inherits from frame N's last access.
-    if (target.color_needs_init()) {
-        vk_utils::transition_image(cmd, target.color_image(),
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        target.mark_color_initialized();
-    }
-
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.
     resource_registry_.clear();

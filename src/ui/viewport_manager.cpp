@@ -16,10 +16,9 @@
 
 namespace fjell {
 
-void ViewportManager::init(Device& device, VmaAllocator allocator, gpu::Samples msaa_samples) {
-    device_ = &device;
-    allocator_ = allocator;
+void ViewportManager::init(gpu::Samples msaa_samples) {
     msaa_samples_ = msaa_samples;
+    ready_ = true;
 }
 
 void ViewportManager::add_viewport(ViewportSource source, const std::string& title) {
@@ -128,11 +127,10 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
     FJELL_PROFILE_SCOPE_N("viewport_apply_resize");
     for (auto& panel : panels_) {
         // Deferred creation — safe here because begin_frame fence already waited
-        if (panel.needs_offscreen && device_) {
+        if (panel.needs_offscreen && ready_) {
             auto w = std::max(static_cast<uint32_t>(panel.size.x), 256u);
             auto h = std::max(static_cast<uint32_t>(panel.size.y), 256u);
-            panel.offscreen = std::make_unique<OffscreenPass>(*device_, ctx.gpu_device(), allocator_,
-                                                              w, h, msaa_samples_);
+            panel.offscreen = std::make_unique<OffscreenPass>(ctx.gpu_device(), w, h, msaa_samples_);
             panel.needs_offscreen = false;
         }
         if (!panel.offscreen) continue;
@@ -189,10 +187,7 @@ std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
 
 void ViewportManager::release_textures() {
     for (auto& panel : panels_) {
-        if (panel.offscreen) {
-            panel.offscreen->invalidate_imgui_texture();
-            panel.offscreen->invalidate_depth_imgui_texture();
-        }
+        if (panel.offscreen) panel.offscreen->release_imgui_texture();
     }
 }
 

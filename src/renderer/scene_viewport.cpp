@@ -4,14 +4,14 @@
 
 namespace fjell {
 
-SceneViewport::SceneViewport(Device& device, gpu::Device& gpu, VkDevice vk_device,
+SceneViewport::SceneViewport(Device& /*device*/, gpu::Device& gpu, VkDevice vk_device,
                              VmaAllocator allocator,
                              const SceneViewportConfig& config,
                              const PostProcessResources::PassRefs& pass_refs,
                              uint32_t reserved_bindless_index)
     : config_(config)
     , bindless_index_(reserved_bindless_index) {
-    offscreen_ = std::make_unique<OffscreenPass>(device, gpu, allocator, config_.width,
+    offscreen_ = std::make_unique<OffscreenPass>(gpu, config_.width,
                                                  config_.height, config_.samples);
 
     pp_ = std::make_unique<PostProcessResources>(

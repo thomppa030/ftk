@@ -246,9 +246,7 @@ SceneEditorContext::SceneEditorContext(SceneEditorDeps deps)
     : deps_{deps} {}
 
 void SceneEditorContext::init() {
-    viewport_manager_.init(deps_.vulkan_context->device_ref(),
-                           deps_.vulkan_context->allocator(),
-                           deps_.vulkan_context->msaa_samples());
+    viewport_manager_.init(deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
     // The Scene draws a toolbar of its own, with its tools and Play.
     viewport_manager_.set_preview_toolbar(false);
@@ -1326,8 +1324,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
     if (need_preview && !camera_preview_target_) {
         // Use the same MSAA as the main viewport — pipelines are compiled
         // with this sample count and can't be changed per-viewport.
-        camera_preview_target_ = std::make_unique<OffscreenPass>(
-            vk.device_ref(), vk.gpu_device(), vk.allocator(), 320, 180, vk.msaa_samples());
+        camera_preview_target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), 320, 180, vk.msaa_samples());
 
         // Pipeline-as-data: pp_config + per-call pass mask both flow from
         // editor_preview.fjgraph. If the file fails to load (parse error,

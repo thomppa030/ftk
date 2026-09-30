@@ -508,9 +508,7 @@ protected:
             frame_h = deps.project->config().ui.design_height;
         }
         if (!target_ || target_->extent().width != frame_w || target_->extent().height != frame_h) {
-            target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
-                                                      vk.allocator(), frame_w, frame_h,
-                                                      gpu::Samples::x1);
+            target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), frame_w, frame_h, gpu::Samples::x1);
         }
         return {frame_w, frame_h};
     }
@@ -866,8 +864,7 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
     }
 
     // Pipelines are compiled for the main viewport's sample count.
-    target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(), vk.allocator(),
-                                              SIZE, SIZE, vk.msaa_samples());
+    target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), SIZE, SIZE, vk.msaa_samples());
     PostProcessResources::PassRefs refs{
         vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
         vk.post_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass(),

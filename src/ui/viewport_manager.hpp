@@ -42,7 +42,8 @@ struct ViewportPanel {
 
 class ViewportManager {
 public:
-    void init(Device& device, VmaAllocator allocator, gpu::Samples msaa_samples = gpu::Samples::x1);
+    /// Panels render with `msaa_samples`; none gets a target before this.
+    void init(gpu::Samples msaa_samples = gpu::Samples::x1);
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
 
@@ -94,8 +95,7 @@ private:
     void draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                              const Input& input, float dt);
 
-    Device* device_{nullptr};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
+    bool ready_{false};
     gpu::Samples msaa_samples_{gpu::Samples::x1};
     std::vector<ViewportPanel> panels_;
     int next_id_{1};

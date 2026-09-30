@@ -57,9 +57,7 @@ EditorContext::DockPreset AnimationEditorContext::dock_preset() const {
 }
 
 void AnimationEditorContext::init() {
-    viewport_manager_.init(deps_.vulkan_context->device_ref(),
-                           deps_.vulkan_context->allocator(),
-                           deps_.vulkan_context->msaa_samples());
+    viewport_manager_.init(deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
     timeline_.set_title("Timeline");

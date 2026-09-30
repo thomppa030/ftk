@@ -351,9 +351,7 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
         if (preview_target_) gpu::vulkan::retire(vk.gpu_device(), std::move(preview_target_));
         preview_width_ = wanted_width_;
         preview_height_ = wanted_height_;
-        preview_target_ = std::make_unique<OffscreenPass>(vk.device_ref(), vk.gpu_device(),
-                                                          vk.allocator(),
-                                                          preview_width_, preview_height_,
+        preview_target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), preview_width_, preview_height_,
                                                           gpu::Samples::x1);
     }
     if (atlas != nullptr) sample_generation_ = atlas->generation();

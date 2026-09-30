@@ -65,8 +65,7 @@ EditorContext::DockPreset BlendSpaceEditorContext::dock_preset() const {
 }
 
 void BlendSpaceEditorContext::init() {
-    viewport_manager_.init(deps_.vulkan_context->device_ref(), deps_.vulkan_context->allocator(),
-                           deps_.vulkan_context->msaa_samples());
+    viewport_manager_.init(deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
