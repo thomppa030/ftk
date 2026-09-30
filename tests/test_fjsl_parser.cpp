@@ -1122,6 +1122,147 @@ TEST_CASE("Every vertex() template accepts the same built-ins", "[fjsl][glslc]")
     }
 }
 
+// --- A `return` in a hook ends the hook, not the shader ---
+//
+// An author's hook is a function, as in Godot: returning early keeps what it
+// has set and lets the template shade from it. Pasted into main() instead, a
+// `return` ends the whole shader before it writes its outputs, and the pixel
+// keeps undefined values, which bloom spreads into black boxes. So every
+// hook's body has to land in a function of its own that main() calls, and
+// has to compile there.
+
+TEST_CASE("A return in a hook ends the hook, and the template goes on", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    struct Hook {
+        const char* hook;       // the function the body lands in
+        const char* statement;  // the early return, as written in the body
+    };
+    struct Case {
+        const char* name;
+        const char* tmpl;
+        const char* source;
+        std::vector<Hook> hooks;
+    };
+    const Case cases[] = {
+        {"spatial", "fjell_spatial_template.glsl",
+         "shader_type spatial;\n"
+         "void fragment() {\n    ALBEDO = vec3(0.01);\n    if (UV.x > 0.5) return;\n    ALBEDO = vec3(1.0);\n}\n",
+         {{"fjell_hook_fragment", "if (UV.x > 0.5) return;"}}},
+        {"spatial_unlit", "fjell_spatial_template.glsl",
+         "shader_type spatial;\nrender_mode unlit;\n"
+         "void fragment() {\n    ALBEDO = vec3(0.01);\n    if (UV.x > 0.5) return;\n    EMISSION = vec3(1.0);\n}\n",
+         {{"fjell_hook_fragment", "if (UV.x > 0.5) return;"}}},
+        {"terrain", "fjell_terrain_template.glsl",
+         "shader_type terrain;\n"
+         "void layers() {\n    if (SLOPE > 30.0) return;\n    TRIPLANAR = 0.0;\n}\n"
+         "void fragment() {\n    if (WORLD_POS.y > 10.0) return;\n    ROUGHNESS = 1.0;\n}\n",
+         {{"fjell_hook_layers", "if (SLOPE > 30.0) return;"},
+          {"fjell_hook_fragment", "if (WORLD_POS.y > 10.0) return;"}}},
+        {"water", "fjell_water_template.glsl",
+         "shader_type water;\n"
+         "void fragment() {\n    if (BELOW > 0.5) return;\n    ALBEDO = vec3(0.1);\n}\n",
+         {{"fjell_hook_fragment", "if (BELOW > 0.5) return;"}}},
+        {"ui", "fjell_ui_template.glsl",
+         "shader_type ui;\n"
+         "void fragment() {\n    if (HOVER > 0.5) return;\n    ALBEDO = vec3(1.0);\n}\n",
+         {{"fjell_hook_fragment", "if (HOVER > 0.5) return;"}}},
+        {"sky", "fjell_sky_template.glsl",
+         "shader_type sky;\n"
+         "void sky() {\n    SKY = vec3(0.2);\n    if (VIEW_DIR.y < 0.0) return;\n    SKY = vec3(1.0);\n}\n",
+         {{"fjell_hook_sky", "if (VIEW_DIR.y < 0.0) return;"}}},
+        {"post", "fjell_post_template.glsl",
+         "shader_type post;\n"
+         "void color() {\n    if (DEPTH > 100.0) return;\n    COLOR *= 0.5;\n}\n",
+         {{"fjell_hook_color", "if (DEPTH > 100.0) return;"}}},
+    };
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-return-test";
+    std::filesystem::create_directories(out_dir);
+
+    for (const auto& c : cases) {
+        INFO("case: " << c.name);
+        auto tmpl = read_text(shader_dir / "include" / c.tmpl);
+        REQUIRE_FALSE(tmpl.empty());
+        auto meta = parse_fjsl(c.source);
+        REQUIRE_FALSE(meta.has_errors());
+        const std::string glsl = generate_fragment_shader(meta, tmpl);
+
+        const auto main_at = glsl.find("void main()");
+        REQUIRE(main_at != std::string::npos);
+        for (const auto& h : c.hooks) {
+            INFO("hook: " << h.hook);
+            const auto hook_at = glsl.find(std::string("void ") + h.hook + "()");
+            const auto return_at = glsl.find(h.statement);
+            // Called from the template past the hook, from main() or the
+            // function main() calls (fjell_sky, fjell_post).
+            const auto call_at = glsl.find(std::string(h.hook) + "();", return_at);
+            REQUIRE(hook_at != std::string::npos);
+            REQUIRE(return_at != std::string::npos);
+            REQUIRE(call_at != std::string::npos);
+            REQUIRE(hook_at < return_at);
+            REQUIRE(return_at < main_at);
+        }
+
+        auto frag = out_dir / (std::string(c.name) + ".frag");
+        std::ofstream(frag) << glsl;
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -I " + quoted(shader_dir / "include") + " "
+                                    + quoted(frag) + " -o " + quoted(out_dir / (std::string(c.name) + ".spv")));
+        INFO(output);
+        REQUIRE(status == 0);
+    }
+}
+
+TEST_CASE("A return in vertex() ends the hook in every vertex template", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    const std::pair<const char*, const char*> templates[] = {
+        {"fjell_mesh_template.glsl", "mesh"},
+        {"fjell_vertex_template.glsl", "vert"},
+        {"fjell_depth_mesh_template.glsl", "mesh"},
+        {"fjell_depth_vertex_template.glsl", "vert"},
+        {"fjell_shadow_vertex_template.glsl", "vert"},
+        {"fjell_outline_vertex_template.glsl", "vert"},
+    };
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float lift = 0.5;\n"
+                           "void vertex() {\n    if (UV.x > 0.5) return;\n    VERTEX.y += lift;\n}\n"
+                           "void fragment() {}\n");
+    REQUIRE_FALSE(meta.has_errors());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-vertex-return-test";
+    std::filesystem::create_directories(out_dir);
+
+    for (const auto& [file, stage] : templates) {
+        INFO("template: " << file);
+        auto tmpl = read_text(shader_dir / "include" / file);
+        REQUIRE_FALSE(tmpl.empty());
+        const std::string glsl = generate_vertex_shader(meta, tmpl);
+
+        const auto hook_at = glsl.find("void fjell_hook_vertex()");
+        const auto return_at = glsl.find("if (UV.x > 0.5) return;");
+        const auto main_at = glsl.find("void main()");
+        REQUIRE(hook_at != std::string::npos);
+        REQUIRE(hook_at < return_at);
+        REQUIRE(return_at < main_at);
+        REQUIRE(glsl.find("fjell_hook_vertex();", main_at) != std::string::npos);
+
+        auto src = out_dir / file;
+        std::ofstream(src) << glsl;
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=" + std::string(stage) + " -I "
+                                    + quoted(shader_dir / "include") + " " + quoted(src) + " -o "
+                                    + quoted(out_dir / (std::string(file) + ".spv")));
+        INFO(output);
+        REQUIRE(status == 0);
+    }
+}
+
 // --- shader_type terrain ---
 
 TEST_CASE("Parse shader_type terrain with a layers() hook", "[fjsl][terrain]") {

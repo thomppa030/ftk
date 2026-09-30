@@ -21,6 +21,18 @@ void fragment() {
 
 An empty `fragment()` produces standard PBR — that's what `standard.fjsl` does.
 
+Every hook (`fragment()`, `vertex()`, `light()`, and the other shader types' `layers()`, `sky()`, `color()`, `density()`) is a function of its own, as in Godot: `return` ends the hook and keeps what it has set, and the engine carries on from there.
+
+```glsl
+void fragment() {
+    if (UV.x > 0.9) {
+        ALBEDO = vec3(0.01);  // a dark border, lit like the rest
+        return;
+    }
+    ALBEDO = texture(noise_tex, UV).rgb * tint;
+}
+```
+
 ### Built-in Outputs
 
 All have PBR defaults. Just write the ones you want to change.
@@ -117,7 +129,7 @@ Set the object's `material` field to the `.fjmat` path in the scene file:
 ## How It Works
 
 1. **Parse** — the FJSL parser reads the `.fjsl` file and extracts uniform declarations, hints, defaults, and the fragment body
-2. **Generate** — a complete GLSL fragment shader is produced from `fjell_spatial_template.glsl` with user code and param reads substituted in
+2. **Generate** — a complete GLSL fragment shader is produced from `fjell_spatial_template.glsl` with param reads substituted in and the body placed in the template's hook function, which `main()` calls between filling the built-ins and shading from them
 3. **Compile** — the `FjslCompiler` compiles the generated `.frag` to SPIR-V with `glslc` at runtime, or copies it from `shaders/generated/.fjcache` when the same source was compiled before
 4. **Pipeline** — the `PipelineCache` creates opaque, transparent, and mesh shader pipeline variants using the compiled fragment module
 5. **Render** — draw commands are sorted by pipeline ID, and each range gets its pipeline bound before the indirect draw call

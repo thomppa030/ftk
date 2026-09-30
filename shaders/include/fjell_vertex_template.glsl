@@ -41,6 +41,28 @@ layout(location = 9) out vec4 frag_prev_clip_pos;
 
 invariant gl_Position;
 
+// ── Built-ins ──
+// What vertex() reads and writes. main() fills them, calls the hook, and
+// places the vertex from what it left. They live at file scope so the hook
+// is a function of its own: a `return` in it ends the hook and keeps what it
+// set. WORLD_VERTEX is read-only: VERTEX, in object space, is what moves.
+GpuMaterial mat;
+vec3 VERTEX;
+vec3 NORMAL;
+vec2 UV;
+mat4 MODEL;
+float TIME;
+vec3 WIND_DIR;
+float WIND_SPEED;
+float TIME_OF_DAY;
+vec3 WORLD_VERTEX;
+
+// ── vertex() hook ──
+void fjell_hook_vertex() {
+/*FJSL_VERTEX_CUSTOM_PARAMS*/
+/*FJSL_VERTEX_USER_CODE*/
+}
+
 void main() {
     uint draw_index = gl_BaseInstance;
     DrawData dd = draws[draw_index];
@@ -55,16 +77,16 @@ void main() {
         ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.prev_model;
     uint material_id = dd.material_id;
-    GpuMaterial mat = materials[material_id];
+    mat = materials[material_id];
 
-    vec3 VERTEX = in_position;
-    vec3 NORMAL = in_normal;
-    vec2 UV = in_tex_coord;
-    mat4 MODEL = model;
-    float TIME = ubo.time;
-    vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
-    float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
-    float TIME_OF_DAY = env_ubo.weather1.w;
+    VERTEX = in_position;
+    NORMAL = in_normal;
+    UV = in_tex_coord;
+    MODEL = model;
+    TIME = ubo.time;
+    WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
+    WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
+    TIME_OF_DAY = env_ubo.weather1.w;
 
     // Spline-mesh deform runs in object space before any FJSL user vertex
     // code, so FJSL vertex() still sees a deformed VERTEX/NORMAL and can
@@ -80,13 +102,9 @@ void main() {
 
     // After the spline deform, so a bent rail reports where its vertices
     // actually ended up. Must match fjell_mesh_template.glsl exactly.
-    vec3 WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
+    WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
 
-/*FJSL_VERTEX_CUSTOM_PARAMS*/
-
-    {
-/*FJSL_VERTEX_USER_CODE*/
-    }
+    fjell_hook_vertex();
 
     vec4 world_pos = model * vec4(VERTEX, 1.0);
     gl_Position = ubo.projection * ubo.view * world_pos;

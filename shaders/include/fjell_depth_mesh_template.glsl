@@ -79,6 +79,28 @@ uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_
     return (word >> (byte_in_word * 8)) & 0xFF;
 }
 
+// ── Built-ins ──
+// What vertex() reads and writes. main() fills them, calls the hook, and
+// places the vertex from what it left. They live at file scope so the hook
+// is a function of its own: a `return` in it ends the hook and keeps what it
+// set. WORLD_VERTEX is read-only: VERTEX, in object space, is what moves.
+GpuMaterial mat;
+vec3 VERTEX;
+vec3 NORMAL;
+vec2 UV;
+mat4 MODEL;
+float TIME;
+vec3 WIND_DIR;
+float WIND_SPEED;
+float TIME_OF_DAY;
+vec3 WORLD_VERTEX;
+
+// ── vertex() hook ──
+void fjell_hook_vertex() {
+/*FJSL_VERTEX_CUSTOM_PARAMS*/
+/*FJSL_VERTEX_USER_CODE*/
+}
+
 void main() {
     uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
     Meshlet m = meshlets[meshlet_idx];
@@ -88,7 +110,7 @@ void main() {
         ? instance_transforms[dd.first_instance + payload.instance_index]
         : dd.model;
     uint material_id = dd.material_id;
-    GpuMaterial mat = materials[material_id];
+    mat = materials[material_id];
 
     SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
 
@@ -97,23 +119,19 @@ void main() {
     if (tid < m.vertex_count) {
         uint global_vertex = meshlet_vertices[m.vertex_offset + tid] + dd.vertex_offset;
 
-        vec3 VERTEX = fetch_position(global_vertex);
-        vec3 NORMAL = fetch_normal(global_vertex);
-        vec2 UV = fetch_tex_coord(global_vertex);
-        mat4 MODEL = model;
-        float TIME = ubo.time;
-        vec3 WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
-        float WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
-        float TIME_OF_DAY = env_ubo.weather1.w;
+        VERTEX = fetch_position(global_vertex);
+        NORMAL = fetch_normal(global_vertex);
+        UV = fetch_tex_coord(global_vertex);
+        MODEL = model;
+        TIME = ubo.time;
+        WIND_DIR = env_ubo.wind_dir_speed_gust.xyz;
+        WIND_SPEED = env_ubo.wind_dir_speed_gust.w;
+        TIME_OF_DAY = env_ubo.weather1.w;
         // Must match fjell_mesh_template.glsl exactly: a vertex displaced
         // differently here than in the color pass z-fights.
-        vec3 WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
+        WORLD_VERTEX = (model * vec4(VERTEX, 1.0)).xyz;
 
-/*FJSL_VERTEX_CUSTOM_PARAMS*/
-
-        {
-/*FJSL_VERTEX_USER_CODE*/
-        }
+        fjell_hook_vertex();
 
         vec4 world_pos = model * vec4(VERTEX, 1.0);
         gl_MeshVerticesEXT[tid].gl_Position = ubo.projection * ubo.view * world_pos;
