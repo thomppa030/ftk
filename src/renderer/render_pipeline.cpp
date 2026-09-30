@@ -216,9 +216,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // AO output image is per-viewport: look up the active pp_resources
         // AO here so declare-time imports match whichever viewport is
         // being recorded. AoPass::collect_exports() can't see
-        // pp_resources, and default_pp_'s AO isn't the one the
-        // preview viewport writes — importing the wrong one lets the
-        // graph tracker's layout drift from actual image state.
+        // pp_resources, and another viewport's AO isn't the one this one
+        // writes — importing the wrong one lets the graph tracker's layout
+        // drift from actual image state.
         if (auto* gtao = pp_resources->gtao()) {
             if (gtao->ao) {
                 ImportedImage img{};

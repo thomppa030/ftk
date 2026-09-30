@@ -218,12 +218,10 @@ public:
   [[nodiscard]] LocalShadowPass &local_shadow_pass() { return passes_.get<LocalShadowPass>("local_shadows"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
   void apply_pending_ddgi_toggle();
-  /// Rebuild the DDGI atlases for a changed probe count. Shares the
-  /// toggle's post-fence call site, since both destroy live images.
+  /// Rebuild the DDGI atlases for a changed probe count.
   void apply_pending_ddgi_probe_count();
-  /// Destroy and recreate the default viewport's DDGI images and force a
-  /// grid re-fit. Assumes the caller is at a point where waiting the
-  /// device idle is acceptable.
+  /// Has every editor view make its resources anew, a fresh probe field
+  /// among them, and forces a grid re-fit.
   void rebuild_ddgi_resources();
   /// Decides what the frame's rays can hit: the reach of every active
   /// tracer from every viewport, the scene's surfaces within it, and the
@@ -335,7 +333,12 @@ public:
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
   [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
   [[nodiscard]] RenderPipeline& render_pipeline() { return render_pipeline_; }
-  [[nodiscard]] PostProcessResources& default_pp() { return *default_pp_; }
+  /// Post-process resources for an editor view of `width` × `height`, made
+  /// with the settings every editor view shares. A view makes its own anew
+  /// once view_resources_generation() moves on from the one it was made at,
+  /// as a settings change (DDGI on or off, the probe count) moves it.
+  [[nodiscard]] std::unique_ptr<PostProcessResources> make_view_resources(uint32_t width, uint32_t height);
+  [[nodiscard]] uint64_t view_resources_generation() const { return view_resources_generation_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
   void set_resource_manager(ResourceManager* rm);
@@ -458,7 +461,10 @@ private:
   SceneGatherer gatherer_;
 
   // ── Frame state ───────────────────────────────────────────────────────
-  std::unique_ptr<PostProcessResources> default_pp_;
+  /// What every editor view's post-process resources are made with, and
+  /// how many times a settings change has asked them to be made anew.
+  PostProcessConfig view_config_{};
+  uint64_t view_resources_generation_{0};
   /// The frame begun and not yet recorded, and its slot.
   gpu::Frame* frame_{nullptr};
   uint32_t current_frame_{0};

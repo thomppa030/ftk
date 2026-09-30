@@ -137,22 +137,18 @@ VulkanContext::VulkanContext(Window& window)
         FontAtlasGpu{&gpu_.bindless_textures(), &gpu_device()},
         base_path::resolve("engine_assets/fonts/Inter.fjfont"));
 
-    // Default post-process resources for the main viewport (all passes enabled)
-    PostProcessConfig default_config{};
-    default_config.ssr = true;
-    default_config.volumetric_fog = true;
-    default_config.ddgi = true;
-    default_config.ss_gi = true;
-    default_config.taa = true;
-    default_config.rt_reflection = gpu_.device_ref().ray_tracing_supported();
-    default_pp_ = std::make_unique<PostProcessResources>(gpu_device(), 256, 256, default_config,
-                                                         PostProcessResources::PassRefs{ddgi_pass(), ss_gi_pass()});
+    // Editor views run every pass.
+    view_config_.ssr = true;
+    view_config_.volumetric_fog = true;
+    view_config_.ddgi = true;
+    view_config_.ss_gi = true;
+    view_config_.taa = true;
+    view_config_.rt_reflection = gpu_.device_ref().ray_tracing_supported();
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
-    default_pp_.reset();
     debug_draw_.reset();
     if (font_library_) font_library_->destroy();
     font_library_.reset();
@@ -437,12 +433,14 @@ void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>
         reach.expand(box.min);
         reach.expand(box.max);
     };
-    if (default_pp_ && default_pp_->config().ddgi && ddgi_pass().config().enabled
-        && ddgi_pass().backend() == DdgiBackend::ray_traced) {
-        add(ddgi_pass().trace_reach_bounds());
-    }
+    const bool ddgi_traced = ddgi_pass().config().enabled && ddgi_pass().backend() == DdgiBackend::ray_traced;
+    bool ddgi_reach_added = false;
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
+        if (ddgi_traced && !ddgi_reach_added && vp.pp_resources != nullptr && vp.pp_resources->config().ddgi) {
+            add(ddgi_pass().trace_reach_bounds());
+            ddgi_reach_added = true;
+        }
         if (rt_reflection_pass().ray_traced_active()) {
             add(rt_reflection_pass().trace_reach_bounds(vp.camera_position));
         }
@@ -574,6 +572,10 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("render_preview");
     if (!req.target) return;
+    if (req.pp_resources == nullptr) {
+        FJELL_GFX_ERROR("A preview needs post-process resources of its own; it is not drawn");
+        return;
+    }
     if (!req.global_group.valid()) {
         FJELL_GFX_ERROR("A preview needs a global set of its own "
                         "(GlobalBindings::make_view_group); it is not drawn");
@@ -595,7 +597,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
 
-    auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
+    auto* pp = req.pp_resources;
     write_view_globals(req, environment, scene, *pp);
     render_scene_to(cmd, req, scene, dt, selected_id, pool, pp, false);
 
@@ -669,7 +671,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
     bool main_view = true;
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
-        auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
+        auto* pp = vp.pp_resources;
+        if (pp == nullptr) {
+            FJELL_GFX_ERROR("A view needs post-process resources of its own; it is not drawn");
+            continue;
+        }
         // The frame's own viewports bind the per-frame set, whatever a
         // request says.
         ViewportRenderRequest view = vp;
@@ -1500,46 +1506,26 @@ void VulkanContext::wait_idle() {
     vkDeviceWaitIdle(gpu_.device());
 }
 
+std::unique_ptr<PostProcessResources> VulkanContext::make_view_resources(uint32_t width, uint32_t height) {
+    return std::make_unique<PostProcessResources>(gpu_device(), width, height, view_config_,
+                                                  PostProcessResources::PassRefs{ddgi_pass(), ss_gi_pass()});
+}
+
 void VulkanContext::apply_pending_ddgi_toggle() {
     if (!has_pending_ddgi_toggle_) return;
     has_pending_ddgi_toggle_ = false;
+    if (view_config_.ddgi == pending_ddgi_toggle_) return;
 
-    auto& config = const_cast<PostProcessConfig&>(default_pp_->config());
-    if (config.ddgi == pending_ddgi_toggle_) return;
-
-    // Wait for ALL GPU work to complete before touching shared resources
-    submit_and_present(); // flush any pending recorded frame
-    vkDeviceWaitIdle(gpu_.device());
-
-    config.ddgi = pending_ddgi_toggle_;
-
-    // Get current viewport size
-    uint32_t w = 256, h = 256;
-    auto* tm = default_pp_->post();
-    if (tm && tm->extent.x > 0) {
-        w = tm->extent.x;
-        h = tm->extent.y;
-    }
-
-    // Resize triggers create/destroy of DDGI images based on updated config
-    default_pp_->resize(w, h);
+    // Every editor view makes its resources anew with the setting; the
+    // frames still reading the old ones keep them until they are done.
+    view_config_.ddgi = pending_ddgi_toggle_;
+    ++view_resources_generation_;
 }
 
 void VulkanContext::rebuild_ddgi_resources() {
-    uint32_t w = 256, h = 256;
-    auto* tm = default_pp_->post();
-    if (tm && tm->extent.x > 0) {
-        w = tm->extent.x;
-        h = tm->extent.y;
-    }
-    // Remade outright: resize() keeps the probe field when the probe count
-    // is unchanged, and this rebuild must happen even then. The frames
-    // still using the old one keep it until they are done.
-    if (auto* imgs = default_pp_->ddgi()) {
-        imgs->remake(gpu_device(), ddgi_pass().config(), w, h);
-    } else {
-        default_pp_->resize(w, h);
-    }
+    // Made anew, the probe field with them: resize() keeps the field when
+    // the probe count is unchanged, and this rebuild must happen even then.
+    ++view_resources_generation_;
 
     // The fresh atlases carry no lighting, so re-fit and re-seed the grid
     // against the current scene rather than resuming the old fit.
@@ -1550,11 +1536,9 @@ void VulkanContext::apply_pending_ddgi_probe_count() {
     if (!has_pending_ddgi_probe_count_) return;
     has_pending_ddgi_probe_count_ = false;
 
-    // Only the default viewport is rebuilt here. Offscreen viewports own
-    // their own PostProcessResources and pick the new count up through
-    // SceneViewport::resize().
-    if (default_pp_ == nullptr) return;
-    if (!default_pp_->config().ddgi) return;
+    // Offscreen viewports own their own PostProcessResources and pick the
+    // new count up through SceneViewport::resize().
+    if (!view_config_.ddgi) return;
 
     rebuild_ddgi_resources();
 }

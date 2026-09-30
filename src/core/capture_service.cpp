@@ -127,7 +127,7 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
                 || panel->offscreen->extent().y != request_.height) {
             vk.wait_idle();
             panel->offscreen->resize(request_.width, request_.height);
-            vk.default_pp().resize(request_.width, request_.height);
+            if (panel->pp) panel->pp->resize(request_.width, request_.height);
         }
     }
 }
@@ -176,7 +176,7 @@ void CaptureService::do_scene_capture(VulkanContext& vk,
 
     // The panel was resized to the capture dimensions; it just rendered at
     // that resolution and the post output now holds the result.
-    auto* output = vk.default_pp().post();
+    auto* output = panel->pp ? panel->pp->post() : nullptr;
     if (output == nullptr || !output->texture) {
         FJELL_CORE_ERROR("Capture: post output unavailable");
         return;

@@ -19,11 +19,12 @@ namespace fjell {
 
 namespace {
 
-/// What `source` shows of the main view's frame, as ImGui draws it; none
-/// until the pass behind it has drawn.
-ImTextureID shown(ViewportSource source, VulkanContext& ctx) {
-    auto& pp = ctx.default_pp();
-    switch (source) {
+/// What `panel` shows of its view's frame, as ImGui draws it; none until the
+/// pass behind it has drawn.
+ImTextureID shown(const ViewportPanel& panel, VulkanContext& ctx) {
+    if (!panel.offscreen || !panel.pp) return {};
+    PostProcessResources& pp = *panel.pp;
+    switch (panel.source) {
         case ViewportSource::final_color:
             return pp.post() ? imgui_texture(pp.post()->texture, ctx.post_pass().output_sampler()) : ImTextureID{};
         case ViewportSource::ao:
@@ -182,9 +183,12 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
         auto vp_h = static_cast<uint32_t>(panel.size.y);
         if (vp_w > 0 && vp_h > 0) {
             panel.offscreen->resize(vp_w, vp_h);
-
-            // Post-process images — resize via PostProcessResources
-            ctx.default_pp().resize(vp_w, vp_h);
+            if (!panel.pp || panel.pp_generation != ctx.view_resources_generation()) {
+                panel.pp = ctx.make_view_resources(vp_w, vp_h);
+                panel.pp_generation = ctx.view_resources_generation();
+            } else {
+                panel.pp->resize(vp_w, vp_h);
+            }
 
             // Contact shadows share one screen-space image across viewports,
             // so it has to cover the largest of them.
@@ -214,12 +218,13 @@ std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
     std::vector<ViewportRenderRequest> requests;
     requests.reserve(panels_.size());
     for (auto& panel : panels_) {
-        if (!panel.offscreen) continue;
+        if (!panel.offscreen || !panel.pp) continue;
         if (panel.size.x <= 0 || panel.size.y <= 0) continue;
 
         float aspect = panel.size.x / std::max(panel.size.y, 1.0f);
         ViewportRenderRequest req;
         req.target = panel.offscreen.get();
+        req.pp_resources = panel.pp.get();
         req.view = panel.camera.view_matrix();
         req.projection = panel.camera.projection_matrix(aspect);
         req.camera_position = panel.camera.position();
@@ -233,14 +238,14 @@ void ViewportManager::resize_active(uint32_t width, uint32_t height) {
     auto* panel = active_panel();
     if (panel && panel->offscreen && width > 0 && height > 0) {
         panel->offscreen->resize(width, height);
+        if (panel->pp) panel->pp->resize(width, height);
         panel->size = {static_cast<float>(width), static_cast<float>(height)};
     }
 }
 
 ImTextureID ViewportManager::active_texture(VulkanContext& ctx) {
     const auto* panel = active_panel();
-    if (!panel || !panel->offscreen) return {};
-    return shown(panel->source, ctx);
+    return panel != nullptr ? shown(*panel, ctx) : ImTextureID{};
 }
 
 uint32_t ViewportManager::active_source_mask() const {
@@ -295,7 +300,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         panel.img_pos = {panel.pos.x + pad_x, panel.pos.y + pad_y};
         panel.img_size = {img_w, img_h};
 
-        const ImTextureID tex = panel.offscreen ? shown(panel.source, ctx) : ImTextureID{};
+        const ImTextureID tex = shown(panel, ctx);
         if (tex && img_w > 0 && img_h > 0) {
             if (pad_x > 0 || pad_y > 0) {
                 ImGui::SetCursorScreenPos({panel.img_pos.x, panel.img_pos.y});

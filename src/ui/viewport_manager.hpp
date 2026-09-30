@@ -3,6 +3,7 @@
 #include "core/delegate.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/viewport_source.hpp"
 
 #include <glm/glm.hpp>
@@ -34,6 +35,11 @@ struct ViewportPanel {
     bool show_grid{true};
     bool needs_offscreen{false}; // deferred creation — apply_resize creates it
     std::unique_ptr<OffscreenPass> offscreen;
+    /// Its own post-process resources: its TAA history, AO, GI and probe
+    /// field, made with the offscreen and anew when the settings every
+    /// editor view shares change (the generation they were made at).
+    std::unique_ptr<PostProcessResources> pp;
+    uint64_t pp_generation{0};
 
     // Image rect after letterboxing (screen-space)
     glm::vec2 img_pos{0.0f};   // top-left of rendered image
