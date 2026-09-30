@@ -1,8 +1,9 @@
 #include "renderer/frame_graph.hpp"
 #include "gpu/vulkan/access.hpp"
+#include "gpu/command_list.hpp"
+#include <gpu/device.hpp>
 #include "gpu/frame.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/vk_check.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -285,10 +286,10 @@ void FrameGraph::bind_virtual_image(uint32_t image_id, gpu::Texture texture) {
 }
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
-                                       std::function<void(VkCommandBuffer)> execute) {
+                                       std::function<void(gpu::CommandList*)> execute) {
     // Phase 3 C2: accept created textures as virtual resources. They
     // participate in lifetime analysis and alias-group bin-packing but
-    // do not get a VkImage yet — each pass's record() continues to use
+    // do not get a texture yet — each pass's record() continues to use
     // its own Images storage. C3 swaps in real VMA-backed allocations
     // and rewires pass reads through graph-provided views.
     if (!builder.created_buffers().empty()) {
@@ -299,7 +300,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     }
 
     // Resolve imported and created textures into graph image ids.
-    // Imports are deduped across passes by (VkImage, layer range); creates
+    // Imports are deduped across passes by (texture, layer range); creates
     // are always fresh virtual entries (one per declaration — no dedup
     // yet since we don't have a stable name registry for cross-pass
     // ping-pong reads, and the migrated passes declare one create per
@@ -666,16 +667,15 @@ GraphHost FrameGraph::device_host(gpu::Device& device) {
     GraphHost host;
     host.shape = [&device](gpu::Texture texture) {
         const gpu::TextureInfo& info = device.info(texture);
-        const VkImageAspectFlags aspect = gpu::vulkan::native_aspect(device, texture);
+        const gpu::FormatKind texels = gpu::kind(info.format);
         return TextureShape{.mips = info.mips,
                             .layers = info.layers,
-                            .depth = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0};
+                            .depth = texels == gpu::FormatKind::depth || texels == gpu::FormatKind::depth_stencil};
     };
-    host.record = [&device](VkCommandBuffer cmd, gpu::Queue queue,
+    host.record = [&device](gpu::CommandList* list, gpu::Queue /*queue*/,
                             std::span<const gpu::Transition> transitions, std::string* trace) {
-        gpu::vulkan::CommandBufferList commands(device, cmd, queue);
         gpu::vulkan::trace_transitions(device, trace);
-        commands.list().transition(transitions);
+        list->transition(transitions);
         gpu::vulkan::trace_transitions(device, nullptr);
     };
     host.state_name = [](gpu::AccessSet state, bool depth) {
@@ -886,7 +886,7 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
     }
 }
 
-void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
+void FrameGraph::emit_barriers_for_pass(gpu::CommandList* list, const PassDecl& pass) {
     if (tracing_) {
         barrier_trace()->file << "  pass " << pass.name
                               << (pass.queue == QueueType::async_compute ? " on compute\n" : "\n");
@@ -902,7 +902,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         auto& img = images_[acc.image_id];
         // Virtual resources are backed by a TransientImagePool allocation
         // (bound via bind_virtual_image) after compute_alias_groups runs.
-        // If the pool didn't hand out a VkImage this frame, there's nothing
+        // If the pool didn't hand out a texture this frame, there's nothing
         // to barrier.
         if (!img.texture.valid()) { continue; }
 
@@ -952,7 +952,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         append_barrier_for_buffer(buffers_[use.buffer_id], use, pass.queue);
     }
 
-    record_transitions(cmd, pass.queue);
+    record_transitions(list, pass.queue);
     if (tracing_) {
         barrier_trace()->file << trace_pending_;
         trace_pending_.clear();
@@ -989,7 +989,7 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
     }
 }
 
-void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
+void FrameGraph::return_to_rest(gpu::CommandList* list, const PassDecl& pass) {
     transitions_scratch_.clear();
     for (const auto& use : pass.image_uses) {
         auto& img = images_[use.image_id];
@@ -1001,16 +1001,16 @@ void FrameGraph::return_to_rest(VkCommandBuffer cmd, const PassDecl& pass) {
         }
         coalesce_slices(img);
     }
-    record_transitions(cmd, pass.queue);
+    record_transitions(list, pass.queue);
     if (tracing_ && !trace_pending_.empty()) {
         barrier_trace()->file << "  rest after " << pass.name << '\n' << trace_pending_;
         trace_pending_.clear();
     }
 }
 
-void FrameGraph::record_transitions(VkCommandBuffer cmd, QueueType queue) {
+void FrameGraph::record_transitions(gpu::CommandList* list, QueueType queue) {
     if (transitions_scratch_.empty()) { return; }
-    host_->record(cmd, gpu_queue(queue), transitions_scratch_, tracing_ ? &trace_pending_ : nullptr);
+    host_->record(list, gpu_queue(queue), transitions_scratch_, tracing_ ? &trace_pending_ : nullptr);
 }
 
 gpu::TextureView FrameGraph::image_range(const TrackedImage& img, const SubresourceRange& range) {
@@ -1022,9 +1022,9 @@ gpu::TextureView FrameGraph::image_range(const TrackedImage& img, const Subresou
     return view;
 }
 
-bool FrameGraph::execute(VkCommandBuffer graphics_pre,
-                          VkCommandBuffer graphics_post,
-                          VkCommandBuffer async_compute,
+bool FrameGraph::execute(gpu::CommandList* graphics_pre,
+                          gpu::CommandList* graphics_post,
+                          gpu::CommandList* async_compute,
                           ThreadPool* pool, gpu::Frame* frame) {
     FJELL_PROFILE_SCOPE_N("frame_graph_execute");
     // Parallel lists come from the frame of a real device.
@@ -1039,15 +1039,15 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
     // so devices without async support don't need a second CB.
     size_t first_async_idx = passes_.size();
     for (size_t i = 0; i < passes_.size(); ++i) {
-        if (passes_[i].queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
+        if (passes_[i].queue == QueueType::async_compute && async_compute != nullptr) {
             first_async_idx = i;
             break;
         }
     }
-    VkCommandBuffer effective_post = (graphics_post != VK_NULL_HANDLE) ? graphics_post : graphics_pre;
+    gpu::CommandList* effective_post = graphics_post != nullptr ? graphics_post : graphics_pre;
 
     auto cb_for = [&](const PassDecl& pass, size_t index) {
-        if (pass.queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
+        if (pass.queue == QueueType::async_compute && async_compute != nullptr) {
             recorded_async = true;
             return async_compute;
         }
@@ -1057,7 +1057,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
     size_t i = 0;
     while (i < passes_.size()) {
         auto& pass = passes_[i];
-        VkCommandBuffer cb = cb_for(pass, i);
+        gpu::CommandList* cb = cb_for(pass, i);
 
         if (pass.parallel_group == 0 || !can_parallelize) {
             {
@@ -1097,7 +1097,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
             [&](uint32_t /*chunk*/, uint32_t first, uint32_t last) {
                 for (uint32_t p = first; p < last; ++p) {
                     gpu::CommandList& list = frame->parallel_commands(gpu::Queue::graphics);
-                    passes_[group_begin + p].execute(gpu::vulkan::native_command_buffer(list));
+                    passes_[group_begin + p].execute(&list);
                     recorded[p] = &list;
                 }
             });
@@ -1105,10 +1105,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
         // Parallel groups are graphics-only (depth_prepass + shadow are
         // the only current users), played in the first pass's list; a
         // mixed-queue group would need one play per list.
-        {
-            gpu::vulkan::CommandBufferList host(*device_host_for_, cb_for(passes_[group_begin], group_begin));
-            host.list().execute(recorded);
-        }
+        cb_for(passes_[group_begin], group_begin)->execute(recorded);
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
             apply_final_states(passes_[p]);

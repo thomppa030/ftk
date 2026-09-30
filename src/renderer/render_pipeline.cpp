@@ -15,8 +15,6 @@
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "scene/scene.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "gpu/vulkan/translate.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
@@ -83,7 +81,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
     return default_state_;
 }
 
-bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
+bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
                               gpu::Samples msaa, uint32_t active_sources,
                               ThreadPool& pool, gpu::Frame& frame,
                               uint32_t frame_index, ResourceRegistry& registry,
@@ -637,12 +635,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         graph.submit_declared_pass(
             entries_[pp.entry_index].name,
             builders_[pp.builder],
-            [p = pp.pass, &ctx](VkCommandBuffer cb) {
+            [p = pp.pass, &ctx](gpu::CommandList* list) {
                 FrameContext local = ctx;
-                const gpu::Queue queue = cb == ctx.async_compute_cmd ? gpu::Queue::compute
-                                                                      : gpu::Queue::graphics;
-                gpu::vulkan::CommandBufferList commands(*ctx.device, cb, queue);
-                local.command_list = &commands.list();
+                local.command_list = list;
                 p->record(local);
             });
     }
@@ -739,12 +734,10 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         lifetimes_logged_ = true;
     }
 
-    // Async compute CB + post-compute graphics CB are provided by the
-    // caller via ctx. Null handles here (no async support, or preview
-    // renderer) cause FrameGraph to fold everything back into the
-    // graphics CB — same as single-CB behavior.
-    return graph.execute(cmd, ctx.graphics_post_cmd, ctx.async_compute_cmd,
-                         &pool, &frame);
+    // The compute list and the graphics list after it come from the caller
+    // through ctx. Without them (no compute queue, or a view that is not the
+    // frame's main one) the graph records everything into `cmd`.
+    return graph.execute(&cmd, ctx.graphics_post, ctx.async_compute, &pool, &frame);
 }
 
 } // namespace fjell

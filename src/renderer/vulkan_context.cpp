@@ -1,6 +1,4 @@
 #include "renderer/vulkan_context.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "gpu/vulkan/translate.hpp"
 #include "environment/environment_ubo.hpp"
 #include "renderer/pass/cloud_shadow_pass.hpp"
 #include "renderer/pass/fog_density_field_pass.hpp"
@@ -387,7 +385,6 @@ FrameContext VulkanContext::build_frame_context(const ViewportRenderRequest& vie
         ctx.gpu_driven_commands = meshlet_instance_pass()->indirect_buffer(current_frame_);
     }
     ctx.pp_resources = pp;
-    ctx.descriptor_cache = &gpu_.descriptor_cache();
     ctx.device = &gpu_.core().gpu_device();
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
@@ -451,7 +448,7 @@ void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>
                                   particle_system_, *gpu_.mega_buffer(), current_frame_);
 }
 
-void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest& view,
+void VulkanContext::render_scene_to(gpu::CommandList& cmd, const ViewportRenderRequest& view,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp, bool main_view) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
@@ -524,8 +521,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     // the middle of the first's and overwrite what it has yet to read. Every
     // other view records all of its passes into one list: the frame's other
     // views after the main view's, a preview into its own.
-    current_ctx_.async_compute_cmd = main_view ? async_cmd_ : VK_NULL_HANDLE;
-    current_ctx_.graphics_post_cmd = main_view ? post_cmd_ : VK_NULL_HANDLE;
+    current_ctx_.async_compute = main_view ? async_list_ : nullptr;
+    current_ctx_.graphics_post = main_view ? post_list_ : nullptr;
     current_ctx_.bound_gi_indirect = bound_gi_indirect_;
     current_ctx_.bound_ss_gi_emissive = bound_ss_gi_emissive_;
 
@@ -546,7 +543,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
     // as such.
     const bool async_available = async_compute_enabled_
                               && gpu_.device_ref().async_compute_supported()
-                              && current_ctx_.async_compute_cmd != VK_NULL_HANDLE;
+                              && current_ctx_.async_compute != nullptr;
     bool any_async = render_pipeline_.execute(
         cmd, target, target.samples(), active_sources_,
         pool, *frame_, current_frame_,
@@ -576,18 +573,18 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("render_preview");
     if (!preview_complete(req)) return;
-    if (frame_cmd_ == VK_NULL_HANDLE) {
+    if (pre_list_ == nullptr) {
         FJELL_GFX_ERROR("A preview records into the frame, and none is recording; it is not drawn");
         return;
     }
     current_environment_ = &environment;
     write_view_globals(req, environment, scene, *req.pp_resources);
-    render_scene_to(frame_cmd_, req, scene, dt, selected_id, pool, req.pp_resources, false);
+    render_scene_to(*pre_list_, req, scene, dt, selected_id, pool, req.pp_resources, false);
 }
 
 Result<gpu::Readback> VulkanContext::read_back_in_frame(const gpu::TextureView& view,
                                                        const gpu::ReadbackDesc& desc) {
-    if (pre_list_ == nullptr || frame_cmd_ == VK_NULL_HANDLE) {
+    if (pre_list_ == nullptr) {
         return make_error("A readback in the frame needs a frame recording");
     }
     // The list that runs last so far: the one after the compute list once
@@ -596,7 +593,7 @@ Result<gpu::Readback> VulkanContext::read_back_in_frame(const gpu::TextureView& 
     return list.read_back(view, desc);
 }
 
-void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage& image,
+void VulkanContext::record_command_buffer(gpu::CommandList& cmd, const gpu::SwapchainImage& image,
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const EnvironmentState& environment,
                                           Scene* scene, float dt,
@@ -645,8 +642,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
             continue;
         }
         write_view_globals(vp, environment, scene, *pp);
-        const VkCommandBuffer view_cmd = main_view || !recorded_async_this_frame_ ? cmd : post_cmd_;
-        render_scene_to(view_cmd, vp, scene, dt, selected_id, pool, pp, main_view);
+        gpu::CommandList& view_list = main_view || !recorded_async_this_frame_ ? cmd : *post_list_;
+        render_scene_to(view_list, vp, scene, dt, selected_id, pool, pp, main_view);
         main_view = false;
     }
 
@@ -660,14 +657,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         play_hud_callback_(current_frame_);
     }
 
-    // ImGui to swapchain runs post-compute: on frames with async work
-    // it needs to wait for both the graphics pre-CB and compute CB to
-    // finish. Easiest is to record into the post-compute CB when the
-    // frame uses async (post_cmd non-null + recorded_async_this_frame_);
-    // otherwise stick with the pre CB, same as today's single-CB flow.
+    // ImGui draws into the swapchain image in the list that runs last: the
+    // one after the compute list on frames that used it, so it follows the
+    // views' compute work too.
     gpu::CommandList& swap_list = (post_list_ != nullptr && recorded_async_this_frame_)
         ? *post_list_ : *pre_list_;
-    VkCommandBuffer swap_cmd = gpu::vulkan::native_command_buffer(swap_list);
 
     // --- Render ImGui to swapchain ---
     {
@@ -684,8 +678,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         const gpu::Transition show = image.to_present();
         swap_list.transition({&show, 1});
     }
-
-    gpu::vulkan::collect_zones(gpu_.core().gpu_device(), swap_cmd);
 }
 
 static float halton(int index, int base) {
@@ -1101,7 +1093,7 @@ void VulkanContext::submit_and_present() {
         frame.submit(*post_list_, {.after = async_list_});
     }
     recorded_gpu_frame_ = nullptr;
-    frame_cmd_ = async_cmd_ = post_cmd_ = VK_NULL_HANDLE;
+    pre_list_ = async_list_ = post_list_ = nullptr;
     if (auto shown = gpu_.swapchain().present(frame, recorded_image_); !shown) {
         FJELL_GFX_CRITICAL("{}", shown.error());
     }
@@ -1158,11 +1150,6 @@ bool VulkanContext::begin_frame() {
         async_list_ = &frame_->commands(gpu::Queue::compute);
         post_list_ = &frame_->commands(gpu::Queue::graphics);
     }
-    frame_cmd_ = gpu::vulkan::native_command_buffer(*pre_list_);
-    async_cmd_ = async_list_ != nullptr ? gpu::vulkan::native_command_buffer(*async_list_)
-                                        : VK_NULL_HANDLE;
-    post_cmd_ = post_list_ != nullptr ? gpu::vulkan::native_command_buffer(*post_list_)
-                                      : VK_NULL_HANDLE;
     return true;
 }
 
@@ -1405,7 +1392,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         scene_sdf_pass().end_gather(current_frame_);
     }
 
-    record_command_buffer(frame_cmd_, acquired_image_, viewports, environment, scene, dt,
+    record_command_buffer(*pre_list_, acquired_image_, viewports, environment, scene, dt,
                           selected_id, pool);
 
     recorded_gpu_frame_ = frame_;

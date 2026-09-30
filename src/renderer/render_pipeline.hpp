@@ -18,6 +18,7 @@ class PostProcessResources;
 class RenderPass;
 class ThreadPool;
 namespace gpu {
+class CommandList;
 class Frame;
 }
 struct FrameContext;
@@ -79,7 +80,7 @@ public:
 
     /// Debug toggle: when false, FrameGraph::compute_alias_groups() emits
     /// one group per logical resource (no packing), so the pool allocates
-    /// a dedicated VkImage per logical. Intended for isolating regressions
+    /// a dedicated texture per logical. Intended for isolating regressions
     /// that may stem from aliasing reuse.
     void set_aliasing_enabled(bool enabled) noexcept { aliasing_enabled_ = enabled; }
     [[nodiscard]] bool aliasing_enabled() const noexcept { return aliasing_enabled_; }
@@ -111,7 +112,7 @@ public:
     /// Returns true if any pass recorded to the async compute CB — the
     /// caller uses this to decide whether to submit it and wait on its
     /// timeline semaphore.
-    [[nodiscard]] bool execute(VkCommandBuffer cmd, OffscreenPass& target,
+    [[nodiscard]] bool execute(gpu::CommandList& cmd, OffscreenPass& target,
                                gpu::Samples msaa, uint32_t active_sources,
                                ThreadPool& pool, gpu::Frame& frame,
                                uint32_t frame_index, ResourceRegistry& registry,
@@ -139,7 +140,7 @@ private:
     // ── Per-run scratch, kept so a run allocates nothing on its hot path ──
 
     /// Resource identity for the DAG sort and the cull walk. Imported
-    /// images key by (VkImage, layer range), imported buffers by VkBuffer;
+    /// images key by (texture, layer range), imported buffers by buffer;
     /// transients by the FNV-1a hash of the name they were declared with,
     /// so two passes naming the same transient resolve to the same key.
     struct ResKey {

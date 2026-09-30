@@ -13,8 +13,6 @@
 #include <string>
 #include <vector>
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 namespace fjell {
 
@@ -59,7 +57,6 @@ struct PassResources {
     gpu::Samples samples{gpu::Samples::x1};
 };
 
-class FrameDescriptorCache;
 class ThreadPool;
 class IndirectBatch;
 class MegaBuffer;
@@ -76,16 +73,13 @@ struct FrameContext {
     gpu::CommandList* command_list{nullptr};
     /// The GPU interface's device.
     gpu::Device* device{nullptr};
-    // Secondary command buffer for async-hinted passes. Null when the
-    // device doesn't expose a compute queue family, or for viewport
-    // previews that share the main frame's submission. FrameGraph::execute
-    // routes compute passes here; a null handle falls back to `cmd`.
-    VkCommandBuffer async_compute_cmd{VK_NULL_HANDLE};
-    // Second graphics CB — post-compute graphics work records into this
-    // one when the frame uses async compute. FrameGraph picks between
-    // this and `cmd` based on DAG position relative to the first async
-    // pass. Null falls back to `cmd` (same as today's single-CB flow).
-    VkCommandBuffer graphics_post_cmd{VK_NULL_HANDLE};
+    /// The frame's compute list, for the passes hinted to run on the
+    /// compute queue; none on a device without one, or for a view other
+    /// than the frame's main one, whose passes all record into one list.
+    gpu::CommandList* async_compute{nullptr};
+    /// The graphics list after the compute list, for what comes after the
+    /// first compute pass; none where there is no compute list.
+    gpu::CommandList* graphics_post{nullptr};
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     /// The view's global set, for pipelines that name the shared globals
@@ -132,10 +126,6 @@ struct FrameContext {
 
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};
-
-    // Per-frame descriptor set cache; passes call acquire() to get a set
-    // bound to transient views without managing a pool themselves.
-    FrameDescriptorCache* descriptor_cache{nullptr};
 
     // Cross-frame VMA-backed image pool for FrameGraph's aliased transients.
     TransientImagePool* transient_pool{nullptr};

@@ -8,7 +8,6 @@
 #include "gpu/transition.hpp"
 #include "renderer/resource_desc.hpp"
 
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <functional>
@@ -22,11 +21,8 @@ namespace fjell {
 
 namespace gpu {
 class CommandList;
-class Frame;
-}
-
-namespace gpu {
 class Device;
+class Frame;
 }
 
 class PassBuilder;
@@ -157,7 +153,9 @@ struct FinalState {
 // A pass declaration: what images it reads and writes
 struct PassDecl {
     std::string name;
-    std::function<void(VkCommandBuffer)> execute;
+    /// Records the pass into the list it is given: none in a run without a
+    /// device, as the unit tests make.
+    std::function<void(gpu::CommandList*)> execute;
     std::vector<ImageAccess> image_uses;
     std::vector<BufferUse> buffer_uses;
     std::vector<FinalState> final_states;
@@ -203,9 +201,10 @@ struct TextureShape {
 // makes its own, which is what lets it run the graph without a GPU.
 struct GraphHost {
     std::function<TextureShape(gpu::Texture)> shape;
-    /// Records `transitions` into `cmd` on `queue`, and describes each
-    /// barrier they became as a line in `trace` when that is not null.
-    std::function<void(VkCommandBuffer cmd, gpu::Queue queue,
+    /// Records `transitions` into `list` on `queue`, and describes each
+    /// barrier they became as a line in `trace` when that is not null. The
+    /// list is none in a run without a device.
+    std::function<void(gpu::CommandList* list, gpu::Queue queue,
                        std::span<const gpu::Transition> transitions, std::string* trace)>
         record;
     /// A state as the traces name it (on Vulkan, its layout).
@@ -266,7 +265,7 @@ public:
     /// aliasing. Passing a builder with created resources is an error
     /// until then.
     void submit_declared_pass(const std::string& name, const PassBuilder& builder,
-                              std::function<void(VkCommandBuffer)> execute);
+                              std::function<void(gpu::CommandList*)> execute);
 
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on
@@ -282,9 +281,9 @@ public:
     // Returns true if any pass was actually recorded into the async
     // compute CB — submit_and_present uses this to fire the compute
     // submit + timeline sync only when needed.
-    [[nodiscard]] bool execute(VkCommandBuffer graphics_pre,
-                               VkCommandBuffer graphics_post,
-                               VkCommandBuffer async_compute,
+    [[nodiscard]] bool execute(gpu::CommandList* graphics_pre,
+                               gpu::CommandList* graphics_post,
+                               gpu::CommandList* async_compute,
                                ThreadPool* pool, gpu::Frame* frame);
 
     // Compute per-image lifetime (first/last pass index, unioned image
@@ -303,11 +302,11 @@ public:
     // non-overlapping lifetimes and identical descriptors into shared
     // AliasGroups. Persistent and backed (imported) images stay out of
     // the pool — each lands in its own singleton group. C3 turns these
-    // groups into real VkImage allocations; C2 only analyses.
+    // groups into real texture allocations; C2 only analyses.
     //
     // When aliasing is disabled via set_aliasing_enabled(false), every
     // candidate is returned as its own singleton group — the pool then
-    // allocates one distinct VkImage per logical resource. Used as a
+    // allocates one distinct texture per logical resource. Used as a
     // debug kill switch for A/B regression hunts.
     void compute_alias_groups(const std::vector<ResourceLifetime>& lifetimes,
                               std::vector<AliasGroup>& out) const;
@@ -385,11 +384,11 @@ private:
 
     // Every transition a pass needs, image and buffer, recorded as one
     // batch.
-    void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
+    void emit_barriers_for_pass(gpu::CommandList* list, const PassDecl& pass);
 
     // Records transitions_scratch_ into `cmd` on `queue`, describing each
     // barrier in trace_pending_ while the barrier trace records.
-    void record_transitions(VkCommandBuffer cmd, QueueType queue);
+    void record_transitions(gpu::CommandList* list, QueueType queue);
 
     // After a run: store every imported image's slice state for the next
     // run to start from.
@@ -423,7 +422,7 @@ private:
     // After a pass, in its command buffer: return each resting image it
     // declared to rest, as a read by the resting access would, so nothing
     // is emitted for one already there.
-    void return_to_rest(VkCommandBuffer cmd, const PassDecl& pass);
+    void return_to_rest(gpu::CommandList* list, const PassDecl& pass);
 
     // The run's host, and the one made for the device begin_frame() was
     // last handed.

@@ -2,6 +2,7 @@
 
 #include "core/small_vector.hpp"
 #include "gpu/vulkan/device_impl.hpp"
+#include "gpu/vulkan/native.hpp"
 #include "renderer/gpu/frames_in_flight.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/upload_context.hpp"
@@ -275,6 +276,15 @@ Result<> Device::end_frame(Frame& frame) {
         signals.push_back(
             semaphore_at(self.frame_timeline, f.serial, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
     };
+
+    // The times of the zones the frames before recorded are read back into
+    // this frame's last graphics list.
+    for (auto it = f.submissions.rbegin(); it != f.submissions.rend(); ++it) {
+        CommandList::Impl& list = it->list->impl();
+        if (list.queue != Queue::graphics) continue;
+        vulkan::collect_zones(*this, list.cb);
+        break;
+    }
 
     const VkSemaphoreSubmitInfo upload_wait = semaphore_at(
         upload.buffer_timeline(), upload.last_buffer_value(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);

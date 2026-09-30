@@ -382,14 +382,14 @@ private:
   /// lacks.
   [[nodiscard]] bool preview_complete(const ViewportRenderRequest &req) const;
   void
-  record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage &image,
+  record_command_buffer(gpu::CommandList &cmd, const gpu::SwapchainImage &image,
                         const std::vector<ViewportRenderRequest> &viewports,
                         const EnvironmentState &environment, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool);
   /// Renders `view` into its target: what it carries besides the camera
   /// (shadows, graph, backdrop, grid) decides how.
   /// The frame's main view alone records into its async lists.
-  void render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest &view,
+  void render_scene_to(gpu::CommandList &cmd, const ViewportRenderRequest &view,
                        Scene *scene, float dt, uint32_t selected_id,
                        ThreadPool &pool, PostProcessResources *pp, bool main_view);
   /// Writes `view`'s uniforms, environment, lights and fog volumes into the
@@ -467,13 +467,12 @@ private:
   /// into: pre, and the compute and post lists where there is a compute
   /// queue.
   gpu::Frame* recorded_gpu_frame_{nullptr};
+  /// The lists of the frame from begin_frame() until it is sent: pre, and
+  /// where there is a compute queue the compute list and the graphics list
+  /// after it.
   gpu::CommandList* pre_list_{nullptr};
   gpu::CommandList* async_list_{nullptr};
   gpu::CommandList* post_list_{nullptr};
-  /// Those lists' command buffers, which the frame's recording writes.
-  VkCommandBuffer frame_cmd_{VK_NULL_HANDLE};
-  VkCommandBuffer async_cmd_{VK_NULL_HANDLE};
-  VkCommandBuffer post_cmd_{VK_NULL_HANDLE};
   /// The swapchain image `frame_` draws into, and the one
   /// `recorded_gpu_frame_` drew into, which it presents.
   gpu::SwapchainImage acquired_image_{};

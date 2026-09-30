@@ -253,14 +253,6 @@ void GpuContext::reset_view_bindings(uint32_t slot) {
     global_bindings_.set(slot, entries);
 }
 
-FrameDescriptorCache& GpuContext::descriptor_cache() {
-    return gpu::vulkan::frame_cache(core_.gpu_device());
-}
-
-const FrameDescriptorCache& GpuContext::descriptor_cache() const {
-    return gpu::vulkan::frame_cache(core_.gpu_device());
-}
-
 void GpuContext::share_draw_data_layout(gpu::SharedLayout layout) {
     shared_layouts_.draw_data = layout;
 }

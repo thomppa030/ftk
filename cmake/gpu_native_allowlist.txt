@@ -6,7 +6,6 @@
 # the commit that teaches the check a new pattern, and then only the files
 # already using it.
 src/renderer/frame_graph.cpp
-src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp
 src/renderer/gpu/buffer.hpp
 src/renderer/gpu/device.cpp
@@ -22,9 +21,6 @@ src/renderer/gpu/window.cpp
 src/renderer/gpu/window.hpp
 src/renderer/gpu_context.cpp
 src/renderer/gpu_context.hpp
-src/renderer/pass/render_pass.hpp
-src/renderer/render_pipeline.cpp
-src/renderer/render_pipeline.hpp
 src/renderer/vulkan_context.cpp
 src/renderer/vulkan_context.hpp
 tests/library_link/gpu.cpp
