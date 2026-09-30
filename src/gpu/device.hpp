@@ -39,6 +39,8 @@ struct Caps {
     bool async_compute{false};
     /// How many frames may be recorded or on the GPU at once.
     uint32_t frames_in_flight{1};
+    /// The most samples a colour and a depth target may both have.
+    Samples max_samples{Samples::x1};
     /// Whether the GPU builds acceleration structures and traces them with
     /// ray queries. Without it none can be made.
     bool ray_queries{false};

@@ -207,6 +207,7 @@ Device::Impl::Impl(GpuCore& gpu_core)
                         reinterpret_cast<uint64_t>(frame_timeline), "frame timeline");
 
     caps.frames_in_flight = MAX_FRAMES_IN_FLIGHT;
+    caps.max_samples = vulkan::from_vk(gpu_core.device().max_msaa_samples());
     frames.resize(MAX_FRAMES_IN_FLIGHT);
     const auto found = gpu_core.device().find_queue_families();
     queues[0] = gpu_core.graphics_queue();
