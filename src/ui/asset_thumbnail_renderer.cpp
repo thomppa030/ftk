@@ -59,10 +59,6 @@ constexpr const char* GRAPH_PATH = "assets/render_graphs/asset_thumbnail.fjgraph
 // reason.
 constexpr const char* SCENE_GRAPH_PATH = "assets/render_graphs/editor_preview.fjgraph";
 
-// The camera preview waits this long too: MAX_FRAMES_IN_FLIGHT command
-// buffers may still be pending when the private set is allocated.
-constexpr int DRAIN_FRAMES = 3;
-
 // Cache hits are a PNG decode and a small upload each, so several fit in a
 // frame; a render is a full pipeline submit and gets the frame to itself.
 constexpr int CACHE_HITS_PER_TICK = 8;
@@ -759,15 +755,7 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
     ++ticks_;
     evict_least_recent();
 
-    if (stage_.draining()) {
-        stage_.advance_drain();
-        return;
-    }
-
-    if (pending_capture_) {
-        render_pending_capture(deps, dt);
-        if (stage_.draining()) return;
-    }
+    if (pending_capture_) render_pending_capture(deps, dt);
 
     int served = 0;
     while (!queue_.empty() && served < CACHE_HITS_PER_TICK) {
@@ -789,11 +777,10 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
             continue;
         }
 
-        // A render owns the rest of this tick. When the stage was just
-        // created the render waits for the drain, so the path goes back on
-        // the queue rather than being lost.
+        // A render owns the rest of this tick. A subject not ready yet goes
+        // back on the queue rather than being lost.
         (void)stage_.ensure(deps);
-        if (stage_.draining() || !subject->ready(deps, path)) {
+        if (!subject->ready(deps, path)) {
             refresh(path);
             return;
         }
@@ -858,8 +845,6 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
     target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), SIZE, SIZE, vk.msaa_samples());
     const PostProcessResources::PassRefs refs{vk.ddgi_pass(), vk.ss_gi_pass()};
     pp_ = std::make_unique<PostProcessResources>(vk.gpu_device(), SIZE, SIZE, pp_config_from_graph(*graph_), refs);
-    global_group_ = vk.gpu().global_bindings().make_view_group("asset_thumbnail");
-    skip_frames_ = DRAIN_FRAMES;
     return true;
 }
 
@@ -899,7 +884,6 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     req.pp_resources = pp_.get();
     req.skip_shadows = options.skip_shadows;
     req.viewport_graph = options.graph != nullptr ? options.graph : graph_;
-    req.global_group = global_group_.get();
     req.backdrop = options.backdrop;
 
     auto& post = vk.post_pass();
@@ -940,7 +924,6 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
 
 void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
     if (deps.vulkan_context) deps.vulkan_context->release_scene_particles(scene_);
-    global_group_.reset();
     pp_.reset();
     target_.reset();
     scene_.clear();
@@ -966,7 +949,7 @@ bool AssetThumbnailRenderer::render(const Deps& deps, float dt,
 }
 
 void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) {
-    if (!stage_.ensure(deps) || stage_.draining()) return;
+    if (!stage_.ensure(deps)) return;
     PendingCapture capture = std::move(*pending_capture_);
     pending_capture_.reset();
 

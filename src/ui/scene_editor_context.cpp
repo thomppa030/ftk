@@ -318,7 +318,7 @@ void SceneEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
 
     // Camera preview PIP overlay (only after preview has rendered at least once)
-    if (camera_preview_skip_frames_ < 0 && camera_preview_pp_ && camera_preview_pp_->post()) {
+    if (camera_preview_rendered_ && camera_preview_pp_ && camera_preview_pp_->post()) {
         auto* vp = viewport_manager_.active_panel();
         if (vp && vp->img_size.x > 0 && vp->img_size.y > 0) {
             const ImTextureID tex = imgui_texture(camera_preview_pp_->post()->texture,
@@ -1285,10 +1285,6 @@ std::vector<ViewportRenderRequest> SceneEditorContext::build_render_requests() {
 
 void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float dt,
                                           const EnvironmentState& environment, ThreadPool& pool) {
-    if (camera_preview_skip_frames_ > 0) {
-        --camera_preview_skip_frames_;
-        return;
-    }
     if (!camera_preview_target_ || !camera_preview_pp_ || selected_id_ == 0) return;
 
     auto* cam = dynamic_cast<CameraNode*>(scene->find(selected_id_));
@@ -1302,12 +1298,9 @@ void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float 
     req.pp_resources = camera_preview_pp_.get();
     req.skip_shadows = true;
     req.viewport_graph = camera_preview_graph_;
-    req.global_group = camera_preview_global_group_.get();
 
     vk.render_preview(req, environment, scene, dt, selected_id_, pool);
-
-    // Signal that at least one render completed — overlay reads < 0
-    camera_preview_skip_frames_ = -1;
+    camera_preview_rendered_ = true;
 }
 
 void SceneEditorContext::apply_resize(VulkanContext& vk) {
@@ -1340,22 +1333,15 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
 
         camera_preview_pp_ =
             std::make_unique<PostProcessResources>(vk.gpu_device(), 320, 180, preview_config, refs);
-        // A global set of its own, so the preview's depth and AO never
-        // replace the frame's.
-        camera_preview_global_group_ = vk.gpu().global_bindings().make_view_group("camera_preview");
         camera_preview_node_id_ = selected_id_;
-        // Skip rendering for MAX_FRAMES_IN_FLIGHT frames to let all in-flight
-        // command buffers drain before the preview's descriptors are first used
-        camera_preview_skip_frames_ = 3;
+        camera_preview_rendered_ = false;
     } else if (!need_preview && camera_preview_target_) {
-        // Must wait for all in-flight command buffers that reference
-        // the preview's descriptor sets / images before destroying them.
-        vk.wait_idle();
-        camera_preview_global_group_.reset();
+        // The frames still drawing the preview keep its images until they
+        // are done.
         camera_preview_pp_.reset();
         camera_preview_target_.reset();
         camera_preview_node_id_ = 0;
-        camera_preview_skip_frames_ = 0;
+        camera_preview_rendered_ = false;
         camera_preview_graph_ = nullptr;
     }
 }

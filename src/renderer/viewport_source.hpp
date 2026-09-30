@@ -64,12 +64,6 @@ struct ViewportRenderRequest {
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
 
-    /// The global set this offscreen view owns (GlobalBindings::make_view_group),
-    /// which render_preview requires: it refreshes it from the frame slot's
-    /// global set with this view's own depth, AO and screen colour, leaving
-    /// the frame's own set to the frame.
-    gpu::BindGroup global_group{};
-
     /// `.fjgraph` that decides which passes run for this viewport. Null
     /// falls back to RenderPipeline's global pass_state_ flags — used by
     /// the main viewport during the migration window before per-viewport

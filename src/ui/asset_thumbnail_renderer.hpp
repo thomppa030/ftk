@@ -167,10 +167,6 @@ public:
         /// Create the GPU resources on first use. False when the render
         /// graph could not be loaded, which disables scene thumbnails.
         bool ensure(const Deps& deps);
-        /// True while in-flight command buffers may still predate the
-        /// private set; a render this tick has to wait.
-        [[nodiscard]] bool draining() const { return skip_frames_ > 0; }
-        void advance_drain() { if (skip_frames_ > 0) --skip_frames_; }
 
         /// Empty the scene and place the light; the subject adds the rest.
         Scene& begin();
@@ -189,8 +185,6 @@ public:
         std::unique_ptr<OffscreenPass> target_;
         std::unique_ptr<PostProcessResources> pp_;
         const FjGraph* graph_{nullptr};
-        gpu::Owned<gpu::BindGroup> global_group_;
-        int skip_frames_{0};
         Scene scene_;
     };
 

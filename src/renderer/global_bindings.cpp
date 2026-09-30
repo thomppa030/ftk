@@ -72,15 +72,11 @@ Result<> GlobalBindings::create(gpu::Device& gpu) {
     return {};
 }
 
-std::optional<std::vector<gpu::BindEntry>> GlobalBindings::entries(
-    uint32_t slot, std::span<const gpu::BindEntry> overrides) {
+std::optional<std::vector<gpu::BindEntry>> GlobalBindings::entries(uint32_t slot) {
     std::vector<gpu::BindEntry> entries;
     entries.reserve(declared_.size());
     for (size_t i = 0; i < declared_.size(); ++i) {
-        std::optional<gpu::BindResource> content = contents_[slot][i];
-        for (const gpu::BindEntry& override : overrides) {
-            if (override.name == declared_[i].name) content = override.resource;
-        }
+        const std::optional<gpu::BindResource>& content = contents_[slot][i];
         if (!content) {
             if (!missing_reported_) {
                 missing_reported_ = true;
@@ -137,27 +133,6 @@ void GlobalBindings::set(uint32_t slot, std::span<const gpu::BindEntry> entries)
     if (!groups_[slot]) return;
     if (auto written = gpu_->update(groups_[slot], entries); !written) {
         FJELL_GFX_ERROR("Global set: {}", written.error());
-    }
-}
-
-gpu::Owned<gpu::BindGroup> GlobalBindings::make_view_group(std::string_view name) {
-    // Any slot will do: the view is refreshed from the slot it renders in.
-    const auto entries = this->entries(0);
-    if (!entries) return {};
-    auto made = gpu_->create(gpu::SharedGroupDesc{.layout = layout_, .entries = *entries, .name = name});
-    if (!made) {
-        FJELL_GFX_ERROR("Global set for '{}': {}", name, made.error());
-        return {};
-    }
-    return std::move(*made);
-}
-
-void GlobalBindings::refresh_view(gpu::BindGroup view, uint32_t slot,
-                                  std::span<const gpu::BindEntry> overrides) {
-    const auto entries = this->entries(slot, overrides);
-    if (!entries) return;
-    if (auto written = gpu_->update(view, *entries); !written) {
-        FJELL_GFX_ERROR("A view's global set: {}", written.error());
     }
 }
 

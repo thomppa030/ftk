@@ -183,11 +183,9 @@ private:
     // Camera preview (PIP overlay when CameraNode selected)
     std::unique_ptr<OffscreenPass> camera_preview_target_;
     std::unique_ptr<PostProcessResources> camera_preview_pp_;
-    // Private global descriptor set so the preview's view-dependent image
-    // bindings never mutate the shared per-frame set the main CB binds.
-    gpu::Owned<gpu::BindGroup> camera_preview_global_group_;
     uint32_t camera_preview_node_id_{0};  // currently previewing this camera
-    int camera_preview_skip_frames_{0};   // skip N frames after creation
+    /// The preview has drawn since it was made: the overlay shows it then.
+    bool camera_preview_rendered_{false};
     // Cached editor_preview.fjgraph pointer. Set on first need_preview;
     // owned by VulkanContext::graph_cache_, so the pointer is stable.
     const struct FjGraph* camera_preview_graph_{nullptr};

@@ -70,11 +70,6 @@ public:
 
     void set_view(const SceneViewportView& view) { view_ = view; }
 
-    /// The global set this viewport renders with, its own so its depth and
-    /// AO never replace the frame's.
-    void set_global_group(gpu::Owned<gpu::BindGroup> group) { global_group_ = std::move(group); }
-    [[nodiscard]] gpu::BindGroup global_group() const { return global_group_.get(); }
-
     [[nodiscard]] const std::string& name() const { return config_.name; }
     [[nodiscard]] uint32_t bindless_index() const { return bindless_index_; }
     [[nodiscard]] OffscreenPass& offscreen_pass() { return *offscreen_; }
@@ -91,7 +86,6 @@ private:
     std::unique_ptr<PostProcessResources> pp_;
 
     gpu::Texture last_synced_{};
-    gpu::Owned<gpu::BindGroup> global_group_;
 };
 
 } // namespace fjell

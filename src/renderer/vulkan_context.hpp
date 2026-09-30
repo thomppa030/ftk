@@ -373,9 +373,9 @@ public:
   void record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                            OffscreenPass& target, uint32_t frame_index);
 
-  /// Renders `req`, a view with a target, post-process resources and global
-  /// set of its own, into the frame being recorded, ahead of the frame's own
-  /// views. Called between begin_frame() and record_frame().
+  /// Renders `req`, a view with a target and post-process resources of its
+  /// own, into the frame being recorded, ahead of the frame's own views.
+  /// Called between begin_frame() and record_frame().
   void render_preview(const ViewportRenderRequest& req,
                       const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
@@ -402,7 +402,7 @@ private:
                         const EnvironmentState &environment, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool);
   /// Renders `view` into its target: what it carries besides the camera
-  /// (shadows, graph, private global set, backdrop, grid) decides how.
+  /// (shadows, graph, backdrop, grid) decides how.
   /// The frame's main view alone records into its async lists.
   void render_scene_to(VkCommandBuffer cmd, const ViewportRenderRequest &view,
                        Scene *scene, float dt, uint32_t selected_id,
@@ -428,8 +428,6 @@ private:
   /// The environment's fog volumes in the frame's memory.
   [[nodiscard]] gpu::BufferRange write_fog_volumes(const EnvironmentState &environment);
 
-  // `view.global_set` overrides the per-frame global descriptor set bound for
-  // the frame (used by previews that own a private set); null = per-frame set.
   /// `view.viewport_graph` decides which passes this call runs, and so
   /// whether the GPU-driven meshlet buffers may be handed to the color
   /// passes; null = the global pass state governs.

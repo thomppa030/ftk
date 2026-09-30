@@ -366,9 +366,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // below, which carries the TAA jitter.
     ctx.view = gatherer_.view_matrix();
     ctx.projection = gatherer_.projection_matrix();
-    // Previews bind their own global set; everyone else the frame slot's.
-    ctx.globals = view.global_group.valid() ? view.global_group
-                                             : gpu_.global_bindings().group(current_frame_);
+    ctx.globals = gpu_.global_bindings().group(current_frame_);
     ctx.bindless = gpu_.bindless_textures().group(current_frame_);
     ctx.draw_data = gatherer_.draw_data_descriptor().group(current_frame_);
     ctx.debug_draw = debug_draw_.get();
@@ -573,11 +571,6 @@ bool VulkanContext::preview_complete(const ViewportRenderRequest& req) const {
         FJELL_GFX_ERROR("A preview needs post-process resources of its own; it is not drawn");
         return false;
     }
-    if (!req.global_group.valid()) {
-        FJELL_GFX_ERROR("A preview needs a global set of its own "
-                        "(GlobalBindings::make_view_group); it is not drawn");
-        return false;
-    }
     return true;
 }
 
@@ -695,13 +688,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
             FJELL_GFX_ERROR("A view needs post-process resources of its own; it is not drawn");
             continue;
         }
-        // The frame's own viewports bind the per-frame set, whatever a
-        // request says.
-        ViewportRenderRequest view = vp;
-        view.global_group = {};
-        write_view_globals(view, environment, scene, *pp);
+        write_view_globals(vp, environment, scene, *pp);
         const VkCommandBuffer view_cmd = main_view || !recorded_async_this_frame_ ? cmd : post_cmd_;
-        render_scene_to(view_cmd, view, scene, dt, selected_id, pool, pp, main_view);
+        render_scene_to(view_cmd, vp, scene, dt, selected_id, pool, pp, main_view);
         main_view = false;
     }
 
@@ -824,11 +813,7 @@ void VulkanContext::write_view_globals(const ViewportRenderRequest& view, const 
                                                          contact_shadow_pass().shadow_sampler())
                                           : unoccluded},
     };
-    if (view.global_group.valid()) {
-        gpu_.global_bindings().refresh_view(view.global_group, current_frame_, entries);
-    } else {
-        gpu_.global_bindings().set(current_frame_, entries);
-    }
+    gpu_.global_bindings().set(current_frame_, entries);
 }
 
 GlobalUbo VulkanContext::view_uniforms(const glm::mat4& view, const glm::mat4& projection,
@@ -1624,9 +1609,6 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     const PostProcessResources::PassRefs refs{ddgi_pass(), ss_gi_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(gpu_device(), config, refs, bindless_idx);
-    // A global set of its own, so its view-dependent images never replace
-    // the frame's.
-    viewport->set_global_group(gpu_.global_bindings().make_view_group(config.name));
 
     scene_viewports_[config.name] = std::move(viewport);
     return bindless_idx;
@@ -1662,9 +1644,7 @@ uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) c
 void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
                                             const EnvironmentState& environment, ThreadPool& pool) {
     for (auto& [name, viewport] : scene_viewports_) {
-        ViewportRenderRequest req = viewport->build_request();
-        req.global_group = viewport->global_group();
-        render_preview(req, environment, scene, dt, selected_id, pool);
+        render_preview(viewport->build_request(), environment, scene, dt, selected_id, pool);
         viewport->sync_bindless(gpu_.bindless_textures());
     }
 }
