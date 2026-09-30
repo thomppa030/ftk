@@ -2,7 +2,6 @@
 
 #include "core/log.hpp"
 #include "core/project.hpp"
-#include "gpu/device.hpp"
 #include "gpu/swapchain.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -19,17 +18,10 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <vector>
 
 namespace fjell {
 
 namespace {
-
-void bgra_to_rgba(uint8_t* data, size_t pixel_count) {
-    for (size_t i = 0; i < pixel_count; ++i) {
-        std::swap(data[(i * 4) + 0], data[(i * 4) + 2]);
-    }
-}
 
 bool write_png(const std::filesystem::path& path, uint32_t w, uint32_t h,
                const void* rgba_data) {
@@ -125,7 +117,6 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     if (panel->offscreen) {
         if (panel->offscreen->extent().x != request_.width
                 || panel->offscreen->extent().y != request_.height) {
-            vk.wait_idle();
             panel->offscreen->resize(request_.width, request_.height);
             if (panel->pp) panel->pp->resize(request_.width, request_.height);
         }
@@ -144,8 +135,19 @@ void CaptureService::prepare_for_record(VulkanContext& vk,
     }
 }
 
-void CaptureService::finish_after_present(VulkanContext& vk,
-                                          ViewportManager& viewports) {
+void CaptureService::record_read(VulkanContext& vk, ViewportManager& viewports) {
+    if (state_ != State::capture_ready) return;
+    switch (request_.mode) {
+    case Mode::scene:
+        read_scene(vk, viewports);
+        vk.post_pass().set_ungraded(saved_ungraded_);
+        break;
+    case Mode::pane: read_pane(vk); break;
+    }
+    state_ = read_ ? State::reading : State::idle;
+}
+
+void CaptureService::finish_after_present(VulkanContext& /*vk*/, ViewportManager& /*viewports*/) {
     if (state_ == State::warming) {
         if (--warmup_remaining_ <= 0) {
             state_ = State::capture_ready;
@@ -153,56 +155,46 @@ void CaptureService::finish_after_present(VulkanContext& vk,
         return;
     }
 
-    if (state_ != State::capture_ready) { return; }
-
-    switch (request_.mode) {
-    case Mode::scene:
-        do_scene_capture(vk, viewports);
-        vk.post_pass().set_ungraded(saved_ungraded_);
-        break;
-    case Mode::pane:  do_pane_capture(vk); break;
-    }
-
+    if (state_ != State::reading || !read_ || !read_->ready()) return;
+    write_png(next_output_path(read_tag_), read_->width(), read_->height(), read_->pixels().data());
+    read_.reset();
     state_ = State::idle;
 }
 
-void CaptureService::do_scene_capture(VulkanContext& vk,
-                                      ViewportManager& viewports) {
+void CaptureService::read_scene(VulkanContext& vk, ViewportManager& viewports) {
     auto* panel = viewports.active_panel();
     if (panel == nullptr || !panel->offscreen) {
         FJELL_CORE_ERROR("Capture: panel/offscreen vanished mid-capture");
         return;
     }
 
-    // The panel was resized to the capture dimensions; it just rendered at
-    // that resolution and the post output now holds the result.
+    // The panel was resized to the capture dimensions, and this frame
+    // renders it at that resolution into the post output.
     auto* output = panel->pp ? panel->pp->post() : nullptr;
     if (output == nullptr || !output->texture) {
         FJELL_CORE_ERROR("Capture: post output unavailable");
         return;
     }
 
-    // The editor's viewport samples the post output after the frame.
-    auto readback = vk.gpu_device().read_back(output->texture,
-                                              {.use = gpu::Access::sampled_fragment});
+    // The editor's viewport samples the post output.
+    auto readback = vk.read_back_in_frame(output->texture, {.use = gpu::Access::sampled_fragment});
     if (!readback) {
         FJELL_CORE_ERROR("Capture: {}", readback.error());
         return;
     }
-    readback->wait();
+    read_ = std::move(*readback);
+    read_tag_ = "scene";
 
-    auto path = next_output_path("scene");
-    write_png(path, readback->width(), readback->height(), readback->pixels().data());
-
-    // Restore the panel size so the next frame's apply_resize puts the
-    // editor viewport back to its on-screen size.
+    // Back to the panel's own size, so the next frame's apply_resize puts
+    // the editor viewport back to its on-screen size. The read keeps the
+    // image it reads until its frame is done.
     if (panel->id == saved_panel_id_) {
         panel->size.x = saved_panel_size_x_;
         panel->size.y = saved_panel_size_y_;
     }
 }
 
-void CaptureService::do_pane_capture(VulkanContext& vk) {
+void CaptureService::read_pane(VulkanContext& vk) {
     ImGuiWindow* win = ImGui::FindWindowByName(request_.pane_name.c_str());
     if (win == nullptr) {
         FJELL_CORE_ERROR("Capture: pane not found");
@@ -223,8 +215,10 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
         return;
     }
 
-    auto readback = vk.gpu_device().read_back(
-        vk.presented_swapchain_texture(),
+    // This frame's own image, with the UI drawn and not yet presented. The
+    // read converts to RGBA whatever order the swapchain keeps.
+    auto readback = vk.read_back_in_frame(
+        vk.frame_swapchain_texture(),
         {.region = {.x = static_cast<uint32_t>(x0),
                     .y = static_cast<uint32_t>(y0),
                     .width = static_cast<uint32_t>(w),
@@ -234,20 +228,13 @@ void CaptureService::do_pane_capture(VulkanContext& vk) {
         FJELL_CORE_ERROR("Capture: {}", readback.error());
         return;
     }
-    readback->wait();
-    const auto pixels = readback->pixels();
-    std::vector<uint8_t> cropped(pixels.begin(), pixels.end());
+    read_ = std::move(*readback);
 
-    bgra_to_rgba(cropped.data(), static_cast<size_t>(w) * h);
-
-    std::string tag = "pane_";
+    read_tag_ = "pane_";
     for (char c : request_.pane_name) {
-        tag += (std::isalnum(static_cast<unsigned char>(c)) != 0) ? c : '_';
-        if (tag.size() > 48) { break; }
+        read_tag_ += (std::isalnum(static_cast<unsigned char>(c)) != 0) ? c : '_';
+        if (read_tag_.size() > 48) { break; }
     }
-    auto path = next_output_path(tag);
-    write_png(path, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
-              cropped.data());
 }
 
 } // namespace fjell

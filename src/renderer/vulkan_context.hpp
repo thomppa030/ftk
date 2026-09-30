@@ -372,16 +372,17 @@ public:
   void render_preview(const ViewportRenderRequest& req,
                       const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
-  /// Reads `view` back to the CPU from the frame's first list, after what
-  /// is recorded there so far (a preview, say): ready once the frame has
-  /// finished (gpu::CommandList::read_back).
+  /// Reads `view` back to the CPU from the frame being recorded, after all
+  /// it has recorded so far (a preview, or its views and the editor's UI):
+  /// ready once the frame has finished (gpu::CommandList::read_back). Called
+  /// between begin_frame() and the frame's submit.
   [[nodiscard]] Result<gpu::Readback> read_back_in_frame(const gpu::TextureView& view,
                                                          const gpu::ReadbackDesc& desc = {});
 
-  /// The swapchain image of the last frame presented, for the editor's
-  /// screenshot capture to read the composited frame back from. A handle
-  /// that finds nothing once the swapchain has been remade since.
-  [[nodiscard]] gpu::Texture presented_swapchain_texture() const { return presented_texture_; }
+  /// The swapchain image the frame being recorded draws into and presents,
+  /// resting as `gpu::Access::present` once the frame is recorded: for the
+  /// editor's screenshot capture to read the composited frame back from.
+  [[nodiscard]] gpu::Texture frame_swapchain_texture() const { return acquired_image_.texture; }
 
 private:
   /// Whether `req` carries everything a preview needs, reporting what it
@@ -484,7 +485,6 @@ private:
   /// `recorded_gpu_frame_` drew into, which it presents.
   gpu::SwapchainImage acquired_image_{};
   gpu::SwapchainImage recorded_image_{};
-  gpu::Texture presented_texture_{};
   bool has_recorded_frame_{false};
   // True when the main-viewport pipeline actually recorded commands
   // into the async compute CB this frame — drives whether submit_and_

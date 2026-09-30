@@ -1,7 +1,10 @@
 #pragma once
 
+#include "gpu/readback.hpp"
+
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace fjell {
@@ -12,17 +15,15 @@ class VulkanContext;
 
 /// Editor screenshot capture. Two modes:
 ///   - Scene: temporarily resizes the active editor viewport panel to the
-///     requested resolution so the next frame renders at capture size through
+///     requested resolution so the frames render at capture size through
 ///     the normal pipeline, then reads back the post output to PNG.
-///   - Pane: copies a rectangle out of the just-presented swapchain image
-///     to PNG.
+///   - Pane: reads a rectangle of the frame's own swapchain image, once the
+///     editor's UI is drawn into it and before it is presented, to PNG.
 ///
-/// Lifetime: a request goes Armed → Pending → Idle across two frame phases:
-///   Frame N: arm() (Idle → Armed)
-///   Frame N+1, after begin_frame, before apply_resize:
-///     prepare_for_record() (Armed → Pending) — patches viewport size
-///   Frame N+1, after submit_and_present:
-///     finish_after_present() (Pending → Idle) — reads back, writes PNG
+/// A request goes armed → (scene: warming for a few frames) → capture_ready
+/// → reading → idle. record_read() records the read into the frame that
+/// renders the capture, after its views and UI; finish_after_present() on a
+/// later frame finds it done and writes the PNG.
 class CaptureService {
 public:
     enum class Mode : std::uint8_t {
@@ -49,10 +50,8 @@ public:
 
     /// Called right after apply_resize, BEFORE draw_ui. If a scene capture
     /// is armed/warming, resizes the editor viewport's offscreen + PP to
-    /// the capture resolution so the upcoming draw_ui's ImGui::Image picks
-    /// up the resized post output's descriptor. Drains the GPU first because
-    /// PP::resize touches descriptors that may be referenced by in-flight
-    /// CBs.
+    /// the capture resolution, so the upcoming draw_ui shows the resized
+    /// post output.
     void resize_for_capture(VulkanContext& vk, ViewportManager& viewports);
 
     /// Called AFTER draw_ui (still before record_frame). Advances pane-mode
@@ -60,9 +59,14 @@ public:
     /// resize_for_capture.
     void prepare_for_record(VulkanContext& vk, ViewportManager& viewports);
 
-    /// Called after submit_and_present. If a capture is pending, reads back
-    /// the just-rendered scene (or the swapchain for pane mode) and writes
-    /// the PNG. Restores the panel's original size for the next frame.
+    /// Called after record_frame, before the frame is sent. A capture ready
+    /// to be taken records its read into the frame: the scene's post output,
+    /// or the pane's rectangle of the swapchain image. The panel goes back
+    /// to its own size for the next frame.
+    void record_read(VulkanContext& vk, ViewportManager& viewports);
+
+    /// Called after begin_frame. Counts down a scene capture's warmup, and
+    /// writes the PNG of a read whose frame has finished.
     void finish_after_present(VulkanContext& vk, ViewportManager& viewports);
 
 private:
@@ -71,6 +75,7 @@ private:
         armed,         // queued, not yet applied
         warming,       // resize applied, frame N rendering (discarded)
         capture_ready, // frame N+1 rendering — capture this one
+        reading,       // its read on the way back
     };
 
     // How many warmup frames to run at capture resolution before grabbing
@@ -79,8 +84,8 @@ private:
     static constexpr int kWarmupFrames = 2;
     int warmup_remaining_{0};
 
-    void do_scene_capture(VulkanContext& vk, ViewportManager& viewports);
-    void do_pane_capture(VulkanContext& vk);
+    void read_scene(VulkanContext& vk, ViewportManager& viewports);
+    void read_pane(VulkanContext& vk);
 
     [[nodiscard]] std::filesystem::path next_output_path(const std::string& tag) const;
 
@@ -91,6 +96,9 @@ private:
     // What the post pass drew before an ungraded capture, to go back to.
     bool saved_ungraded_{false};
 
+    // The capture's read, and what its PNG is named after.
+    std::optional<gpu::Readback> read_;
+    std::string read_tag_;
     // Saved editor panel state to restore after capture.
     int saved_panel_id_{0};
     float saved_panel_size_x_{0.0F};

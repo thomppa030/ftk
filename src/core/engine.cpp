@@ -2360,9 +2360,8 @@ void Engine::run() {
         // Phase 3: Wait for frame slot — GPU is done with this slot after this
         if (!vulkan_context_->begin_frame(thread_pool_)) continue;
 
-        // If a capture was pending from the previous frame, the slot's
-        // fence has settled and the rendered post output is now safe
-        // to read back.
+        // A capture's read taken in an earlier frame is written out once
+        // that frame has finished.
         capture_service_.finish_after_present(*vulkan_context_,
                                               scene_context_->viewport_manager());
 
@@ -2491,6 +2490,8 @@ void Engine::run() {
         // Phase 4: Record commands
         vulkan_context_->record_frame(requests, *environment, render_scene, clock_.game_delta_time(),
                                        scene_context_->selected_id(), thread_pool_);
+        // Its read goes after everything the frame drew, UI included.
+        capture_service_.record_read(*vulkan_context_, scene_context_->viewport_manager());
 
         // Age out screen debug text after the overlay has drawn it, so a
         // single-frame entry survives exactly the frame it was submitted in.

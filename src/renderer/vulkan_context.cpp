@@ -593,7 +593,10 @@ Result<gpu::Readback> VulkanContext::read_back_in_frame(const gpu::TextureView& 
     if (pre_list_ == nullptr || frame_cmd_ == VK_NULL_HANDLE) {
         return make_error("A readback in the frame needs a frame recording");
     }
-    return pre_list_->read_back(view, desc);
+    // The list that runs last so far: the one after the compute list once
+    // the main view has used it.
+    gpu::CommandList& list = post_list_ != nullptr && recorded_async_this_frame_ ? *post_list_ : *pre_list_;
+    return list.read_back(view, desc);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage& image,
@@ -1102,7 +1105,6 @@ void VulkanContext::submit_and_present() {
     }
     recorded_gpu_frame_ = nullptr;
     frame_cmd_ = async_cmd_ = post_cmd_ = VK_NULL_HANDLE;
-    presented_texture_ = recorded_image_.texture;
     if (auto shown = gpu_.swapchain().present(frame, recorded_image_); !shown) {
         FJELL_GFX_CRITICAL("{}", shown.error());
     }
