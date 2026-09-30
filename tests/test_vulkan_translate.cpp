@@ -66,6 +66,15 @@ TEST_CASE("any texture or buffer may be copied and cleared", "[gpu]") {
     CHECK((vulkan::to_vk(BufferUses{BufferUse::index}) & buffer_copies) == buffer_copies);
 }
 
+TEST_CASE("a sampled depth texture can take the layout it is sampled in", "[gpu]") {
+    // The read-only depth layout asks for depth attachment usage.
+    for (Format depth : {Format::d32_float, Format::d32_float_s8_uint}) {
+        CHECK((vulkan::to_vk(TextureUse::sampled, depth) & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0);
+        CHECK(vulkan::to_vk(TextureUse::storage, depth) == vulkan::to_vk(TextureUse::storage));
+    }
+    CHECK(vulkan::to_vk(TextureUse::sampled, Format::rgba16_float) == vulkan::to_vk(TextureUse::sampled));
+}
+
 TEST_CASE("each use adds usage of its own", "[gpu]") {
     const VkImageUsageFlags image_base = vulkan::to_vk(TextureUses{});
     VkImageUsageFlags image_seen = 0;

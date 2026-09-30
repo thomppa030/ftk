@@ -39,6 +39,11 @@ namespace fjell::gpu::vulkan {
 /// destination of one.
 [[nodiscard]] VkImageUsageFlags to_vk(TextureUses uses);
 
+/// The Vulkan usage for a texture of `format` with `uses`: `to_vk(uses)`, and
+/// a sampled depth texture is a depth attachment too, which the read-only
+/// depth layout it is sampled in asks of an image.
+[[nodiscard]] VkImageUsageFlags to_vk(TextureUses uses, Format format);
+
 /// The Vulkan usage for `uses`, with copies and fills always allowed.
 [[nodiscard]] VkBufferUsageFlags to_vk(BufferUses uses);
 

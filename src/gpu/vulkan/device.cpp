@@ -495,7 +495,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     create_info.arrayLayers = info.layers;
     create_info.samples = vulkan::to_vk(info.samples);
     create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    create_info.usage = vulkan::to_vk(info.use);
+    create_info.usage = vulkan::to_vk(info.use, info.format);
     create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     uint32_t family_count = 0;
     const uint32_t* families = self.core.device().concurrent_queue_families(family_count);
