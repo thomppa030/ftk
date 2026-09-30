@@ -8,6 +8,7 @@
 src/core/engine.cpp
 src/core/play_controller.cpp
 src/core/play_controller.hpp
+src/hub/main.cpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp
@@ -82,6 +83,7 @@ src/ui/icon_cache.hpp
 src/ui/imgui_layer.cpp
 src/ui/imgui_layer.hpp
 src/ui/sdf_debug_panel.cpp
+src/ui/standalone_window.cpp
 src/ui/texture_preview.cpp
 src/ui/ui_editor_context.cpp
 src/ui/viewport_manager.cpp
