@@ -37,7 +37,6 @@ class UploadContext;
 struct PassResources {
     VkDescriptorSetLayout global_set_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
-    VkDescriptorSetLayout meshlet_layout{VK_NULL_HANDLE};
     /// The same four as the GPU interface knows them: what a pipeline names
     /// in `.shared` to bind the engine's globals, bindless table, draw data
     /// and meshlets.
@@ -135,9 +134,8 @@ struct FrameContext {
     uint32_t frame_index{0};
     IndirectBatch* indirect_batch{nullptr};
     MegaBuffer* mega_buffer{nullptr};
-    VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
-    /// That set as the GPU interface binds it; unset, like the set, when this
-    /// viewport's graph runs no meshlet cull.
+    /// The meshlet group; unset when this viewport's graph runs no meshlet
+    /// cull.
     gpu::BindGroup meshlets{};
     PipelineCache* pipeline_cache{nullptr};
 

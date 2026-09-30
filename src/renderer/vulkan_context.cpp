@@ -396,8 +396,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // otherwise dispatch mesh tasks off whatever the buffers last held, which
     // faults the device rather than drawing nothing.
     if (passes_.has("meshlet_cull") && runs_pass(view.viewport_graph, "meshlet_cull")) {
-        ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
-        if (ctx.meshlet_set != VK_NULL_HANDLE) ctx.meshlets = gpu_.meshlets_group(ctx.meshlet_set);
+        ctx.meshlets = gpu_.meshlet_descriptor().group(current_frame_);
         ctx.gpu_driven_commands = meshlet_instance_pass()->indirect_buffer(current_frame_);
     }
     ctx.pp_resources = pp;
@@ -1051,7 +1050,6 @@ void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world)
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout =
         gpu::vulkan::native_set_layout(gpu_device(), gpu_.bindless_textures().layout());
-    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     const auto& shared = gpu_.shared_layouts();
     res.globals = shared.globals;
     res.bindless = shared.bindless;

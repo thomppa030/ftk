@@ -68,8 +68,6 @@ src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
 src/renderer/resource_registry.hpp
-src/renderer/resources/meshlet_descriptor.cpp
-src/renderer/resources/meshlet_descriptor.hpp
 src/renderer/resources/resource_manager.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/scene_viewport.cpp

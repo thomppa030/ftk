@@ -1,65 +1,60 @@
 #include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
-#include "gpu/vulkan/frame_descriptor_cache.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "core/log.hpp"
+#include "gpu/device.hpp"
 
 #include <algorithm>
-#include <array>
+#include <string>
+#include <string_view>
 
 namespace fjell {
 
-void MeshletDescriptor::create(VkDevice device, gpu::Device& gpu, VmaAllocator allocator) {
-    device_ = device;
+namespace {
+
+// Bytes a binding reads at the least: never an empty range.
+constexpr uint64_t MIN_RANGE = 16;
+
+constexpr std::array<std::string_view, 6> BINDINGS{
+    "meshlets", "bounds", "vertex_indices", "triangles", "vertices", "visible_instances",
+};
+
+} // namespace
+
+Result<> MeshletDescriptor::create(gpu::Device& gpu) {
     gpu_ = &gpu;
-    allocator_ = allocator;
-
-    // Set 3 layout: 6 SSBO bindings for meshlet data
-    // binding 0: Meshlet[]
-    // binding 1: MeshletBounds[]
-    // binding 2: uint32_t[] meshlet vertex indices
-    // binding 3: uint32_t[] meshlet triangles (packed)
-    // binding 4: Vertex[] (mega buffer vertex data)
-    // binding 5: MeshletInstance[] visible instances (GPU-driven pipeline)
-    std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
-
-    for (uint32_t i = 0; i < 6; ++i) {
-        bindings[i].binding = i;
-        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        bindings[i].descriptorCount = 1;
-        bindings[i].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+    gpu::SharedLayoutDesc desc{.name = "meshlets", .usual_set = 3, .bindings = {}};
+    for (uint32_t i = 0; i < BINDINGS.size(); ++i) {
+        gpu::ShaderBinding binding;
+        binding.name = std::string(BINDINGS[i]);
+        binding.binding = i;
+        binding.kind = gpu::BindingKind::storage_buffer;
+        binding.stages = gpu::ShaderStage::task | gpu::ShaderStage::mesh;
+        desc.bindings.push_back(std::move(binding));
     }
+    auto layout = gpu.create(desc);
+    if (!layout) return make_error(layout.error());
+    layout_ = *layout;
 
-    layout_ = std::make_unique<DescriptorSetLayout>(
-        device_, std::span{bindings});
-    layout_bindings_ = bindings;
+    auto empty = gpu.create(gpu::BufferDesc{
+        .size = MIN_RANGE, .use = gpu::BufferUse::storage, .name = "meshlets_empty"});
+    if (!empty) return make_error(empty.error());
+    empty_ = std::move(*empty);
 
-    // Pool: 6 SSBOs per frame
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = 6 * MAX_FRAMES_IN_FLIGHT;
-
-    pool_ = std::make_unique<DescriptorPool>(
-        device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        descriptor_sets_[i] = pool_->allocate(*layout_);
+    for (auto& group : groups_) {
+        gpu::SharedGroupDesc group_desc{.layout = layout_, .entries = {}, .name = "meshlets"};
+        for (std::string_view name : BINDINGS) group_desc.entries.push_back({name, gpu::storage(empty_)});
+        auto made = gpu.create(group_desc);
+        if (!made) return make_error(made.error());
+        group = std::move(*made);
     }
-
-    // Create a small dummy buffer for binding 5 when no visible buffer is available
-    dummy_buffer_ = std::make_unique<Buffer>(
-        allocator_, 16,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    FJELL_GFX_DEBUG("Meshlet descriptor created (set 3, 6 SSBOs)");
+    FJELL_GFX_DEBUG("Meshlet descriptor created (set 3, {} storage buffers)", BINDINGS.size());
+    return {};
 }
 
 void MeshletDescriptor::destroy() {
-    dummy_buffer_.reset();
-    pool_.reset();
-    layout_.reset();
+    for (auto& group : groups_) group.reset();
+    empty_.reset();
 }
 
 void MeshletDescriptor::update(const MeshletBuffer& meshlet_buf,
@@ -67,42 +62,26 @@ void MeshletDescriptor::update(const MeshletBuffer& meshlet_buf,
                                uint32_t frame_index,
                                gpu::Buffer visible_buffer,
                                uint64_t visible_size) {
-    std::array<VkDescriptorBufferInfo, 6> buffer_infos{};
     // Each bound up to what is uploaded, and never empty.
     const auto whole = [&](gpu::Buffer buffer, uint64_t size) {
-        return VkDescriptorBufferInfo{gpu::vulkan::native_buffer(*gpu_, buffer), 0,
-                                      std::max<VkDeviceSize>(size, 16)};
+        if (!buffer.valid()) return gpu::storage(empty_);
+        return gpu::storage(gpu::BufferRange(buffer, 0, std::max(size, MIN_RANGE)));
     };
-    buffer_infos[0] = whole(meshlet_buf.meshlet_buffer(), meshlet_buf.meshlet_buffer_size());
-    buffer_infos[1] = whole(meshlet_buf.bounds_buffer(), meshlet_buf.bounds_buffer_size());
-    buffer_infos[2] = whole(meshlet_buf.vertex_index_buffer(), meshlet_buf.vertex_index_buffer_size());
-    buffer_infos[3] = whole(meshlet_buf.triangle_buffer(), meshlet_buf.triangle_buffer_size());
-    buffer_infos[4] = whole(mega_buf.vertex_buffer(), mega_buf.vertex_buffer_size());
-
-    // Binding 5: visible instances (from GPU-driven pipeline, or dummy if unavailable)
-    if (visible_buffer.valid() && visible_size > 0) {
-        buffer_infos[5].buffer = gpu::vulkan::native_buffer(*gpu_, visible_buffer);
-        buffer_infos[5].offset = 0;
-        buffer_infos[5].range = visible_size;
-    } else {
-        buffer_infos[5].buffer = dummy_buffer_->handle();
-        buffer_infos[5].offset = 0;
-        buffer_infos[5].range = 16;
+    const gpu::BindEntry entries[] = {
+        {BINDINGS[0], whole(meshlet_buf.meshlet_buffer(), meshlet_buf.meshlet_buffer_size())},
+        {BINDINGS[1], whole(meshlet_buf.bounds_buffer(), meshlet_buf.bounds_buffer_size())},
+        {BINDINGS[2], whole(meshlet_buf.vertex_index_buffer(), meshlet_buf.vertex_index_buffer_size())},
+        {BINDINGS[3], whole(meshlet_buf.triangle_buffer(), meshlet_buf.triangle_buffer_size())},
+        {BINDINGS[4], whole(mega_buf.vertex_buffer(), mega_buf.vertex_buffer_size())},
+        // The meshlet cull's visible instances, or the empty buffer while
+        // the GPU-driven path has none.
+        {BINDINGS[5], visible_buffer.valid() && visible_size > 0
+                          ? gpu::storage(gpu::BufferRange(visible_buffer, 0, visible_size))
+                          : gpu::storage(empty_)},
+    };
+    if (auto written = gpu_->update(groups_[frame_index], entries); !written) {
+        FJELL_GFX_ERROR("Meshlet set: {}", written.error());
     }
-
-    std::array<VkWriteDescriptorSet, 6> writes{};
-    for (uint32_t i = 0; i < 6; ++i) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = descriptor_sets_[frame_index];
-        writes[i].dstBinding = i;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[i].descriptorCount = 1;
-        writes[i].pBufferInfo = &buffer_infos[i];
-    }
-
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
-
 }
 
 } // namespace fjell

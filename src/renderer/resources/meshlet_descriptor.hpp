@@ -1,15 +1,13 @@
 #pragma once
 
-#include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/descriptor.hpp"
+#include "core/result.hpp"
+#include "gpu/binding.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
 #include "renderer/renderer_constants.hpp"
-
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
-#include <memory>
-#include <span>
 
 namespace fjell {
 
@@ -19,42 +17,35 @@ namespace gpu {
 class Device;
 }
 
+/// What the meshlet task and mesh shaders read at set 3: the meshlets, their
+/// bounds, vertex indices and packed triangles, the mega buffer's vertices,
+/// and the meshlet cull's visible instances. A group per frame slot, every
+/// binding holding a small empty buffer until the frame gives it one.
 class MeshletDescriptor {
 public:
-    MeshletDescriptor() = default;
-
-    /// `gpu` is the device the buffers bound here were made by.
-    void create(VkDevice device, gpu::Device& gpu, VmaAllocator allocator = VK_NULL_HANDLE);
+    /// Makes the layout and the groups.
+    /// @return nothing, or what could not be made.
+    [[nodiscard]] Result<> create(gpu::Device& gpu);
     void destroy();
 
     /// Binds the meshlets and the mega buffer's vertices into the frame
-    /// slot's set, and the meshlet cull's visible instances, or a stand-in
-    /// while there are none.
+    /// slot's group, and the meshlet cull's visible instances, or the empty
+    /// buffer while there are none.
     void update(const MeshletBuffer& meshlet_buf, const MegaBuffer& mega_buf,
                 uint32_t frame_index,
                 gpu::Buffer visible_buffer = {},
                 uint64_t visible_size = 0);
 
-
-    [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
-    /// The bindings the layout was made from, for the GPU interface's shared
-    /// layout.
-    [[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> layout_bindings() const {
-        return layout_bindings_;
-    }
-    [[nodiscard]] VkDescriptorSet descriptor_set(uint32_t frame_index) const {
-        return descriptor_sets_[frame_index];
-    }
+    /// The layout pipelines name to bind the groups.
+    [[nodiscard]] gpu::SharedLayout layout() const { return layout_; }
+    /// The group the frames of `frame_index`'s slot bind.
+    [[nodiscard]] gpu::BindGroup group(uint32_t frame_index) const { return groups_[frame_index].get(); }
 
 private:
-    VkDevice device_{VK_NULL_HANDLE};
     gpu::Device* gpu_{nullptr};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    std::unique_ptr<DescriptorSetLayout> layout_;
-    std::array<VkDescriptorSetLayoutBinding, 6> layout_bindings_{};
-    std::unique_ptr<DescriptorPool> pool_;
-    std::unique_ptr<Buffer> dummy_buffer_;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
+    gpu::SharedLayout layout_{};
+    gpu::Owned<gpu::Buffer> empty_;
+    std::array<gpu::Owned<gpu::BindGroup>, MAX_FRAMES_IN_FLIGHT> groups_;
 };
 
 } // namespace fjell

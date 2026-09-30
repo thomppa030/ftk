@@ -98,7 +98,10 @@ GpuContext::GpuContext(Window& window)
 
     // Meshlet buffers + descriptor (uploaded at model load time)
     meshlet_buffer_ = std::make_unique<MeshletBuffer>(core_.gpu_device());
-    meshlet_descriptor_.create(core_.vk_device(), core_.gpu_device(), core_.allocator());
+    if (auto made = meshlet_descriptor_.create(core_.gpu_device()); !made) {
+        throw std::runtime_error("Meshlet set: " + made.error());
+    }
+    shared_layouts_.meshlets = meshlet_descriptor_.layout();
 
     // Query and clamp MSAA sample count
     auto max_samples = core_.device().max_msaa_samples();
@@ -225,19 +228,8 @@ void GpuContext::create_descriptor_resources() {
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
 
-gpu::BindGroup GpuContext::adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout,
-                                         VkDescriptorSet set) {
-    auto& group = groups[set];
-    if (!group) group = gpu::vulkan::adopt_group(core_.gpu_device(), layout, set);
-    return group;
-}
-
 VkDescriptorSetLayout GpuContext::global_set_layout() const {
     return gpu::vulkan::native_set_layout(core_.gpu_device(), global_bindings_.layout());
-}
-
-gpu::BindGroup GpuContext::meshlets_group(VkDescriptorSet set) {
-    return adopted_group(meshlets_groups_, shared_layouts_.meshlets, set);
 }
 
 void GpuContext::finalize_descriptors() {
@@ -261,11 +253,7 @@ void GpuContext::finalize_descriptors() {
         global_bindings_.set(i, "fog_density_field", gpu::sampled(volume_fallback_, gi_fallback_sampler_));
     }
 
-    // The GPU interface's pipelines name these to bind the engine's own sets.
-    gpu::Device& device = core_.gpu_device();
     shared_layouts_.globals = global_bindings_.layout();
-    shared_layouts_.meshlets = gpu::vulkan::share_layout(
-        device, "meshlets", 3, meshlet_descriptor_.layout(), meshlet_descriptor_.layout_bindings());
 
     FJELL_GFX_DEBUG("Global descriptors finalized");
 }
@@ -298,7 +286,6 @@ PassResources GpuContext::pass_resources() const {
     res.meshlets = shared_layouts_.meshlets;
     res.global_set_layout = global_set_layout();
     res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
-    res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     res.depth_format = core_.device().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
