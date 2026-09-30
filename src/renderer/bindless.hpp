@@ -1,18 +1,19 @@
 #pragma once
 
+#include "core/handle.hpp"
 #include "core/result.hpp"
+#include "gpu/binding.hpp"
+#include "gpu/buffer.hpp"
+#include "gpu/owned.hpp"
 #include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
-
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <span>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -73,60 +74,61 @@ static_assert(offsetof(GpuMaterial, has_emissive_texture) == 120);
 static_assert(offsetof(GpuMaterial, padding) == 124);
 static_assert(sizeof(GpuMaterial) % 16 == 0, "std430 wants a 16-byte multiple");
 
-// Manages a single large descriptor set containing all textures and materials
-// in the engine. Textures get a global index; materials are stored in an SSBO.
-// Shaders access textures via textures[nonuniformEXT(index)] and materials
-// via materials[push.material_id].
+/// The table every material reads: textures by index, material rows and
+/// their custom parameters, in one shared group the passes bind. Shaders read
+/// textures as `textures[nonuniformEXT(index)]` and a row as
+/// `materials[material_id]`.
+///
+/// Each frame slot has a group of its own, with its own material and
+/// parameter buffers, so what a frame reads is never written while it runs:
+/// changes are kept until `flush()` for the slot recording, which writes them
+/// into that slot's group and buffers.
 class BindlessTextures {
 public:
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t MAX_MATERIALS = 1024;
 
-    /// `gpu` is the GPU interface's device, which keeps a replaced params
-    /// buffer alive until the frames reading it are done.
-    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator, gpu::Device& gpu);
+    /// Makes the table's shared layout and a group for each frame slot.
+    /// @return nothing, or what could not be made.
+    [[nodiscard]] Result<> create(gpu::Device& gpu);
     void destroy();
 
-    // Register a texture and get its bindless index.
-    // Idempotent: re-adding the same texture returns the existing index.
+    /// The texture's index, the same one each time it is added. Past
+    /// `MAX_TEXTURES` the error is reported once and index 0 returned.
     uint32_t add(const Texture& texture);
 
-    // Reserve a bindless index without writing a descriptor.
-    // The slot is left unwritten (PARTIALLY_BOUND covers this).
-    // Use update_entry() to associate a view later.
+    /// An index holding nothing until `update_entry()` gives it a texture;
+    /// shaders must not read it before.
     [[nodiscard]] uint32_t reserve_index();
 
-    // Replace an existing entry's view and sampler (e.g. after render target resize).
-    // Marks the slot dirty for the next update_descriptors() call.
+    /// Points an index at another texture and sampler, for the frames that
+    /// flush after it (a render target that was resized, a font atlas baked
+    /// again). No texture empties it, before what it held is destroyed.
     void update_entry(uint32_t index, gpu::Texture texture, gpu::Sampler sampler);
-    void update_entry(uint32_t index, VkImageView view, VkSampler sampler);
 
-    // Register a material and get its index for push constants.
+    /// Register a material and get its index for push constants.
     uint32_t add_material(const GpuMaterial& mat);
 
-    // Update an existing material in the SSBO.
+    /// Update an existing material row.
     void update_material(uint32_t index, const GpuMaterial& mat);
 
-    // Allocate a contiguous range of floats in the custom params SSBO.
-    // Returns the offset (in floats) into the params buffer.
+    /// Allocate a contiguous range of floats in the custom params buffer.
+    /// Returns the offset (in floats) into it.
     uint32_t allocate_params(uint32_t count);
 
-    // Write custom param values into the params SSBO at a given offset.
+    /// Write custom param values at a given offset.
     void write_params(uint32_t offset, const float* data, uint32_t count);
 
-    // Flush pending texture descriptor writes.
-    void update_descriptors();
+    /// Writes what changed since `slot` last flushed into its group and
+    /// buffers. Called before a view's passes bind the table; later calls
+    /// in the same frame write only what changed since.
+    void flush(uint32_t slot);
 
-    // Flush pending material data to the SSBO.
-    void update_material_buffer();
+    /// The layout pipelines name to bind the table.
+    [[nodiscard]] gpu::SharedLayout layout() const { return layout_; }
+    /// The group the frames of `slot` bind.
+    [[nodiscard]] gpu::BindGroup group(uint32_t slot) const { return slots_[slot].group; }
 
-    [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_; }
-    /// The bindings the layout was made from, for the GPU interface's shared
-    /// layout.
-    [[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> layout_bindings() const {
-        return layout_bindings_;
-    }
-    [[nodiscard]] VkDescriptorSet descriptor_set() const { return set_; }
     [[nodiscard]] const GpuMaterial& material_at(uint32_t index) const { return materials_[index]; }
     [[nodiscard]] uint32_t material_count() const { return static_cast<uint32_t>(materials_.size()); }
 
@@ -138,36 +140,43 @@ public:
 private:
     static constexpr uint32_t INITIAL_PARAMS_CAPACITY = 4096; // floats
 
-    VkDevice device_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    gpu::Device* gpu_device_{nullptr};
-
-    VkDescriptorSetLayout layout_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSetLayoutBinding, 3> layout_bindings_{};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet set_{VK_NULL_HANDLE};
-
-    // Texture entries
     struct Entry {
-        VkImageView view;
-        VkSampler sampler;
+        gpu::Texture texture{};
+        gpu::Sampler sampler{};
     };
-    std::vector<Entry> entries_;
-    std::unordered_map<VkImageView, uint32_t> view_to_index_;
-    uint32_t tex_dirty_from_{0};
 
-    // Material SSBO (binding 1)
+    /// One frame slot's group, its buffers, and what it has yet to take.
+    struct Slot {
+        gpu::Owned<gpu::BindGroup> group;
+        gpu::Owned<gpu::Buffer> materials;
+        gpu::Owned<gpu::Buffer> params;
+        uint64_t params_capacity{0}; // floats
+        std::vector<uint32_t> pending_textures;
+        bool materials_pending{false};
+        bool params_pending{false};
+    };
+
+    /// Marks a texture index for every slot to write at its next flush.
+    void mark_texture(uint32_t index);
+    /// A table index for a new entry, or none when the table is full.
+    [[nodiscard]] std::optional<uint32_t> next_index();
+
+    gpu::Device* gpu_{nullptr};
+    gpu::SharedLayout layout_{};
+    std::array<Slot, MAX_FRAMES_IN_FLIGHT> slots_;
+
+    std::vector<Entry> entries_;
+    /// For each entry, the slots that have yet to write it, one bit each.
+    std::vector<uint8_t> entry_pending_;
+    std::unordered_map<gpu::Texture, uint32_t, HandleHash> texture_to_index_;
+    bool texture_overflow_reported_{false};
+
     std::vector<GpuMaterial> materials_;
-    std::unique_ptr<Buffer> material_ssbo_;
-    bool materials_dirty_{false};
-    /// Set once the rows outgrow the buffer, so the error is said once
+    /// Set once the rows outgrow the buffers, so the error is said once
     /// rather than every frame.
     bool material_overflow_reported_{false};
 
-    // Custom params SSBO (binding 2)
     std::vector<float> params_;
-    std::unique_ptr<Buffer> params_ssbo_;
-    bool params_dirty_{false};
 };
 
 } // namespace fjell

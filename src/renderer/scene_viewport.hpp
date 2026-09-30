@@ -59,15 +59,15 @@ public:
     /// Resize the viewport. Must be called in the safe window (after fence wait).
     void resize(uint32_t width, uint32_t height);
 
-    /// Update the bindless entry to point to the current output view.
+    /// Points the bindless entry at the current output texture.
     /// Call after rendering completes.
     void sync_bindless(BindlessTextures& bindless);
 
     /// Build a ViewportRenderRequest for this viewport.
     [[nodiscard]] ViewportRenderRequest build_request() const;
 
-    /// The image view to sample in materials (HDR or tonemapped based on config).
-    [[nodiscard]] VkImageView output_view() const;
+    /// The texture materials sample (HDR or tonemapped based on config).
+    [[nodiscard]] gpu::Texture output_texture() const;
 
     void set_view(const SceneViewportView& view) { view_ = view; }
 
@@ -92,9 +92,8 @@ private:
     std::unique_ptr<OffscreenPass> offscreen_;
     std::unique_ptr<PostProcessResources> pp_;
 
-    VkSampler output_sampler_{VK_NULL_HANDLE};
-    VkDevice vk_device_{VK_NULL_HANDLE};
-    VkImageView last_synced_view_{VK_NULL_HANDLE};
+    gpu::Sampler output_sampler_{};
+    gpu::Texture last_synced_{};
     VkDescriptorSet global_set_{VK_NULL_HANDLE};
 };
 

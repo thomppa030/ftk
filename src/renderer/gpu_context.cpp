@@ -88,10 +88,10 @@ GpuContext::GpuContext(Window& window)
     gpu::vulkan::use_pipeline_cache(core_.gpu_device(), vk_pipeline_cache_);
 
     create_descriptor_resources();
-    if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator(),
-                                           core_.gpu_device()); !r) {
+    if (auto r = bindless_textures_.create(core_.gpu_device()); !r) {
         throw std::runtime_error(r.error());
     }
+    shared_layouts_.bindless = bindless_textures_.layout();
 
     transient_pool_.create(core_.gpu_device());
 
@@ -363,10 +363,6 @@ gpu::BindGroup GpuContext::draw_data_group(VkDescriptorSet set) {
     return adopted_group(draw_data_groups_, shared_layouts_.draw_data, set);
 }
 
-gpu::BindGroup GpuContext::bindless_group(VkDescriptorSet set) {
-    return adopted_group(bindless_groups_, shared_layouts_.bindless, set);
-}
-
 gpu::BindGroup GpuContext::meshlets_group(VkDescriptorSet set) {
     return adopted_group(meshlets_groups_, shared_layouts_.meshlets, set);
 }
@@ -410,8 +406,6 @@ void GpuContext::finalize_descriptors() {
     gpu::Device& device = core_.gpu_device();
     shared_layouts_.globals = gpu::vulkan::share_layout(
         device, "globals", 0, global_bindings_.layout(), global_bindings_.layout_bindings());
-    shared_layouts_.bindless = gpu::vulkan::share_layout(
-        device, "bindless", 1, bindless_textures_.layout(), bindless_textures_.layout_bindings());
     shared_layouts_.meshlets = gpu::vulkan::share_layout(
         device, "meshlets", 3, meshlet_descriptor_.layout(), meshlet_descriptor_.layout_bindings());
 
@@ -447,7 +441,7 @@ PassResources GpuContext::pass_resources() const {
     res.draw_data = shared_layouts_.draw_data;
     res.meshlets = shared_layouts_.meshlets;
     res.global_set_layout = global_bindings_.layout();
-    res.material_set_layout = bindless_textures_.layout();
+    res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
     res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     res.depth_format = core_.device().find_depth_format();

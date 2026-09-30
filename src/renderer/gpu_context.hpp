@@ -164,8 +164,6 @@ public:
     /// the first time it is asked for.
     [[nodiscard]] gpu::BindGroup draw_data_group(VkDescriptorSet set);
 
-    /// The bindless set as the GPU interface binds it, the same way.
-    [[nodiscard]] gpu::BindGroup bindless_group(VkDescriptorSet set);
     /// A meshlet set as the GPU interface binds it, the same way.
     [[nodiscard]] gpu::BindGroup meshlets_group(VkDescriptorSet set);
 
@@ -208,7 +206,6 @@ private:
     gpu::BindGroup adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout, VkDescriptorSet set);
     AdoptedGroups global_groups_;
     AdoptedGroups draw_data_groups_;
-    AdoptedGroups bindless_groups_;
     AdoptedGroups meshlets_groups_;
 
     // Light data

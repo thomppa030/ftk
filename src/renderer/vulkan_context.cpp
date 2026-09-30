@@ -379,8 +379,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     ctx.global_descriptor_set = view.global_set != VK_NULL_HANDLE
         ? view.global_set : gpu_.global_descriptor_set(current_frame_);
     ctx.globals = gpu_.global_group(ctx.global_descriptor_set);
-    ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
-    ctx.bindless = gpu_.bindless_group(ctx.bindless_set);
+    ctx.bindless = gpu_.bindless_textures().group(current_frame_);
+    ctx.bindless_set = gpu::vulkan::native_group(gpu_device(), ctx.bindless);
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.draw_data = gpu_.draw_data_group(ctx.draw_data_set);
     ctx.debug_draw = debug_draw_.get();
@@ -497,9 +497,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, const ViewportRenderReq
         gatherer_.gather(gi);
     }
 
-    // Flush any pending bindless texture/material updates
-    gpu_.bindless_textures().update_descriptors();
-    gpu_.bindless_textures().update_material_buffer();
+    // What the table gained or changed since this slot's last frame
+    gpu_.bindless_textures().flush(current_frame_);
 
     // Update render subsystems (gather data, upload SSBOs)
     {
@@ -1075,7 +1074,8 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
 void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world) {
     PassResources res{};
     res.global_set_layout = gpu_.global_set_layout();
-    res.material_set_layout = gpu_.bindless_textures().layout();
+    res.material_set_layout =
+        gpu::vulkan::native_set_layout(gpu_device(), gpu_.bindless_textures().layout());
     res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
     res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     const auto& shared = gpu_.shared_layouts();
@@ -1221,8 +1221,9 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
                     offsetof(GlobalUbo, time),
                 &live_time, sizeof(live_time));
 
+    gpu_.bindless_textures().flush(frame_index);
     record_fn(cmd, gpu_.global_descriptor_set(frame_index),
-              gpu_.bindless_textures().descriptor_set(),
+              gpu::vulkan::native_group(gpu_device(), gpu_.bindless_textures().group(frame_index)),
               extent, frame_index);
 
     vkCmdEndRendering(cmd);
@@ -1788,6 +1789,7 @@ void VulkanContext::destroy_scene_viewport(const std::string& name) {
     if (it == scene_viewports_.end()) return;
     wait_idle();
     gpu_.global_bindings().free_set(it->second->global_set());
+    gpu_.bindless_textures().update_entry(it->second->bindless_index(), {}, {});
     scene_viewports_.erase(it);
 }
 
