@@ -313,12 +313,15 @@ void ParticleSystem::recreate_pipelines() {
         FJELL_GFX_ERROR("Particle pipelines not reloaded; the previous ones stay in use");
         return;
     }
-    destroy_pipelines(pipelines_);
+    // Frames still in flight may be drawing with the pipelines replaced.
+    gpu::vulkan::defer(*gpu_device_, [device = device_, old = pipelines_]() mutable {
+        destroy_pipelines(device, old);
+    });
     pipelines_ = fresh;
     FJELL_GFX_DEBUG("Particle pipelines reloaded");
 }
 
-void ParticleSystem::destroy_pipelines(Pipelines& p) {
+void ParticleSystem::destroy_pipelines(VkDevice device, Pipelines& p) {
     for (VkPipeline* handle : {&p.emit, &p.sim, &p.indirect, &p.mesh_instance,
                                &p.additive, &p.alpha, &p.trail_additive, &p.trail_alpha,
                                &p.lit_additive, &p.lit_alpha, &p.lit_trail_additive, &p.lit_trail_alpha,
@@ -326,7 +329,7 @@ void ParticleSystem::destroy_pipelines(Pipelines& p) {
                                &p.opaque, &p.opaque_lit, &p.mesh_opaque, &p.mesh_opaque_lit,
                                &p.distortion}) {
         if (*handle != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device_, *handle, nullptr);
+            vkDestroyPipeline(device, *handle, nullptr);
             *handle = VK_NULL_HANDLE;
         }
     }
@@ -611,7 +614,7 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
 
     release_modules();
     if (!ok) {
-        destroy_pipelines(out);
+        destroy_pipelines(device_, out);
         return false;
     }
     return true;
@@ -635,7 +638,7 @@ void ParticleSystem::destroy() {
         if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
     };
 
-    destroy_pipelines(pipelines_);
+    destroy_pipelines(device_, pipelines_);
     safe_destroy(depth_sampler_, vkDestroySampler);
     safe_destroy(pool_, vkDestroyDescriptorPool);
     safe_destroy(render_lit_layout_, vkDestroyPipelineLayout);

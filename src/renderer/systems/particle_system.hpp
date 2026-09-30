@@ -233,7 +233,7 @@ private:
     /// Build every pipeline from the shaders on disk into `out`. On any
     /// failure nothing of `out` is left alive and false is returned.
     [[nodiscard]] bool build_pipelines(Pipelines& out);
-    void destroy_pipelines(Pipelines& p);
+    static void destroy_pipelines(VkDevice device, Pipelines& p);
 
     // Compute pipeline (shared set layout for all 3 shaders)
     VkDescriptorSetLayout compute_set_layout_{VK_NULL_HANDLE};
