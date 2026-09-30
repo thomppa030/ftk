@@ -17,7 +17,6 @@ class AudioSubsystem;
 class CameraSubsystem;
 class Clock;
 class EnvironmentSubsystem;
-class GameUi;
 class Input;
 class InputActionMap;
 class OffscreenPass;
@@ -48,7 +47,6 @@ struct PlayServices {
     ResourceManager* resources{nullptr};
     VulkanContext* vulkan{nullptr};
     Window* window{nullptr};
-    GameUi* game_ui{nullptr};
     ScreenDebugQueue* screen_debug{nullptr};
     ScriptSubsystem* scripts{nullptr};
     PhysicsSubsystem* physics{nullptr};

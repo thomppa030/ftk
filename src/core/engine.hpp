@@ -11,7 +11,6 @@
 #include "renderer/gpu/window.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
-#include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/widget_check.hpp"
 #include "scene/scene.hpp"
 #include "import/import_dialog.hpp"
@@ -299,9 +298,6 @@ private:
     // Whether last frame's game time was cut short by the clock's limit, so
     // a stall is reported once as it starts rather than every frame of it.
     bool game_time_limited_{false};
-
-    // Game UI (owned by game layer, rendered via callback)
-    GameUi game_ui_;
 
     // UI state
     bool layout_built_{false};

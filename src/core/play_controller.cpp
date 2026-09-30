@@ -403,7 +403,6 @@ void PlayController::start() {
     session_ = std::make_unique<PlaySession>(std::move(snapshot));
     state_ = PlayState::playing;
     s_.vulkan->set_playing(true);
-    s_.game_ui->mark_dirty();
     FJELL_CORE_INFO("Play mode started");
     on_started.broadcast();
 }

@@ -249,12 +249,6 @@ void Engine::init_ui() {
         imgui_layer_->render(cmd);
     });
 
-    // game_ui_ is the editor's own dev-facing HUD; it has no play-mode role
-    // (screen-space widgets from the scene are ui_subsystem_'s job, recorded
-    // into PlayController's HUD target — see Engine::run) and no docked
-    // presentation of its own yet, so it still targets the swapchain.
-    vulkan_context_->init_game_ui(game_ui_, vulkan_context_->swapchain_format());
-
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_,
                                                script_subsystem_->manager());
     play_phase_0_.push_back(ui_subsystem_);
@@ -556,7 +550,6 @@ void Engine::init_editor() {
         .resources = resource_manager_.get(),
         .vulkan = vulkan_context_.get(),
         .window = &window_,
-        .game_ui = &game_ui_,
         .screen_debug = screen_debug_queue_.get(),
         .scripts = script_subsystem_,
         .physics = physics_subsystem_,
@@ -579,7 +572,6 @@ void Engine::init_editor() {
             .script_subsystem = script_subsystem_,
             .project_mgr = &project_mgr_,
             .icon_cache = icon_cache_.get(),
-            .game_ui = &game_ui_,
             .thread_pool = &thread_pool_,
             .window = &window_,
             .content_browser = &content_browser_,
@@ -901,7 +893,6 @@ Engine::~Engine() {
     // is a no-op on every path that rendered.
     vulkan_context_->upload_context().wait_all();
     vulkan_context_->set_overlay_callback(nullptr);
-    game_ui_.destroy();
     AssetThumbnailRenderer::set_instance(nullptr);
     // Drops any directory walk still in flight, so nothing is waiting on the
     // pool once it goes.

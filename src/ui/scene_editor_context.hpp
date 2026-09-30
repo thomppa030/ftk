@@ -22,7 +22,6 @@ namespace fjell {
 
 class AssetLoader;
 class Clock;
-class GameUi;
 class IconCache;
 class Input;
 class ProjectManager;
@@ -50,7 +49,6 @@ struct SceneEditorDeps {
     ScriptSubsystem* script_subsystem;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
-    GameUi* game_ui;
     ThreadPool* thread_pool;
     Window* window;
     ContentBrowser* content_browser{nullptr};
