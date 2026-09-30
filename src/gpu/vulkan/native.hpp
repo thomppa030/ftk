@@ -102,11 +102,6 @@ void retire(Device& device, T object) {
     defer(device, [doomed = std::move(object)] { (void)doomed; });
 }
 
-/// Makes `CommandList::transition` describe each barrier it records as a
-/// line appended to `lines`, resources by the names their transitions carry
-/// (the frame graph's barrier trace); null stops it.
-void trace_transitions(Device& device, std::string* lines);
-
 /// The command buffer a list records into, for code that still records
 /// Vulkan itself.
 [[nodiscard]] VkCommandBuffer native_command_buffer(CommandList& list);

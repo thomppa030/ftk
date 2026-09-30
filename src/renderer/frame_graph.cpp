@@ -1,9 +1,7 @@
 #include "renderer/frame_graph.hpp"
-#include "gpu/vulkan/access.hpp"
 #include "gpu/command_list.hpp"
 #include "gpu/device.hpp"
 #include "gpu/frame.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/pass_builder.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -672,15 +670,11 @@ GraphHost FrameGraph::device_host(gpu::Device& device) {
                             .layers = info.layers,
                             .depth = texels == gpu::FormatKind::depth || texels == gpu::FormatKind::depth_stencil};
     };
-    host.record = [&device](gpu::CommandList* list, gpu::Queue /*queue*/,
-                            std::span<const gpu::Transition> transitions, std::string* trace) {
-        gpu::vulkan::trace_transitions(device, trace);
-        list->transition(transitions);
-        gpu::vulkan::trace_transitions(device, nullptr);
+    host.record = [](gpu::CommandList* list, gpu::Queue /*queue*/,
+                     std::span<const gpu::Transition> transitions, std::string* trace) {
+        list->transition(transitions, trace);
     };
-    host.state_name = [](gpu::AccessSet state, bool depth) {
-        return gpu::vulkan::layout_name(gpu::vulkan::merged_image_scope(state, depth).layout);
-    };
+    host.state_name = gpu::state_name;
     return host;
 }
 

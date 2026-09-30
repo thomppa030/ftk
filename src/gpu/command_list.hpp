@@ -18,6 +18,7 @@
 #include <ranges>
 #include <source_location>
 #include <span>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
@@ -201,8 +202,10 @@ public:
     /// The frame graph's: every transition it worked out between two passes,
     /// as one batch. Work waited on from the other queue is ordered by the
     /// submission between the queues, so a buffer's transition then records
-    /// nothing and a texture's only its change of state.
-    void transition(std::span<const Transition> transitions);
+    /// nothing and a texture's only its change of state. With a `trace`, each
+    /// barrier recorded is described in it as a line, as the backend records
+    /// it, resources by the names their transitions carry.
+    void transition(std::span<const Transition> transitions, std::string* trace = nullptr);
 
     /// Plays lists recorded on other threads, in order, as if what they hold
     /// were recorded here. Each holds whole passes: none of them, nor this

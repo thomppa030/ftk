@@ -4,6 +4,7 @@
 #include "gpu/usage.hpp"
 
 #include <cstdint>
+#include <string>
 
 namespace fjell::gpu {
 
@@ -209,5 +210,9 @@ using AccessSet = Flags<Access>;
             return {};
     }
 }
+
+/// How the backend names the state it keeps a texture in for `accesses` (a
+/// depth texture when `depth`), for traces: on Vulkan, the image layout.
+[[nodiscard]] std::string state_name(AccessSet accesses, bool depth);
 
 } // namespace fjell::gpu

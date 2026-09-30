@@ -224,3 +224,11 @@ VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages) {
 }
 
 } // namespace fjell::gpu::vulkan
+
+namespace fjell::gpu {
+
+std::string state_name(AccessSet accesses, bool depth) {
+    return vulkan::layout_name(vulkan::merged_image_scope(accesses, depth).layout);
+}
+
+} // namespace fjell::gpu
