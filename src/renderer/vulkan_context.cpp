@@ -588,56 +588,12 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     render_scene_to(frame_cmd_, req, scene, dt, selected_id, pool, req.pp_resources, false);
 }
 
-void VulkanContext::render_preview_and_wait(const ViewportRenderRequest& req,
-                                             const EnvironmentState& environment, Scene* scene,
-                                             float dt, uint32_t selected_id, ThreadPool& pool) {
-    FJELL_PROFILE_SCOPE_N("render_preview");
-    if (!preview_complete(req)) return;
-    current_environment_ = &environment;
-
-    auto vk = gpu_.device();
-    VkCommandBuffer cmd{};
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = gpu_.command_pool();
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-    vkAllocateCommandBuffers(vk, &alloc_info, &cmd);
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin);
-
-    auto* pp = req.pp_resources;
-    write_view_globals(req, environment, scene, *pp);
-    render_scene_to(cmd, req, scene, dt, selected_id, pool, pp, false);
-
-    vkEndCommandBuffer(cmd);
-
-    // This one-shot submit reads meshes/textures that may still sit in the
-    // upload batch (it doesn't wait the upload timeline like the frame
-    // submit does) — settle them first. Cheap when nothing is pending.
-    gpu_.upload_context().wait_all();
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    if (VkResult r = vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-        r != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("render_preview vkQueueSubmit failed: VkResult={}", static_cast<int>(r));
-        if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview submit");
+Result<gpu::Readback> VulkanContext::read_back_in_frame(const gpu::TextureView& view,
+                                                       const gpu::ReadbackDesc& desc) {
+    if (pre_list_ == nullptr || frame_cmd_ == VK_NULL_HANDLE) {
+        return make_error("A readback in the frame needs a frame recording");
     }
-    {
-        FJELL_PROFILE_SCOPE_N("render_preview_wait");
-        if (VkResult r = vkQueueWaitIdle(gpu_.graphics_queue()); r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("render_preview vkQueueWaitIdle failed: VkResult={}", static_cast<int>(r));
-            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview wait idle");
-        }
-    }
-
-    vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
+    return pre_list_->read_back(view, desc);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::SwapchainImage& image,
@@ -1091,49 +1047,6 @@ void VulkanContext::release_scene_particles(const Scene& scene) {
 
 void VulkanContext::advance_scene_particles(const Scene& scene, float dt) {
     if (particle_system_) particle_system_->advance(scene.id(), dt);
-}
-
-void VulkanContext::render_game_ui_preview(GameUi& ui, OffscreenPass& target) {
-    FJELL_PROFILE_SCOPE_N("render_game_ui_preview");
-    if (!ui.loaded()) return;
-
-    auto vk = gpu_.device();
-    VkCommandBuffer cmd{};
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = gpu_.command_pool();
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-    vk_check(vkAllocateCommandBuffers(vk, &alloc_info, &cmd), "allocate UI preview command buffer");
-
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin), "begin UI preview command buffer");
-
-    {
-        gpu::vulkan::CommandBufferList list(gpu_device(), cmd);
-        record_game_ui_into(
-            list.list(),
-            [&ui](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
-                  glm::uvec2 extent, uint32_t idx) { ui.record(pass, globals, bindless, extent, idx); },
-            target, current_frame_);
-    }
-
-    vk_check(vkEndCommandBuffer(cmd), "end UI preview command buffer");
-
-    // The UI may sample textures still sitting in the upload batch; the
-    // frame submit waits for those on its timeline, this one-shot does not.
-    gpu_.upload_context().wait_all();
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE), "submit UI preview");
-    vk_check(vkQueueWaitIdle(gpu_.graphics_queue()), "wait for UI preview");
-
-    vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
 }
 
 void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,

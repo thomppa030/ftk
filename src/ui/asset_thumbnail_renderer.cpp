@@ -1,5 +1,6 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 
+#include "core/thread_pool.hpp"
 #include "environment/environment_resolver.hpp"
 #include "ui/game_ui/font_sample.hpp"
 #include "ui/game_ui/font_library.hpp"
@@ -45,6 +46,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <optional>
 
 namespace fjell {
@@ -331,15 +333,15 @@ public:
         return file_time(path);
     }
 
-    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& stage,
-                float /*dt*/, const std::string& path,
-                AssetThumbnailRenderer::Pixels& out) override {
+    std::optional<AssetThumbnailRenderer::Capture> render(const AssetThumbnailRenderer::Deps& deps,
+                                                          AssetThumbnailRenderer::SceneStage& stage,
+                                                          float /*dt*/, const std::string& path) override {
         auto& vk = *deps.vulkan_context;
-        if (!stage.ensure(deps)) return false;
+        if (!stage.ensure(deps)) return std::nullopt;
         const auto* graph = vk.get_or_load_graph(VFX_GRAPH_PATH);
         if (graph == nullptr) {
             FJELL_CORE_ERROR("Effect thumbnails disabled: failed to load {}", VFX_GRAPH_PATH);
-            return false;
+            return std::nullopt;
         }
 
         // The effect's timing state lives on the VfxEffect itself, so the
@@ -352,9 +354,9 @@ public:
             effect = std::make_shared<VfxEffect>(std::move(loaded));
         } catch (const std::exception& e) {
             FJELL_CORE_WARN("Effect thumbnail: {}: {}", path, e.what());
-            return false;
+            return std::nullopt;
         }
-        if (effect->emitters.empty()) return false;
+        if (effect->emitters.empty()) return std::nullopt;
 
         auto& scene = stage.begin();
         auto node = std::make_unique<Node3D>();
@@ -373,7 +375,7 @@ public:
         int steps = static_cast<int>(std::ceil(warm / WARMUP_STEP));
         for (int i = 0; i < steps; ++i) {
             vk.advance_scene_particles(scene, WARMUP_STEP);
-            if (!stage.render(deps, WARMUP_STEP, FRAMING, nullptr, graph)) return false;
+            if (!stage.render(deps, WARMUP_STEP, FRAMING, graph)) return std::nullopt;
         }
         // The simulation advances the effect's own clock, so this says
         // whether the steps reached the emitter at all.
@@ -386,7 +388,8 @@ public:
                              sub.paused, sub.finished);
         }
         vk.advance_scene_particles(scene, WARMUP_STEP);
-        return stage.render(deps, WARMUP_STEP, FRAMING, &out, graph);
+        if (!stage.render(deps, WARMUP_STEP, FRAMING, graph)) return std::nullopt;
+        return stage.read_back(deps);
     }
 
 private:
@@ -414,10 +417,10 @@ public:
         return file_time(path);
     }
 
-    bool render(const AssetThumbnailRenderer::Deps& /*deps*/, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                float /*dt*/, const std::string& /*path*/,
-                AssetThumbnailRenderer::Pixels& /*out*/) override {
-        return false;
+    std::optional<AssetThumbnailRenderer::Capture> render(const AssetThumbnailRenderer::Deps& /*deps*/,
+                                                          AssetThumbnailRenderer::SceneStage& /*stage*/,
+                                                          float /*dt*/, const std::string& /*path*/) override {
+        return std::nullopt;
     }
 
     [[nodiscard]] bool renders_on_demand() const override { return false; }
@@ -511,9 +514,10 @@ protected:
         return {frame_w, frame_h};
     }
 
-    // Lays the loaded tree out in the frame, renders it and fills `out`.
-    bool capture(const AssetThumbnailRenderer::Deps& deps, VkExtent2D frame,
-                 AssetThumbnailRenderer::Pixels& out) {
+    // Lays the loaded tree out in the frame, renders it into the frame and
+    // reads its content back.
+    std::optional<AssetThumbnailRenderer::Capture> capture(const AssetThumbnailRenderer::Deps& deps,
+                                                           VkExtent2D frame) {
         auto& vk = *deps.vulkan_context;
         const uint32_t frame_w = frame.width;
         const uint32_t frame_h = frame.height;
@@ -522,7 +526,7 @@ protected:
         ui_->set_design_frame({static_cast<float>(frame_w), static_cast<float>(frame_h)});
         ui_->update(static_cast<float>(frame_w), static_cast<float>(frame_h),
                     vk.current_frame_index(), 0.0F, nullptr);
-        vk.render_game_ui_preview(*ui_, *target_);
+        vk.record_game_ui_offscreen(*ui_, *target_, vk.current_frame_index());
 
         // Crop to the content, read it back near its own size, and let the
         // CPU do the real shrink: one linear blit aliases past about 2:1.
@@ -532,7 +536,7 @@ protected:
                                               static_cast<float>(std::max(crop.extent.width, crop.extent.height)));
         auto read_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.width) * read_scale)));
         auto read_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(crop.extent.height) * read_scale)));
-        auto readback = vk.gpu_device().read_back(
+        auto readback = vk.read_back_in_frame(
             target_->color_texture(),
             {.region = {.x = static_cast<uint32_t>(crop.offset.x),
                         .y = static_cast<uint32_t>(crop.offset.y),
@@ -543,41 +547,9 @@ protected:
              .use = gpu::Access::sampled_fragment});
         if (!readback) {
             FJELL_CORE_ERROR("UI thumbnail: {}", readback.error());
-            return false;
+            return std::nullopt;
         }
-        {
-            FJELL_PROFILE_SCOPE_N("thumbnail_readback_wait");
-            readback->wait();
-        }
-        const uint8_t* read = readback->pixels().data();
-
-        constexpr uint32_t SIZE = AssetThumbnailRenderer::SIZE;
-        float fit = std::min(1.0F, std::min(static_cast<float>(SIZE) / static_cast<float>(read_w),
-                                            static_cast<float>(SIZE) / static_cast<float>(read_h)));
-        auto fit_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_w) * fit)));
-        auto fit_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_h) * fit)));
-        std::vector<uint8_t> fitted(static_cast<size_t>(fit_w) * fit_h * 4);
-        if (fit_w == read_w && fit_h == read_h) {
-            std::memcpy(fitted.data(), read, fitted.size());
-        } else {
-            stbir_resize_uint8_srgb(read, static_cast<int>(read_w), static_cast<int>(read_h), 0,
-                                    fitted.data(), static_cast<int>(fit_w), static_cast<int>(fit_h), 0,
-                                    STBIR_RGBA);
-        }
-
-        // Centred on a transparent square, so a wide bar and a small icon
-        // both sit in the cell at their own proportions.
-        out.width = SIZE;
-        out.height = SIZE;
-        out.rgba.assign(static_cast<size_t>(SIZE) * SIZE * 4, 0);
-        uint32_t ox = (SIZE - fit_w) / 2;
-        uint32_t oy = (SIZE - fit_h) / 2;
-        for (uint32_t y = 0; y < fit_h; ++y) {
-            std::memcpy(out.rgba.data() + ((static_cast<size_t>(oy + y) * SIZE + ox) * 4),
-                        fitted.data() + (static_cast<size_t>(y) * fit_w * 4),
-                        static_cast<size_t>(fit_w) * 4);
-        }
-        return true;
+        return AssetThumbnailRenderer::Capture{.read = std::move(*readback), .centre = true};
     }
 
     std::unique_ptr<GameUi> ui_;
@@ -599,9 +571,9 @@ public:
         return std::max(newest, file_time(stylesheet_for(path)));
     }
 
-    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                float /*dt*/, const std::string& path,
-                AssetThumbnailRenderer::Pixels& out) override {
+    std::optional<AssetThumbnailRenderer::Capture> render(const AssetThumbnailRenderer::Deps& deps,
+                                                          AssetThumbnailRenderer::SceneStage& /*stage*/,
+                                                          float /*dt*/, const std::string& path) override {
         auto frame = prepare(deps);
 
         fs::path markup(path);
@@ -610,9 +582,9 @@ public:
             auto asset = load_widget_asset(path);
             if (!asset) {
                 FJELL_CORE_WARN("Widget thumbnail: {}", asset.error());
-                return false;
+                return std::nullopt;
             }
-            if (!asset->markup_root) return false;
+            if (!asset->markup_root) return std::nullopt;
             // Declared prop defaults stand in for the values a game would
             // bind, the way the UI editor's preview shows them. They go in
             // before the load, which is when material="{prop}" is resolved,
@@ -624,8 +596,8 @@ public:
         } else {
             ui_->load(path, fjss);
         }
-        if (!ui_->loaded()) return false;
-        return capture(deps, frame, out);
+        if (!ui_->loaded()) return std::nullopt;
+        return capture(deps, frame);
     }
 };
 
@@ -665,18 +637,18 @@ public:
         return true;
     }
 
-    bool render(const AssetThumbnailRenderer::Deps& deps, AssetThumbnailRenderer::SceneStage& /*stage*/,
-                float /*dt*/, const std::string& path,
-                AssetThumbnailRenderer::Pixels& out) override {
+    std::optional<AssetThumbnailRenderer::Capture> render(const AssetThumbnailRenderer::Deps& deps,
+                                                          AssetThumbnailRenderer::SceneStage& /*stage*/,
+                                                          float /*dt*/, const std::string& path) override {
         if (deps.vulkan_context->font_library().status(path) != FontLibrary::Status::ready) {
-            return false;
+            return std::nullopt;
         }
         auto frame = prepare(deps);
         // Large enough to read at thumbnail size; the capture crops to it.
         load_font_sample(*ui_, path, "Ag 123", 160.0f,
                          deps.vulkan_context->font_library().get(path));
-        if (!ui_->loaded()) return false;
-        return capture(deps, frame, out);
+        if (!ui_->loaded()) return std::nullopt;
+        return capture(deps, frame);
     }
 };
 
@@ -693,6 +665,7 @@ AssetThumbnailRenderer::AssetThumbnailRenderer() {
     subjects_.push_back(std::make_unique<SceneFileSubject>());
     subjects_.push_back(std::make_unique<WidgetSubject>());
     subjects_.push_back(std::make_unique<FontSubject>());
+    inbox_ = std::make_shared<Inbox>();
 }
 
 AssetThumbnailRenderer::~AssetThumbnailRenderer() = default;
@@ -719,7 +692,7 @@ AssetThumbnailRenderer::Subject* AssetThumbnailRenderer::subject_for(const fs::p
 }
 
 void AssetThumbnailRenderer::request(const std::string& path) {
-    if (entries_.contains(path)) return;
+    if (entries_.contains(path) || rendering_.contains(path)) return;
     refresh(path);
 }
 
@@ -746,6 +719,9 @@ void AssetThumbnailRenderer::invalidate(const std::string& path) {
     fs::remove(cache_path(path), ec);
 
     entries_.erase(path);
+    // A render on its way is dropped with it.
+    rendering_.erase(path);
+    std::erase_if(in_flight_, [&](const InFlight& flight) { return flight.path == path; });
 }
 
 void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
@@ -754,6 +730,8 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
 
     ++ticks_;
     evict_least_recent();
+    finish_reads(deps);
+    store_finished(deps);
 
     if (pending_capture_) render_pending_capture(deps, dt);
 
@@ -765,6 +743,8 @@ void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
 
         auto* subject = subject_for(path);
         if (subject == nullptr) continue;
+        // Its render comes back on its own.
+        if (rendering_.contains(path)) continue;
 
         auto newest = subject->source_time(path, deps.project);
         if (auto it = entries_.find(path); it != entries_.end()) {
@@ -795,6 +775,8 @@ void AssetThumbnailRenderer::shutdown(const Deps& deps) {
     entries_.clear();
     queue_.clear();
     queued_.clear();
+    in_flight_.clear();
+    rendering_.clear();
 
     for (auto& subject : subjects_) subject->shutdown(deps);
     stage_.shutdown(deps);
@@ -859,7 +841,7 @@ Scene& AssetThumbnailRenderer::SceneStage::begin() {
     return scene_;
 }
 
-bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, float dt, const Framing& framing, Pixels* out,
+bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, float dt, const Framing& framing,
                                                 const FjGraph* graph) {
     Camera camera(framing.center,
                   std::max(framing.radius * CAMERA_DISTANCE_PER_RADIUS, CAMERA_MIN_DISTANCE),
@@ -867,11 +849,11 @@ bool AssetThumbnailRenderer::SceneStage::render(const Deps& deps, float dt, cons
     View view{.view = camera.view_matrix(),
               .projection = camera.projection_matrix(1.0F),
               .position = camera.position()};
-    return render_view(deps, dt, scene_, view, out, RenderOptions{.graph = graph});
+    return render_view(deps, dt, scene_, view, RenderOptions{.graph = graph});
 }
 
 bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt, Scene& scene, const View& view,
-                                                     Pixels* out, const RenderOptions& options) {
+                                                     const RenderOptions& options) {
     if (!target_ || !pp_) return false;
     auto& vk = *deps.vulkan_context;
     scene.compute_world_matrices(nullptr);
@@ -896,30 +878,25 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     // The stage's own scene carries its own sun; the environment comes from it,
     // never from whatever scene the editor has open.
     const EnvironmentState environment = resolve_environment(scene);
-    vk.render_preview_and_wait(req, environment, &scene, dt, 0, *deps.thread_pool);
+    vk.render_preview(req, environment, &scene, dt, 0, *deps.thread_pool);
     post.set_exposure(saved_exposure);
     post.set_auto_exposure(saved_auto);
-    if (out == nullptr) return true;
+    return true;
+}
 
-    auto* output = pp_->post();
+std::optional<AssetThumbnailRenderer::Capture> AssetThumbnailRenderer::SceneStage::read_back(const Deps& deps) {
+    auto* output = pp_ ? pp_->post() : nullptr;
     if (output == nullptr || !output->texture) {
         FJELL_CORE_ERROR("Scene thumbnail: post output unavailable");
-        return false;
+        return std::nullopt;
     }
-    auto readback = vk.gpu_device().read_back(output->texture, {.use = gpu::Access::sampled_fragment});
+    auto readback =
+        deps.vulkan_context->read_back_in_frame(output->texture, {.use = gpu::Access::sampled_fragment});
     if (!readback) {
         FJELL_CORE_ERROR("Scene thumbnail: {}", readback.error());
-        return false;
+        return std::nullopt;
     }
-    {
-        FJELL_PROFILE_SCOPE_N("thumbnail_readback_wait");
-        readback->wait();
-    }
-    out->width = readback->width();
-    out->height = readback->height();
-    const auto pixels = readback->pixels();
-    out->rgba.assign(pixels.begin(), pixels.end());
-    return true;
+    return Capture{.read = std::move(*readback)};
 }
 
 void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
@@ -929,23 +906,125 @@ void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
     scene_.clear();
 }
 
-bool AssetThumbnailRenderer::SceneSubject::render(const Deps& deps, SceneStage& stage,
-                                                  float dt,
-                                                  const std::string& path, Pixels& out) {
-    if (!stage.ensure(deps)) return false;
+std::optional<AssetThumbnailRenderer::Capture> AssetThumbnailRenderer::SceneSubject::render(
+    const Deps& deps, SceneStage& stage, float dt, const std::string& path) {
+    if (!stage.ensure(deps)) return std::nullopt;
     Framing framing;
-    if (!populate(stage.begin(), deps, path, framing)) return false;
-    return stage.render(deps, dt, framing, &out);
+    if (!populate(stage.begin(), deps, path, framing)) return std::nullopt;
+    if (!stage.render(deps, dt, framing)) return std::nullopt;
+    return stage.read_back(deps);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
+namespace {
+
+// A UI capture fitted into the thumbnail square and centred on transparency,
+// so a wide bar and a small icon both sit in the cell at their own
+// proportions.
+AssetThumbnailRenderer::Pixels centred(const AssetThumbnailRenderer::Pixels& read) {
+    constexpr uint32_t SIZE = AssetThumbnailRenderer::SIZE;
+    const uint32_t read_w = read.width;
+    const uint32_t read_h = read.height;
+    float fit = std::min(1.0F, std::min(static_cast<float>(SIZE) / static_cast<float>(read_w),
+                                        static_cast<float>(SIZE) / static_cast<float>(read_h)));
+    auto fit_w = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_w) * fit)));
+    auto fit_h = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(read_h) * fit)));
+    std::vector<uint8_t> fitted(static_cast<size_t>(fit_w) * fit_h * 4);
+    if (fit_w == read_w && fit_h == read_h) {
+        std::memcpy(fitted.data(), read.rgba.data(), fitted.size());
+    } else {
+        stbir_resize_uint8_srgb(read.rgba.data(), static_cast<int>(read_w), static_cast<int>(read_h), 0,
+                                fitted.data(), static_cast<int>(fit_w), static_cast<int>(fit_h), 0, STBIR_RGBA);
+    }
+
+    AssetThumbnailRenderer::Pixels out;
+    out.width = SIZE;
+    out.height = SIZE;
+    out.rgba.assign(static_cast<size_t>(SIZE) * SIZE * 4, 0);
+    uint32_t ox = (SIZE - fit_w) / 2;
+    uint32_t oy = (SIZE - fit_h) / 2;
+    for (uint32_t y = 0; y < fit_h; ++y) {
+        std::memcpy(out.rgba.data() + ((static_cast<size_t>(oy + y) * SIZE + ox) * 4),
+                    fitted.data() + (static_cast<size_t>(y) * fit_w * 4), static_cast<size_t>(fit_w) * 4);
+    }
+    return out;
+}
+
+} // namespace
+
+struct AssetThumbnailRenderer::Inbox {
+    struct Finished {
+        std::string path;
+        uint64_t render{0};
+        std::filesystem::file_time_type newest;
+        Pixels pixels;
+    };
+    std::mutex mutex;
+    std::vector<Finished> finished;
+};
+
 bool AssetThumbnailRenderer::render(const Deps& deps, float dt,
                                     Subject& subject, const std::string& path,
                                     fs::file_time_type newest) {
-    Pixels pixels;
-    if (!subject.render(deps, stage_, dt, path, pixels)) return false;
-    return store_pixels(deps, path, pixels, newest);
+    auto capture = subject.render(deps, stage_, dt, path);
+    if (!capture) return false;
+    track(path, newest, std::move(*capture));
+    return true;
+}
+
+void AssetThumbnailRenderer::track(const std::string& path, fs::file_time_type newest, Capture capture) {
+    const uint64_t render = ++renders_;
+    rendering_[path] = render;
+    in_flight_.push_back({path, newest, render, std::move(capture)});
+}
+
+void AssetThumbnailRenderer::finish_reads(const Deps& deps) {
+    std::erase_if(in_flight_, [&](InFlight& flight) {
+        if (!flight.capture.read.ready()) return false;
+        const auto texels = flight.capture.read.pixels();
+        Pixels read{flight.capture.read.width(), flight.capture.read.height(), {texels.begin(), texels.end()}};
+        (void)deps.thread_pool->submit([inbox = inbox_, path = std::move(flight.path), render = flight.render,
+                                        newest = flight.newest, centre = flight.capture.centre,
+                                        cached = cache_path(flight.path), read = std::move(read)]() mutable {
+            Pixels thumbnail = centre ? centred(read) : std::move(read);
+            std::error_code ec;
+            fs::create_directories(cached.parent_path(), ec);
+            if (!ec && stbi_write_png(cached.string().c_str(), static_cast<int>(thumbnail.width),
+                                      static_cast<int>(thumbnail.height), 4, thumbnail.rgba.data(),
+                                      static_cast<int>(thumbnail.width) * 4) == 0) {
+                FJELL_CORE_WARN("Asset thumbnail: failed to write {}", cached.string());
+            }
+            std::lock_guard lock(inbox->mutex);
+            inbox->finished.push_back({std::move(path), render, newest, std::move(thumbnail)});
+        });
+        return true;
+    });
+}
+
+void AssetThumbnailRenderer::store_finished(const Deps& deps) {
+    std::vector<Inbox::Finished> finished;
+    {
+        std::lock_guard lock(inbox_->mutex);
+        finished.swap(inbox_->finished);
+    }
+    for (auto& done : finished) {
+        const auto it = rendering_.find(done.path);
+        if (it == rendering_.end()) {
+            // Invalidated on its way: the cache file just written is stale.
+            std::error_code ec;
+            fs::remove(cache_path(done.path), ec);
+            continue;
+        }
+        // A later render of the same path is on its way and will be stored.
+        if (it->second != done.render) continue;
+        rendering_.erase(it);
+        auto texture = deps.icon_cache->upload_rgba(done.pixels.rgba, done.pixels.width, done.pixels.height,
+                                                    "asset thumbnail " + done.path);
+        if (!store(done.path, std::move(texture), done.newest)) {
+            entries_[done.path] = Entry{.texture = {}, .source_time = done.newest, .failed = true};
+        }
+    }
 }
 
 void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) {
@@ -958,39 +1037,18 @@ void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) 
         FJELL_CORE_ERROR("Scene thumbnail: failed to load {}", SCENE_GRAPH_PATH);
         return;
     }
-    Pixels pixels;
-    if (!stage_.render_view(deps, dt, *capture.scene, capture.view, &pixels,
+    if (!stage_.render_view(deps, dt, *capture.scene, capture.view,
                             RenderOptions{.graph = graph, .backdrop = nullptr,
                                           .skip_shadows = false, .pin_exposure = false})) {
         return;
     }
+    auto read = stage_.read_back(deps);
+    if (!read) return;
     auto* subject = subject_for(capture.path);
     auto newest = subject != nullptr ? subject->source_time(capture.path, deps.project)
                                      : file_time(capture.path);
     entries_.erase(capture.path);
-    store_pixels(deps, capture.path, pixels, newest);
-}
-
-bool AssetThumbnailRenderer::store_pixels(const Deps& deps, const std::string& path,
-                                          const Pixels& pixels, fs::file_time_type newest) {
-    if (pixels.width == 0 || pixels.height == 0 ||
-        pixels.rgba.size() < static_cast<size_t>(pixels.width) * pixels.height * 4) {
-        return false;
-    }
-
-    auto cached = cache_path(path);
-    std::error_code ec;
-    fs::create_directories(cached.parent_path(), ec);
-    if (!ec) {
-        int w = static_cast<int>(pixels.width);
-        int h = static_cast<int>(pixels.height);
-        if (stbi_write_png(cached.string().c_str(), w, h, 4, pixels.rgba.data(), w * 4) == 0) {
-            FJELL_CORE_WARN("Asset thumbnail: failed to write {}", cached.string());
-        }
-    }
-
-    auto texture = deps.icon_cache->upload_rgba(pixels.rgba, pixels.width, pixels.height, "asset thumbnail " + path);
-    return store(path, std::move(texture), newest);
+    track(capture.path, newest, std::move(*read));
 }
 
 bool AssetThumbnailRenderer::store(const std::string& path, gpu::Owned<gpu::Texture> texture,

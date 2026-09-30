@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/readback.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/viewport_source.hpp"
@@ -45,8 +46,10 @@ struct FjGraph;
 ///
 /// UI code only ever calls request(), refresh() and texture(); the engine
 /// calls tick() once per frame in the window where offscreen previews render,
-/// after the frame fence and before the main command buffer is recorded. One
-/// render per frame, since each is a blocking submit and readback.
+/// after the frame fence and before the frame's views are recorded. A render
+/// records into the frame with its readback; the picture comes back once
+/// that frame has finished, and is fitted and written to its cache file on
+/// the thread pool. One render a tick.
 class AssetThumbnailRenderer {
 public:
     static constexpr uint32_t SIZE = 128;
@@ -139,6 +142,14 @@ public:
         std::vector<uint8_t> rgba;
     };
 
+    /// A render's picture on its way back from the frame that drew it: the
+    /// read, and whether it is to be fitted and centred in the SIZE square
+    /// (a crop of a UI) or is the thumbnail as read (the scene stage's).
+    struct Capture {
+        gpu::Readback read;
+        bool centre{false};
+    };
+
     /// The bounding sphere a scene subject asks to have framed.
     struct Framing {
         glm::vec3 center{0.0F};
@@ -159,9 +170,9 @@ public:
     };
 
     /// The 3D stage scene subjects share: one small offscreen target with
-    /// its own post-process resources and render graph, a private global
-    /// set, and a scene rebuilt for every render around one fixed light.
-    /// The camera frames whatever the subject placed.
+    /// its own post-process resources and render graph, and a scene rebuilt
+    /// for every render around one fixed light. The camera frames whatever
+    /// the subject placed.
     class SceneStage {
     public:
         /// Create the GPU resources on first use. False when the render
@@ -171,14 +182,15 @@ public:
         /// Empty the scene and place the light; the subject adds the rest.
         Scene& begin();
         /// Render the stage's scene framed on `framing`, through the stage's
-        /// own graph or `graph` when given, and read it back into `out`. A
-        /// null `out` only advances what the render simulates.
+        /// own graph or `graph` when given, into the frame.
         bool render(const Deps& deps, float dt,
-                    const Framing& framing, Pixels* out, const FjGraph* graph = nullptr);
-        /// Render any scene from an explicit camera into the stage's target.
+                    const Framing& framing, const FjGraph* graph = nullptr);
+        /// Render any scene from an explicit camera into the stage's target,
+        /// in the frame.
         bool render_view(const Deps& deps, float dt,
-                         Scene& scene, const View& view, Pixels* out,
-                         const RenderOptions& options);
+                         Scene& scene, const View& view, const RenderOptions& options);
+        /// Read back what the last render drew, from the frame after it.
+        [[nodiscard]] std::optional<Capture> read_back(const Deps& deps);
         void shutdown(const Deps& deps);
 
     private:
@@ -197,8 +209,10 @@ public:
         /// Newest timestamp among the asset and the files it references.
         [[nodiscard]] virtual std::filesystem::file_time_type source_time(
             const std::filesystem::path& path, const Project* project) const = 0;
-        /// Produce the thumbnail. False when the asset could not be loaded.
-        virtual bool render(const Deps& deps, SceneStage& stage, float dt, const std::string& path, Pixels& out) = 0;
+        /// Render the thumbnail into the frame and read it back. None when the
+        /// asset could not be loaded.
+        virtual std::optional<Capture> render(const Deps& deps, SceneStage& stage, float dt,
+                                              const std::string& path) = 0;
         /// Whether render() can produce the thumbnail from the file alone.
         [[nodiscard]] virtual bool renders_on_demand() const { return true; }
         /// False while something render() needs is still on its way — a
@@ -215,7 +229,8 @@ public:
     /// says what to frame, the stage does the rest.
     class SceneSubject : public Subject {
     public:
-        bool render(const Deps& deps, SceneStage& stage, float dt, const std::string& path, Pixels& out) final;
+        std::optional<Capture> render(const Deps& deps, SceneStage& stage, float dt,
+                                      const std::string& path) final;
         /// Add the asset to `scene` and say what to frame. False when the
         /// asset could not be loaded.
         virtual bool populate(Scene& scene, const Deps& deps, const std::string& path,
@@ -249,9 +264,13 @@ private:
     bool render(const Deps& deps, float dt,
                 Subject& subject, const std::string& path,
                 std::filesystem::file_time_type newest);
-    // Write the cache file and upload the pixels as the asset's thumbnail.
-    bool store_pixels(const Deps& deps, const std::string& path, const Pixels& pixels,
-                      std::filesystem::file_time_type newest);
+    // Sends `capture` on its way as `path`'s thumbnail.
+    void track(const std::string& path, std::filesystem::file_time_type newest, Capture capture);
+    // Hands the reads whose frames have finished to the pool, which fits
+    // them and writes their cache files.
+    void finish_reads(const Deps& deps);
+    // Uploads what the pool has finished as the assets' thumbnails.
+    void store_finished(const Deps& deps);
     void render_pending_capture(const Deps& deps, float dt);
     void evict_least_recent();
     // Store a fresh upload, or fail when there is none.
@@ -261,6 +280,23 @@ private:
     std::deque<std::string> queue_;
     std::unordered_set<std::string> queued_;
     std::unordered_map<std::string, Entry> entries_;
+
+    // Renders on their way back: their reads until the frames that drew
+    // them finish, then on the pool. Each path's latest render is the one
+    // stored; an invalidated path's is dropped.
+    struct InFlight {
+        std::string path;
+        std::filesystem::file_time_type newest;
+        uint64_t render{0};
+        Capture capture;
+    };
+    std::vector<InFlight> in_flight_;
+    std::unordered_map<std::string, uint64_t> rendering_;
+    uint64_t renders_{0};
+    // What the pool has finished, shared with its jobs, which may finish
+    // after the renderer is gone.
+    struct Inbox;
+    std::shared_ptr<Inbox> inbox_;
 
     SceneStage stage_;
     uint64_t ticks_{0};

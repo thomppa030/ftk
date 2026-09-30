@@ -2464,13 +2464,10 @@ void Engine::run() {
         // them first.
         vulkan_context_->advance_scene_particles(*render_scene, clock_.game_delta_time());
 
-        // Asset thumbnails first: each render is submitted and waited for on
-        // its own, so it runs on the GPU before anything the frame records,
-        // and has to be recorded before it too.
+        // Asset thumbnails, scene viewports (render-to-texture) and the
+        // context's previews (the camera preview) record into the frame
+        // ahead of its views.
         asset_thumbnails_.tick(asset_thumbnail_deps(), clock_.game_delta_time());
-
-        // Scene viewports (render-to-texture) and the context's previews
-        // (the camera preview) record into the frame ahead of its views.
         vulkan_context_->render_scene_viewports(render_scene, clock_.game_delta_time(),
                                                  scene_context_->selected_id(),
                                                  *environment, thread_pool_);

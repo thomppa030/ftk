@@ -282,13 +282,6 @@ public:
   void record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
                                        OffscreenPass& target, uint32_t frame_index);
 
-  /// Render a GameUi into an offscreen pass in its own one-shot submit and
-  /// wait for it, outside the frame's lists: for thumbnails, which read the
-  /// result back at once. Called before anything records into the frame,
-  /// like render_preview_and_wait. The target's colour image is left ready
-  /// to sample.
-  void render_game_ui_preview(class GameUi& ui, OffscreenPass& target);
-
   /// Register a scene's emitters with the particle system, for a scene
   /// rendered outside the frame (a thumbnail). record_frame does this for
   /// the frame's scene; other scenes' emitters are left alone, the
@@ -379,13 +372,11 @@ public:
   void render_preview(const ViewportRenderRequest& req,
                       const EnvironmentState& environment, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
-  /// render_preview() in a list of its own, submitted and waited for before
-  /// it returns: for a caller reading the picture back at once. Called
-  /// before anything records into the frame, so the GPU runs the frame's
-  /// work in the order it was recorded.
-  void render_preview_and_wait(const ViewportRenderRequest& req,
-                               const EnvironmentState& environment, Scene* scene,
-                               float dt, uint32_t selected_id, ThreadPool& pool);
+  /// Reads `view` back to the CPU from the frame's first list, after what
+  /// is recorded there so far (a preview, say): ready once the frame has
+  /// finished (gpu::CommandList::read_back).
+  [[nodiscard]] Result<gpu::Readback> read_back_in_frame(const gpu::TextureView& view,
+                                                         const gpu::ReadbackDesc& desc = {});
 
   /// The swapchain image of the last frame presented, for the editor's
   /// screenshot capture to read the composited frame back from. A handle
