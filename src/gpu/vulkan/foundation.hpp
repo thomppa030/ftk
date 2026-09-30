@@ -1,17 +1,23 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 namespace fjell {
-
 class Window;
+}
+
+namespace fjell::gpu::vulkan {
+
+class UploadLanes;
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
@@ -38,20 +44,28 @@ struct SwapchainSupport {
     std::vector<VkPresentModeKHR> present_modes;
 };
 
-class Device {
+/// What a device runs on, brought up before anything it makes and torn down
+/// after it: the Vulkan instance, the GPU chosen and its queues, the
+/// extensions loaded from it, the allocator, and the lanes uploads run on.
+class Foundation {
 public:
-    explicit Device(Window& window);
-    ~Device();
+    /// Brings everything up for a GPU that can show `window`.
+    /// Throws std::runtime_error when there is none, or the driver refuses.
+    explicit Foundation(Window& window);
+    ~Foundation();
 
-    Device(const Device&) = delete;
-    Device& operator=(const Device&) = delete;
-    Device(Device&&) = delete;
-    Device& operator=(Device&&) = delete;
+    Foundation(const Foundation&) = delete;
+    Foundation& operator=(const Foundation&) = delete;
+    Foundation(Foundation&&) = delete;
+    Foundation& operator=(Foundation&&) = delete;
+
+    /// The window the GPU was chosen to show, and the surface made for it.
+    [[nodiscard]] Window& window() const { return window_; }
+    [[nodiscard]] VkSurfaceKHR surface() const { return surface_; }
 
     [[nodiscard]] VkInstance instance() const { return instance_; }
     [[nodiscard]] VkDevice handle() const { return device_; }
     [[nodiscard]] VkPhysicalDevice physical_device() const { return physical_device_; }
-    [[nodiscard]] VkSurfaceKHR surface() const { return surface_; }
     [[nodiscard]] VkQueue graphics_queue() const { return graphics_queue_; }
     [[nodiscard]] VkQueue present_queue() const { return present_queue_; }
     [[nodiscard]] VkQueue async_compute_queue() const { return async_compute_queue_; }
@@ -68,9 +82,6 @@ public:
     /// its handle or device address. sparse_bind_queue() is the queue to
     /// submit vkQueueBindSparse on (the dedicated transfer queue when its
     /// family supports sparse ops, so binds never touch the graphics queue).
-    [[nodiscard]] bool sparse_binding_supported() const {
-        return sparse_bind_queue_ != VK_NULL_HANDLE;
-    }
     [[nodiscard]] VkQueue sparse_bind_queue() const { return sparse_bind_queue_; }
 
     /// Queue families that may access upload-destination buffers: graphics,
@@ -78,7 +89,7 @@ public:
     /// exist. With two or more entries, buffers written by the upload path
     /// must be created VK_SHARING_MODE_CONCURRENT over these families so
     /// their content stays defined across queues without ownership
-    /// transfers. The span is stable for the Device's lifetime.
+    /// transfers. The span is stable for the foundation's lifetime.
     [[nodiscard]] std::span<const uint32_t> upload_sharing_families() const {
         return {upload_families_.data(), upload_family_count_};
     }
@@ -89,18 +100,15 @@ public:
     /// The caller writes these into `VkImageCreateInfo::sharingMode =
     /// VK_SHARING_MODE_CONCURRENT` and
     /// `VkImageCreateInfo::pQueueFamilyIndices` for images that may be
-    /// read or written from either queue. The array lifetime is tied to
-    /// the Device instance — safe to pass into vkCreateImage.
+    /// read or written from either queue. The array lives as long as the
+    /// foundation — safe to pass into vkCreateImage.
     [[nodiscard]] const uint32_t* concurrent_queue_families(uint32_t& out_count) const;
     [[nodiscard]] const std::string& gpu_name() const { return gpu_name_; }
 
     [[nodiscard]] QueueFamilyIndices find_queue_families() const;
-    [[nodiscard]] SwapchainSupport query_swapchain_support() const;
     [[nodiscard]] SwapchainSupport query_swapchain_support(VkSurfaceKHR surface) const;
-    [[nodiscard]] VkFormat find_depth_format() const;
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
-    [[nodiscard]] uint32_t mesh_shader_max_workgroup_size() const { return mesh_shader_max_workgroup_size_; }
     /// Per-workgroup output ceiling a mesh shader may declare via
     /// `layout(..., max_vertices = N, max_primitives = M) out;`. Geometry
     /// generated in-shader must size its patches against these.
@@ -128,16 +136,17 @@ public:
     [[nodiscard]] PFN_vkGetAccelerationStructureBuildSizesKHR get_accel_struct_build_sizes_fn() const { return pfn_get_accel_struct_build_sizes_; }
     [[nodiscard]] PFN_vkCmdBuildAccelerationStructuresKHR cmd_build_accel_structs_fn() const { return pfn_cmd_build_accel_structs_; }
     [[nodiscard]] PFN_vkGetAccelerationStructureDeviceAddressKHR get_accel_struct_device_address_fn() const { return pfn_get_accel_struct_device_address_; }
-    [[nodiscard]] PFN_vkGetBufferDeviceAddressKHR get_buffer_device_address_fn() const { return pfn_get_buffer_device_address_; }
-    [[nodiscard]] VkFormat find_supported_format(
-        const std::vector<VkFormat>& candidates, VkImageTiling tiling,
-        VkFormatFeatureFlags features) const;
 
     // Device-loss diagnostics. Call after a VK_ERROR_DEVICE_LOST; if
     // VK_EXT_device_fault is supported, queries and logs the faulting
     // address ranges + vendor info to pin the GPU op that lost the device.
-    [[nodiscard]] bool device_fault_supported() const { return device_fault_supported_; }
     void dump_device_fault(const char* context) const;
+
+    /// What every buffer and image the device makes is allocated from.
+    [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
+
+    /// The lanes uploads run on, which frames wait for.
+    [[nodiscard]] UploadLanes& lanes() { return *lanes_; }
 
 private:
     void create_instance();
@@ -145,6 +154,7 @@ private:
     void create_surface();
     void pick_physical_device();
     void create_logical_device();
+    void create_allocator();
 
     [[nodiscard]] bool check_validation_layer_support() const;
     [[nodiscard]] std::vector<const char*> get_required_extensions() const;
@@ -170,13 +180,12 @@ private:
     std::array<uint32_t, 3> upload_families_{};
     uint32_t upload_family_count_{0};
     // {graphics_family, async_compute_family} — stable for the lifetime
-    // of the Device, filled in create_logical_device when async is
+    // of the foundation, filled in create_logical_device when async is
     // supported. Empty otherwise.
     std::array<uint32_t, 2> concurrent_families_{};
     uint32_t concurrent_family_count_{0};
     std::string gpu_name_;
     bool mesh_shader_supported_{false};
-    uint32_t mesh_shader_max_workgroup_size_{0};
     uint32_t mesh_shader_max_output_vertices_{0};
     uint32_t mesh_shader_max_output_primitives_{0};
     PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
@@ -191,7 +200,9 @@ private:
     PFN_vkGetAccelerationStructureBuildSizesKHR pfn_get_accel_struct_build_sizes_{nullptr};
     PFN_vkCmdBuildAccelerationStructuresKHR pfn_cmd_build_accel_structs_{nullptr};
     PFN_vkGetAccelerationStructureDeviceAddressKHR pfn_get_accel_struct_device_address_{nullptr};
-    PFN_vkGetBufferDeviceAddressKHR pfn_get_buffer_device_address_{nullptr};
+
+    VmaAllocator allocator_{VK_NULL_HANDLE};
+    std::unique_ptr<UploadLanes> lanes_;
 
 #ifdef NDEBUG
     static constexpr bool enable_validation_ = false;
@@ -210,4 +221,4 @@ private:
     std::vector<const char*> device_extensions_;
 };
 
-} // namespace fjell
+} // namespace fjell::gpu::vulkan

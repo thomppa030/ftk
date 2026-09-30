@@ -5,8 +5,8 @@
 #include "gpu/release_queue.hpp"
 #include "gpu/transient_memory.hpp"
 #include "gpu/upload.hpp"
+#include "gpu/vulkan/foundation.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
-#include "renderer/gpu/device.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -31,7 +31,6 @@
 #include <vector>
 
 namespace fjell {
-class UploadContext;
 class Window;
 }
 
@@ -41,29 +40,8 @@ struct FrameSlot;
 
 /// The Vulkan backend's upload: the device's lanes, which frames wait for.
 struct Upload::Impl {
-    UploadContext& lanes;
+    vulkan::UploadLanes& lanes;
 };
-
-namespace vulkan {
-
-/// What a device runs on, brought up before anything it makes and torn down
-/// after it: the Vulkan instance, the GPU chosen with its queues, the
-/// allocator, and the lanes uploads run on.
-struct Foundation {
-    explicit Foundation(Window& shown);
-    ~Foundation();
-
-    Foundation(const Foundation&) = delete;
-    Foundation& operator=(const Foundation&) = delete;
-
-    /// The window the device was chosen to show, whose surface `vk` made.
-    Window& window;
-    fjell::Device vk;
-    VmaAllocator allocator{VK_NULL_HANDLE};
-    std::unique_ptr<UploadContext> lanes;
-};
-
-} // namespace vulkan
 
 /// The Vulkan backend's device: pools of native objects behind the handles,
 /// over its foundation.

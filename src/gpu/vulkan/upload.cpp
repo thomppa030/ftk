@@ -4,7 +4,7 @@
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/upload_context.hpp"
+#include "gpu/vulkan/upload_lanes.hpp"
 
 #include <algorithm>
 #include <string>
@@ -81,7 +81,7 @@ void Upload::to_texture(const TextureView& dst, const TextureRegion& region,
         return;
     }
 
-    const StagingSlice staging = impl_->lanes.stage_for_image(bytes.data(), bytes.size());
+    const vulkan::StagingSlice staging = impl_->lanes.stage_for_image(bytes.data(), bytes.size());
     vulkan::CommandBufferList recorder(*device_, impl_->lanes.image_cb());
     CommandList& cmd = recorder.list();
     // Filling the mips writes every one of them.

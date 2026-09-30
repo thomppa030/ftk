@@ -85,10 +85,6 @@ fjell_library(platform
 # its headers declare SDL's window and event types without including SDL.
 fjell_library(gpu
     SOURCES
-        renderer/gpu/buffer.cpp
-        renderer/gpu/device.cpp
-        renderer/gpu/upload_context.cpp
-        renderer/gpu/vma_impl.cpp
         renderer/gpu/window.cpp
         gpu/binding.cpp
         gpu/command_list.cpp
@@ -103,6 +99,7 @@ fjell_library(gpu
         gpu/vulkan/frame.cpp
         gpu/vulkan/command_list_copies.cpp
         gpu/vulkan/device.cpp
+        gpu/vulkan/foundation.cpp
         gpu/vulkan/frame_cache_key.cpp
         gpu/vulkan/frame_descriptor_cache.cpp
         gpu/vulkan/native.cpp
@@ -112,7 +109,9 @@ fjell_library(gpu
         gpu/vulkan/swapchain.cpp
         gpu/vulkan/translate.cpp
         gpu/vulkan/upload.cpp
+        gpu/vulkan/upload_lanes.cpp
         gpu/vulkan/transitions.cpp
+        gpu/vulkan/vma_impl.cpp
         gpu/vulkan/zones.cpp
     HEADERS
         gpu/acceleration.hpp
@@ -125,6 +124,7 @@ fjell_library(gpu
         gpu/device.hpp
         gpu/flags.hpp
         gpu/format.hpp
+        gpu/frames_in_flight.hpp
         gpu/owned.hpp
         gpu/pipeline.hpp
         gpu/readback.hpp
@@ -143,16 +143,13 @@ fjell_library(gpu
         gpu/vulkan/access.hpp
         gpu/vulkan/command_list_impl.hpp
         gpu/vulkan/device_impl.hpp
+        gpu/vulkan/foundation.hpp
         gpu/vulkan/frame_descriptor_cache.hpp
         gpu/vulkan/frame_impl.hpp
         gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
-        renderer/gpu/buffer.hpp
-        renderer/gpu/device.hpp
-        renderer/gpu/frames_in_flight.hpp
-        renderer/gpu/upload_context.hpp
-        renderer/gpu/vk_check.hpp
-        renderer/gpu/vk_utils.hpp
+        gpu/vulkan/upload_lanes.hpp
+        gpu/vulkan/vk_check.hpp
         renderer/gpu/window.hpp
     LINKS
         PUBLIC fjell-core GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan
@@ -167,9 +164,9 @@ if(VMA_INCLUDE_DIRS)
     target_include_directories(fjell-gpu SYSTEM PUBLIC ${VMA_INCLUDE_DIRS})
 endif()
 if(MSVC)
-    set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
+    set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/gpu/vulkan/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
 else()
-    set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+    set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/gpu/vulkan/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # fjell-framegraph orders a frame's passes and places the barriers between

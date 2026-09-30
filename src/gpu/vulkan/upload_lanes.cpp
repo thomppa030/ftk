@@ -1,23 +1,44 @@
-#include "renderer/gpu/upload_context.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/vk_check.hpp"
+#include "gpu/vulkan/upload_lanes.hpp"
+
 #include "core/log.hpp"
+#include "gpu/vulkan/foundation.hpp"
+#include "gpu/vulkan/vk_check.hpp"
 
 #include <array>
 #include <cstring>
 #include <stdexcept>
 
-namespace fjell {
+namespace fjell::gpu::vulkan {
 
-UploadContext::UploadContext(Device& device, VmaAllocator allocator)
-    : device_{device.handle()}
-    , allocator_{allocator}
-    , sharing_families_{device.upload_sharing_families()} {
-    lanes_[IMAGE].queue = device.graphics_queue();
-    lanes_[BUFFER].queue = device.transfer_queue_supported()
-        ? device.transfer_queue() : device.graphics_queue();
+UploadLanes::Staging::Staging(VmaAllocator made_by, VkDeviceSize size) : allocator{made_by} {
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = size;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo allocation_info{};
+    allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
+    allocation_info.flags =
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VmaAllocationInfo made{};
+    vk_check(vmaCreateBuffer(allocator, &buffer_info, &allocation_info, &buffer, &allocation, &made),
+             "Failed to create upload staging memory");
+    mapped = made.pMappedData;
+}
 
-    auto indices = device.find_queue_families();
+UploadLanes::Staging::~Staging() {
+    vmaDestroyBuffer(allocator, buffer, allocation);
+}
+
+UploadLanes::UploadLanes(Foundation& foundation)
+    : device_{foundation.handle()}
+    , allocator_{foundation.allocator()}
+    , sharing_families_{foundation.upload_sharing_families()} {
+    lanes_[IMAGE].queue = foundation.graphics_queue();
+    lanes_[BUFFER].queue = foundation.transfer_queue_supported()
+        ? foundation.transfer_queue() : foundation.graphics_queue();
+
+    auto indices = foundation.find_queue_families();
     std::array<uint32_t, LANE_COUNT> lane_families{};
     lane_families[IMAGE] = indices.graphics.value();
     lane_families[BUFFER] = indices.transfer.value_or(indices.graphics.value());
@@ -42,19 +63,14 @@ UploadContext::UploadContext(Device& device, VmaAllocator allocator)
     }
 
     ring_capacity_ = RING_CAPACITY;
-    ring_ = std::make_unique<Buffer>(
-        allocator_, ring_capacity_,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    ring_->map();
+    ring_ = std::make_unique<Staging>(allocator_, ring_capacity_);
 
-    FJELL_GFX_INFO("UploadContext: {}MB staging ring, buffer lane on {} queue",
+    FJELL_GFX_INFO("Upload lanes: {}MB staging ring, buffer lane on {} queue",
                    ring_capacity_ / (1024 * 1024),
-                   device.transfer_queue_supported() ? "transfer" : "graphics");
+                   foundation.transfer_queue_supported() ? "transfer" : "graphics");
 }
 
-UploadContext::~UploadContext() {
+UploadLanes::~UploadLanes() {
     wait_all();
     reclaim_completed();
     for (auto& lane : lanes_) {
@@ -67,8 +83,8 @@ UploadContext::~UploadContext() {
     }
 }
 
-void UploadContext::upload_buffer(VkBuffer dst, VkDeviceSize dst_offset,
-                                  const void* data, VkDeviceSize size) {
+void UploadLanes::upload_buffer(VkBuffer dst, VkDeviceSize dst_offset,
+                                const void* data, VkDeviceSize size) {
     if (size == 0) return;
     StagingSlice slice = acquire_staging(BUFFER, size);
     std::memcpy(slice.ptr, data, size);
@@ -80,7 +96,7 @@ void UploadContext::upload_buffer(VkBuffer dst, VkDeviceSize dst_offset,
     vkCmdCopyBuffer(lane_cb(BUFFER), slice.buffer, dst, 1, &region);
 }
 
-void UploadContext::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+void UploadLanes::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
     if (size == 0) return;
     VkCommandBuffer cmd = lane_cb(BUFFER);
 
@@ -104,26 +120,26 @@ void UploadContext::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
     vkCmdCopyBuffer(cmd, src, dst, 1, &region);
 }
 
-StagingSlice UploadContext::stage_for_image(const void* data, VkDeviceSize size) {
+StagingSlice UploadLanes::stage_for_image(const void* data, VkDeviceSize size) {
     StagingSlice slice = acquire_staging(IMAGE, size);
     std::memcpy(slice.ptr, data, size);
     return slice;
 }
 
-VkCommandBuffer UploadContext::image_cb() {
+VkCommandBuffer UploadLanes::image_cb() {
     return lane_cb(IMAGE);
 }
 
-std::shared_ptr<const uint64_t> UploadContext::image_batch() {
+std::shared_ptr<const uint64_t> UploadLanes::image_batch() {
     (void)lane_cb(IMAGE);
     return lanes_[IMAGE].open.value;
 }
 
-bool UploadContext::image_done(uint64_t value) const {
+bool UploadLanes::image_done(uint64_t value) const {
     return value != 0 && completed_value(IMAGE) >= value;
 }
 
-void UploadContext::wait_image(uint64_t value) {
+void UploadLanes::wait_image(uint64_t value) {
     VkSemaphoreWaitInfo wait{};
     wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
     wait.semaphoreCount = 1;
@@ -132,7 +148,7 @@ void UploadContext::wait_image(uint64_t value) {
     vk_check(vkWaitSemaphores(device_, &wait, UINT64_MAX), "Failed waiting for the image lane");
 }
 
-VkCommandBuffer UploadContext::lane_cb(LaneIndex lane) {
+VkCommandBuffer UploadLanes::lane_cb(LaneIndex lane) {
     Batch& open = lanes_[lane].open;
     if (open.cb == VK_NULL_HANDLE) {
         VkCommandBufferAllocateInfo alloc_info{};
@@ -154,7 +170,7 @@ VkCommandBuffer UploadContext::lane_cb(LaneIndex lane) {
     return open.cb;
 }
 
-StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
+StagingSlice UploadLanes::acquire_staging(LaneIndex lane, VkDeviceSize size) {
     // Make sure the batch (and its value slot) exists before any allocation
     // references it.
     (void)lane_cb(lane);
@@ -162,13 +178,8 @@ StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
     // Oversized requests bypass the ring entirely; the dedicated buffer
     // rides with the batch and is freed when it completes.
     if (size > ring_capacity_ / 2) {
-        auto dedicated = std::make_unique<Buffer>(
-            allocator_, size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        dedicated->map();
-        StagingSlice slice{dedicated->handle(), 0, dedicated->mapped()};
+        auto dedicated = std::make_unique<Staging>(allocator_, size);
+        StagingSlice slice{dedicated->buffer, 0, dedicated->mapped};
         lanes_[lane].open.dedicated.push_back(std::move(dedicated));
         return slice;
     }
@@ -223,8 +234,7 @@ StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
                  "Failed waiting for staging ring space");
     }
 
-    StagingSlice slice{ring_->handle(), head_,
-                       static_cast<uint8_t*>(ring_->mapped()) + head_};
+    StagingSlice slice{ring_->buffer, head_, static_cast<uint8_t*>(ring_->mapped) + head_};
     head_ += aligned;
     // flush() inside the loop above may have retired and reset this lane's
     // batch since we last opened it — re-open before reading its value.
@@ -233,7 +243,7 @@ StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
     return slice;
 }
 
-void UploadContext::flush_lane(LaneIndex lane) {
+void UploadLanes::flush_lane(LaneIndex lane) {
     Batch& open = lanes_[lane].open;
     if (open.cb == VK_NULL_HANDLE) return;
 
@@ -241,9 +251,9 @@ void UploadContext::flush_lane(LaneIndex lane) {
 
     // Non-coherent host memory: make the staged bytes visible to the GPU.
     // No-op on the coherent BAR/system memory VMA usually picks.
-    vmaFlushAllocation(allocator_, ring_->allocation(), 0, VK_WHOLE_SIZE);
+    vmaFlushAllocation(allocator_, ring_->allocation, 0, VK_WHOLE_SIZE);
     for (auto& dedicated : open.dedicated) {
-        vmaFlushAllocation(allocator_, dedicated->allocation(), 0, VK_WHOLE_SIZE);
+        vmaFlushAllocation(allocator_, dedicated->allocation, 0, VK_WHOLE_SIZE);
     }
 
     uint64_t value = ++lanes_[lane].submitted_value;
@@ -272,13 +282,13 @@ void UploadContext::flush_lane(LaneIndex lane) {
     open = Batch{};
 }
 
-void UploadContext::flush() {
+void UploadLanes::flush() {
     flush_lane(BUFFER);
     flush_lane(IMAGE);
     reclaim_completed();
 }
 
-void UploadContext::wait_all() {
+void UploadLanes::wait_all() {
     flush();
     for (auto& lane : lanes_) {
         if (lane.submitted_value == 0) continue;
@@ -293,14 +303,14 @@ void UploadContext::wait_all() {
     reclaim_completed();
 }
 
-uint64_t UploadContext::completed_value(LaneIndex lane) const {
+uint64_t UploadLanes::completed_value(LaneIndex lane) const {
     uint64_t value = 0;
     vk_check(vkGetSemaphoreCounterValue(device_, lanes_[lane].timeline, &value),
              "Failed to query upload timeline");
     return value;
 }
 
-void UploadContext::reclaim_completed() {
+void UploadLanes::reclaim_completed() {
     std::array<uint64_t, LANE_COUNT> completed{completed_value(BUFFER), completed_value(IMAGE)};
 
     // Ring allocations reclaim strictly in ring order; an open batch
@@ -322,4 +332,4 @@ void UploadContext::reclaim_completed() {
     }
 }
 
-} // namespace fjell
+} // namespace fjell::gpu::vulkan

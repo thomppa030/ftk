@@ -1,12 +1,15 @@
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/window.hpp"
+#include "gpu/vulkan/foundation.hpp"
+
 #include "core/log.hpp"
+#include "gpu/vulkan/upload_lanes.hpp"
+#include "gpu/vulkan/vk_check.hpp"
+#include "renderer/gpu/window.hpp"
 
 #include <cstring>
 #include <set>
 #include <stdexcept>
 
-namespace fjell {
+namespace fjell::gpu::vulkan {
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -67,17 +70,22 @@ static void destroy_debug_utils_messenger(
     }
 }
 
-Device::Device(Window& window) : window_{window} {
+Foundation::Foundation(Window& window) : window_{window} {
     FJELL_GFX_INFO("Initializing Vulkan device");
     create_instance();
     setup_debug_messenger();
     create_surface();
     pick_physical_device();
     create_logical_device();
+    create_allocator();
+    lanes_ = std::make_unique<UploadLanes>(*this);
     FJELL_GFX_INFO("Vulkan device ready");
 }
 
-Device::~Device() {
+Foundation::~Foundation() {
+    lanes_.reset();
+    if (allocator_ != VK_NULL_HANDLE)
+        vmaDestroyAllocator(allocator_);
     if (device_ != VK_NULL_HANDLE)
         vkDestroyDevice(device_, nullptr);
     if constexpr (enable_validation_) {
@@ -91,7 +99,7 @@ Device::~Device() {
         vkDestroyInstance(instance_, nullptr);
 }
 
-void Device::create_instance() {
+void Foundation::create_instance() {
     if constexpr (enable_validation_) {
         if (!check_validation_layer_support()) {
             throw std::runtime_error("Validation layers requested but not available");
@@ -126,7 +134,7 @@ void Device::create_instance() {
                     extensions.size(), enable_validation_ ? "on" : "off");
 }
 
-void Device::setup_debug_messenger() {
+void Foundation::setup_debug_messenger() {
     if (!enable_validation_) return;
 
     VkDebugUtilsMessengerCreateInfoEXT create_info{};
@@ -146,11 +154,11 @@ void Device::setup_debug_messenger() {
     }
 }
 
-void Device::create_surface() {
+void Foundation::create_surface() {
     surface_ = window_.create_surface(instance_);
 }
 
-void Device::pick_physical_device() {
+void Foundation::pick_physical_device() {
     uint32_t count = 0;
     vkEnumeratePhysicalDevices(instance_, &count, nullptr);
 
@@ -224,11 +232,10 @@ void Device::pick_physical_device() {
     props2.pNext = &mesh_props;
     vkGetPhysicalDeviceProperties2(physical_device_, &props2);
 
-    mesh_shader_max_workgroup_size_ = mesh_props.maxMeshWorkGroupSize[0];
     mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
     mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
     FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
-                   mesh_shader_max_workgroup_size_,
+                   mesh_props.maxMeshWorkGroupSize[0],
                    mesh_shader_max_output_vertices_,
                    mesh_shader_max_output_primitives_);
 
@@ -287,7 +294,7 @@ void Device::pick_physical_device() {
     }
 }
 
-void Device::create_logical_device() {
+void Foundation::create_logical_device() {
     auto indices = find_queue_families(physical_device_);
 
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
@@ -494,12 +501,20 @@ void Device::create_logical_device() {
             vkGetDeviceProcAddr(device_, "vkCmdBuildAccelerationStructuresKHR"));
         pfn_get_accel_struct_device_address_ = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
             vkGetDeviceProcAddr(device_, "vkGetAccelerationStructureDeviceAddressKHR"));
-        pfn_get_buffer_device_address_ = reinterpret_cast<PFN_vkGetBufferDeviceAddressKHR>(
-            vkGetDeviceProcAddr(device_, "vkGetBufferDeviceAddress"));
     }
 }
 
-const uint32_t* Device::concurrent_queue_families(uint32_t& out_count) const {
+void Foundation::create_allocator() {
+    VmaAllocatorCreateInfo info{};
+    info.instance = instance_;
+    info.physicalDevice = physical_device_;
+    info.device = device_;
+    info.vulkanApiVersion = VK_API_VERSION_1_3;
+    if (ray_tracing_supported_) info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    vk_check(vmaCreateAllocator(&info, &allocator_), "Failed to create the allocator");
+}
+
+const uint32_t* Foundation::concurrent_queue_families(uint32_t& out_count) const {
     if (concurrent_family_count_ == 0) {
         out_count = 0;
         return nullptr;
@@ -508,11 +523,11 @@ const uint32_t* Device::concurrent_queue_families(uint32_t& out_count) const {
     return concurrent_families_.data();
 }
 
-QueueFamilyIndices Device::find_queue_families() const {
+QueueFamilyIndices Foundation::find_queue_families() const {
     return find_queue_families(physical_device_);
 }
 
-QueueFamilyIndices Device::find_queue_families(VkPhysicalDevice device) const {
+QueueFamilyIndices Foundation::find_queue_families(VkPhysicalDevice device) const {
     QueueFamilyIndices indices;
 
     uint32_t count = 0;
@@ -564,15 +579,11 @@ QueueFamilyIndices Device::find_queue_families(VkPhysicalDevice device) const {
     return indices;
 }
 
-SwapchainSupport Device::query_swapchain_support() const {
-    return query_swapchain_support(physical_device_, surface_);
-}
-
-SwapchainSupport Device::query_swapchain_support(VkSurfaceKHR surface) const {
+SwapchainSupport Foundation::query_swapchain_support(VkSurfaceKHR surface) const {
     return query_swapchain_support(physical_device_, surface);
 }
 
-SwapchainSupport Device::query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface) const {
+SwapchainSupport Foundation::query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     SwapchainSupport support;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &support.capabilities);
 
@@ -593,7 +604,7 @@ SwapchainSupport Device::query_swapchain_support(VkPhysicalDevice device, VkSurf
     return support;
 }
 
-bool Device::is_device_suitable(VkPhysicalDevice device) const {
+bool Foundation::is_device_suitable(VkPhysicalDevice device) const {
     auto indices = find_queue_families(device);
     bool extensions_ok = check_device_extension_support(device);
 
@@ -606,7 +617,7 @@ bool Device::is_device_suitable(VkPhysicalDevice device) const {
     return indices.is_complete() && extensions_ok && swapchain_ok;
 }
 
-bool Device::check_device_extension_support(VkPhysicalDevice device) const {
+bool Foundation::check_device_extension_support(VkPhysicalDevice device) const {
     uint32_t count = 0;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
 
@@ -620,7 +631,7 @@ bool Device::check_device_extension_support(VkPhysicalDevice device) const {
     return required.empty();
 }
 
-bool Device::check_validation_layer_support() const {
+bool Foundation::check_validation_layer_support() const {
     uint32_t count = 0;
     vkEnumerateInstanceLayerProperties(&count, nullptr);
 
@@ -640,7 +651,7 @@ bool Device::check_validation_layer_support() const {
     return true;
 }
 
-std::vector<const char*> Device::get_required_extensions() const {
+std::vector<const char*> Foundation::get_required_extensions() const {
     auto extensions = Window::required_instance_extensions();
 
     if (enable_validation_) {
@@ -649,33 +660,7 @@ std::vector<const char*> Device::get_required_extensions() const {
     return extensions;
 }
 
-VkFormat Device::find_depth_format() const {
-    return find_supported_format(
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
-}
-
-VkFormat Device::find_supported_format(
-    const std::vector<VkFormat>& candidates, VkImageTiling tiling,
-    VkFormatFeatureFlags features) const {
-    for (VkFormat format : candidates) {
-        VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(physical_device_, format, &props);
-
-        if (tiling == VK_IMAGE_TILING_LINEAR &&
-            (props.linearTilingFeatures & features) == features) {
-            return format;
-        }
-        if (tiling == VK_IMAGE_TILING_OPTIMAL &&
-            (props.optimalTilingFeatures & features) == features) {
-            return format;
-        }
-    }
-    throw std::runtime_error("Failed to find supported format");
-}
-
-void Device::dump_device_fault(const char* context) const {
+void Foundation::dump_device_fault(const char* context) const {
     if (!device_fault_supported_) {
         FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
                            "cannot query faulting op", context);
@@ -736,7 +721,7 @@ void Device::dump_device_fault(const char* context) const {
     }
 }
 
-VkSampleCountFlagBits Device::max_msaa_samples() const {
+VkSampleCountFlagBits Foundation::max_msaa_samples() const {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device_, &props);
 
@@ -752,4 +737,4 @@ VkSampleCountFlagBits Device::max_msaa_samples() const {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-} // namespace fjell
+} // namespace fjell::gpu::vulkan

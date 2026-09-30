@@ -1,8 +1,8 @@
 #pragma once
 
 #include "gpu/access.hpp"
-#include <gpu/acceleration.hpp>
-#include <gpu/buffer.hpp>
+#include "gpu/acceleration.hpp"
+#include "gpu/buffer.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/resource_desc.hpp"
 
