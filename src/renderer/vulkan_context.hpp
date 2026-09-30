@@ -267,7 +267,8 @@ public:
   /// Every font atlas on the GPU, shared by all GameUi instances.
   [[nodiscard]] class FontLibrary& font_library() { return *font_library_; }
 
-  /// Record a GameUi into an offscreen pass (for editor preview).
+  /// Record a GameUi into an offscreen pass, in the frame's first list
+  /// (editor previews). Called between begin_frame() and submit.
   void record_game_ui_offscreen(class GameUi& ui, OffscreenPass& target,
                                  uint32_t frame_index);
 
@@ -282,11 +283,10 @@ public:
                                        OffscreenPass& target, uint32_t frame_index);
 
   /// Render a GameUi into an offscreen pass in its own one-shot submit and
-  /// wait for it, outside the frame's command buffer. For thumbnails and
-  /// other reads of the result on the CPU. Call in the window between the
-  /// frame fence and record_frame, like render_preview: the UI reads the
-  /// current frame slot's global set and UBO, which nothing else is using
-  /// then. The target's colour image is left in SHADER_READ_ONLY_OPTIMAL.
+  /// wait for it, outside the frame's lists: for thumbnails, which read the
+  /// result back at once. Called before anything records into the frame,
+  /// like render_preview_and_wait. The target's colour image is left ready
+  /// to sample.
   void render_game_ui_preview(class GameUi& ui, OffscreenPass& target);
 
   /// Register a scene's emitters with the particle system, for a scene

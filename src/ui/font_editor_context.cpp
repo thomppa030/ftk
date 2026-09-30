@@ -357,7 +357,7 @@ void FontEditorContext::render_previews(VulkanContext& vk, Scene* /*scene*/, flo
                                    static_cast<float>(preview_height_)});
     preview_ui_->update(static_cast<float>(preview_width_), static_cast<float>(preview_height_),
                         vk.current_frame_index(), 0.0f, nullptr);
-    vk.render_game_ui_preview(*preview_ui_, *preview_target_);
+    vk.record_game_ui_offscreen(*preview_ui_, *preview_target_, vk.current_frame_index());
 }
 
 } // namespace fjell
