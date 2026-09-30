@@ -259,6 +259,11 @@ Device::Impl::~Impl() {
         vkDestroyPipeline(device, record.pipeline, nullptr);
     });
     for (VkDescriptorPool pool : group_pools) vkDestroyDescriptorPool(device, pool, nullptr);
+    shared_layouts.for_each([&](SharedLayout, SharedRecord& record) {
+        if (!record.owned) return;
+        for (VkDescriptorPool pool : record.pools) vkDestroyDescriptorPool(device, pool, nullptr);
+        vkDestroyDescriptorSetLayout(device, record.layout, nullptr);
+    });
     vkDestroySemaphore(device, frame_timeline, nullptr);
     for (VkSemaphore timeline : queue_timelines) {
         if (timeline != VK_NULL_HANDLE) vkDestroySemaphore(device, timeline, nullptr);

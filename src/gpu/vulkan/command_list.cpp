@@ -35,6 +35,9 @@ Result<SetAt> group_at(Device::Impl& device, const PipelineRecord& pipeline, Bin
                               device.shared_layouts.get(record->shared)->desc.name +
                               "', which the pipeline does not name");
         }
+        // Its set is now read by the frame recording; an update writes a
+        // new version until that frame is finished.
+        if (record->state) record->state->bound.store(device.recording, std::memory_order_relaxed);
         return SetAt{taken->second, record->set};
     }
     const auto& layouts = pipeline.layout.set_layouts;

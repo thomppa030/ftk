@@ -1,6 +1,7 @@
 #include "gpu/binding.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace fjell::gpu {
 
@@ -94,6 +95,39 @@ Result<PlacedSet> place(const ShaderLayout& layout, std::span<const BindEntry> e
                 return make_error("Set " + std::to_string(placed.set) + " is missing " + what);
             }
             placed.entries.push_back({binding.binding, element, filled->resource});
+        }
+    }
+    return placed;
+}
+
+Result<PlacedSet> place_some(const SharedLayoutDesc& layout, std::span<const BindEntry> entries) {
+    if (entries.empty()) return make_error("Nothing to bind");
+    PlacedSet placed;
+    placed.set = layout.usual_set;
+    for (const BindEntry& entry : entries) {
+        const auto binding = std::ranges::find(layout.bindings, entry.name, &ShaderBinding::name);
+        if (binding == layout.bindings.end()) {
+            return make_error("The shared '" + layout.name + "' has no binding '" +
+                              std::string(entry.name) + "'");
+        }
+        if (entry.resource.kind != binding->kind) {
+            return make_error("'" + binding->name + "' is " + kind_name(binding->kind) + ", given " +
+                              kind_name(entry.resource.kind));
+        }
+        if (entry.element >= binding->count) {
+            return make_error("'" + binding->name + "' has " + std::to_string(binding->count) +
+                              " elements, given element " + std::to_string(entry.element));
+        }
+        placed.entries.push_back({binding->binding, entry.element, entry.resource});
+    }
+    std::ranges::sort(placed.entries, {}, [](const PlacedEntry& e) { return std::pair(e.binding, e.element); });
+    for (size_t i = 1; i < placed.entries.size(); ++i) {
+        const PlacedEntry& a = placed.entries[i - 1];
+        const PlacedEntry& b = placed.entries[i];
+        if (a.binding == b.binding && a.element == b.element) {
+            return make_error("Binding " + std::to_string(b.binding) + " element " +
+                              std::to_string(b.element) + " of the shared '" + layout.name +
+                              "' is given twice");
         }
     }
     return placed;

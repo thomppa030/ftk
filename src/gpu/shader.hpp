@@ -47,9 +47,9 @@ enum class BindingKind : uint8_t {
 struct ShaderBinding {
     /// The variable's name: a block's instance name, or its type's name when
     /// the block has no instance name.
-    std::string name;
+    std::string name{};
     /// A uniform or storage block's type name; empty for anything else.
-    std::string block;
+    std::string block{};
     uint32_t set{0};
     uint32_t binding{0};
     BindingKind kind{BindingKind::uniform_buffer};

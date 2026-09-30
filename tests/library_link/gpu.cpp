@@ -69,24 +69,23 @@ int main() {
         if (!compute) std::fprintf(stderr, "%s\n", compute.error().c_str());
         if (!graphics) std::fprintf(stderr, "%s\n", graphics.error().c_str());
         if (!mesh) std::fprintf(stderr, "%s\n", mesh.error().c_str());
-        // A shared layout for reflect.comp's set 4 (a table sized at run time
-        // and a pair), which lets that pipeline be made once it names it; a
-        // persistent group for pipeline.comp's own set, filled and refilled.
-        std::array<VkDescriptorSetLayoutBinding, 2> table_bindings{};
-        table_bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-        table_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-        VkDescriptorSetLayoutCreateInfo table_info{};
-        table_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        table_info.bindingCount = static_cast<uint32_t>(table_bindings.size());
-        table_info.pBindings = table_bindings.data();
-        VkDescriptorSetLayout table_layout{VK_NULL_HANDLE};
-        vkCreateDescriptorSetLayout(core.vk_device(), &table_info, nullptr, &table_layout);
-        const fjell::gpu::SharedLayout table =
-            fjell::gpu::vulkan::share_layout(device, "table", 4, table_layout, table_bindings);
+        // A shared layout the device makes for reflect.comp's set 4 (a table
+        // sized at run time and a pair), which lets that pipeline be made
+        // once it names it; a persistent group for pipeline.comp's own set,
+        // filled and refilled.
+        using fjell::gpu::BindingKind;
+        auto table = device.create(fjell::gpu::SharedLayoutDesc{
+            .name = "table",
+            .usual_set = 4,
+            .bindings = {{.name = "textures", .binding = 0, .kind = BindingKind::sampled_texture, .count = 16},
+                         {.name = "pair", .binding = 1, .kind = BindingKind::sampled_texture, .count = 2}},
+        });
+        if (!table) std::fprintf(stderr, "%s\n", table.error().c_str());
         auto with_table = device.create(fjell::gpu::ComputePipelineDesc{
-            .shader = "reflect.comp", .shared = {table}, .name = "link_with_table"});
+            .shader = "reflect.comp", .shared = {table.value_or(fjell::gpu::SharedLayout{})},
+            .name = "link_with_table"});
         if (!with_table) std::fprintf(stderr, "%s\n", with_table.error().c_str());
-        pipelines = pipelines && with_table.has_value();
+        pipelines = pipelines && table && with_table.has_value();
 
         if (compute && texture) {
             auto group = device.create(fjell::gpu::BindGroupDesc{
@@ -105,7 +104,6 @@ int main() {
             pipelines = pipelines && group && refilled && wrong_kind_refused &&
                         fjell::gpu::vulkan::native_group(device, *group) != VK_NULL_HANDLE;
         }
-        if (with_table) with_table->reset();
 
         if (compute) {
             const fjell::gpu::ComputePipeline handle = *compute;
@@ -225,6 +223,61 @@ int main() {
         if (!commands_pipeline) std::fprintf(stderr, "%s\n", commands_pipeline.error().c_str());
         if (!recorded) std::fprintf(stderr, "command list failed\n");
         pipelines = pipelines && recorded;
+
+        // A group of the table, its elements given one at a time. Written in
+        // place until a frame binds it; then an update is a new version,
+        // and the next, before another bind, goes into that one. Once the
+        // frame that bound it is finished, the set is written in place
+        // again. A single binding left empty is refused.
+        bool shared_groups = false;
+        if (table && with_table && texture) {
+            using fjell::gpu::vulkan::native_group;
+            auto group = device.create(fjell::gpu::SharedGroupDesc{
+                .layout = *table,
+                .entries = {{"pair", fjell::gpu::sampled(*texture, sampler), 1}},
+                .name = "link_table",
+            });
+            if (!group) std::fprintf(stderr, "%s\n", group.error().c_str());
+            auto element = [&](uint32_t at) {
+                const fjell::gpu::BindEntry entry[] = {{"textures", fjell::gpu::sampled(*texture, sampler), at}};
+                return device.update(*group, entry).has_value();
+            };
+            auto bind_table = [&](fjell::gpu::CommandList& cmd) {
+                cmd.set_pipeline(*with_table);
+                cmd.bind(*group);
+            };
+            if (group) {
+                const VkDescriptorSet made = native_group(device, *group);
+                shared_groups = element(3) && native_group(device, *group) == made;
+
+                auto& binding_frame = device.begin_frame();
+                run(bind_table);
+                shared_groups = shared_groups && element(4);
+                const VkDescriptorSet version = native_group(device, *group);
+                shared_groups = shared_groups && version != made && element(5) &&
+                                native_group(device, *group) == version;
+                run(bind_table);
+                (void)device.end_frame(binding_frame);
+                vkDeviceWaitIdle(core.vk_device());
+                shared_groups = shared_groups && element(6) && native_group(device, *group) == version;
+
+                const auto& contents = device.impl().groups.get(*group)->state->contents;
+                for (uint32_t at : {3u, 4u, 5u, 6u, 17u}) shared_groups = shared_groups && contents[at];
+                shared_groups = shared_groups && !contents[0] && !contents[16];
+
+                const fjell::gpu::BindEntry unknown[] = {{"missing", fjell::gpu::sampled(*texture, sampler)}};
+                shared_groups = shared_groups && !device.update(*group, unknown).has_value();
+            }
+            auto single = device.create(fjell::gpu::SharedLayoutDesc{
+                .name = "single",
+                .bindings = {{.name = "params", .kind = BindingKind::uniform_buffer}},
+            });
+            shared_groups = shared_groups && single &&
+                            !device.create(fjell::gpu::SharedGroupDesc{.layout = *single}).has_value();
+        }
+        if (!shared_groups) std::fprintf(stderr, "shared groups failed\n");
+        pipelines = pipelines && shared_groups;
+        if (with_table) with_table->reset();
 
         // Lists recorded at once on two threads, into secondary command
         // buffers from pools of their own, then played in order by the
@@ -613,7 +666,6 @@ int main() {
                   device.info(*texture).mips == 2;
         }
         core.upload_context().wait_all();
-        vkDestroyDescriptorSetLayout(core.vk_device(), table_layout, nullptr);
         if (buffer) buffer->reset();
         if (texture) texture->reset();
         if (compute) compute->reset();

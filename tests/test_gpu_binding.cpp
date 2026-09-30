@@ -252,3 +252,50 @@ TEST_CASE("an array longer than the shared one does not fit", "[gpu][binding]") 
     const SharedLayoutDesc named[] = {BINDLESS};
     CHECK_FALSE(place_shared(with({declared(1, 0, BindingKind::sampled_texture, 2048)}), named).has_value());
 }
+
+TEST_CASE("a shared group's entries are placed by name, element and binding order", "[gpu][binding]") {
+    const std::string table = BINDLESS.bindings[0].name;
+    const std::string params = BINDLESS.bindings[2].name;
+    const BindEntry entries[] = {{params, storage(BufferRange{BUF})},
+                                 {table, sampled(TEX, SMP), 9},
+                                 {table, sampled(TEX, SMP), 3}};
+    auto placed = place_some(BINDLESS, entries);
+    REQUIRE(placed.has_value());
+    CHECK(placed->set == 1);
+    REQUIRE(placed->entries.size() == 3);
+    CHECK(placed->entries[0].binding == 0);
+    CHECK(placed->entries[0].element == 3);
+    CHECK(placed->entries[1].element == 9);
+    CHECK(placed->entries[2].binding == 2);
+}
+
+TEST_CASE("a shared group's update need not fill the set", "[gpu][binding]") {
+    const BindEntry one[] = {{BINDLESS.bindings[1].name, storage(BufferRange{BUF})}};
+    auto placed = place_some(BINDLESS, one);
+    REQUIRE(placed.has_value());
+    CHECK(placed->entries.size() == 1);
+}
+
+TEST_CASE("a shared group refuses what its layout does not hold", "[gpu][binding]") {
+    const std::string table = BINDLESS.bindings[0].name;
+
+    const BindEntry unknown[] = {{"materials", storage(BufferRange{BUF})}};
+    auto missing = place_some(BINDLESS, unknown);
+    REQUIRE_FALSE(missing.has_value());
+    CHECK(missing.error().find("no binding 'materials'") != std::string::npos);
+
+    const BindEntry wrong_kind[] = {{table, storage(BufferRange{BUF}), 0}};
+    auto kind = place_some(BINDLESS, wrong_kind);
+    REQUIRE_FALSE(kind.has_value());
+    CHECK(kind.error().find("is a sampled texture, given a storage buffer") != std::string::npos);
+
+    const BindEntry past[] = {{table, sampled(TEX, SMP), 1024}};
+    CHECK_FALSE(place_some(BINDLESS, past).has_value());
+
+    const BindEntry twice[] = {{table, sampled(TEX, SMP), 5}, {table, sampled(TEX, SMP), 5}};
+    auto repeated = place_some(BINDLESS, twice);
+    REQUIRE_FALSE(repeated.has_value());
+    CHECK(repeated.error().find("given twice") != std::string::npos);
+
+    CHECK_FALSE(place_some(BINDLESS, {}).has_value());
+}

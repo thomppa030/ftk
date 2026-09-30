@@ -3,9 +3,11 @@
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/gpu_core.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <string>
 #include <tuple>
 
@@ -16,6 +18,9 @@ namespace {
 // What one pool of persistent groups holds. Groups are few and long-lived;
 // a full pool is joined by another.
 constexpr uint32_t POOL_SETS = 256;
+// Sets in one pool of a made shared layout: the version bound now, and those
+// frames in flight still read, before another pool is needed.
+constexpr uint32_t SHARED_POOL_SETS = 4;
 // The last only where the GPU has ray queries: a pool elsewhere may not name
 // the type.
 constexpr std::array<VkDescriptorPoolSize, 7> POOL_SIZES{{
@@ -49,6 +54,89 @@ const Device::Impl::PipelineRecord* find_pipeline(const Device::Impl& self, cons
     return self.graphics_pipelines.get(ref.graphics);
 }
 
+// Where a placed entry's element sits in a shared group's contents.
+size_t content_index(const Device::Impl::SharedRecord& shared, const PlacedEntry& entry) {
+    for (size_t i = 0; i < shared.desc.bindings.size(); ++i) {
+        if (shared.desc.bindings[i].binding == entry.binding) return shared.first[i] + entry.element;
+    }
+    return 0;
+}
+
+// Adds a descriptor type's count to what one set of a layout holds.
+void add_size(std::vector<VkDescriptorPoolSize>& sizes, VkDescriptorType type, uint32_t count) {
+    for (auto& size : sizes) {
+        if (size.type == type) {
+            size.descriptorCount += count;
+            return;
+        }
+    }
+    sizes.push_back({type, count});
+}
+
+// A new version of a shared group whose set a frame still reads: a set of
+// its own, written whole from the contents with `placed` over them.
+Result<> write_version(Device::Impl& self, Device::Impl::GroupRecord& record,
+                       Device::Impl::SharedRecord& shared, const PlacedSet& placed) {
+    const auto [set, pool] = self.allocate_shared(shared);
+    if (set == VK_NULL_HANDLE) return make_error("No descriptor set could be allocated for the update");
+
+    Device::Impl::SharedGroupState& state = *record.state;
+    for (const PlacedEntry& entry : placed.entries) {
+        state.contents[content_index(shared, entry)] = entry.resource;
+    }
+    PlacedSet whole;
+    whole.set = placed.set;
+    for (size_t i = 0; i < shared.desc.bindings.size(); ++i) {
+        const ShaderBinding& binding = shared.desc.bindings[i];
+        for (uint32_t element = 0; element < binding.count; ++element) {
+            auto& content = state.contents[shared.first[i] + element];
+            if (!content) continue;
+            if (!self.exists(*content)) {
+                self.report_once(named("Shared group", state.name) + ": '" + binding.name +
+                                 "' element " + std::to_string(element) +
+                                 " holds a resource that no longer exists; it is left empty");
+                content.reset();
+                continue;
+            }
+            whole.entries.push_back({binding.binding, element, *content});
+        }
+    }
+    self.write_set(set, whole);
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(set),
+                        state.name);
+    self.release_later([device = self.device, old_pool = record.pool, old_set = record.set] {
+        vkFreeDescriptorSets(device, old_pool, 1, &old_set);
+    });
+    record.set = set;
+    record.pool = pool;
+    state.bound.store(Device::Impl::SharedGroupState::NEVER_BOUND, std::memory_order_relaxed);
+    return {};
+}
+
+Result<> update_shared(Device::Impl& self, Device::Impl::GroupRecord& record,
+                       std::span<const BindEntry> entries) {
+    Device::Impl::SharedRecord& shared = *self.shared_layouts.get(record.shared);
+    auto placed = place_some(shared.desc, entries);
+    if (!placed) return std::unexpected(placed.error());
+    if (auto present = self.check_resources(*placed); !present) return present;
+
+    // The current set is written in place while no frame the GPU has yet to
+    // finish binds it: before any bind, or once the last frame binding it is
+    // done.
+    const uint64_t bound = record.state->bound.load(std::memory_order_relaxed);
+    if (bound != Device::Impl::SharedGroupState::NEVER_BOUND) {
+        uint64_t finished = 0;
+        vk_check(vkGetSemaphoreCounterValue(self.device, self.frame_timeline, &finished),
+                 "Failed to read the frame timeline");
+        if (bound > finished) return write_version(self, record, shared, *placed);
+    }
+    self.write_set(record.set, *placed);
+    for (const PlacedEntry& entry : placed->entries) {
+        record.state->contents[content_index(shared, entry)] = entry.resource;
+    }
+    return {};
+}
+
 } // namespace
 
 // ── Impl ────────────────────────────────────────────────────────────────
@@ -79,30 +167,59 @@ std::pair<VkDescriptorSet, VkDescriptorPool> Device::Impl::allocate_set(VkDescri
     return {VK_NULL_HANDLE, VK_NULL_HANDLE};
 }
 
+std::pair<VkDescriptorSet, VkDescriptorPool> Device::Impl::allocate_shared(SharedRecord& shared) {
+    VkDescriptorSetAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocate_info.descriptorSetCount = 1;
+    allocate_info.pSetLayouts = &shared.layout;
+    // Every set of the layout is the same size, so a set freed anywhere
+    // makes room for the next; the newest pool is the likeliest to have it.
+    for (auto pool = shared.pools.rbegin(); pool != shared.pools.rend(); ++pool) {
+        allocate_info.descriptorPool = *pool;
+        VkDescriptorSet set{VK_NULL_HANDLE};
+        if (vkAllocateDescriptorSets(device, &allocate_info, &set) == VK_SUCCESS) return {set, *pool};
+    }
+
+    VkDescriptorPoolCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    create_info.maxSets = SHARED_POOL_SETS;
+    std::vector<VkDescriptorPoolSize> sizes = shared.set_sizes;
+    for (auto& size : sizes) size.descriptorCount *= SHARED_POOL_SETS;
+    create_info.poolSizeCount = static_cast<uint32_t>(sizes.size());
+    create_info.pPoolSizes = sizes.data();
+    VkDescriptorPool pool{VK_NULL_HANDLE};
+    if (vkCreateDescriptorPool(device, &create_info, nullptr, &pool) != VK_SUCCESS) {
+        return {VK_NULL_HANDLE, VK_NULL_HANDLE};
+    }
+    shared.pools.push_back(pool);
+    allocate_info.descriptorPool = pool;
+    VkDescriptorSet set{VK_NULL_HANDLE};
+    if (vkAllocateDescriptorSets(device, &allocate_info, &set) != VK_SUCCESS) return {VK_NULL_HANDLE, VK_NULL_HANDLE};
+    return {set, pool};
+}
+
+bool Device::Impl::exists(const BindResource& r) {
+    switch (r.kind) {
+        case BindingKind::sampled_texture:
+            return textures.contains(r.view.texture) && samplers.contains(r.sampler);
+        case BindingKind::texture:
+        case BindingKind::storage_texture:
+            return textures.contains(r.view.texture);
+        case BindingKind::sampler:
+            return samplers.contains(r.sampler);
+        case BindingKind::uniform_buffer:
+        case BindingKind::storage_buffer:
+            return buffers.contains(r.buffer.buffer);
+        case BindingKind::acceleration_structure:
+            return accelerations.contains(r.structure);
+    }
+    return false;
+}
+
 Result<> Device::Impl::check_resources(const PlacedSet& placed) {
     for (const auto& entry : placed.entries) {
-        const BindResource& r = entry.resource;
-        bool present = true;
-        switch (r.kind) {
-            case BindingKind::sampled_texture:
-                present = textures.contains(r.view.texture) && samplers.contains(r.sampler);
-                break;
-            case BindingKind::texture:
-            case BindingKind::storage_texture:
-                present = textures.contains(r.view.texture);
-                break;
-            case BindingKind::sampler:
-                present = samplers.contains(r.sampler);
-                break;
-            case BindingKind::uniform_buffer:
-            case BindingKind::storage_buffer:
-                present = buffers.contains(r.buffer.buffer);
-                break;
-            case BindingKind::acceleration_structure:
-                present = accelerations.contains(r.structure);
-                break;
-        }
-        if (!present) {
+        if (!exists(entry.resource)) {
             return make_error("Binding " + std::to_string(entry.binding) + " of set " +
                               std::to_string(placed.set) + " is given a resource that no longer exists");
         }
@@ -225,10 +342,128 @@ Result<Owned<BindGroup>> Device::create(const BindGroupDesc& desc) {
     return Owned<BindGroup>(*this, self.groups.emplace(std::move(record)));
 }
 
+Result<SharedLayout> Device::create(const SharedLayoutDesc& desc) {
+    Impl& self = *impl_;
+    const std::string what = "Shared layout '" + desc.name + "'";
+    if (desc.bindings.empty()) return make_error(what + ": no bindings");
+
+    Impl::SharedRecord record;
+    record.desc = desc;
+    record.owned = true;
+    auto& bindings = record.desc.bindings;
+    std::ranges::sort(bindings, {}, &ShaderBinding::binding);
+    for (size_t i = 0; i < bindings.size(); ++i) {
+        ShaderBinding& binding = bindings[i];
+        const std::string number = std::to_string(binding.binding);
+        if (binding.name.empty()) return make_error(what + ": binding " + number + " has no name");
+        if (binding.count == 0) {
+            return make_error(what + ": '" + binding.name +
+                              "' holds no elements; an array shaders size at run time is given "
+                              "the most it holds");
+        }
+        if (binding.kind == BindingKind::acceleration_structure && !self.caps.ray_queries) {
+            return make_error(what + ": '" + binding.name +
+                              "' is an acceleration structure, which this GPU has no ray queries for");
+        }
+        for (size_t j = 0; j < i; ++j) {
+            if (bindings[j].binding == binding.binding) {
+                return make_error(what + ": binding " + number + " is declared twice");
+            }
+            if (bindings[j].name == binding.name) {
+                return make_error(what + ": two bindings are named '" + binding.name + "'");
+            }
+        }
+        binding.set = desc.usual_set;
+        binding.array = binding.array || binding.count > 1;
+    }
+
+    std::vector<VkDescriptorSetLayoutBinding> native(bindings.size());
+    std::vector<VkDescriptorBindingFlags> flags(bindings.size());
+    uint32_t elements = 0;
+    for (size_t i = 0; i < bindings.size(); ++i) {
+        const ShaderBinding& binding = bindings[i];
+        const VkShaderStageFlags stages = vulkan::to_vk(binding.stages);
+        native[i].binding = binding.binding;
+        native[i].descriptorType = vulkan::to_vk(binding.kind);
+        native[i].descriptorCount = binding.count;
+        native[i].stageFlags = stages != 0 ? stages : VkShaderStageFlags{VK_SHADER_STAGE_ALL};
+        // An array's elements are filled as they come; shaders read only
+        // those they are told of.
+        if (binding.array) flags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+        record.first.push_back(elements);
+        elements += binding.count;
+        add_size(record.set_sizes, native[i].descriptorType, binding.count);
+    }
+    VkDescriptorSetLayoutBindingFlagsCreateInfo flags_info{};
+    flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    flags_info.bindingCount = static_cast<uint32_t>(flags.size());
+    flags_info.pBindingFlags = flags.data();
+    VkDescriptorSetLayoutCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    create_info.pNext = &flags_info;
+    create_info.bindingCount = static_cast<uint32_t>(native.size());
+    create_info.pBindings = native.data();
+    if (vkCreateDescriptorSetLayout(self.device, &create_info, nullptr, &record.layout) != VK_SUCCESS) {
+        return make_error(what + ": the set layout could not be made");
+    }
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                        reinterpret_cast<uint64_t>(record.layout), desc.name);
+    return self.shared_layouts.emplace(std::move(record));
+}
+
+Result<Owned<BindGroup>> Device::create(const SharedGroupDesc& desc) {
+    Impl& self = *impl_;
+    const std::string what = named("Shared group", desc.name);
+    Impl::SharedRecord* shared = self.shared_layouts.get(desc.layout);
+    if (shared == nullptr) return make_error(what + ": the shared layout does not exist");
+    if (!shared->owned) {
+        return make_error(what + ": the shared '" + shared->desc.name +
+                          "' is the engine's, whose sets it makes itself");
+    }
+
+    auto state = std::make_unique<Impl::SharedGroupState>();
+    state->contents.resize(shared->first.back() + shared->desc.bindings.back().count);
+    state->name = desc.name;
+    PlacedSet placed;
+    placed.set = shared->desc.usual_set;
+    if (!desc.entries.empty()) {
+        auto given = place_some(shared->desc, desc.entries);
+        if (!given) return make_error(what + ": " + given.error());
+        if (auto present = self.check_resources(*given); !present) {
+            return make_error(what + ": " + present.error());
+        }
+        placed = std::move(*given);
+        for (const PlacedEntry& entry : placed.entries) {
+            state->contents[content_index(*shared, entry)] = entry.resource;
+        }
+    }
+    // Only an array's elements may be left for later: a single binding left
+    // empty is read by every shader that declares it.
+    for (size_t i = 0; i < shared->desc.bindings.size(); ++i) {
+        const ShaderBinding& binding = shared->desc.bindings[i];
+        if (!binding.array && !state->contents[shared->first[i]]) {
+            return make_error(what + ": '" + binding.name + "' is not given");
+        }
+    }
+
+    Impl::GroupRecord record;
+    std::tie(record.set, record.pool) = self.allocate_shared(*shared);
+    if (record.set == VK_NULL_HANDLE) return make_error(what + ": no descriptor set could be allocated");
+    if (!placed.entries.empty()) self.write_set(record.set, placed);
+    vulkan::name_object(self.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(record.set),
+                        desc.name);
+    record.layout = shared->layout;
+    record.set_index = shared->desc.usual_set;
+    record.shared = desc.layout;
+    record.state = std::move(state);
+    return Owned<BindGroup>(*this, self.groups.emplace(std::move(record)));
+}
+
 Result<> Device::update(BindGroup group, std::span<const BindEntry> entries) {
     Impl& self = *impl_;
     Impl::GroupRecord* record = self.groups.get(group);
     if (record == nullptr) return make_error("Updating a bind group that no longer exists");
+    if (record->state) return update_shared(self, *record, entries);
     if (record->pool == VK_NULL_HANDLE) {
         return make_error("A shared group is written by the engine that owns it");
     }

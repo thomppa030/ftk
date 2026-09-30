@@ -15,9 +15,11 @@
 #endif
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -108,8 +110,30 @@ struct Device::Impl {
 
     struct SharedRecord {
         SharedLayoutDesc desc;
-        /// The engine's; the device never destroys it.
+        /// The engine's for a layout it shares, which the device never
+        /// destroys; the device's for one it made.
         VkDescriptorSetLayout layout{VK_NULL_HANDLE};
+        bool owned{false};
+        /// A made layout's: where each binding's elements start in a group's
+        /// contents, how many descriptors of each type one set holds, and the
+        /// pools its groups' sets come from, each holding a few whole sets.
+        std::vector<uint32_t> first;
+        std::vector<VkDescriptorPoolSize> set_sizes;
+        std::vector<VkDescriptorPool> pools;
+    };
+
+    /// What a group of a made shared layout keeps besides its set.
+    struct SharedGroupState {
+        /// Every element's resource, empty where none was given, in the
+        /// layout's binding order: what a new version is written from.
+        std::vector<std::optional<BindResource>> contents;
+        /// The serial of the last frame that recorded a bind of the current
+        /// set; `NEVER_BOUND` until one does. An update writes the set in
+        /// place once that frame is finished, and a new version before.
+        std::atomic<uint64_t> bound{NEVER_BOUND};
+        std::string name;
+
+        static constexpr uint64_t NEVER_BOUND = UINT64_MAX;
     };
 
     struct GroupRecord {
@@ -123,8 +147,10 @@ struct Device::Impl {
         /// The set of its pipeline it fills; for a shared group, the set a
         /// pipeline naming its layout takes instead.
         uint32_t set_index{0};
-        /// For an adopted shared group, the shared layout it is.
+        /// For a shared group, the shared layout it is.
         SharedLayout shared{};
+        /// A group of a shared layout the device made; null for any other.
+        std::unique_ptr<SharedGroupState> state;
     };
 
     struct TextureRecord {
@@ -214,6 +240,13 @@ struct Device::Impl {
     /// A descriptor set of `layout` from the device's group pools, adding a
     /// pool when the last is full. Null when none can be made.
     [[nodiscard]] std::pair<VkDescriptorSet, VkDescriptorPool> allocate_set(VkDescriptorSetLayout layout);
+
+    /// A descriptor set of a made shared layout from its own pools, adding a
+    /// pool when every one is full. Null when none can be made.
+    [[nodiscard]] std::pair<VkDescriptorSet, VkDescriptorPool> allocate_shared(SharedRecord& shared);
+
+    /// Whether the resource still exists.
+    [[nodiscard]] bool exists(const BindResource& resource);
 
     /// Whether every resource the placed entries name still exists: a stale
     /// handle would write a descriptor the GPU then reads as nothing.
