@@ -120,12 +120,18 @@ private:
         glm::vec4 rect;          // x, y, w, h (pixels)
         glm::vec4 uv_rect;       // uv_x0, uv_y0, uv_x1, uv_y1
         glm::vec4 color;         // text color RGBA
-        glm::vec4 params;        // opacity, atlas_index, px_range, shadow blur (0 = the fill)
+        glm::vec4 params;        // opacity, unused, px_range, shadow blur (0 = the fill)
         glm::vec4 clip_rect;     // overflow:hidden scissor
         glm::vec2 viewport_size; // for px->NDC
-        glm::vec2 _pad;
+        // Whole: a bindless index names a sampler in its top bits, past what
+        // a float holds exactly.
+        uint32_t atlas_index{0};
+        uint32_t pad{0};
     };
+    // Mirrored by `UiGlyph` in shaders/include/fjell_ui_common.glsl (std430).
     static_assert(sizeof(GpuUiGlyph) == 96);
+    static_assert(offsetof(GpuUiGlyph, viewport_size) == 80);
+    static_assert(offsetof(GpuUiGlyph, atlas_index) == 88);
 
     // A quad as collected from the tree, with what the CPU side needs to
     // order and batch it and the GPU side never reads.

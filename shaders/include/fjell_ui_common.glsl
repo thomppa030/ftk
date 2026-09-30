@@ -23,14 +23,16 @@ struct UiQuad {
     vec4 bar;           // FILL_TARGET, FILL_VELOCITY, FILL_AGITATION, unused
 };
 
+// Mirrors UiRenderer::GpuUiGlyph, whose offsets are pinned there.
 struct UiGlyph {
     vec4 rect;           // x, y, w, h (pixels)
     vec4 uv_rect;        // uv_x0, uv_y0, uv_x1, uv_y1
     vec4 color;          // text color RGBA
-    vec4 params;         // opacity, atlas_index, px_range, shadow blur (0 = the fill)
+    vec4 params;         // opacity, unused, px_range, shadow blur (0 = the fill)
     vec4 clip_rect;      // overflow:hidden scissor
     vec2 viewport_size;  // for px->NDC
-    vec2 _pad;
+    uint atlas_index;    // the font atlas's bindless index
+    uint _pad;
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {

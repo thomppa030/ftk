@@ -401,10 +401,11 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
                        pg.w + 2.0f * blur, pg.h + 2.0f * blur};
             gg.uv_rect = {pg.uv_x0 - du, pg.uv_y0 - dv, pg.uv_x1 + du, pg.uv_y1 + dv};
             gg.color = {color.r, color.g, color.b, color.a};
-            gg.params = {source_node.draw_opacity, static_cast<float>(atlas_index), pixel_range, blur};
+            gg.params = {source_node.draw_opacity, 0.0f, pixel_range, blur};
             gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
                             source_node.clip_rect.w, source_node.clip_rect.h};
             gg.viewport_size = {viewport_width, viewport_height};
+            gg.atlas_index = atlas_index;
             dst[i] = gg;
         }
         text_counts_[frame_index] = existing + count;

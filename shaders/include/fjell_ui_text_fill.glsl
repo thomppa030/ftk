@@ -76,7 +76,7 @@ vec4 fjell_ui_text_fill(vec2 atlas_uv, vec2 screen_pos, uint glyph_index) {
         discard;
     }
 
-    uint atlas_index = uint(g.params.y);
+    uint atlas_index = g.atlas_index;
     float opacity = g.params.x;
     float px_range = g.params.z;
 
