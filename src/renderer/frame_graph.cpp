@@ -198,6 +198,26 @@ uint32_t FrameGraph::register_buffer(gpu::Buffer buffer, bool persistent, std::s
     return id;
 }
 
+uint32_t FrameGraph::register_acceleration(gpu::AccelerationStructure structure, bool persistent,
+                                           std::string_view name) {
+    if (auto it = acceleration_index_.find(structure); it != acceleration_index_.end()) {
+        buffers_[it->second].persistent = buffers_[it->second].persistent || persistent;
+        return it->second;
+    }
+    const auto id = static_cast<uint32_t>(buffers_.size());
+    TrackedBuffer buf{};
+    buf.structure = structure;
+    buf.persistent = persistent;
+    if (tracing_ || layout_trace_enabled()) { buf.name = name; }
+    if (auto remembered = remembered_accelerations_.find(structure);
+        remembered != remembered_accelerations_.end()) {
+        buf.state = remembered->second.state;
+    }
+    buffers_.push_back(buf);
+    acceleration_index_.emplace(structure, id);
+    return id;
+}
+
 void FrameGraph::new_frame() {
     ++frame_serial_;
     run_in_frame_ = 0;
@@ -208,6 +228,9 @@ void FrameGraph::new_frame() {
         return entry.second.seen + 1 < frame_serial_;
     });
     std::erase_if(remembered_buffers_, [&](const auto& entry) {
+        return entry.second.seen + 1 < frame_serial_;
+    });
+    std::erase_if(remembered_accelerations_, [&](const auto& entry) {
         return entry.second.seen + 1 < frame_serial_;
     });
 }
@@ -236,6 +259,7 @@ void FrameGraph::begin_frame(const GraphHost& host) {
     virtual_index_.clear();
     buffers_.clear();
     buffer_index_.clear();
+    acceleration_index_.clear();
 }
 
 void FrameGraph::remember_states() {
@@ -246,7 +270,8 @@ void FrameGraph::remember_states() {
         state.seen = frame_serial_;
     }
     for (const auto& buf : buffers_) {
-        auto& state = remembered_buffers_[buf.buffer];
+        auto& state = buf.structure.valid() ? remembered_accelerations_[buf.structure]
+                                            : remembered_buffers_[buf.buffer];
         state.state = buf.state;
         state.seen = frame_serial_;
     }
@@ -340,7 +365,9 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (imp.handle.id >= handle_to_buffer_id.size()) {
             handle_to_buffer_id.resize(imp.handle.id + 1, UINT32_MAX);
         }
-        handle_to_buffer_id[imp.handle.id] = register_buffer(imp.buffer, imp.persistent, imp.name);
+        handle_to_buffer_id[imp.handle.id] =
+            imp.structure.valid() ? register_acceleration(imp.structure, imp.persistent, imp.name)
+                                  : register_buffer(imp.buffer, imp.persistent, imp.name);
     }
 
     PassDecl pass;
@@ -354,9 +381,10 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (acc.handle.id >= handle_to_buffer_id.size()) { continue; }
         const uint32_t buffer_id = handle_to_buffer_id[acc.handle.id];
         if (buffer_id == UINT32_MAX) { continue; }
-        if (!gpu::applies_to_buffer(acc.access)) {
-            FJELL_GFX_WARN("FrameGraph: pass '{}' declares a buffer access the graph has "
-                           "no buffer scope for.", name.c_str());
+        const bool structure = buffers_[buffer_id].structure.valid();
+        if (structure ? !gpu::applies_to_acceleration(acc.access) : !gpu::applies_to_buffer(acc.access)) {
+            FJELL_GFX_WARN("FrameGraph: pass '{}' declares an access the graph has no scope for "
+                           "on {}.", name.c_str(), structure ? "an acceleration structure" : "a buffer");
             continue;
         }
         pass.buffer_uses.push_back(BufferUse{
@@ -832,6 +860,7 @@ void FrameGraph::append_barrier_for_buffer(TrackedBuffer& buf, const BufferUse& 
     // transition already made it visible to this access.
     gpu::Transition t{
         .buffer = buf.buffer,
+        .structure = buf.structure,
         .flush = s.written_by,
         .visible_to = use.access,
         .name = buf.name,

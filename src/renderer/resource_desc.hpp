@@ -69,6 +69,15 @@ struct FgBuffer {
     friend constexpr bool operator==(FgBuffer, FgBuffer) noexcept = default;
 };
 
+/// An acceleration structure a pass declares, which the graph tracks as it
+/// tracks a buffer: whole, by what was done to it last.
+struct FgAcceleration {
+    uint32_t id{UINT32_MAX};
+
+    [[nodiscard]] constexpr bool valid() const noexcept { return id != UINT32_MAX; }
+    friend constexpr bool operator==(FgAcceleration, FgAcceleration) noexcept = default;
+};
+
 /// Which queue the graph should schedule a pass on.
 enum class QueueType : uint8_t {
     graphics,

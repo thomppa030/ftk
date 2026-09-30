@@ -112,9 +112,11 @@ struct ImageKeyHash {
 };
 
 // Buffer tracked by the frame graph, as a whole: no pass declares part of
-// one.
+// one. An acceleration structure is tracked the same way, `structure` set
+// and `buffer` not.
 struct TrackedBuffer {
     gpu::Buffer buffer{};
+    gpu::AccelerationStructure structure{};
     bool persistent{false};
     AccessState state;
     /// The name it was declared under; kept only while the barrier trace
@@ -232,6 +234,9 @@ public:
     // graph remembers of the buffer, else with no write to wait for.
     uint32_t register_buffer(gpu::Buffer buffer, bool persistent = false,
                              std::string_view name = {});
+    // register_buffer() for an acceleration structure, among the buffers.
+    uint32_t register_acceleration(gpu::AccelerationStructure structure, bool persistent = false,
+                                   std::string_view name = {});
 
     // Once per frame, before any run: forget the state of images and
     // buffers no run touched last frame, so a destroyed handle cannot come
@@ -432,6 +437,7 @@ private:
     std::unordered_map<uint64_t, uint32_t> virtual_index_;
 
     std::unordered_map<gpu::Buffer, uint32_t, HandleHash> buffer_index_;
+    std::unordered_map<gpu::AccelerationStructure, uint32_t, HandleHash> acceleration_index_;
 
     /// Whether this run is in the barrier trace's window
     /// (FJELL_LOG_BARRIERS), and which run of the frame it is.
@@ -443,6 +449,7 @@ private:
 
     std::unordered_map<ImageKey, RememberedState, ImageKeyHash> remembered_;
     std::unordered_map<gpu::Buffer, RememberedBuffer, HandleHash> remembered_buffers_;
+    std::unordered_map<gpu::AccelerationStructure, RememberedBuffer, HandleHash> remembered_accelerations_;
     uint64_t frame_serial_{0};
 
     // Reusable scratch, so a run allocates nothing on its hot path.
