@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/resources/water_shore.hpp"
 #include "renderer/resources/water_wake.hpp"
 
 #include <glm/glm.hpp>
@@ -437,6 +438,13 @@ struct FjWaterData {
     /// draws every one; physics feels only those wide enough to move the mesh,
     /// and never a body's own.
     std::vector<water::WakeSource> wakes;
+
+    /// The ground under this water, or nothing where there is none: a sea
+    /// with no shore is open water everywhere. Attached every step by
+    /// whatever places the water in a world, never saved: a `.fjwater`
+    /// describes a sea, and where it meets land is a fact about the scene it
+    /// has been put in.
+    std::optional<water::ShoreBed> shore;
 };
 
 /// Fill a wave list from generator settings: wavelengths halving from the

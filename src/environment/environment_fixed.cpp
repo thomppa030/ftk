@@ -8,13 +8,52 @@
 #include "environment/environment_resolver.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/components/motion_source_component.hpp"
+#include "renderer/components/terrain_component.hpp"
 #include "renderer/components/water_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "scene/scene.hpp"
 
 #include <utility>
 
 namespace fjell {
+
+namespace {
+
+// The ground under a body of water: the first terrain, in scene order, whose
+// field reaches under it. A scene holds one terrain today; a water spanning
+// two would read the first and be open water over the other.
+std::optional<water::ShoreBed> shore_under(const Scene& scene, const WaterComponent& water,
+                                           glm::vec3 centre) {
+    for (auto [node, terrain] : scene.view<TerrainComponent>()) {
+        if (terrain->terrain == nullptr) continue;
+        const auto* spatial = node->as_spatial();
+        if (spatial == nullptr) continue;
+        const glm::mat4 world = scene.current_world_matrix(*spatial);
+        const glm::vec3 corner = terrain->terrain->world_min_corner(world);
+        const float size = terrain->terrain->world_size();
+
+        if (water.extent == WaterComponent::Extent::bounded) {
+            const glm::vec2 half(water.size * 0.5f);
+            const glm::vec2 lo = glm::vec2(centre.x, centre.z) - half;
+            const glm::vec2 hi = glm::vec2(centre.x, centre.z) + half;
+            if (hi.x < corner.x || hi.y < corner.z || lo.x > corner.x + size
+                || lo.y > corner.z + size) {
+                continue;
+            }
+        }
+
+        water::ShoreBed bed;
+        bed.terrain = terrain->terrain->shared_data();
+        bed.min_corner = {corner.x, corner.z};
+        bed.ground_y = world[3].y;
+        bed.surface_y = centre.y;
+        return bed;
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 void EnvironmentSubsystem::fixed_tick(const FixedTickContext& ctx) {
     // The wind the simulation pushes with: the weather the frame resolved,
@@ -85,12 +124,17 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
         auto* water = &water_component;
         water->effective_water = water->derivation.derive(water->water, wind_xz, workers);
 
-        // What has moved through it, on top of the sea the wind made. The
-        // trails are laid against that sea, since whether a wader's feet are
-        // in the water depends on where the waves have put it.
         const auto* spatial = node.as_spatial();
         if (spatial == nullptr) return;
         const glm::vec3 centre{scene.current_world_matrix(*spatial)[3]};
+
+        // The ground it has been put over, which the sea shallows and breaks
+        // against.
+        water->effective_water.shore = shore_under(scene, *water, centre);
+
+        // What has moved through it, on top of the sea the wind made. The
+        // trails are laid against that sea, since whether a wader's feet are
+        // in the water depends on where the waves have put it.
         water::WakePlacement placement;
         placement.surface_y = centre.y;
         placement.vertex_spacing = water->vertex_spacing();

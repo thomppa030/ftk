@@ -24,6 +24,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_gpu.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_spectrum.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_surface.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_shore.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/water_wake.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/components/water_component.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/surface_asset.cpp
@@ -197,6 +198,7 @@ add_executable(fjell-tests
     test_test_pacing.cpp
     test_water_clipmap.cpp
     test_water_spectrum.cpp
+    test_water_shore.cpp
     test_water_wake.cpp
     test_volume_occupancy.cpp
     test_post_layers.cpp

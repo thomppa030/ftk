@@ -45,8 +45,8 @@ gpu::Texture TerrainAsset::patch_bounds_texture() const {
 void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x,
                                         uint32_t count_z) {
     const uint32_t patches = patches_per_side();
-    const uint32_t samples = data_.sample_count();
-    const uint32_t quads = data_.patch_quads();
+    const uint32_t samples = data_->sample_count();
+    const uint32_t quads = data_->patch_quads();
     if (patches == 0 || quads == 0) return;
 
     const uint32_t px_end = std::min(px + count_x, patches);
@@ -64,7 +64,7 @@ void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count
             float lo = 1.0F;
             float hi = 0.0F;
             for (uint32_t sz = z0; sz <= z1; ++sz) {
-                const float* row = &data_.heights[static_cast<size_t>(sz) * samples];
+                const float* row = &data_->heights[static_cast<size_t>(sz) * samples];
                 for (uint32_t sx = x0; sx <= x1; ++sx) {
                     lo = std::min(lo, row[sx]);
                     hi = std::max(hi, row[sx]);
@@ -84,7 +84,7 @@ void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
     if (!patch_bounds_texture_ || patch_bounds_generation_ == edit_generation_) return;
 
     const uint32_t patches = patches_per_side();
-    const uint32_t quads = data_.patch_quads();
+    const uint32_t quads = data_->patch_quads();
     if (patches == 0 || quads == 0) {
         patch_bounds_generation_ = edit_generation_;
         return;
@@ -131,24 +131,24 @@ gpu::Texture TerrainAsset::weight_texture() const {
 
 const std::string& TerrainAsset::layer_material_path(uint32_t layer) const {
     static const std::string none;
-    if (layer >= data_.layers.size()) return none;
-    const uint32_t name = data_.layers[layer].material_path;
-    return name < data_.names.size() ? data_.names[name] : none;
+    if (layer >= data_->layers.size()) return none;
+    const uint32_t name = data_->layers[layer].material_path;
+    return name < data_->names.size() ? data_->names[name] : none;
 }
 
 const std::string& TerrainAsset::layer_surface_path(uint32_t layer) const {
     static const std::string none;
-    if (layer >= data_.layers.size()) return none;
-    const uint32_t name = data_.layers[layer].surface_path;
-    return name < data_.names.size() ? data_.names[name] : none;
+    if (layer >= data_->layers.size()) return none;
+    const uint32_t name = data_->layers[layer].surface_path;
+    return name < data_->names.size() ? data_->names[name] : none;
 }
 
 void TerrainAsset::set_layer_surface_path(uint32_t layer, const std::string& path) {
     if (layer >= layer_count()) return;
-    const uint32_t name = data_.layers[layer].surface_path;
-    if (name >= data_.names.size()) return;
-    if (data_.names[name] == path) return;
-    data_.names[name] = path;
+    const uint32_t name = data_->layers[layer].surface_path;
+    if (name >= data_->names.size()) return;
+    if (data_->names[name] == path) return;
+    data_->names[name] = path;
     dirty_ = true;
 }
 
@@ -157,7 +157,7 @@ void TerrainAsset::set_layer_surface(uint32_t layer, uint32_t surface_id) {
 }
 
 float TerrainAsset::layer_uv_scale(uint32_t layer) const {
-    return layer < data_.layers.size() ? data_.layers[layer].uv_scale
+    return layer < data_->layers.size() ? data_->layers[layer].uv_scale
                                        : FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
 }
 
@@ -180,18 +180,18 @@ void TerrainAsset::set_layer_count(uint32_t count) {
     // fixed indices, so the table never needs deduplicating or garbage
     // collecting. Growing keeps existing names; shrinking drops the tail.
     std::vector<std::string> names(static_cast<size_t>(count) * 2);
-    for (uint32_t i = 0; i < count && i < data_.layers.size(); ++i) {
+    for (uint32_t i = 0; i < count && i < data_->layers.size(); ++i) {
         names[static_cast<size_t>(i) * 2] = layer_material_path(i);
         names[(static_cast<size_t>(i) * 2) + 1] = layer_surface_path(i);
     }
     const uint32_t old_count = layer_count();
-    data_.layers.resize(count);
-    data_.names = std::move(names);
+    data_->layers.resize(count);
+    data_->names = std::move(names);
     for (uint32_t i = 0; i < count; ++i) {
-        data_.layers[i].material_path = i * 2;
-        data_.layers[i].surface_path = (i * 2) + 1;
-        if (i >= old_count || data_.layers[i].uv_scale <= 0.0F) {
-            data_.layers[i].uv_scale = FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
+        data_->layers[i].material_path = i * 2;
+        data_->layers[i].surface_path = (i * 2) + 1;
+        if (i >= old_count || data_->layers[i].uv_scale <= 0.0F) {
+            data_->layers[i].uv_scale = FJTERRAIN_DEFAULT_LAYER_UV_SCALE;
         }
     }
     for (uint32_t i = count; i < FJTERRAIN_MAX_LAYERS; ++i) {
@@ -203,18 +203,18 @@ void TerrainAsset::set_layer_count(uint32_t count) {
 
 void TerrainAsset::set_layer_material_path(uint32_t layer, const std::string& path) {
     if (layer >= layer_count()) return;
-    const uint32_t name = data_.layers[layer].material_path;
-    if (name >= data_.names.size()) return;
-    if (data_.names[name] == path) return;
-    data_.names[name] = path;
+    const uint32_t name = data_->layers[layer].material_path;
+    if (name >= data_->names.size()) return;
+    if (data_->names[name] == path) return;
+    data_->names[name] = path;
     dirty_ = true;
 }
 
 void TerrainAsset::set_layer_uv_scale(uint32_t layer, float metres_per_repeat) {
     if (layer >= layer_count()) return;
     const float clamped = std::max(metres_per_repeat, 0.01F);
-    if (data_.layers[layer].uv_scale == clamped) return;
-    data_.layers[layer].uv_scale = clamped;
+    if (data_->layers[layer].uv_scale == clamped) return;
+    data_->layers[layer].uv_scale = clamped;
     dirty_ = true;
 }
 
@@ -229,10 +229,10 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
     }
 
     auto asset = std::make_unique<TerrainAsset>();
-    asset->data_ = std::move(*parsed);
+    asset->data_ = std::make_shared<FjTerrainData>(std::move(*parsed));
     asset->path_ = path;
 
-    const uint32_t samples = asset->data_.sample_count();
+    const uint32_t samples = asset->data_->sample_count();
 
     // R16_UNORM regardless of the on-disk format: the shader wants a single
     // normalized channel, and 16 bits resolve finer than terrain authoring
@@ -244,13 +244,13 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
     float lowest = 1.0F;
     float highest = 0.0F;
     for (size_t i = 0; i < texels.size(); ++i) {
-        const float clamped = std::clamp(asset->data_.heights[i], 0.0F, 1.0F);
+        const float clamped = std::clamp(asset->data_->heights[i], 0.0F, 1.0F);
         lowest = std::min(lowest, clamped);
         highest = std::max(highest, clamped);
         texels[i] = static_cast<uint16_t>(std::lround(clamped * UNORM16_MAX));
     }
-    asset->min_world_height_ = asset->data_.world_height(lowest);
-    asset->max_world_height_ = asset->data_.world_height(highest);
+    asset->min_world_height_ = asset->data_->world_height(lowest);
+    asset->max_world_height_ = asset->data_->world_height(highest);
     asset->build_ray_mesh();
     FJELL_GFX_DEBUG("Terrain '{}': {}x{} samples, ray mesh {} verts / {} tris ({:.1f} MB)",
                     path, samples, samples, asset->ray_vertices_.size(),
@@ -295,7 +295,7 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
     // height sample filled with layer 0, so the first paint stroke is a
     // partial upload like any other rather than a texture rebuild.
     {
-        const auto& data = asset->data_;
+        const auto& data = *asset->data_;
         const bool painted = data.header.weight_count > 0 && !data.weights.empty();
         const uint32_t side = painted ? data.header.weight_count : samples;
         std::vector<uint8_t> unpainted;
@@ -328,7 +328,7 @@ constexpr uint32_t RAY_MESH_STEP = 4;
 } // namespace
 
 void TerrainAsset::build_ray_mesh() {
-    const uint32_t samples = data_.sample_count();
+    const uint32_t samples = data_->sample_count();
     if (samples < 2) return;
 
     const uint32_t step = std::min(RAY_MESH_STEP, samples - 1);
@@ -336,7 +336,7 @@ void TerrainAsset::build_ray_mesh() {
     // it. Truncating leaves a strip of missing ground along two edges that rays
     // pass straight through.
     const uint32_t count = ((samples - 1 + step - 1) / step) + 1;
-    const float spacing = data_.header.world_size / static_cast<float>(samples - 1);
+    const float spacing = data_->header.world_size / static_cast<float>(samples - 1);
     ray_mesh_spacing_ = spacing * static_cast<float>(step);
 
     const glm::vec3 corner = local_min_corner();
@@ -348,7 +348,7 @@ void TerrainAsset::build_ray_mesh() {
 
             Vertex& v = ray_vertices_[(static_cast<size_t>(z) * count) + x];
             v.position = {corner.x + (static_cast<float>(sx) * spacing),
-                          data_.world_height(height_at_sample(sx, sz)),
+                          data_->world_height(height_at_sample(sx, sz)),
                           corner.z + (static_cast<float>(sz) * spacing)};
             v.color = glm::vec3{1.0F};
             v.tex_coord = {static_cast<float>(sx) / static_cast<float>(samples - 1),
@@ -362,10 +362,10 @@ void TerrainAsset::build_ray_mesh() {
             const uint32_t zp = std::min(sz + step, samples - 1);
             const float dx = static_cast<float>(xp - xm) * spacing;
             const float dz = static_cast<float>(zp - zm) * spacing;
-            const float hl = data_.world_height(height_at_sample(xm, sz));
-            const float hr = data_.world_height(height_at_sample(xp, sz));
-            const float hd = data_.world_height(height_at_sample(sx, zm));
-            const float hu = data_.world_height(height_at_sample(sx, zp));
+            const float hl = data_->world_height(height_at_sample(xm, sz));
+            const float hr = data_->world_height(height_at_sample(xp, sz));
+            const float hd = data_->world_height(height_at_sample(sx, zm));
+            const float hu = data_->world_height(height_at_sample(sx, zp));
             v.normal = glm::normalize(glm::vec3{dx > 0.0F ? -(hr - hl) / dx : 0.0F, 1.0F,
                                                 dz > 0.0F ? -(hu - hd) / dz : 0.0F});
             v.tangent = glm::vec4{1.0F, 0.0F, 0.0F, 1.0F};
@@ -408,12 +408,12 @@ void TerrainAsset::ensure_height_range() const {
     if (!height_range_stale_) return;
     float lowest = 1.0F;
     float highest = 0.0F;
-    for (float h : data_.heights) {
+    for (float h : data_->heights) {
         lowest = std::min(lowest, h);
         highest = std::max(highest, h);
     }
-    min_world_height_ = data_.world_height(lowest);
-    max_world_height_ = data_.world_height(highest);
+    min_world_height_ = data_->world_height(lowest);
+    max_world_height_ = data_->world_height(highest);
     height_range_stale_ = false;
 }
 
@@ -429,12 +429,12 @@ float TerrainAsset::max_world_height() const {
 
 void TerrainAsset::copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                                 float* out) const {
-    const uint32_t samples = data_.sample_count();
+    const uint32_t samples = data_->sample_count();
     if (out == nullptr || x >= samples || z >= samples) return;
     const uint32_t x_end = std::min(x + size_x, samples);
     const uint32_t z_end = std::min(z + size_z, samples);
     for (uint32_t row = z; row < z_end; ++row) {
-        const float* src = &data_.heights[(static_cast<size_t>(row) * samples) + x];
+        const float* src = &data_->heights[(static_cast<size_t>(row) * samples) + x];
         float* dst = out + (static_cast<size_t>(row - z) * size_x);
         std::copy(src, src + (x_end - x), dst);
     }
@@ -442,7 +442,7 @@ void TerrainAsset::copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
 
 void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                                  const float* heights, gpu::Upload& upload) {
-    const uint32_t samples = data_.sample_count();
+    const uint32_t samples = data_->sample_count();
     if (heights == nullptr || !height_texture_ || x >= samples || z >= samples) return;
     const uint32_t x_end = std::min(x + size_x, samples);
     const uint32_t z_end = std::min(z + size_z, samples);
@@ -454,7 +454,7 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     // GPU copy wants, tightly packed at the rect's own width.
     std::vector<uint16_t> texels(static_cast<size_t>(w) * h);
     for (uint32_t row = 0; row < h; ++row) {
-        float* dst = &data_.heights[(static_cast<size_t>(z + row) * samples) + x];
+        float* dst = &data_->heights[(static_cast<size_t>(z + row) * samples) + x];
         const float* src = heights + (static_cast<size_t>(row) * size_x);
         uint16_t* tex = &texels[static_cast<size_t>(row) * w];
         for (uint32_t col = 0; col < w; ++col) {
@@ -477,7 +477,7 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
 TerrainAsset::SampleRect TerrainAsset::edits_since(uint32_t since_generation) const {
     if (since_generation >= edit_generation_) return {};
 
-    const uint32_t samples = data_.sample_count();
+    const uint32_t samples = data_->sample_count();
     // Further behind than the ring remembers: everything the forgotten strokes
     // touched is unknown, so the only honest answer is the whole field. Saying
     // "nothing changed" here is what would leave a consumer silently stale.
@@ -510,14 +510,14 @@ void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
     const uint32_t z_end = std::min(z + size_z, side);
     for (uint32_t row = z; row < z_end; ++row) {
         uint8_t* dst = out + (static_cast<size_t>(row - z) * size_x * 4);
-        if (data_.weights.empty()) {
+        if (data_->weights.empty()) {
             for (uint32_t col = 0; col < x_end - x; ++col) {
                 std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(),
                           dst + (static_cast<size_t>(col) * 4));
             }
             continue;
         }
-        const uint8_t* src = &data_.weights[((static_cast<size_t>(row) * side) + x) * 4];
+        const uint8_t* src = &data_->weights[((static_cast<size_t>(row) * side) + x) * 4];
         std::copy(src, src + (static_cast<size_t>(x_end - x) * 4), dst);
     }
 }
@@ -532,17 +532,17 @@ void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     const uint32_t h = z_end - z;
     if (w == 0 || h == 0) return;
 
-    if (data_.weights.empty()) {
-        data_.weights.resize(static_cast<size_t>(side) * side * 4);
-        for (size_t i = 0; i < data_.weights.size(); i += 4) {
-            std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(), &data_.weights[i]);
+    if (data_->weights.empty()) {
+        data_->weights.resize(static_cast<size_t>(side) * side * 4);
+        for (size_t i = 0; i < data_->weights.size(); i += 4) {
+            std::copy(UNPAINTED_WEIGHT.begin(), UNPAINTED_WEIGHT.end(), &data_->weights[i]);
         }
-        data_.header.weight_count = side;
+        data_->header.weight_count = side;
     }
 
     std::vector<uint8_t> texels(static_cast<size_t>(w) * h * 4);
     for (uint32_t row = 0; row < h; ++row) {
-        uint8_t* dst = &data_.weights[((static_cast<size_t>(z + row) * side) + x) * 4];
+        uint8_t* dst = &data_->weights[((static_cast<size_t>(z + row) * side) + x) * 4];
         const uint8_t* src = rgba + (static_cast<size_t>(row) * size_x * 4);
         std::copy(src, src + (static_cast<size_t>(w) * 4), dst);
         std::copy(src, src + (static_cast<size_t>(w) * 4), &texels[static_cast<size_t>(row) * w * 4]);
@@ -556,25 +556,25 @@ void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32
 }
 
 Result<> TerrainAsset::save() {
-    auto result = save_fjterrain(path_, data_);
+    auto result = save_fjterrain(path_, *data_);
     if (result) dirty_ = false;
     return result;
 }
 
 float TerrainAsset::height_at_sample(uint32_t x, uint32_t z) const {
-    const uint32_t samples = data_.sample_count();
+    const uint32_t samples = data_->sample_count();
     if (samples == 0) return 0.0F;
     const uint32_t cx = std::min(x, samples - 1);
     const uint32_t cz = std::min(z, samples - 1);
-    return data_.heights[(static_cast<size_t>(cz) * samples) + cx];
+    return data_->heights[(static_cast<size_t>(cz) * samples) + cx];
 }
 
 float TerrainAsset::height_at(float local_x, float local_z) const {
-    const uint32_t samples = data_.sample_count();
-    if (samples < 2) return data_.header.height_offset;
+    const uint32_t samples = data_->sample_count();
+    if (samples < 2) return data_->header.height_offset;
 
     const float quads = static_cast<float>(samples - 1);
-    const float scale = quads / data_.header.world_size;
+    const float scale = quads / data_->header.world_size;
     const float fx = std::clamp(local_x * scale, 0.0F, quads);
     const float fz = std::clamp(local_z * scale, 0.0F, quads);
 
@@ -592,7 +592,7 @@ float TerrainAsset::height_at(float local_x, float local_z) const {
 
     const float top = h00 + ((h10 - h00) * tx);
     const float bottom = h01 + ((h11 - h01) * tx);
-    return data_.world_height(top + ((bottom - top) * tz));
+    return data_->world_height(top + ((bottom - top) * tz));
 }
 
 } // namespace fjell

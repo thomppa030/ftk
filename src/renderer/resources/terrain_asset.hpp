@@ -47,7 +47,13 @@ public:
     [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(const std::string& path,
                                                                     gpu::Device& gpu);
 
-    [[nodiscard]] const FjTerrainData& data() const { return data_; }
+    [[nodiscard]] const FjTerrainData& data() const { return *data_; }
+
+    /// The same heights, for a reader that holds on to them past the frame
+    /// it asked in: the water reads the ground under it this way. Edits
+    /// made through this asset reach the holder, since it is the same data.
+    [[nodiscard]] std::shared_ptr<const FjTerrainData> shared_data() const { return data_; }
+
     [[nodiscard]] const std::string& path() const { return path_; }
 
     /// The heights, one normalized 16-bit sample per texel, which the mesh
@@ -73,7 +79,7 @@ public:
     /// Weight texels per side. One per height sample unless the file was
     /// painted at another resolution.
     [[nodiscard]] uint32_t weight_count() const { return weight_side_; }
-    [[nodiscard]] bool has_painted_weights() const { return !data_.weights.empty(); }
+    [[nodiscard]] bool has_painted_weights() const { return !data_->weights.empty(); }
 
     /// Copy a rectangle of RGBA weights out, row-major, `size_x * size_z * 4`
     /// bytes. Clipped to the grid; an unpainted field reads as layer 0.
@@ -92,7 +98,7 @@ public:
     // weight texture. The table lives in the .fjterrain; the resolved
     // Material pointers are runtime state the resource manager fills in.
 
-    [[nodiscard]] uint32_t layer_count() const { return static_cast<uint32_t>(data_.layers.size()); }
+    [[nodiscard]] uint32_t layer_count() const { return static_cast<uint32_t>(data_->layers.size()); }
     /// Project-relative .fjmat path, empty when the layer is unassigned.
     [[nodiscard]] const std::string& layer_material_path(uint32_t layer) const;
     /// Project-relative .fjsurface path, empty when the layer has no surface.
@@ -129,7 +135,7 @@ public:
     /// reads from the asset, so the physics world needs none of the GPU side.
     void dominant_layers(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                          uint8_t* out) const {
-        const uint32_t samples = data_.sample_count();
+        const uint32_t samples = data_->sample_count();
         if (out == nullptr || samples < 2 || weight_side_ == 0) return;
         const uint32_t quads = samples - 1;
         const uint32_t side = weight_side_;
@@ -142,9 +148,9 @@ public:
             for (uint32_t qx = x; qx < x_end; ++qx) {
                 const uint32_t tx = std::min(((2 * qx + 1) * side) / (2 * quads), side - 1);
                 uint8_t best = 0;
-                if (!data_.weights.empty()) {
+                if (!data_->weights.empty()) {
                     const uint8_t* texel =
-                        &data_.weights[((static_cast<size_t>(tz) * side) + tx) * 4];
+                        &data_->weights[((static_cast<size_t>(tz) * side) + tx) * 4];
                     for (uint8_t c = 1; c < 4; ++c) {
                         if (texel[c] > texel[best]) best = c;
                     }
@@ -154,12 +160,12 @@ public:
         }
     }
 
-    [[nodiscard]] uint32_t sample_count() const { return data_.sample_count(); }
-    [[nodiscard]] uint32_t patch_quads() const { return data_.patch_quads(); }
-    [[nodiscard]] uint32_t patches_per_side() const { return data_.patches_per_side(); }
-    [[nodiscard]] float world_size() const { return data_.header.world_size; }
-    [[nodiscard]] float height_scale() const { return data_.header.height_scale; }
-    [[nodiscard]] float height_offset() const { return data_.header.height_offset; }
+    [[nodiscard]] uint32_t sample_count() const { return data_->sample_count(); }
+    [[nodiscard]] uint32_t patch_quads() const { return data_->patch_quads(); }
+    [[nodiscard]] uint32_t patches_per_side() const { return data_->patches_per_side(); }
+    [[nodiscard]] float world_size() const { return data_->header.world_size; }
+    [[nodiscard]] float height_scale() const { return data_->header.height_scale; }
+    [[nodiscard]] float height_offset() const { return data_->header.height_offset; }
 
     // ── Placement ──
     // The node's pivot is the centre of the field, so a terrain parented to
@@ -167,7 +173,7 @@ public:
     // what height_at() and the brush use — are metres from the min corner,
     // which is this far from the pivot:
     [[nodiscard]] glm::vec3 local_min_corner() const {
-        const float half = data_.header.world_size * 0.5F;
+        const float half = data_->header.world_size * 0.5F;
         return {-half, 0.0F, -half};
     }
     /// The field's min corner in world space, from the node's world matrix.
@@ -309,7 +315,10 @@ private:
     /// `patch_bounds_texels_`.
     void compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count_x, uint32_t count_z);
 
-    FjTerrainData data_;
+    // Shared so a reader that keeps the heights past a frame keeps them alive
+    // rather than pointing into an asset that was reimported underneath it.
+    // Still the one CPU copy: sharing it is not copying it.
+    std::shared_ptr<FjTerrainData> data_{std::make_shared<FjTerrainData>()};
     std::string path_;
     std::vector<Vertex> ray_vertices_;
     std::vector<uint32_t> ray_indices_;
