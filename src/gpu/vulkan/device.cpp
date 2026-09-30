@@ -73,7 +73,7 @@ void destroy_buffer(VkDevice device, VmaAllocator allocator, const Device::Impl:
         if (!record.pages.empty()) {
             vmaFreeMemoryPages(allocator, record.pages.size(), record.pages.data());
         }
-    } else if (record.allocation != VK_NULL_HANDLE) {
+    } else {
         vmaDestroyBuffer(allocator, record.buffer, record.allocation);
     }
 }
