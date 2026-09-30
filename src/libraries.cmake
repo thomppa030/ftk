@@ -89,7 +89,6 @@ fjell_library(gpu
         renderer/gpu/descriptor.cpp
         renderer/gpu/device.cpp
         renderer/gpu/gpu_core.cpp
-        renderer/gpu/growable_buffer.cpp
         renderer/gpu/image.cpp
         renderer/gpu/thread_command_pools.cpp
         renderer/gpu/upload_context.cpp
@@ -157,7 +156,6 @@ fjell_library(gpu
         renderer/gpu/device.hpp
         renderer/gpu/frames_in_flight.hpp
         renderer/gpu/gpu_core.hpp
-        renderer/gpu/growable_buffer.hpp
         renderer/gpu/image.hpp
         renderer/gpu/shader_utils.hpp
         renderer/gpu/thread_command_pools.hpp
