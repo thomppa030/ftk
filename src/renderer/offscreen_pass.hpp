@@ -24,8 +24,16 @@ class Device;
 /// the frames still using them.
 class OffscreenPass {
 public:
+    /// What a target holds: every image a view of a scene renders into, or
+    /// the colour target alone, for one that draws nothing else (game UI).
+    /// A colour target's other textures are invalid.
+    enum class Contents : uint8_t {
+        scene,
+        color,
+    };
+
     OffscreenPass(gpu::Device& gpu, uint32_t width, uint32_t height,
-                  gpu::Samples samples = gpu::Samples::x1);
+                  gpu::Samples samples = gpu::Samples::x1, Contents contents = Contents::scene);
     ~OffscreenPass();
 
     OffscreenPass(const OffscreenPass&) = delete;
@@ -108,6 +116,7 @@ private:
 
     gpu::Device& gpu_;
     gpu::Samples samples_{gpu::Samples::x1};
+    Contents contents_{Contents::scene};
     /// Names this target's images in debuggers and validation messages.
     std::string name_;
     /// Linear, clamped: how ImGui samples the colour target.

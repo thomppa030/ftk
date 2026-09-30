@@ -10,8 +10,9 @@
 
 namespace fjell {
 
-OffscreenPass::OffscreenPass(gpu::Device& gpu, uint32_t width, uint32_t height, gpu::Samples samples)
-    : gpu_{gpu}, samples_{samples} {
+OffscreenPass::OffscreenPass(gpu::Device& gpu, uint32_t width, uint32_t height, gpu::Samples samples,
+                             Contents contents)
+    : gpu_{gpu}, samples_{samples}, contents_{contents} {
     static uint32_t made = 0;
     name_ = "offscreen#" + std::to_string(made++);
     sampler_ = gpu_.sampler({.filter = gpu::Filter::linear, .address = gpu::Address::clamp});
@@ -68,6 +69,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         textures_.color = make("color", COLOR_FORMAT, samples_, resolved_color, gpu::Queues::graphics, black);
         textures_.resolve_color = {};
     }
+    if (contents_ == Contents::color) return;
 
     // Depth. Light culling and GTAO sample it on the compute queue, so it is
     // shared with it; copies seed the sea's depth from it.

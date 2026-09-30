@@ -508,7 +508,8 @@ protected:
             frame_h = deps.project->config().ui.design_height;
         }
         if (!target_ || target_->extent().width != frame_w || target_->extent().height != frame_h) {
-            target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), frame_w, frame_h, gpu::Samples::x1);
+            target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), frame_w, frame_h, gpu::Samples::x1,
+                                                      OffscreenPass::Contents::color);
         }
         return {frame_w, frame_h};
     }

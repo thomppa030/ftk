@@ -288,7 +288,7 @@ void UiEditorContext::open_ui(const std::string& path) {
         offscreen_height_ = 600;
         for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
             offscreen_[i] = std::make_unique<OffscreenPass>(deps_.vulkan_context->gpu_device(), 800, 600,
-                                                            gpu::Samples::x1);
+                                                            gpu::Samples::x1, OffscreenPass::Contents::color);
         }
 
         // Register preview callback — renders to the current frame's offscreen pass
