@@ -86,10 +86,8 @@ fjell_library(platform
 fjell_library(gpu
     SOURCES
         renderer/gpu/buffer.cpp
-        renderer/gpu/descriptor.cpp
         renderer/gpu/device.cpp
         renderer/gpu/gpu_core.cpp
-        renderer/gpu/image.cpp
         renderer/gpu/thread_command_pools.cpp
         renderer/gpu/upload_context.cpp
         renderer/gpu/vma_impl.cpp
@@ -152,12 +150,9 @@ fjell_library(gpu
         gpu/vulkan/native.hpp
         gpu/vulkan/translate.hpp
         renderer/gpu/buffer.hpp
-        renderer/gpu/descriptor.hpp
         renderer/gpu/device.hpp
         renderer/gpu/frames_in_flight.hpp
         renderer/gpu/gpu_core.hpp
-        renderer/gpu/image.hpp
-        renderer/gpu/shader_utils.hpp
         renderer/gpu/thread_command_pools.hpp
         renderer/gpu/upload_context.hpp
         renderer/gpu/vk_check.hpp

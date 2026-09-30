@@ -9,15 +9,10 @@ src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp
 src/renderer/gpu/buffer.hpp
-src/renderer/gpu/descriptor.cpp
-src/renderer/gpu/descriptor.hpp
 src/renderer/gpu/device.cpp
 src/renderer/gpu/device.hpp
 src/renderer/gpu/gpu_core.cpp
 src/renderer/gpu/gpu_core.hpp
-src/renderer/gpu/image.cpp
-src/renderer/gpu/image.hpp
-src/renderer/gpu/shader_utils.hpp
 src/renderer/gpu/thread_command_pools.cpp
 src/renderer/gpu/thread_command_pools.hpp
 src/renderer/gpu/upload_context.cpp

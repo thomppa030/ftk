@@ -4,8 +4,6 @@
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/global_bindings.hpp"
-#include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/descriptor.hpp"
 #include "renderer/gpu/gpu_core.hpp"
 #include "gpu/swapchain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
