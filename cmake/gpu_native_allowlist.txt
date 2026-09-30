@@ -1,7 +1,0 @@
-# Files written before the GPU interface that still speak Vulkan directly.
-# cmake/GpuBackendCheck.cmake skips these; everything else outside
-# src/gpu/vulkan/ must use the interface in src/gpu/. When a file moves onto
-# the interface, delete its line here: the check fails while a listed file has
-# no Vulkan left, so the list only shrinks. The one time files are added is
-# the commit that teaches the check a new pattern, and then only the files
-# already using it.

@@ -99,8 +99,7 @@ if(FJELL_BUILD_ENGINE)
     fjell_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt)
     # Vulkan stays inside the GPU backend; the rest speaks the GPU interface.
     include(cmake/GpuBackendCheck.cmake)
-    fjell_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS}
-                            ALLOWLIST cmake/gpu_native_allowlist.txt)
+    fjell_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
     add_subdirectory(tools)
 
     enable_testing()

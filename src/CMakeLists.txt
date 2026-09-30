@@ -372,12 +372,10 @@ target_link_libraries(fjell PRIVATE
     fjell-imgui
     fastgltf::fastgltf
     glm::glm
-    GPUOpen::VulkanMemoryAllocator
     Jolt
     nlohmann_json::nlohmann_json
     SDL3::SDL3
     spdlog::spdlog
-    Vulkan::Vulkan
     yogacore
     meshoptimizer
     ozz_animation
@@ -513,10 +511,8 @@ target_link_libraries(fjell-hub PRIVATE
     fjell-ui-kit
     fjell-imgui
     glm::glm
-    GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    Vulkan::Vulkan
 )
 fjell_target_defaults(fjell-hub)
 

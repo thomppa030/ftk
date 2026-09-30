@@ -34,7 +34,6 @@ target_link_libraries(fjimport PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    Vulkan::Headers
 )
 
 fjell_target_defaults(fjimport)

@@ -33,7 +33,6 @@ target_link_libraries(fjlint PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    Vulkan::Headers
 )
 
 fjell_target_defaults(fjlint)

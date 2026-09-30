@@ -102,7 +102,6 @@ target_link_libraries(fjell-testable PUBLIC
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     glm::glm
-    Vulkan::Headers
     yogacore
     Jolt
 )
@@ -111,7 +110,7 @@ target_link_libraries(fjell-testable PUBLIC
 # mesh, terrain, and skeletal collision. Only the headers are needed here —
 # the test never loads an asset — so their include paths come in as system
 # directories, the way the engine target treats them.
-foreach(dep Jolt GPUOpen::VulkanMemoryAllocator ozz_base ozz_animation)
+foreach(dep Jolt ozz_base ozz_animation)
     get_target_property(dirs ${dep} INTERFACE_INCLUDE_DIRECTORIES)
     if(dirs)
         target_include_directories(fjell-testable SYSTEM PRIVATE ${dirs})
@@ -295,6 +294,8 @@ target_link_libraries(fjell-tests PRIVATE
     Catch2::Catch2WithMain
     SDL3::Headers
 )
+# The Vulkan backend's own tests (test_vulkan_*.cpp) read its headers.
+target_link_libraries(fjell-tests PRIVATE Vulkan::Headers)
 # fjreflect's parser is tested in place; it depends on nothing from the engine.
 target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 # Tests that need a real font bake the engine's own.
@@ -355,6 +356,7 @@ fjell_library_link_check(editor-shell NEEDS_GPU)
 # build; they print what they measured.
 add_executable(fjell-bench-command-list bench_vulkan_command_list.cpp)
 target_link_libraries(fjell-bench-command-list PRIVATE fjell-gpu)
+fjell_vulkan_backend(fjell-bench-command-list)
 add_dependencies(fjell-bench-command-list fjell-tests_shaders)
 target_compile_definitions(fjell-bench-command-list PRIVATE
     FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
