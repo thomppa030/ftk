@@ -6,7 +6,8 @@
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 1, binding = 1) uniform sampler2D depth_tex;
-layout(set = 2, binding = 0) uniform sampler2D textures[];
+#define FJELL_BINDLESS_SET 2
+#include "fjell_bindless.glsl"
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in vec4 frag_color;
@@ -27,7 +28,7 @@ void main() {
 
     if (frag_texture_index > 0u) {
         // Sample normal map (RG = tangent-space XY)
-        vec3 n = texture(textures[nonuniformEXT(frag_texture_index)], frag_uv).rgb;
+        vec3 n = texture(FjellTexture(frag_texture_index), frag_uv).rgb;
         normal_xy = n.xy * 2.0 - 1.0;
     } else {
         // Procedural heat haze: smooth radial push, fading at edges

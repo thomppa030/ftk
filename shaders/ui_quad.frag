@@ -5,7 +5,7 @@
 #include "fjell_gpu_types.glsl"
 #include "fjell_global_ubo.glsl"
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 

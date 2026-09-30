@@ -60,7 +60,7 @@ layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 layout(set = 0, binding = 8) uniform sampler2D screen_color_texture;
 layout(set = 0, binding = 9) uniform sampler3D scene_sdf;
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];

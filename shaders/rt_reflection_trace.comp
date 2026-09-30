@@ -48,7 +48,7 @@ layout(push_constant) uniform PushConstants {
 
 #include "fjell_gpu_types.glsl"
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
 };
@@ -186,18 +186,18 @@ void main() {
 
     vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 
-    float depth = textureLod(depth_tex, uv, 0).r;
+    float depth = textureLod(depth_tex, uv, 0.0).r;
     if (depth >= 1.0) {
         imageStore(reflection_out, pixel, vec4(0.0));
         return;
     }
 
     vec3 world_pos = world_from_depth(uv, depth);
-    vec2 normal_enc = textureLod(normal_tex, uv, 0).rg;
+    vec2 normal_enc = textureLod(normal_tex, uv, 0.0).rg;
     vec3 N = oct_decode(normal_enc);
 
     // mr_tex: r = metallic, g = roughness (perceptual)
-    vec2 mr = textureLod(mr_tex, uv, 0).rg;
+    vec2 mr = textureLod(mr_tex, uv, 0.0).rg;
     float metallic = mr.r;
     float perceptual_roughness = mr.g;
     float alpha = perceptual_roughness * perceptual_roughness;

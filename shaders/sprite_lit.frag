@@ -26,7 +26,7 @@ layout(set = 0, binding = 3) readonly buffer TileLightIndexBuffer {
     uint tile_data[];
 };
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in flat uint frag_tex_index;
@@ -51,7 +51,7 @@ layout(set = 0, binding = 15) uniform sampler2D cloud_shadow_tex;
 #include "include/fjell_cloud_shadow.glsl"
 
 void main() {
-    vec4 tex_color = texture(textures[nonuniformEXT(frag_tex_index)], frag_uv);
+    vec4 tex_color = texture(FjellTexture(frag_tex_index), frag_uv);
     if (tex_color.a < 0.01) discard;
 
     vec4 base = tex_color * frag_tint;
@@ -69,7 +69,7 @@ void main() {
         vec3 up_ref = abs(N.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0);
         vec3 T = normalize(cross(up_ref, N));
         vec3 B = cross(N, T);
-        vec3 nm = texture(textures[nonuniformEXT(frag_normal_index)], frag_uv).rgb * 2.0 - 1.0;
+        vec3 nm = texture(FjellTexture(frag_normal_index), frag_uv).rgb * 2.0 - 1.0;
         N = normalize(T * nm.x + B * nm.y + N * nm.z);
     }
 

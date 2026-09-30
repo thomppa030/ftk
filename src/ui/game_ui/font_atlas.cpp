@@ -187,7 +187,7 @@ void FontAtlas::reload(FontAtlasData data) {
 
     auto fresh = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
                                            atlas_height_, gpu::Format::rgba8_unorm, 1, true);
-    gpu_.bindless->update_entry(atlas_index_, fresh->texture(), fresh->sampler());
+    gpu_.bindless->update_entry(atlas_index_, fresh->texture());
     // The old texture goes when the frames reading it are done. The editor's
     // view of it may still be in a frame's draw data; it goes then too, and
     // the next imgui_texture() call makes one for the new texture.

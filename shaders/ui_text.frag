@@ -3,7 +3,7 @@
 
 #include "fjell_ui_common.glsl"
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 #include "fjell_ui_text_fill.glsl"
 

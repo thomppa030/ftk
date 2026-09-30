@@ -30,7 +30,7 @@ layout(set = 0, binding = 10) readonly buffer SdfSlots {
     SdfSlot sdf_slots[];
 };
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
 };
@@ -113,7 +113,7 @@ vec3 sdf_hit_albedo(vec3 p) {
                            materials[id].base_params[2]);
         uint base_color_tex = materials[id].texture_indices[0];
         if (base_color_tex > 0u) {
-            albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], vec2(0.5),
+            albedo *= textureLod(FjellTexture(base_color_tex), vec2(0.5),
                                  WHOLE_TEXTURE_LOD).rgb;
         }
         sum += albedo;

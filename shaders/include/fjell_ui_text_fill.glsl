@@ -6,9 +6,8 @@
 // Shared MSDF text fill logic for ui_text.frag and ui_text_world.frag — one
 // copy for the same reason fjell_ui_quad_fill.glsl exists (see its own note).
 //
-// Caller must declare, before including this file:
-//   set 1 binding 0: sampler2D textures[] (bindless)
-// and must have included fjell_ui_common.glsl (UiGlyph, glyphs[]) already.
+// Caller must have included the bindless table (fjell_bindless.glsl) and
+// fjell_ui_common.glsl (UiGlyph, glyphs[]) before including this file.
 
 float fjell_ui_text_median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
@@ -20,7 +19,7 @@ float fjell_ui_text_median(float r, float g, float b) {
 // the cell never picks up the neighbouring glyph.
 float fjell_ui_text_coverage(uint atlas_index, vec2 uv, vec2 cell_lo, vec2 cell_hi,
                              float screen_px_range, float edge_px) {
-    vec3 msd = textureLod(textures[nonuniformEXT(atlas_index)],
+    vec3 msd = textureLod(FjellTexture(atlas_index),
                           clamp(uv, cell_lo, cell_hi), 0.0).rgb;
     float dist = screen_px_range * (fjell_ui_text_median(msd.r, msd.g, msd.b) - 0.5);
     return smoothstep(-0.5 * edge_px, 0.5 * edge_px, dist);
@@ -81,10 +80,10 @@ vec4 fjell_ui_text_fill(vec2 atlas_uv, vec2 screen_pos, uint glyph_index) {
     float opacity = g.params.x;
     float px_range = g.params.z;
 
-    vec2 atlas_size = vec2(textureSize(textures[nonuniformEXT(atlas_index)], 0));
+    vec2 atlas_size = vec2(textureSize(FjellTexture(atlas_index), 0));
 
     // Sample MSDF and compute signed distance via median-of-three
-    vec3 msd = texture(textures[nonuniformEXT(atlas_index)], atlas_uv).rgb;
+    vec3 msd = texture(FjellTexture(atlas_index), atlas_uv).rgb;
     float sd = fjell_ui_text_median(msd.r, msd.g, msd.b);
 
     // The distance range in screen pixels: the atlas range times screen

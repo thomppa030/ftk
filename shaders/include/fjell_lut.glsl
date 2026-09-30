@@ -1,6 +1,7 @@
 #ifndef FJELL_LUT_GLSL
 #define FJELL_LUT_GLSL
 
+#include "fjell_bindless.glsl"
 #include "fjell_color_space.glsl"
 
 // A colour grade read from a LUT strip: N slices of N by N side by side, red
@@ -14,9 +15,11 @@
 // half-texel offsets (c·(N−1)/N + 0.5/N), so 0 and 1 land on the centres of
 // the table's end texels rather than on their outer edges.
 //
+// The strip is a texture of the bindless table, as a `hint_lut` uniform is.
+//
 // tests/test_lut_asset.cpp compiles this as C++ and holds a neutral strip to
 // giving every colour back; written without swizzles for that reason.
-vec3 lut_sample(sampler2D strip, vec3 color) {
+vec3 lut_sample(FjellTexture strip, vec3 color) {
     float n = float(textureSize(strip, 0).y);
     vec3 c = clamp(linear_to_srgb(max(color, vec3(0.0))), vec3(0.0), vec3(1.0));
     float slice = c.b * (n - 1.0);

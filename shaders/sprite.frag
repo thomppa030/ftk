@@ -1,7 +1,7 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in flat uint frag_tex_index;
@@ -13,7 +13,7 @@ layout(location = 1) out vec2 out_metallic_roughness;
 layout(location = 2) out vec2 out_normal;
 
 void main() {
-    vec4 tex_color = texture(textures[nonuniformEXT(frag_tex_index)], frag_uv);
+    vec4 tex_color = texture(FjellTexture(frag_tex_index), frag_uv);
     if (tex_color.a < 0.01) discard;
     out_color = tex_color * frag_tint;
     out_color.a *= frag_opacity;

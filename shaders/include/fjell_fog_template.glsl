@@ -61,7 +61,7 @@ layout(set = 0, binding = 17) readonly buffer FogVolumeBuffer {
 
 // The material set: the fog shader's own textures and parameters live in the
 // same bindless tables every other material reads.
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];

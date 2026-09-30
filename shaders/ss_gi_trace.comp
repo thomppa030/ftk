@@ -45,7 +45,7 @@ layout(push_constant) uniform PushConstants {
 
 #include "fjell_gpu_types.glsl"
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
@@ -142,14 +142,14 @@ void main() {
         return;
     }
 
-    float depth = textureLod(depth_tex, uv, 0).r;
+    float depth = textureLod(depth_tex, uv, 0.0).r;
     if (depth >= 1.0) {
         imageStore(radiance_out, out_coord, vec4(0.0));
         return;
     }
 
     vec3 world_pos = world_from_depth(uv, depth);
-    vec2 normal_enc = textureLod(normal_tex, uv, 0).rg;
+    vec2 normal_enc = textureLod(normal_tex, uv, 0.0).rg;
     vec3 normal = oct_decode(normal_enc);
 
     mat3 tbn = build_tbn(normal);

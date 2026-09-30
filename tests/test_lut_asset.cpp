@@ -18,7 +18,7 @@ extern "C" int stbi_write_png(char const* filename, int w, int h, int comp, cons
 #include <iterator>
 #include <sstream>
 
-// The shader half, compiled as C++ against a sampler that filters the way the
+// The shader half, compiled as C++ against a texture that filters the way the
 // GPU does. See glsl_shim.hpp. The colour transfer is the engine's own CPU
 // one: GLM will not multiply a vector by a double literal the way GLSL does,
 // so fjell_color_space.glsl stays out and what is checked here is the table
@@ -30,17 +30,17 @@ namespace lut_shim {
 using glm::floor;
 using glm::mix;
 
-struct sampler2D {
+struct FjellTexture {
     const fjell::LutStrip* strip;
 };
 
-glm::ivec2 textureSize(const sampler2D& s, int /*lod*/) {
+glm::ivec2 textureSize(const FjellTexture& s, int /*lod*/) {
     return {static_cast<int>(s.strip->width()), static_cast<int>(s.strip->height())};
 }
 
 // Bilinear, clamped to the edge, on the texel centres: what the post pass's
 // linear clamp sampler does to a one-mip R16G16B16A16_UNORM image.
-vec4 textureLod(const sampler2D& s, vec2 uv, float /*lod*/) {
+vec4 textureLod(const FjellTexture& s, vec2 uv, float /*lod*/) {
     const auto& strip = *s.strip;
     const float x = uv.x * static_cast<float>(strip.width()) - 0.5f;
     const float y = uv.y * static_cast<float>(strip.height()) - 0.5f;
@@ -58,6 +58,7 @@ vec4 textureLod(const sampler2D& s, vec2 uv, float /*lod*/) {
                     glm::mix(texel(x0, y0 + 1), texel(x0 + 1, y0 + 1), fx), fy);
 }
 
+#define FJELL_BINDLESS_GLSL
 #define FJELL_COLOR_SPACE_GLSL
 vec3 linear_to_srgb(vec3 c) { return fjell::color_space::linear_to_srgb(c); }
 vec3 srgb_to_linear(vec3 c) { return fjell::color_space::srgb_to_linear(c); }
@@ -245,7 +246,7 @@ TEST_CASE("A .fjlut recipe loads its source beside it", "[lut]") {
 TEST_CASE("lut_sample through a neutral strip gives the colour back", "[lut][glsl]") {
     for (uint32_t size : {16U, 32U}) {
         const LutStrip strip = neutral_lut(size);
-        const lut_shim::sampler2D sampler{&strip};
+        const lut_shim::FjellTexture strip_texture{&strip};
         INFO("strip " << size);
         // Across the whole cube, between grid points as well as on them. The
         // check is in sRGB, where one 8-bit output step is 1/255.
@@ -255,7 +256,7 @@ TEST_CASE("lut_sample through a neutral strip gives the colour back", "[lut][gls
                     const glm::vec3 srgb{static_cast<float>(r) / 20.0f, static_cast<float>(g) / 20.0f,
                                          static_cast<float>(b) / 20.0f};
                     const glm::vec3 linear = color_space::srgb_to_linear(srgb);
-                    const glm::vec3 out = color_space::linear_to_srgb(lut_shim::lut_sample(sampler, linear));
+                    const glm::vec3 out = color_space::linear_to_srgb(lut_shim::lut_sample(strip_texture, linear));
                     INFO("sRGB " << srgb.r << " " << srgb.g << " " << srgb.b);
                     REQUIRE(glm::all(glm::lessThanEqual(glm::abs(out - srgb), glm::vec3(0.5f / 255.0f))));
                 }
@@ -268,11 +269,11 @@ TEST_CASE("lut_sample reads a grade between its grid points", "[lut][glsl]") {
     // A grade linear in each channel is exact under the lookup's bilinear
     // taps and the slice mix, so the sample matches the function itself.
     const LutStrip strip = strip_of(16, warm);
-    const lut_shim::sampler2D sampler{&strip};
+    const lut_shim::FjellTexture strip_texture{&strip};
     for (const glm::vec3 srgb : {glm::vec3(0.1f, 0.5f, 0.9f), glm::vec3(0.73f, 0.22f, 0.41f),
                                  glm::vec3(1.0f, 0.0f, 0.5f)}) {
         const glm::vec3 out = color_space::linear_to_srgb(
-            lut_shim::lut_sample(sampler, color_space::srgb_to_linear(srgb)));
+            lut_shim::lut_sample(strip_texture, color_space::srgb_to_linear(srgb)));
         const glm::vec3 want = warm(srgb);
         REQUIRE(glm::all(glm::lessThanEqual(glm::abs(out - want), glm::vec3(1.0f / 255.0f))));
     }

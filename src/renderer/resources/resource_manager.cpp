@@ -307,7 +307,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     // texture lives until the frames still reading it are done, as a font
     // atlas's does on its reload.
     const uint32_t index = bindless_index(lut.handle);
-    bindless_.update_entry(index, fresh->texture(), fresh->sampler());
+    bindless_.update_entry(index, fresh->texture());
     textures_.slots[lut.handle.index()] = std::move(fresh);
     FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }

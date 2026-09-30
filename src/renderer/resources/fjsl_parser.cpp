@@ -1697,9 +1697,9 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     }();
     // Scalars read the material row's slice of the params SSBO, except for
     // post, whose values differ per viewport and come from the post pass's
-    // own buffer (see fjell_post_template.glsl). Samplers go through the
-    // bindless array by the row's texture indices, at file scope, so they
-    // work in light() and helpers as well as in main().
+    // own buffer (see fjell_post_template.glsl). Samplers are handles of the
+    // bindless table made from the row's texture indices, at file scope, so
+    // they work in light() and helpers as well as in main().
     const bool is_post = meta.shader_type == ShaderType::Post;
     const std::string param_array = is_post ? "post_params" : "custom_params";
     const std::string param_base = is_post ? "push.param_base" : mat_expr + ".param_offset";
@@ -1708,7 +1708,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
             return param_array + "[" + param_base + " + " + std::to_string(index) + "]";
         },
         .texture = [&](uint32_t slot) {
-            return "textures[nonuniformEXT(" + mat_expr + ".texture_indices[" + std::to_string(slot) + "])]";
+            return "FjellTexture(" + mat_expr + ".texture_indices[" + std::to_string(slot) + "])";
         },
     };
     for (const auto& u : meta.uniforms) {
@@ -1781,7 +1781,12 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
                                    meta.custom_texture_count);
     }
     globals += meta.user_globals;
-    replace("/*FJSL_USER_GLOBALS*/", globals);
+    // A sampler uniform is a texture of the bindless table, which travels as
+    // a handle (fjell_bindless.glsl): GLSL never passes a texture and sampler
+    // combined. A function the author writes taking a sampler2D takes the
+    // handle, by a name mapped around the author's code alone, so what they
+    // wrote stays as written.
+    replace("/*FJSL_USER_GLOBALS*/", "#define sampler2D FjellTexture\n" + globals + "#undef sampler2D\n");
     replace_body("/*FJSL_USER_CODE*/", meta.fragment_body);
     replace_body("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
 

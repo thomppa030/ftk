@@ -2242,12 +2242,12 @@ TEST_CASE("A composed function's textures take the consumer's slots", "[fjsl][co
     // The consumer's own sampler keeps slot 4, the first after the PBR set,
     // and each function's follows. Landing two on one slot is the failure this
     // guards: valid GLSL, one picture where two were meant.
-    REQUIRE(glsl.find("own textures[nonuniformEXT(materials[push.sky_material_id]"
-                      ".texture_indices[4])]") != std::string::npos);
-    REQUIRE(glsl.find("aurora_ramp textures[nonuniformEXT(materials[push.sky_material_id]"
-                      ".texture_indices[5])]") != std::string::npos);
-    REQUIRE(glsl.find("grain_noise textures[nonuniformEXT(materials[push.sky_material_id]"
-                      ".texture_indices[6])]") != std::string::npos);
+    REQUIRE(glsl.find("own FjellTexture(materials[push.sky_material_id]"
+                      ".texture_indices[4])") != std::string::npos);
+    REQUIRE(glsl.find("aurora_ramp FjellTexture(materials[push.sky_material_id]"
+                      ".texture_indices[5])") != std::string::npos);
+    REQUIRE(glsl.find("grain_noise FjellTexture(materials[push.sky_material_id]"
+                      ".texture_indices[6])") != std::string::npos);
     // The scalar still lands in the parameter block after the consumer's own.
     REQUIRE(glsl.find("param_offset + 3]") != std::string::npos);
 
@@ -2258,6 +2258,37 @@ TEST_CASE("A composed function's textures take the consumer's slots", "[fjsl][co
     auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
                                 + quoted(shader_dir / "include") + " "
                                 + quoted(frag) + " -o " + quoted(out_dir / "c.spv"));
+    INFO(output);
+    REQUIRE(status == 0);
+}
+
+TEST_CASE("An author's function takes a material texture as a sampler2D", "[fjsl]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    // GLSL passes no texture and sampler combined to a function; a material
+    // texture travels as a handle, and the author's own sampler2D parameter
+    // has to take it.
+    const std::string root =
+        "shader_type sky;\n"
+        "uniform sampler2D ramp : hint_black;\n"
+        "vec3 ramp_at(sampler2D t, float x) { return textureLod(t, vec2(x, 0.5), 0.0).rgb; }\n"
+        "void sky() { SKY = ramp_at(ramp, VIEW_DIR.y) * float(textureSize(ramp, 0).x); }\n";
+    auto meta = parse_fjsl(root);
+    meta.source_text = root;
+    REQUIRE_FALSE(meta.has_errors());
+    const std::string glsl = generate_fragment_shader(meta, tmpl);
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-handle-test";
+    std::filesystem::create_directories(out_dir);
+    auto frag = out_dir / "handle.frag";
+    std::ofstream(frag) << glsl;
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                + quoted(shader_dir / "include") + " "
+                                + quoted(frag) + " -o " + quoted(out_dir / "h.spv"));
     INFO(output);
     REQUIRE(status == 0);
 }
@@ -2319,7 +2350,7 @@ TEST_CASE("A composition emits on its own what the generator embeds", "[fjsl][co
     const FjslUniformAccess sky_access{
         .param = [&](uint32_t i) { return "custom_params[" + mat + ".param_offset + " + std::to_string(i) + "]"; },
         .texture = [&](uint32_t s) {
-            return "textures[nonuniformEXT(" + mat + ".texture_indices[" + std::to_string(s) + "])]";
+            return "FjellTexture(" + mat + ".texture_indices[" + std::to_string(s) + "])";
         },
     };
     const std::string emitted =

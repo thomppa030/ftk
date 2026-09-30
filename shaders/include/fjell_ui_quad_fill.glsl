@@ -5,9 +5,8 @@
 // screen-space and worldspace quad shaders can't drift the way the two
 // Delegate headers once did — see fjell_ui_common.glsl's own note on set 2.
 //
-// Caller must declare, before including this file:
-//   set 1 binding 0: sampler2D textures[] (bindless)
-// and must have included fjell_ui_common.glsl (UiQuad, quads[]) already.
+// Caller must have included the bindless table (fjell_bindless.glsl) and
+// fjell_ui_common.glsl (UiQuad, quads[]) before including this file.
 //
 // A quad with a material is not painted here: UiRenderer draws it through
 // the pipeline generated from its `shader_type ui;` .fjsl, which shares the
@@ -49,7 +48,7 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
 
     if (flags > 2.5) {
         // Raw texture mode (flags == 3): sample bindless texture, multiply with fill color
-        vec4 tex_sample = texture(textures[nonuniformEXT(q.texture_id)], frag_uv);
+        vec4 tex_sample = texture(FjellTexture(q.texture_id), frag_uv);
         fill_color = srgb_to_linear(q.color) * tex_sample;
     } else if (flags > 0.5) {
         // Gradient mode: interpolate between color (from) and gradient_to (to)

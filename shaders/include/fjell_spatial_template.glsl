@@ -12,7 +12,7 @@ layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 layout(set = 0, binding = 8) uniform sampler2D screen_color_texture;
 layout(set = 0, binding = 9) uniform sampler3D scene_sdf;
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
@@ -147,10 +147,10 @@ void main() {
     float SKY_EXPOSURE = 1.0;
 
     // PBR texture samplers as built-in inputs
-    #define BASE_COLOR_TEX textures[nonuniformEXT(mat.texture_indices[0])]
-    #define NORMAL_TEX textures[nonuniformEXT(mat.texture_indices[1])]
-    #define METALLIC_ROUGHNESS_TEX textures[nonuniformEXT(mat.texture_indices[2])]
-    #define EMISSIVE_TEX textures[nonuniformEXT(mat.texture_indices[3])]
+    #define BASE_COLOR_TEX FjellTexture(mat.texture_indices[0])
+    #define NORMAL_TEX FjellTexture(mat.texture_indices[1])
+    #define METALLIC_ROUGHNESS_TEX FjellTexture(mat.texture_indices[2])
+    #define EMISSIVE_TEX FjellTexture(mat.texture_indices[3])
 
     // PBR factor inputs
     vec4 BASE_COLOR_FACTOR = vec4(mat.base_params[0], mat.base_params[1], mat.base_params[2], mat.base_params[3]);

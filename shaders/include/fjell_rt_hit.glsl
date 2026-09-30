@@ -6,10 +6,10 @@
 // hit from these cheap terms rather than running the material's fragment(),
 // so they read them in one place.
 //
-// A caller enables GL_EXT_ray_query and GL_EXT_nonuniform_qualifier, declares
-// the bindless material table (`textures[]`, `materials[]`), and names the
-// set-0 bindings its layout holds the traced geometry at, before including
-// this file:
+// A caller enables GL_EXT_ray_query, includes the bindless table
+// (fjell_bindless.glsl) and declares its `materials[]`, and names the set-0
+// bindings its layout holds the traced geometry at, before including this
+// file:
 //
 //     #define FJELL_RT_VERTEX_BINDING   6
 //     #define FJELL_RT_INDEX_BINDING    7
@@ -162,7 +162,7 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
                        surface.material.base_params[2]);
     uint base_color_tex = surface.material.texture_indices[0];
     if (base_color_tex > 0) {
-        albedo *= vec3(textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0));
+        albedo *= vec3(textureLod(FjellTexture(base_color_tex), uv, 2.0));
     }
     return albedo;
 }
@@ -171,7 +171,7 @@ vec3 rt_surface_albedo(RtSurface surface, vec2 uv) {
 // one mip down: a ray does not know its footprint.
 vec3 rt_surface_emission(RtSurface surface, vec2 uv) {
     vec3 emissive_sample = vec3(textureLod(
-        textures[nonuniformEXT(surface.material.texture_indices[3])], uv, 1.0));
+        FjellTexture(surface.material.texture_indices[3]), uv, 1.0));
     return material_emission(surface.material, emissive_sample);
 }
 

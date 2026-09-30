@@ -5,7 +5,7 @@
 // bound bindless texture so transparent edges of a sprite plane don't
 // punch rectangular holes in the depth buffer.
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in flat uint frag_tex_index;
@@ -19,6 +19,6 @@ layout(location = 6) in flat uint frag_normal_index;
 layout(location = 7) in flat vec4 frag_pbr;
 
 void main() {
-    float a = texture(textures[nonuniformEXT(frag_tex_index)], frag_uv).a;
+    float a = texture(FjellTexture(frag_tex_index), frag_uv).a;
     if (a < 0.5) discard;
 }

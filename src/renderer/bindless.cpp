@@ -10,6 +10,7 @@
 #include <cstring>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace fjell {
 
@@ -44,10 +45,12 @@ Result<> BindlessTextures::create(gpu::Device& gpu) {
     auto layout = gpu.create(gpu::SharedLayoutDesc{
         .name = "bindless",
         .usual_set = 1,
-        .bindings = {table_binding("textures", 0, gpu::BindingKind::sampled_texture, MAX_TEXTURES,
+        .bindings = {table_binding("textures", 0, gpu::BindingKind::texture, MAX_TEXTURES,
                                    TEXTURE_STAGES),
                      table_binding("materials", 1, gpu::BindingKind::storage_buffer, 1, ROW_STAGES),
-                     table_binding("params", 2, gpu::BindingKind::storage_buffer, 1, ROW_STAGES)},
+                     table_binding("params", 2, gpu::BindingKind::storage_buffer, 1, ROW_STAGES),
+                     table_binding("samplers", 3, gpu::BindingKind::sampler, MAX_SAMPLERS,
+                                   TEXTURE_STAGES)},
     });
     if (!layout) return make_error(layout.error());
     layout_ = *layout;
@@ -95,25 +98,33 @@ void BindlessTextures::destroy() {
     for (Slot& slot : slots_) slot = Slot{};
     params_.clear();
     materials_.clear();
-    entries_.clear();
-    entry_pending_.clear();
-    texture_to_index_.clear();
+    textures_.clear();
+    texture_to_slot_.clear();
+    pending_textures_ = {};
+    samplers_.clear();
+    pending_samplers_ = {};
 }
 
-void BindlessTextures::mark_texture(uint32_t index) {
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        const auto bit = static_cast<uint8_t>(1u << i);
-        if ((entry_pending_[index] & bit) != 0) continue;
-        entry_pending_[index] |= bit;
-        slots_[i].pending_textures.push_back(index);
+void BindlessTextures::Pending::mark(uint32_t i) {
+    if (i >= bits.size()) bits.resize(i + 1, 0);
+    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
+        const auto bit = static_cast<uint8_t>(1u << slot);
+        if ((bits[i] & bit) != 0) continue;
+        bits[i] |= bit;
+        lists[slot].push_back(i);
     }
 }
 
-std::optional<uint32_t> BindlessTextures::next_index() {
-    if (entries_.size() < MAX_TEXTURES) {
-        entries_.emplace_back();
-        entry_pending_.push_back(0);
-        return static_cast<uint32_t>(entries_.size() - 1);
+std::vector<uint32_t> BindlessTextures::Pending::take(uint32_t slot) {
+    const auto bit = static_cast<uint8_t>(1u << slot);
+    for (uint32_t i : lists[slot]) bits[i] &= static_cast<uint8_t>(~bit);
+    return std::exchange(lists[slot], {});
+}
+
+std::optional<uint32_t> BindlessTextures::next_slot() {
+    if (textures_.size() < MAX_TEXTURES) {
+        textures_.emplace_back();
+        return static_cast<uint32_t>(textures_.size() - 1);
     }
     if (!texture_overflow_reported_) {
         texture_overflow_reported_ = true;
@@ -123,29 +134,53 @@ std::optional<uint32_t> BindlessTextures::next_index() {
     return std::nullopt;
 }
 
-uint32_t BindlessTextures::add(const Texture& texture) {
-    if (auto it = texture_to_index_.find(texture.texture()); it != texture_to_index_.end()) {
-        return it->second;
+std::optional<uint32_t> BindlessTextures::sampler_place(gpu::Sampler sampler) {
+    if (auto it = std::ranges::find(samplers_, sampler); it != samplers_.end()) {
+        return static_cast<uint32_t>(it - samplers_.begin());
     }
-    const auto index = next_index();
-    if (!index) return 0;
-    entries_[*index] = {texture.texture(), texture.sampler()};
-    texture_to_index_[texture.texture()] = *index;
-    mark_texture(*index);
-    return *index;
+    if (samplers_.size() < MAX_SAMPLERS) {
+        samplers_.push_back(sampler);
+        const auto place = static_cast<uint32_t>(samplers_.size() - 1);
+        pending_samplers_.mark(place);
+        return place;
+    }
+    if (!sampler_overflow_reported_) {
+        sampler_overflow_reported_ = true;
+        FJELL_GFX_ERROR("Bindless samplers full: {} in use. Textures read with another draw "
+                        "with the first texture.", MAX_SAMPLERS);
+    }
+    return std::nullopt;
 }
 
-uint32_t BindlessTextures::reserve_index() {
-    return next_index().value_or(0);
+uint32_t BindlessTextures::add(const Texture& texture) {
+    const auto sampler = sampler_place(texture.sampler());
+    if (!sampler) return 0;
+    if (auto it = texture_to_slot_.find(texture.texture()); it != texture_to_slot_.end()) {
+        return index_of(it->second, *sampler);
+    }
+    const auto slot = next_slot();
+    if (!slot) return 0;
+    textures_[*slot] = texture.texture();
+    texture_to_slot_[texture.texture()] = *slot;
+    pending_textures_.mark(*slot);
+    return index_of(*slot, *sampler);
 }
 
-void BindlessTextures::update_entry(uint32_t index, gpu::Texture texture, gpu::Sampler sampler) {
-    if (index >= entries_.size()) return;
-    Entry& entry = entries_[index];
-    if (entry.texture.valid()) texture_to_index_.erase(entry.texture);
-    entry = {texture, sampler};
-    if (texture.valid()) texture_to_index_[texture] = index;
-    mark_texture(index);
+uint32_t BindlessTextures::reserve_index(gpu::Sampler sampler) {
+    const auto place = sampler_place(sampler);
+    const auto slot = next_slot();
+    if (!place || !slot) return 0;
+    return index_of(*slot, *place);
+}
+
+void BindlessTextures::update_entry(uint32_t index, gpu::Texture texture) {
+    const uint32_t slot = index & ((1u << SLOT_BITS) - 1u);
+    if (slot >= textures_.size()) return;
+    gpu::Texture& held = textures_[slot];
+    if (held.valid()) texture_to_slot_.erase(held);
+    held = texture;
+    if (texture.valid()) texture_to_slot_[texture] = slot;
+    pending_textures_.mark(slot);
 }
 
 uint32_t BindlessTextures::add_material(const GpuMaterial& mat) {
@@ -184,17 +219,12 @@ void BindlessTextures::flush(uint32_t index) {
     Slot& slot = slots_[index];
     std::vector<gpu::BindEntry> writes;
 
-    if (!slot.pending_textures.empty()) {
-        const auto bit = static_cast<uint8_t>(1u << index);
-        writes.reserve(slot.pending_textures.size() + 1);
-        for (uint32_t i : slot.pending_textures) {
-            entry_pending_[i] &= static_cast<uint8_t>(~bit);
-            // An entry given no texture is emptied, and shaders must not
-            // read it.
-            const Entry& entry = entries_[i];
-            writes.push_back({"textures", gpu::sampled(entry.texture, entry.sampler), i});
-        }
-        slot.pending_textures.clear();
+    // A slot given no texture is emptied, and shaders must not read it.
+    for (uint32_t i : pending_textures_.take(index)) {
+        writes.push_back({"textures", gpu::texture(textures_[i]), i});
+    }
+    for (uint32_t i : pending_samplers_.take(index)) {
+        writes.push_back({"samplers", gpu::sampler(samplers_[i]), i});
     }
 
     if (slot.materials_pending && !materials_.empty()) {

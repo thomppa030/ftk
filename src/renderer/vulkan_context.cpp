@@ -1766,7 +1766,8 @@ void VulkanContext::sync_custom_depth_pipelines() {
 // ── Scene Viewports ──────────────────────────────────────────────────────
 
 uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config) {
-    uint32_t bindless_idx = gpu_.bindless_textures().reserve_index();
+    uint32_t bindless_idx =
+        gpu_.bindless_textures().reserve_index(gpu_device().sampler({.address = gpu::Address::clamp}));
 
     PostProcessResources::PassRefs refs{
         hiz_pass(), gtao_pass(), volumetric_fog_pass(),
@@ -1789,7 +1790,7 @@ void VulkanContext::destroy_scene_viewport(const std::string& name) {
     if (it == scene_viewports_.end()) return;
     wait_idle();
     gpu_.global_bindings().free_set(it->second->global_set());
-    gpu_.bindless_textures().update_entry(it->second->bindless_index(), {}, {});
+    gpu_.bindless_textures().update_entry(it->second->bindless_index(), {});
     scene_viewports_.erase(it);
 }
 

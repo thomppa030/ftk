@@ -92,7 +92,6 @@ private:
     std::unique_ptr<OffscreenPass> offscreen_;
     std::unique_ptr<PostProcessResources> pp_;
 
-    gpu::Sampler output_sampler_{};
     gpu::Texture last_synced_{};
     VkDescriptorSet global_set_{VK_NULL_HANDLE};
 };

@@ -133,6 +133,24 @@ When an object uses a `.fjmat` material, the Properties panel shows a Material s
 ## Texture Slots
 
 - `texture_indices[0-3]` — fixed PBR (base_color, normal, metallic_roughness, emissive)
-- `texture_indices[4-7]` — custom shader textures (up to 4 `sampler2D` uniforms per material)
+- `texture_indices[4-15]` — custom shader textures, twelve shared by a shader and every `shader_function` composed into it
 
-For more than 4 custom textures, pack additional bindless indices into custom params as `uint` via `floatBitsToUint`/`uintBitsToFloat`.
+Each is an index into the bindless table, naming a texture and the sampler it
+is read with. A `sampler2D` uniform, and `BASE_COLOR_TEX` and the other
+built-in textures, is that texture as a handle: `texture`, `textureLod`,
+`textureGrad`, `textureGather`, `texelFetch`, `textureSize` and
+`textureQueryLevels` read it as they would any sampler, and a function of your
+own takes it as a `sampler2D` parameter:
+
+```glsl
+uniform sampler2D ramp : hint_black;
+
+vec3 ramp_at(sampler2D t, float x) {
+    return texture(t, vec2(x, 0.5)).rgb;
+}
+```
+
+Give a float where a built-in takes one: `textureLod(SCREEN_TEXTURE, uv, 0.0)`.
+The handle's reads are declared beside GLSL's own, and in a shader with both
+a whole number there (`0`) fails to compile with "no matching overloaded
+function found", whatever the sampler.

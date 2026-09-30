@@ -37,7 +37,8 @@ layout(set = 1, binding = 1) uniform sampler2D depth_tex;
 
 // ── Bindless textures (set 2) ───────────────────────────────────────────
 
-layout(set = 2, binding = 0) uniform sampler2D textures[];
+#define FJELL_BINDLESS_SET 2
+#include "fjell_bindless.glsl"
 
 // ── Push constants ──────────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ void main() {
         vec4 bc_factor = vec4(mat.base_params[0], mat.base_params[1],
                               mat.base_params[2], mat.base_params[3]);
         vec4 bc = (bc_idx > 0u)
-            ? texture(textures[nonuniformEXT(bc_idx)], frag_uv) * bc_factor
+            ? texture(FjellTexture(bc_idx), frag_uv) * bc_factor
             : bc_factor;
         albedo = bc.rgb * frag_color.rgb;
         alpha = bc.a * frag_color.a;
@@ -111,7 +112,7 @@ void main() {
         if (has_nm > 0.5) {
             uint nm_idx = mat.texture_indices[1];
             if (nm_idx > 0u) {
-                vec3 nm = texture(textures[nonuniformEXT(nm_idx)], frag_uv).rgb * 2.0 - 1.0;
+                vec3 nm = texture(FjellTexture(nm_idx), frag_uv).rgb * 2.0 - 1.0;
                 // Simple tangent-space → world-space for mesh particles
                 // (billboard particles don't have proper tangents, but mesh particles do)
                 // For now, just perturb the normal slightly
@@ -120,7 +121,7 @@ void main() {
         }
     } else if (frag_texture_index > 0u) {
         // Particle texture as albedo
-        vec4 tex = texture(textures[nonuniformEXT(frag_texture_index)], frag_uv);
+        vec4 tex = texture(FjellTexture(frag_texture_index), frag_uv);
         albedo = frag_color.rgb * tex.rgb;
         alpha = frag_color.a * tex.a;
     } else if (frag_is_mesh != 0u) {
@@ -157,7 +158,7 @@ void main() {
         float has_nm = mat.base_params[6];
         uint nm_idx = mat.texture_indices[1];
         if (has_nm > 0.5 && nm_idx > 0u) {
-            vec3 nm = texture(textures[nonuniformEXT(nm_idx)], frag_uv).rgb * 2.0 - 1.0;
+            vec3 nm = texture(FjellTexture(nm_idx), frag_uv).rgb * 2.0 - 1.0;
             vec3 T = normalize(cross(N, vec3(0, 1, 0)));
             if (dot(T, T) < 0.01) T = normalize(cross(N, vec3(1, 0, 0)));
             vec3 B = cross(N, T);
@@ -222,7 +223,7 @@ void main() {
     // Emission from material (base_params[9..11] = pre-computed emission color)
     if (material_id > 0u) {
         GpuMaterial em_mat = materials[material_id];
-        vec3 em_sample = texture(textures[nonuniformEXT(em_mat.texture_indices[3])], frag_uv).rgb;
+        vec3 em_sample = texture(FjellTexture(em_mat.texture_indices[3]), frag_uv).rgb;
         color += material_emission(em_mat, em_sample);
     }
 

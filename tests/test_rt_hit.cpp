@@ -34,26 +34,23 @@ ShaderArray<uint> index_data;
 ShaderArray<RtInstanceData> rt_instances;
 ShaderArray<GpuMaterial> materials;
 
-/// A bindless texture slot. Every read of any slot returns `texel` and is
-/// recorded, so a test sees which slot was read, where and at which mip.
-struct Sampler {
-    uint slot;
+/// A texture of the bindless table, by the index a material row holds. Every
+/// read of any texture returns `texel` and is recorded, so a test sees which
+/// index was read, where and at which mip.
+struct FjellTexture {
+    uint index;
 };
-struct TextureTable {
-    Sampler operator[](uint slot) const { return {slot}; }
-};
-TextureTable textures;
 
 struct TextureRead {
-    uint slot;
+    uint index;
     vec2 uv;
     float lod;
 };
 std::vector<TextureRead> reads;
 vec4 texel{0.5f, 0.25f, 0.125f, 1.0f};
 
-vec4 textureLod(Sampler s, vec2 uv, float lod) {
-    reads.push_back({s.slot, uv, lod});
+vec4 textureLod(FjellTexture t, vec2 uv, float lod) {
+    reads.push_back({t.index, uv, lod});
     return texel;
 }
 
@@ -228,7 +225,7 @@ TEST_CASE("The hit's albedo is the colour factor, times the base colour texture 
     SECTION("with a texture") {
         const vec3 albedo = rt_surface_albedo(rt_resolve_hit(hit_on(1, 0, {0.0f, 0.0f})), uv);
         REQUIRE(reads.size() == 1);
-        CHECK(reads[0].slot == 7);
+        CHECK(reads[0].index == 7);
         CHECK(reads[0].uv == uv);
         CHECK(reads[0].lod == Approx(2.0f));
         CHECK(albedo.x == Approx(0.8f * 0.5f));
@@ -250,7 +247,7 @@ TEST_CASE("The hit's emission reads the emissive slot one mip down, and multipli
     SECTION("with an emissive texture") {
         const vec3 emission = rt_surface_emission(rt_resolve_hit(hit_on(1, 0, {0.0f, 0.0f})), uv);
         REQUIRE(reads.size() == 1);
-        CHECK(reads[0].slot == 9);
+        CHECK(reads[0].index == 9);
         CHECK(reads[0].lod == Approx(1.0f));
         CHECK(emission.x == Approx(1.0f * 0.5f));
         CHECK(emission.y == Approx(2.0f * 0.25f));

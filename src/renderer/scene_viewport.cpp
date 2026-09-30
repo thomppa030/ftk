@@ -1,9 +1,6 @@
 #include "renderer/scene_viewport.hpp"
 #include "renderer/bindless.hpp"
 #include "core/log.hpp"
-// Through the include path: a quoted "gpu/device.hpp" finds the older
-// renderer/gpu/device.hpp beside this file first.
-#include <gpu/device.hpp>
 
 namespace fjell {
 
@@ -19,8 +16,6 @@ SceneViewport::SceneViewport(Device& device, gpu::Device& gpu, VkDevice vk_devic
 
     pp_ = std::make_unique<PostProcessResources>(
         gpu, vk_device, allocator, config_.width, config_.height, config_.pp_config, pass_refs);
-
-    output_sampler_ = gpu.sampler({.address = gpu::Address::clamp});
 
     FJELL_GFX_DEBUG("SceneViewport '{}' created ({}x{}, bindless index {})",
                     config_.name, config_.width, config_.height, bindless_index_);
@@ -52,7 +47,7 @@ void SceneViewport::sync_bindless(BindlessTextures& bindless) {
     const gpu::Texture current = output_texture();
     if (!current.valid() || current == last_synced_) return;
 
-    bindless.update_entry(bindless_index_, current, output_sampler_);
+    bindless.update_entry(bindless_index_, current);
     last_synced_ = current;
 }
 

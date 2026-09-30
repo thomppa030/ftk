@@ -24,7 +24,7 @@ layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 layout(set = 0, binding = 8) uniform sampler2D screen_color_texture;
 layout(set = 0, binding = 9) uniform sampler3D scene_sdf;
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
@@ -131,7 +131,7 @@ LayerSample sample_layer(uint layer, float weight, vec3 world_pos, vec3 N,
 
     // The layer indices are push constants, uniform across the draw, so the
     // descriptor index needs no nonuniformEXT.
-    #define LAYER_TEX(slot) textures[mat.texture_indices[slot]]
+    #define LAYER_TEX(slot) FjellTexture(mat.texture_indices[slot])
 
     vec3 albedo = texture(LAYER_TEX(0), uv_y).rgb;
     vec4 mr = texture(LAYER_TEX(2), uv_y);

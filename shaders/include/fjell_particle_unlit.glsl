@@ -12,7 +12,8 @@ FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 #ifndef FJELL_PARTICLE_OPAQUE
 layout(set = 1, binding = 1) uniform sampler2D depth_tex;
 #endif
-layout(set = 2, binding = 0) uniform sampler2D textures[];
+#define FJELL_BINDLESS_SET 2
+#include "fjell_bindless.glsl"
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in vec4 frag_color;
@@ -37,7 +38,7 @@ void main() {
 
     if (frag_texture_index > 0u) {
         // Textured particle
-        vec4 tex = texture(textures[nonuniformEXT(frag_texture_index)], frag_uv);
+        vec4 tex = texture(FjellTexture(frag_texture_index), frag_uv);
         color = frag_color.rgb * tex.rgb;
         alpha = frag_color.a * tex.a;
     } else {

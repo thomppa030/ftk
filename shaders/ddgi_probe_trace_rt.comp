@@ -50,7 +50,7 @@ layout(push_constant) uniform PushConstants {
 
 #include "fjell_gpu_types.glsl"
 
-layout(set = 1, binding = 0) uniform sampler2D textures[];
+#include "fjell_bindless.glsl"
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
