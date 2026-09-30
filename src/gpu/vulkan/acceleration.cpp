@@ -377,6 +377,11 @@ void CommandList::barrier(std::span<const AccelerationStructure> structures, Acc
         self.report_once("Barrier: an acceleration structure barrier orders one access behind another");
         return;
     }
+    if (auto fits = barrier_accesses(before, after, applies_to_acceleration, "an acceleration structure");
+        !fits) {
+        self.report_once("Barrier: " + fits.error());
+        return;
+    }
     for (AccelerationStructure structure : structures) {
         if (!self.accelerations.contains(structure)) {
             self.report_once("Barrier: an acceleration structure no longer exists");

@@ -4,7 +4,9 @@
 #include "gpu/usage.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace fjell::gpu {
 
@@ -180,6 +182,57 @@ using AccessSet = Flags<Access>;
         default:
             return false;
     }
+}
+
+/// The first of `accesses` a resource cannot be used as, by `applies`
+/// (`applies_to_texture`, `applies_to_buffer` or `applies_to_acceleration`):
+/// one it has no scope for, which a barrier on it would order nothing by.
+/// Nothing when every one applies.
+[[nodiscard]] constexpr std::optional<Access> first_misapplied(AccessSet accesses,
+                                                               bool (*applies)(Access) noexcept) noexcept {
+    std::optional<Access> found;
+    accesses.for_each([&](Access a) {
+        if (!found && !applies(a)) found = a;
+    });
+    return found;
+}
+
+/// The access's name as `Access` spells it, for reports.
+[[nodiscard]] constexpr std::string_view access_name(Access a) noexcept {
+    switch (a) {
+        case Access::color_attachment: return "color_attachment";
+        case Access::depth_attachment: return "depth_attachment";
+        case Access::depth_resolve: return "depth_resolve";
+        case Access::depth_attachment_read: return "depth_attachment_read";
+        case Access::depth_read_sampled: return "depth_read_sampled";
+        case Access::input_attachment: return "input_attachment";
+        case Access::sampled_fragment: return "sampled_fragment";
+        case Access::sampled_vertex: return "sampled_vertex";
+        case Access::sampled_mesh: return "sampled_mesh";
+        case Access::sampled_compute: return "sampled_compute";
+        case Access::storage_read_compute: return "storage_read_compute";
+        case Access::storage_write_compute: return "storage_write_compute";
+        case Access::storage_read_write_compute: return "storage_read_write_compute";
+        case Access::uniform_read: return "uniform_read";
+        case Access::storage_buffer_read_compute: return "storage_buffer_read_compute";
+        case Access::storage_buffer_read_vertex: return "storage_buffer_read_vertex";
+        case Access::storage_buffer_read_fragment: return "storage_buffer_read_fragment";
+        case Access::storage_buffer_read_mesh: return "storage_buffer_read_mesh";
+        case Access::indirect_read: return "indirect_read";
+        case Access::index_read: return "index_read";
+        case Access::vertex_read: return "vertex_read";
+        case Access::storage_buffer_write_compute: return "storage_buffer_write_compute";
+        case Access::storage_buffer_read_write_compute: return "storage_buffer_read_write_compute";
+        case Access::copy_src: return "copy_src";
+        case Access::copy_dst: return "copy_dst";
+        case Access::clear: return "clear";
+        case Access::present: return "present";
+        case Access::host_read: return "host_read";
+        case Access::acceleration_build: return "acceleration_build";
+        case Access::acceleration_build_input: return "acceleration_build_input";
+        case Access::acceleration_trace_compute: return "acceleration_trace_compute";
+    }
+    return {};
 }
 
 /// What a texture must be made able to do to be used this way: nothing for
