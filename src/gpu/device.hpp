@@ -218,6 +218,11 @@ public:
     /// The newest frame the GPU has finished.
     [[nodiscard]] uint64_t finished_frame() const;
 
+    /// Waits until the GPU has finished everything sent to it. What is
+    /// released waits for the frames that may use it on its own; this is for
+    /// teardown, and for code that has yet to rely on that.
+    void wait_idle();
+
     /// Where data from the CPU goes into buffers and textures, landing before
     /// the next frame's work.
     [[nodiscard]] Upload& upload();

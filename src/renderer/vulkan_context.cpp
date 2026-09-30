@@ -1402,7 +1402,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 }
 
 void VulkanContext::wait_idle() {
-    vkDeviceWaitIdle(gpu_.device());
+    gpu_device().wait_idle();
 }
 
 std::unique_ptr<PostProcessResources> VulkanContext::make_view_resources(uint32_t width, uint32_t height) {

@@ -55,7 +55,6 @@
 #include "renderer/scene_viewport.hpp"
 #include "renderer/viewport_source.hpp"
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <functional>

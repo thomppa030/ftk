@@ -122,7 +122,7 @@ ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
 
 ImGuiRenderer::~ImGuiRenderer() {
     // The frames in flight draw with the backend's buffers and the pool's sets.
-    vulkan::wait_idle(device_);
+    device_.wait_idle();
     ImGui_ImplVulkan_Shutdown();
     // Frees every image's set with it; the textures that would have let
     // theirs go find the state gone.

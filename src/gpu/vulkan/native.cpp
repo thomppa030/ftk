@@ -146,10 +146,6 @@ void release_all(Device& device) {
     device.impl().releases.flush();
 }
 
-void wait_idle(Device& device) {
-    vkDeviceWaitIdle(device.impl().device);
-}
-
 void collect_zones([[maybe_unused]] Device& device, [[maybe_unused]] VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
     if (device.impl().profiler != nullptr) TracyVkCollect(device.impl().profiler, cb);

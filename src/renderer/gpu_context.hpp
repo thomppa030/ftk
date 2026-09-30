@@ -47,7 +47,6 @@ public:
     [[nodiscard]] const GpuCore& core() const { return core_; }
 
     [[nodiscard]] Window& window() { return core_.window(); }
-    [[nodiscard]] VkDevice device() const { return core_.vk_device(); }
     [[nodiscard]] const std::string& gpu_name() const { return core_.device().gpu_name(); }
     [[nodiscard]] Device& device_ref() { return core_.device(); }
 
