@@ -75,7 +75,6 @@ add_executable(fjell
     renderer/resources/model.cpp
     renderer/offscreen_pass.cpp
     renderer/scene_viewport.cpp
-    renderer/pipeline.cpp
     renderer/post_process_resources.cpp
     renderer/post_layers.cpp
     renderer/pipeline_cache.cpp

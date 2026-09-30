@@ -73,8 +73,6 @@ src/renderer/pass/ss_gi_pass.hpp
 src/renderer/pass/uv_viz_pass.hpp
 src/renderer/pass/wireframe_pass.hpp
 src/renderer/pass_builder.hpp
-src/renderer/pipeline.cpp
-src/renderer/pipeline.hpp
 src/renderer/post_process_resources.cpp
 src/renderer/post_process_resources.hpp
 src/renderer/render_pipeline.cpp

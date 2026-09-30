@@ -65,7 +65,7 @@ VulkanContext::VulkanContext(Window& window)
                                 gatherer_.draw_data_descriptor().layout_bindings());
 
     // Init pipelines now that draw_data_layout is available
-    gpu_.init_pipelines(gatherer_.draw_data_descriptor().layout());
+    gpu_.init_pipelines();
 
     // Build PassResources with draw_data_layout
     PassResources pass_resources = gpu_.pass_resources();
@@ -1738,13 +1738,12 @@ void VulkanContext::reload_shaders(const std::vector<std::string>& changed_paths
     if (cache == nullptr) return;
     if (cache->reload_changed(changed_paths) == 0) return;
     // Depth variants are built from the same entries, so they follow whatever
-    // was rebuilt. The graphics pipeline and the particle system read raw
-    // stages rather than FJSL and are untouched by a .fjsl edit.
+    // was rebuilt. The particle system reads raw stages rather than FJSL and
+    // is untouched by a .fjsl edit.
     sync_custom_depth_pipelines();
 }
 
 void VulkanContext::reload_pipeline() {
-    gpu_.pipeline()->recreate();
     gpu_.pipeline_cache()->recreate_all();
     particle_system_->recreate_pipelines();
     sync_custom_depth_pipelines();

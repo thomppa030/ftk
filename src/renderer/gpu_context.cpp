@@ -141,14 +141,8 @@ GpuContext::GpuContext(Window& window)
     FJELL_GFX_INFO("GPU context ready");
 }
 
-void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
+void GpuContext::init_pipelines() {
     VkFormat depth_format = core_.device().find_depth_format();
-    pipeline_ = std::make_unique<Pipeline>(
-        core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
-        global_bindings_.layout(), bindless_textures_.layout(),
-        draw_data_layout, msaa_samples_,
-        "shaders/mesh.vert.spv", "shaders/mesh.frag.spv",
-        vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
         core_.gpu_device(),
@@ -208,7 +202,6 @@ GpuContext::~GpuContext() {
     global_bindings_.destroy();
     bindless_textures_.destroy();
     pipeline_cache_.reset();
-    pipeline_.reset();
 
 
     secondary_pools_.destroy();

@@ -12,7 +12,6 @@
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/pipeline.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -50,9 +49,9 @@ class GpuContext {
 public:
     explicit GpuContext(Window& window);
 
-    /// Create Pipeline and PipelineCache. Must be called after any external
+    /// Create the PipelineCache. Must be called after any external
     /// descriptor set layouts (e.g. DrawDataDescriptor) are created.
-    void init_pipelines(VkDescriptorSetLayout draw_data_layout);
+    void init_pipelines();
     ~GpuContext();
 
     GpuContext(const GpuContext&) = delete;
@@ -132,7 +131,6 @@ public:
     [[nodiscard]] MeshletDescriptor& meshlet_descriptor() { return meshlet_descriptor_; }
 
     // ── Pipelines ───────────────────────────────────────────────────────
-    [[nodiscard]] Pipeline* pipeline() { return pipeline_.get(); }
     [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
     [[nodiscard]] VkPipelineCache vk_pipeline_cache() const { return vk_pipeline_cache_; }
 
@@ -204,7 +202,6 @@ private:
 
     // Pipelines
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
-    std::unique_ptr<Pipeline> pipeline_;
     std::unique_ptr<PipelineCache> pipeline_cache_;
 
     // Shared GPU buffers
