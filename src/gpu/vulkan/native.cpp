@@ -134,11 +134,6 @@ VkDescriptorSet native_group(Device& device, BindGroup group) {
     return record->set;
 }
 
-VkDescriptorSetLayout native_set_layout(const Device& device, SharedLayout layout) {
-    const auto* record = device.impl().shared_layouts.get(layout);
-    return record != nullptr ? record->layout : VK_NULL_HANDLE;
-}
-
 VkCommandBuffer native_command_buffer(CommandList& list) {
     return list.impl().cb;
 }
