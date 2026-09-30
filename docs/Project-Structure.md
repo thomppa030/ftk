@@ -23,16 +23,20 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `command_history` | Undo/redo stack |
 | `commands` | Concrete command implementations (transform, rename, add/remove, reparent, lights) |
 
-### `src/renderer/` — Vulkan rendering backend
+### `src/gpu/` — GPU interface
+
+The one way the engine reaches the GPU: the device, frames, command lists,
+pipelines, binding, uploads, readbacks, swapchains and the window. Its Vulkan
+backend is `src/gpu/vulkan/`, and nothing else names Vulkan. See
+[GPU interface](Architecture/GPU-Interface.md).
+
+### `src/renderer/` — Renderer
 
 **Core rendering:**
 
 | File | What it does |
 |---|---|
 | `vulkan_context` | Top-level rendering orchestrator — owns all passes, runs the frame |
-| `device` | Vulkan instance, physical/logical device, queues |
-| `swapchain` | Swapchain images, views, depth buffer |
-| `pipeline` | PBR graphics pipeline (traditional vertex path, used by depth/shadow passes) |
 | `pipeline_cache` | Per-shader pipeline variants — compiles `.fjsl` at runtime |
 | `offscreen_pass` | Off-screen render target for viewports |
 | `frame_graph` | Frame graph for pass ordering and resource transitions |
@@ -81,7 +85,6 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `uniform_types` | Shared uniform buffer struct definitions |
 | `vertex` | Vertex format definition |
 | `viewport_source` | Enum for which visualization a viewport displays |
-| `vk_check` | `vk_check()` for Vulkan error checking |
 | `renderer_constants` | Named constants (max frames in flight, etc.) |
 
 ### `src/renderer/pass/` — Render passes

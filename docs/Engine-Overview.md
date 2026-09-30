@@ -66,4 +66,4 @@ Reverse order. `vkDeviceWaitIdle()` before destroying Vulkan objects. Icon cache
 - RAII everywhere — no raw `new`/`delete`
 - `#pragma once` for headers
 - `-Werror` — warnings are errors
-- VkResult must be checked (via `vk_check()`)
+- Nothing outside the GPU backend names Vulkan ([GPU interface](Architecture/GPU-Interface.md)); inside it, every `VkResult` is checked with `vk_check()`

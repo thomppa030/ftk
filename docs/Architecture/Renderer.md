@@ -3,20 +3,19 @@
 > Stub — fill in.
 
 ## Scope
-The Vulkan backend: device/swapchain, frame orchestration, bindless resources, descriptor caches, indirect drawing.
+The renderer on the [GPU interface](GPU-Interface.md): frame orchestration, bindless resources, indirect drawing, passes.
 
 ## Planned sections
 - Layers
-  - `GpuCore` — instance, device, queues, swapchain (in `src/renderer/gpu/`)
-  - `VulkanContext` — frame orchestration, descriptors, command buffers
+  - `gpu::Device` — the GPU interface's device, with its Vulkan backend in `src/gpu/vulkan/`
+  - `GpuContext` — the device, the main swapchain and the engine's shared GPU resources
+  - `VulkanContext` — frame orchestration and the views drawn each frame
   - `RenderSubsystem` — engine-side facade
 - Bindless system
   - Texture array, material SSBO, custom params SSBO
   - `reserve_index()` / `update_entry()` lifecycle
   - Descriptor set 0 layout
-- Descriptor caches
-  - `FrameDescriptorCache` — per-frame allocator
-  - `FrameCacheKey`
+- Shared layouts the passes bind (globals, bindless, draw data, meshlets); binding itself is the [GPU interface](GPU-Interface.md)'s
 - Indirect drawing
   - `IndirectBatch` — sorted by pipeline, multi-draw indirect
   - Per-pipeline draw ranges
