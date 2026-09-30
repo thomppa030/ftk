@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/binding.hpp"
+#include "gpu/owned.hpp"
 #include "ui/engine_editor_context.hpp"
 #include "ui/hierarchy_panel.hpp"
 #include "ui/net_panel.hpp"
@@ -184,7 +186,7 @@ private:
     std::unique_ptr<PostProcessResources> camera_preview_pp_;
     // Private global descriptor set so the preview's view-dependent image
     // bindings never mutate the shared per-frame set the main CB binds.
-    VkDescriptorSet camera_preview_global_set_{VK_NULL_HANDLE};
+    gpu::Owned<gpu::BindGroup> camera_preview_global_group_;
     uint32_t camera_preview_node_id_{0};  // currently previewing this camera
     int camera_preview_skip_frames_{0};   // skip N frames after creation
     // Cached editor_preview.fjgraph pointer. Set on first need_preview;

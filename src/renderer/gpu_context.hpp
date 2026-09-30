@@ -88,12 +88,8 @@ public:
     // ── Global descriptors ──────────────────────────────────────────────
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
     [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }
-    [[nodiscard]] VkDescriptorSetLayout global_set_layout() const {
-        return global_bindings_.layout();
-    }
-    [[nodiscard]] VkDescriptorSet global_descriptor_set(uint32_t frame_index) const {
-        return global_bindings_.descriptor_set(frame_index);
-    }
+    /// The global set's layout, for pipelines still made natively.
+    [[nodiscard]] VkDescriptorSetLayout global_set_layout() const;
     /// The frame slot's GlobalUbo behind global binding "global_ubo", written
     /// through `mapped()`.
     [[nodiscard]] gpu::Buffer uniform_buffer(uint32_t frame_index) const {
@@ -161,10 +157,6 @@ public:
     };
     [[nodiscard]] const SharedLayouts& shared_layouts() const { return shared_layouts_; }
 
-    /// A global set (per-frame or a preview's) as the GPU interface binds it,
-    /// handed to the device the first time it is asked for.
-    [[nodiscard]] gpu::BindGroup global_group(VkDescriptorSet set);
-
     /// A draw data set as the GPU interface binds it, handed to the device
     /// the first time it is asked for.
     [[nodiscard]] gpu::BindGroup draw_data_group(VkDescriptorSet set);
@@ -209,7 +201,6 @@ private:
     /// shared layout the first time a pass binds them.
     using AdoptedGroups = std::unordered_map<VkDescriptorSet, gpu::Owned<gpu::BindGroup>>;
     gpu::BindGroup adopted_group(AdoptedGroups& groups, gpu::SharedLayout layout, VkDescriptorSet set);
-    AdoptedGroups global_groups_;
     AdoptedGroups draw_data_groups_;
     AdoptedGroups meshlets_groups_;
 

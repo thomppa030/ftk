@@ -375,10 +375,10 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // below, which carries the TAA jitter.
     ctx.view = gatherer_.view_matrix();
     ctx.projection = gatherer_.projection_matrix();
-    // Previews bind their own private global set; everyone else the per-frame set.
-    ctx.global_descriptor_set = view.global_set != VK_NULL_HANDLE
-        ? view.global_set : gpu_.global_descriptor_set(current_frame_);
-    ctx.globals = gpu_.global_group(ctx.global_descriptor_set);
+    // Previews bind their own global set; everyone else the frame slot's.
+    ctx.globals = view.global_group.valid() ? view.global_group
+                                             : gpu_.global_bindings().group(current_frame_);
+    ctx.global_descriptor_set = gpu::vulkan::native_group(gpu_device(), ctx.globals);
     ctx.bindless = gpu_.bindless_textures().group(current_frame_);
     ctx.bindless_set = gpu::vulkan::native_group(gpu_device(), ctx.bindless);
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
@@ -619,9 +619,9 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     const EnvironmentState& environment, Scene* scene,
                                     float dt, uint32_t selected_id, ThreadPool& pool) {
     if (!req.target) return;
-    if (req.global_set == VK_NULL_HANDLE) {
+    if (!req.global_group.valid()) {
         FJELL_GFX_ERROR("A preview needs a global set of its own "
-                        "(GlobalBindings::allocate_set); it is not drawn");
+                        "(GlobalBindings::make_view_group); it is not drawn");
         return;
     }
     current_environment_ = &environment;
@@ -642,42 +642,24 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
     auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
 
-    // Point the view-dependent global image bindings at THIS viewport's
-    // targets, in the preview's own global set (inheriting the per-frame
-    // set's static bindings by a copy), so it never touches the shared
-    // per-frame set the main command buffer binds: rewriting a set an
-    // in-flight CB references is a DEVICE_LOST.
+    // The preview's own global set takes what the frame slot's holds, with
+    // this view's depth, AO and screen colour in place of the frame's.
     {
-        auto& gb = gpu_.global_bindings();
         // The preview doesn't run GTAO; its colour pass reads the main
         // view's AO, which rests where the fragment shaders sample it.
         const gpu::Texture ao =
             default_pp_->gtao() ? default_pp_->gtao()->ao : gtao_pass().ao_texture();
-
-        // Inherit sky/shadow/sdf/ubo/etc. from the (idle) per-frame set,
-        // then overwrite only the view-dependent images.
-        gb.copy_from_frame(req.global_set, current_frame_);
-        gb.write_image_to(req.global_set, "depth_texture",
-            req.target->depth_view(), gpu::vulkan::native_sampler(gpu_device(), gpu_.depth_sampler()),
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "ao_texture",
-            gpu::vulkan::native_view(gpu_device(), ao),
-            gpu::vulkan::native_sampler(gpu_device(), gtao_pass().ao_sampler()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "screen_color",
-            req.target->screen_color_view(), gpu::vulkan::native_sampler(gpu_device(), post_pass().output_sampler()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        const VkImageView gi_fallback = gpu::vulkan::native_view(gpu_device(), gpu_.gi_fallback());
-        const VkSampler gi_fallback_sampler = gpu::vulkan::native_sampler(gpu_device(), gpu_.gi_fallback_sampler());
-        gb.write_image_to(req.global_set, "gi_indirect", gi_fallback, gi_fallback_sampler,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "ss_gi_emissive", gi_fallback, gi_fallback_sampler,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image_to(req.global_set, "contact_shadow",
-            gpu::vulkan::native_view(gpu_device(), contact_shadow_pass().shadow()),
-            gpu::vulkan::native_sampler(gpu_device(), contact_shadow_pass().shadow_sampler()),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.flush_writes();
+        const gpu::BindResource gi_fallback = gpu::sampled(gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
+        const gpu::BindEntry view_images[] = {
+            {"depth_texture", gpu::sampled(req.target->depth_texture(), gpu_.depth_sampler())},
+            {"ao_texture", gpu::sampled(ao, gtao_pass().ao_sampler())},
+            {"screen_color", gpu::sampled(req.target->screen_color_texture(), post_pass().output_sampler())},
+            {"gi_indirect", gi_fallback},
+            {"ss_gi_emissive", gi_fallback},
+            {"contact_shadow",
+             gpu::sampled(contact_shadow_pass().shadow(), contact_shadow_pass().shadow_sampler())},
+        };
+        gpu_.global_bindings().refresh_view(req.global_group, current_frame_, view_images);
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
@@ -758,7 +740,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, const gpu::Swapch
         // The frame's own viewports bind the per-frame set and are shown the
         // right way up, whatever a request says.
         ViewportRenderRequest view = vp;
-        view.global_set = VK_NULL_HANDLE;
+        view.global_group = {};
         render_scene_to(cmd, view, scene, dt, selected_id, pool, pp);
     }
 
@@ -1222,7 +1204,7 @@ void VulkanContext::record_game_ui_into(VkCommandBuffer cmd, const GameUiRecordF
                 &live_time, sizeof(live_time));
 
     gpu_.bindless_textures().flush(frame_index);
-    record_fn(cmd, gpu_.global_descriptor_set(frame_index),
+    record_fn(cmd, gpu::vulkan::native_group(gpu_device(), gpu_.global_bindings().group(frame_index)),
               gpu::vulkan::native_group(gpu_device(), gpu_.bindless_textures().group(frame_index)),
               extent, frame_index);
 
@@ -1767,9 +1749,9 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_device(), gpu_.device(), gpu_.allocator(),
         config, refs, bindless_idx);
-    // Private global set — keeps the viewport's view-dependent image bindings
-    // off the shared per-frame set bound by the main command buffer.
-    viewport->set_global_set(gpu_.global_bindings().allocate_set());
+    // A global set of its own, so its view-dependent images never replace
+    // the frame's.
+    viewport->set_global_group(gpu_.global_bindings().make_view_group(config.name));
 
     scene_viewports_[config.name] = std::move(viewport);
     return bindless_idx;
@@ -1779,7 +1761,6 @@ void VulkanContext::destroy_scene_viewport(const std::string& name) {
     auto it = scene_viewports_.find(name);
     if (it == scene_viewports_.end()) return;
     wait_idle();
-    gpu_.global_bindings().free_set(it->second->global_set());
     gpu_.bindless_textures().update_entry(it->second->bindless_index(), {});
     scene_viewports_.erase(it);
 }
@@ -1807,7 +1788,7 @@ void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t sele
                                             const EnvironmentState& environment, ThreadPool& pool) {
     for (auto& [name, viewport] : scene_viewports_) {
         ViewportRenderRequest req = viewport->build_request();
-        req.global_set = viewport->global_set();
+        req.global_group = viewport->global_group();
         render_preview(req, environment, scene, dt, selected_id, pool);
         viewport->sync_bindless(gpu_.bindless_textures());
     }

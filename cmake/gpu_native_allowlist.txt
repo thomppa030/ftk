@@ -13,8 +13,6 @@ src/renderer/draw_data_descriptor.cpp
 src/renderer/draw_data_descriptor.hpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
-src/renderer/global_bindings.cpp
-src/renderer/global_bindings.hpp
 src/renderer/gpu/buffer.cpp
 src/renderer/gpu/buffer.hpp
 src/renderer/gpu/descriptor.cpp
@@ -108,7 +106,6 @@ src/ui/icon_cache.hpp
 src/ui/imgui_layer.cpp
 src/ui/imgui_layer.hpp
 src/ui/project_settings_window.cpp
-src/ui/scene_editor_context.cpp
 src/ui/scene_editor_context.hpp
 src/ui/sdf_debug_panel.cpp
 src/ui/texture_preview.cpp

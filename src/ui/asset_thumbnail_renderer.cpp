@@ -867,7 +867,7 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
         vk.rt_reflection_pass()};
     pp_ = std::make_unique<PostProcessResources>(vk.gpu_device(), vk.device(), vk.allocator(),
                                                  SIZE, SIZE, pp_config_from_graph(*graph_), refs);
-    global_set_ = vk.gpu().global_bindings().allocate_set();
+    global_group_ = vk.gpu().global_bindings().make_view_group("asset_thumbnail");
     skip_frames_ = DRAIN_FRAMES;
     return true;
 }
@@ -908,7 +908,7 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
     req.pp_resources = pp_.get();
     req.skip_shadows = options.skip_shadows;
     req.viewport_graph = options.graph != nullptr ? options.graph : graph_;
-    req.global_set = global_set_;
+    req.global_group = global_group_.get();
     req.backdrop = options.backdrop;
 
     auto& post = vk.post_pass();
@@ -946,10 +946,7 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
 
 void AssetThumbnailRenderer::SceneStage::shutdown(const Deps& deps) {
     if (deps.vulkan_context) deps.vulkan_context->release_scene_particles(scene_);
-    if (global_set_ != VK_NULL_HANDLE && deps.vulkan_context) {
-        deps.vulkan_context->gpu().global_bindings().free_set(global_set_);
-        global_set_ = VK_NULL_HANDLE;
-    }
+    global_group_.reset();
     pp_.reset();
     target_.reset();
     scene_.clear();

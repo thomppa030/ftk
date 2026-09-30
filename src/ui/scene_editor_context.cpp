@@ -1305,7 +1305,7 @@ void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float 
     req.pp_resources = camera_preview_pp_.get();
     req.skip_shadows = true;
     req.viewport_graph = camera_preview_graph_;
-    req.global_set = camera_preview_global_set_;
+    req.global_group = camera_preview_global_group_.get();
 
     vk.render_preview(req, environment, scene, dt, selected_id_, pool);
 
@@ -1347,8 +1347,9 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
 
         camera_preview_pp_ = std::make_unique<PostProcessResources>(
             vk.gpu_device(), vk.device(), vk.allocator(), 320, 180, preview_config, refs);
-        // Private global set so the preview never rewrites the shared per-frame set.
-        camera_preview_global_set_ = vk.gpu().global_bindings().allocate_set();
+        // A global set of its own, so the preview's depth and AO never
+        // replace the frame's.
+        camera_preview_global_group_ = vk.gpu().global_bindings().make_view_group("camera_preview");
         camera_preview_node_id_ = selected_id_;
         // Skip rendering for MAX_FRAMES_IN_FLIGHT frames to let all in-flight
         // command buffers drain before the preview's descriptors are first used
@@ -1357,8 +1358,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         // Must wait for all in-flight command buffers that reference
         // the preview's descriptor sets / images before destroying them.
         vk.wait_idle();
-        vk.gpu().global_bindings().free_set(camera_preview_global_set_);
-        camera_preview_global_set_ = VK_NULL_HANDLE;
+        camera_preview_global_group_.reset();
         camera_preview_pp_.reset();
         camera_preview_target_.reset();
         camera_preview_node_id_ = 0;

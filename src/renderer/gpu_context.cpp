@@ -232,8 +232,8 @@ gpu::BindGroup GpuContext::adopted_group(AdoptedGroups& groups, gpu::SharedLayou
     return group;
 }
 
-gpu::BindGroup GpuContext::global_group(VkDescriptorSet set) {
-    return adopted_group(global_groups_, shared_layouts_.globals, set);
+VkDescriptorSetLayout GpuContext::global_set_layout() const {
+    return gpu::vulkan::native_set_layout(core_.gpu_device(), global_bindings_.layout());
 }
 
 gpu::BindGroup GpuContext::draw_data_group(VkDescriptorSet set) {
@@ -245,10 +245,9 @@ gpu::BindGroup GpuContext::meshlets_group(VkDescriptorSet set) {
 }
 
 void GpuContext::finalize_descriptors() {
-    auto vk_device = core_.vk_device();
-
-    // Build layout, pool, and per-frame descriptor sets from registered bindings
-    global_bindings_.finalize(vk_device, MAX_FRAMES_IN_FLIGHT, core_.gpu_device());
+    if (auto made = global_bindings_.create(core_.gpu_device()); !made) {
+        throw std::runtime_error("Global set: " + made.error());
+    }
 
     // Write initial descriptor values for static bindings
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -258,14 +257,17 @@ void GpuContext::finalize_descriptors() {
         global_bindings_.set(i, "tile_light_ssbo", gpu::storage(tile_light_ssbo_[i]));
         global_bindings_.set(i, "fog_volume_ssbo", gpu::storage(fog_volume_ssbo_[i]));
         global_bindings_.set(i, "gi_indirect", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
+        // Set by each frame for its own view, and by each preview for its.
+        for (const char* view_image : {"depth_texture", "ao_texture", "screen_color"}) {
+            global_bindings_.set(i, view_image, gpu::sampled(gi_fallback_, gi_fallback_sampler_));
+        }
         global_bindings_.set(i, "ss_gi_emissive", gpu::sampled(gi_fallback_, gi_fallback_sampler_));
         global_bindings_.set(i, "fog_density_field", gpu::sampled(volume_fallback_, gi_fallback_sampler_));
     }
 
     // The GPU interface's pipelines name these to bind the engine's own sets.
     gpu::Device& device = core_.gpu_device();
-    shared_layouts_.globals = gpu::vulkan::share_layout(
-        device, "globals", 0, global_bindings_.layout(), global_bindings_.layout_bindings());
+    shared_layouts_.globals = global_bindings_.layout();
     shared_layouts_.meshlets = gpu::vulkan::share_layout(
         device, "meshlets", 3, meshlet_descriptor_.layout(), meshlet_descriptor_.layout_bindings());
 
@@ -300,7 +302,7 @@ PassResources GpuContext::pass_resources() const {
     res.bindless = shared_layouts_.bindless;
     res.draw_data = shared_layouts_.draw_data;
     res.meshlets = shared_layouts_.meshlets;
-    res.global_set_layout = global_bindings_.layout();
+    res.global_set_layout = global_set_layout();
     res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
     res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;

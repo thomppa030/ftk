@@ -1,380 +1,154 @@
 #include "renderer/global_bindings.hpp"
 #include "core/log.hpp"
-#include "gpu/format.hpp"
-#include "gpu/vulkan/native.hpp"
+// Through the include path: a quoted "gpu/device.hpp" finds the older
+// renderer/gpu/device.hpp beside this file first.
+#include <gpu/device.hpp>
 
-#include <algorithm>
-#include <cassert>
 #include <stdexcept>
-#include <unordered_map>
 
 namespace fjell {
 
 GlobalBindings::GlobalBindings() {
-    register_builtins();
+    // The numbers are the shaders': they declare these bindings by number,
+    // so a number never changes.
+    using gpu::BindingKind;
+    using gpu::ShaderStage;
+    constexpr gpu::ShaderStages FRAG = ShaderStage::fragment;
+    constexpr gpu::ShaderStages FRAG_COMP = ShaderStage::fragment | ShaderStage::compute;
+    constexpr gpu::ShaderStages ALL = ShaderStage::vertex | ShaderStage::fragment | ShaderStage::compute |
+                                      ShaderStage::task | ShaderStage::mesh;
+
+    declare({"global_ubo",          0, BindingKind::uniform_buffer,  ALL});
+    declare({"shadow_map",          1, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"light_ssbo",          2, BindingKind::storage_buffer,  FRAG_COMP});
+    declare({"tile_light_ssbo",     3, BindingKind::storage_buffer,  FRAG_COMP});
+    declare({"depth_texture",       4, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"ao_texture",          5, BindingKind::sampled_texture, FRAG});
+    declare({"sky_cubemap",         6, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"brdf_lut",            7, BindingKind::sampled_texture, FRAG});
+    declare({"screen_color",        8, BindingKind::sampled_texture, FRAG});
+    declare({"scene_sdf",           9, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"gi_indirect",        10, BindingKind::sampled_texture, FRAG});
+    declare({"local_shadow_atlas", 11, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"ss_gi_emissive",     12, BindingKind::sampled_texture, FRAG});
+    declare({"contact_shadow",     13, BindingKind::sampled_texture, FRAG});
+    declare({"environment_ubo",    14, BindingKind::uniform_buffer,  ALL});
+    declare({"cloud_shadow",       15, BindingKind::sampled_texture, FRAG_COMP});
+    declare({"motion_field",       16, BindingKind::sampled_texture, ALL});
+    declare({"fog_volume_ssbo",    17, BindingKind::storage_buffer,  FRAG_COMP});
+    declare({"fog_density_field",  18, BindingKind::sampled_texture, FRAG_COMP});
 }
 
-void GlobalBindings::register_builtins() {
-    // The built-in bindings with their exact current numbers.
-    // These must never change — shaders reference them by number.
-
-    constexpr auto FRAG = VK_SHADER_STAGE_FRAGMENT_BIT;
-    constexpr auto COMP = VK_SHADER_STAGE_COMPUTE_BIT;
-    constexpr auto VERT = VK_SHADER_STAGE_VERTEX_BIT;
-    constexpr auto TASK = VK_SHADER_STAGE_TASK_BIT_EXT;
-    constexpr auto MESH = VK_SHADER_STAGE_MESH_BIT_EXT;
-    constexpr auto ALL_GFX = VERT | FRAG | COMP | TASK | MESH;
-
-    declare({"global_ubo",       0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1, ALL_GFX});
-    declare({"shadow_map",       1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"light_ssbo",       2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
-    declare({"tile_light_ssbo",  3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
-    declare({"depth_texture",    4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"ao_texture",       5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"sky_cubemap",      6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"brdf_lut",         7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"screen_color",     8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"scene_sdf",        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"gi_indirect",     10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"local_shadow_atlas", 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"ss_gi_emissive",  12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"contact_shadow",  13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"environment_ubo", 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1, ALL_GFX});
-    declare({"cloud_shadow",    15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-    declare({"motion_field",    16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, ALL_GFX});
-    declare({"fog_volume_ssbo", 17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
-    declare({"fog_density_field", 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
-}
-
-void GlobalBindings::declare(GlobalBindingDecl decl) {
-    assert(!finalized_ && "GlobalBindings::declare() called after finalize()");
-
-    // Check for duplicate names
-    if (name_to_binding_.contains(decl.name)) {
+void GlobalBindings::declare(Declared decl) {
+    if (index_.contains(decl.name)) {
         throw std::runtime_error("GlobalBindings: duplicate binding name '" + decl.name + "'");
     }
-
-    // Resolve auto-assignment
-    if (decl.binding == BINDING_AUTO) {
-        decl.binding = next_auto_binding_;
-    }
-
-    // Check for duplicate binding numbers
-    for (const auto& e : entries_) {
-        if (e.decl.binding == decl.binding) {
-            throw std::runtime_error(
-                "GlobalBindings: binding " + std::to_string(decl.binding) +
-                " already used by '" + e.decl.name + "', cannot assign to '" + decl.name + "'");
+    for (const Declared& d : declared_) {
+        if (d.binding == decl.binding) {
+            throw std::runtime_error("GlobalBindings: binding " + std::to_string(decl.binding) +
+                                     " already used by '" + d.name + "', cannot assign to '" +
+                                     decl.name + "'");
         }
     }
-
-    name_to_binding_[decl.name] = decl.binding;
-
-    // Track next auto slot (always above the highest used)
-    if (decl.binding >= next_auto_binding_) {
-        next_auto_binding_ = decl.binding + 1;
-    }
-
-    entries_.push_back({std::move(decl)});
+    index_.emplace(decl.name, declared_.size());
+    declared_.push_back(std::move(decl));
 }
 
-void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight, gpu::Device& gpu) {
-    assert(!finalized_ && "GlobalBindings::finalize() called twice");
-    assert(!entries_.empty() && "GlobalBindings: no bindings declared");
-
-    device_ = device;
+Result<> GlobalBindings::create(gpu::Device& gpu) {
     gpu_ = &gpu;
-
-    // Sort entries by binding number for clean layout creation
-    std::sort(entries_.begin(), entries_.end(),
-              [](const auto& a, const auto& b) {
-                  return a.decl.binding < b.decl.binding;
-              });
-
-    // Build VkDescriptorSetLayoutBinding array
-    std::vector<VkDescriptorSetLayoutBinding> bindings;
-    bindings.reserve(entries_.size());
-    for (const auto& e : entries_) {
-        VkDescriptorSetLayoutBinding b{};
-        b.binding = e.decl.binding;
-        b.descriptorType = e.decl.type;
-        b.descriptorCount = e.decl.count;
-        b.stageFlags = e.decl.stages;
-        bindings.push_back(b);
+    gpu::SharedLayoutDesc desc{.name = "globals", .usual_set = 0, .bindings = {}};
+    for (const Declared& d : declared_) {
+        gpu::ShaderBinding binding;
+        binding.name = d.name;
+        binding.binding = d.binding;
+        binding.kind = d.kind;
+        binding.stages = d.stages;
+        desc.bindings.push_back(std::move(binding));
     }
+    auto layout = gpu.create(desc);
+    if (!layout) return make_error(layout.error());
+    layout_ = *layout;
+    for (auto& contents : contents_) contents.assign(declared_.size(), std::nullopt);
+    return {};
+}
 
-    layout_ = std::make_unique<DescriptorSetLayout>(device, std::span{bindings});
-    layout_bindings_ = bindings;
-
-    // Compute pool sizes from actual bindings
-    std::unordered_map<VkDescriptorType, uint32_t> type_counts;
-    for (const auto& e : entries_) {
-        type_counts[e.decl.type] += e.decl.count;
-    }
-
-    std::vector<VkDescriptorPoolSize> pool_sizes;
-    pool_sizes.reserve(type_counts.size());
-    for (const auto& [type, count] : type_counts) {
-        pool_sizes.push_back({type, count * frames_in_flight});
-    }
-
-    pool_ = std::make_unique<DescriptorPool>(device, std::span{pool_sizes}, frames_in_flight);
-
-    // Allocate per-frame descriptor sets
-    for (uint32_t i = 0; i < frames_in_flight; ++i) {
-        descriptor_sets_[i] = pool_->allocate(*layout_);
-    }
-
-    // Auxiliary pool for preview sets — freeable, so previews can return their
-    // set on teardown. Sized for a handful of concurrent offscreen viewports;
-    // one set's worth of each descriptor type, times AUX_SET_CAPACITY.
-    constexpr uint32_t AUX_SET_CAPACITY = 16;
-    std::vector<VkDescriptorPoolSize> aux_sizes;
-    aux_sizes.reserve(type_counts.size());
-    for (const auto& [type, count] : type_counts) {
-        aux_sizes.push_back({type, count * AUX_SET_CAPACITY});
-    }
-    VkDescriptorPoolCreateInfo aux_ci{};
-    aux_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    aux_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    aux_ci.maxSets = AUX_SET_CAPACITY;
-    aux_ci.poolSizeCount = static_cast<uint32_t>(aux_sizes.size());
-    aux_ci.pPoolSizes = aux_sizes.data();
-    if (vkCreateDescriptorPool(device, &aux_ci, nullptr, &aux_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("GlobalBindings: failed to create auxiliary descriptor pool");
-    }
-
-    finalized_ = true;
-
-    // Log binding table
-    FJELL_GFX_DEBUG("Global bindings finalized: {} bindings", entries_.size());
-    for (const auto& e : entries_) {
-        const char* type_str = "unknown";
-        switch (e.decl.type) {
-            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:         type_str = "UBO"; break;
-            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: type_str = "IMAGE_SAMPLER"; break;
-            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:         type_str = "SSBO"; break;
-            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:          type_str = "STORAGE_IMAGE"; break;
-            default: break;
+std::optional<std::vector<gpu::BindEntry>> GlobalBindings::entries(
+    uint32_t slot, std::span<const gpu::BindEntry> overrides) {
+    std::vector<gpu::BindEntry> entries;
+    entries.reserve(declared_.size());
+    for (size_t i = 0; i < declared_.size(); ++i) {
+        std::optional<gpu::BindResource> content = contents_[slot][i];
+        for (const gpu::BindEntry& override : overrides) {
+            if (override.name == declared_[i].name) content = override.resource;
         }
-        FJELL_GFX_DEBUG("  [{}] {} - {}", e.decl.binding, e.decl.name, type_str);
-    }
-}
-
-uint32_t GlobalBindings::binding_number(const std::string& name) const {
-    auto it = name_to_binding_.find(name);
-    assert(it != name_to_binding_.end() && "GlobalBindings: unknown binding name");
-    return it->second;
-}
-
-bool GlobalBindings::has_binding(const std::string& name) const {
-    return name_to_binding_.contains(name);
-}
-
-void GlobalBindings::write_image(uint32_t frame_index, const std::string& name,
-                                  VkImageView view, VkSampler sampler,
-                                  VkImageLayout image_layout) {
-    assert(finalized_ && "GlobalBindings::write_image() called before finalize()");
-
-    auto it = name_to_binding_.find(name);
-    assert(it != name_to_binding_.end() && "GlobalBindings: unknown binding name for write");
-
-    // Find the entry to get the descriptor type
-    uint32_t binding = it->second;
-    VkDescriptorType type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    for (const auto& e : entries_) {
-        if (e.decl.binding == binding) {
-            type = e.decl.type;
-            break;
+        if (!content) {
+            if (!missing_reported_) {
+                missing_reported_ = true;
+                FJELL_GFX_ERROR("Global binding '{}' is bound before anything set it",
+                                declared_[i].name);
+            }
+            return std::nullopt;
         }
+        entries.push_back({declared_[i].name, *content});
     }
-
-    auto& info = pending_image_infos_.emplace_back();
-    info.sampler = sampler;
-    info.imageView = view;
-    info.imageLayout = image_layout;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = binding;
-    write.descriptorType = type;
-    write.descriptorCount = 1;
-    write.pImageInfo = &info;
-
-    pending_writes_.push_back(write);
+    return entries;
 }
 
-void GlobalBindings::set(const std::string& name, const gpu::BindResource& resource) {
-    for (uint32_t i = 0; i < descriptor_sets_.size(); ++i) set(i, name, resource);
-}
-
-void GlobalBindings::set(uint32_t frame_index, const std::string& name,
-                         const gpu::BindResource& resource) {
-    assert(finalized_ && "GlobalBindings::set() called before finalize()");
-    switch (resource.kind) {
-        case gpu::BindingKind::sampled_texture:
-        case gpu::BindingKind::storage_texture: {
-            const VkImageView view = gpu::vulkan::native_view(*gpu_, resource.view);
-            const VkSampler sampler = gpu::vulkan::native_sampler(*gpu_, resource.sampler);
-            const bool depth = gpu::vulkan::native_aspect(*gpu_, resource.view.texture) ==
-                               VK_IMAGE_ASPECT_DEPTH_BIT;
-            const VkImageLayout layout =
-                resource.kind == gpu::BindingKind::storage_texture ? VK_IMAGE_LAYOUT_GENERAL
-                : depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            write_image(frame_index, name, view, sampler, layout);
-            break;
-        }
-        case gpu::BindingKind::uniform_buffer:
-        case gpu::BindingKind::storage_buffer: {
-            const VkBuffer buffer = gpu::vulkan::native_buffer(*gpu_, resource.buffer.buffer);
-            const VkDeviceSize range = resource.buffer.size == gpu::BufferRange::REST
-                ? VK_WHOLE_SIZE : resource.buffer.size;
-            write_buffer(frame_index, name, buffer, resource.buffer.offset, range);
-            break;
-        }
-        default:
-            FJELL_GFX_ERROR("GlobalBindings::set: binding '{}' is given a kind it does not take",
-                            name);
-            return;
+gpu::BindGroup GlobalBindings::group(uint32_t slot) {
+    if (groups_[slot]) return groups_[slot].get();
+    const auto entries = this->entries(slot);
+    if (!entries) return {};
+    auto made = gpu_->create(gpu::SharedGroupDesc{.layout = layout_, .entries = *entries, .name = "globals"});
+    if (!made) {
+        FJELL_GFX_ERROR("Global set: {}", made.error());
+        return {};
     }
-    flush_writes();
+    groups_[slot] = std::move(*made);
+    return groups_[slot].get();
 }
 
-void GlobalBindings::write_buffer(uint32_t frame_index, const std::string& name,
-                                   VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range) {
-    assert(finalized_ && "GlobalBindings::write_buffer() called before finalize()");
+void GlobalBindings::set(std::string_view name, const gpu::BindResource& resource) {
+    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) set(slot, name, resource);
+}
 
-    auto it = name_to_binding_.find(name);
-    assert(it != name_to_binding_.end() && "GlobalBindings: unknown binding name for write");
-
-    uint32_t binding = it->second;
-    VkDescriptorType type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    for (const auto& e : entries_) {
-        if (e.decl.binding == binding) {
-            type = e.decl.type;
-            break;
-        }
+void GlobalBindings::set(uint32_t slot, std::string_view name, const gpu::BindResource& resource) {
+    const auto it = index_.find(name);
+    if (it == index_.end()) {
+        FJELL_GFX_ERROR("GlobalBindings: no binding '{}'", name);
+        return;
     }
-
-    auto& info = pending_buffer_infos_.emplace_back();
-    info.buffer = buffer;
-    info.offset = offset;
-    info.range = range;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_sets_[frame_index];
-    write.dstBinding = binding;
-    write.descriptorType = type;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &info;
-
-    pending_writes_.push_back(write);
-}
-
-void GlobalBindings::write_image_to(VkDescriptorSet set, const std::string& name,
-                                     VkImageView view, VkSampler sampler,
-                                     VkImageLayout image_layout) {
-    assert(finalized_ && "GlobalBindings::write_image_to() called before finalize()");
-
-    auto it = name_to_binding_.find(name);
-    assert(it != name_to_binding_.end() && "GlobalBindings: unknown binding name for write");
-
-    uint32_t binding = it->second;
-    VkDescriptorType type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    for (const auto& e : entries_) {
-        if (e.decl.binding == binding) {
-            type = e.decl.type;
-            break;
-        }
+    contents_[slot][it->second] = resource;
+    if (!groups_[slot]) return;
+    const gpu::BindEntry entry[] = {{name, resource}};
+    if (auto written = gpu_->update(groups_[slot], entry); !written) {
+        FJELL_GFX_ERROR("Global binding '{}': {}", name, written.error());
     }
-
-    auto& info = pending_image_infos_.emplace_back();
-    info.sampler = sampler;
-    info.imageView = view;
-    info.imageLayout = image_layout;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = set;
-    write.dstBinding = binding;
-    write.descriptorType = type;
-    write.descriptorCount = 1;
-    write.pImageInfo = &info;
-
-    pending_writes_.push_back(write);
 }
 
-void GlobalBindings::flush_writes() {
-    if (pending_writes_.empty()) return;
-
-    vkUpdateDescriptorSets(device_,
-                           static_cast<uint32_t>(pending_writes_.size()),
-                           pending_writes_.data(), 0, nullptr);
-
-    pending_writes_.clear();
-    pending_image_infos_.clear();
-    pending_buffer_infos_.clear();
-}
-
-VkDescriptorSet GlobalBindings::allocate_set() {
-    assert(finalized_ && "GlobalBindings::allocate_set() called before finalize()");
-
-    VkDescriptorSetLayout vk_layout = layout_->handle();
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = aux_pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &vk_layout;
-
-    VkDescriptorSet set{VK_NULL_HANDLE};
-    if (vkAllocateDescriptorSets(device_, &alloc_info, &set) != VK_SUCCESS) {
-        throw std::runtime_error("GlobalBindings: failed to allocate auxiliary set "
-                                 "(raise AUX_SET_CAPACITY?)");
+gpu::Owned<gpu::BindGroup> GlobalBindings::make_view_group(std::string_view name) {
+    // Any slot will do: the view is refreshed from the slot it renders in.
+    const auto entries = this->entries(0);
+    if (!entries) return {};
+    auto made = gpu_->create(gpu::SharedGroupDesc{.layout = layout_, .entries = *entries, .name = name});
+    if (!made) {
+        FJELL_GFX_ERROR("Global set for '{}': {}", name, made.error());
+        return {};
     }
-    return set;
+    return std::move(*made);
 }
 
-void GlobalBindings::free_set(VkDescriptorSet set) {
-    if (set == VK_NULL_HANDLE) return;
-    vkFreeDescriptorSets(device_, aux_pool_, 1, &set);
-}
-
-void GlobalBindings::copy_from_frame(VkDescriptorSet dst, uint32_t src_frame_index) {
-    assert(finalized_ && "GlobalBindings::copy_from_frame() called before finalize()");
-
-    VkDescriptorSet src = descriptor_sets_[src_frame_index];
-
-    std::vector<VkCopyDescriptorSet> copies;
-    copies.reserve(entries_.size());
-    for (const auto& e : entries_) {
-        VkCopyDescriptorSet c{};
-        c.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-        c.srcSet = src;
-        c.srcBinding = e.decl.binding;
-        c.srcArrayElement = 0;
-        c.dstSet = dst;
-        c.dstBinding = e.decl.binding;
-        c.dstArrayElement = 0;
-        c.descriptorCount = e.decl.count;
-        copies.push_back(c);
+void GlobalBindings::refresh_view(gpu::BindGroup view, uint32_t slot,
+                                  std::span<const gpu::BindEntry> overrides) {
+    const auto entries = this->entries(slot, overrides);
+    if (!entries) return;
+    if (auto written = gpu_->update(view, *entries); !written) {
+        FJELL_GFX_ERROR("A view's global set: {}", written.error());
     }
-
-    vkUpdateDescriptorSets(device_, 0, nullptr,
-                           static_cast<uint32_t>(copies.size()), copies.data());
 }
 
 void GlobalBindings::destroy() {
-    if (aux_pool_ != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device_, aux_pool_, nullptr);
-        aux_pool_ = VK_NULL_HANDLE;
-    }
-    pool_.reset();
-    layout_.reset();
-    device_ = VK_NULL_HANDLE;
-    finalized_ = false;
+    for (auto& group : groups_) group.reset();
+    for (auto& contents : contents_) contents.clear();
 }
 
 } // namespace fjell

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/math/color_space.hpp"
+#include "gpu/binding.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -64,12 +65,11 @@ struct ViewportRenderRequest {
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
 
-    /// Private global descriptor set for this offscreen viewport, which
-    /// render_preview requires: it copies the per-frame global bindings into
-    /// it and overwrites the view-dependent images here, instead of mutating
-    /// the shared per-frame set the main command buffer binds (which races a
-    /// pending CB → DEVICE_LOST).
-    VkDescriptorSet global_set{VK_NULL_HANDLE};
+    /// The global set this offscreen view owns (GlobalBindings::make_view_group),
+    /// which render_preview requires: it refreshes it from the frame slot's
+    /// global set with this view's own depth, AO and screen colour, leaving
+    /// the frame's own set to the frame.
+    gpu::BindGroup global_group{};
 
     /// `.fjgraph` that decides which passes run for this viewport. Null
     /// falls back to RenderPipeline's global pass_state_ flags — used by

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/owned.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/viewport_source.hpp"
 #include "scene/scene.hpp"
@@ -189,7 +190,7 @@ public:
         std::unique_ptr<OffscreenPass> target_;
         std::unique_ptr<PostProcessResources> pp_;
         const FjGraph* graph_{nullptr};
-        VkDescriptorSet global_set_{VK_NULL_HANDLE};
+        gpu::Owned<gpu::BindGroup> global_group_;
         int skip_frames_{0};
         Scene scene_;
     };

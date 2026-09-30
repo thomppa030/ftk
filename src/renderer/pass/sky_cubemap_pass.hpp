@@ -63,8 +63,8 @@ private:
                         float rayleigh_scale, float mie_scale,
                         float mie_g, float mie_coeff);
 
-    /// Points the global set and the registry at sky_texture(). Every frame
-    /// slot's set is rewritten, so nothing may be in flight.
+    /// Points every frame slot's global set at sky_texture(); frames in
+    /// flight keep the set they bound.
     void bind_sky(GpuContext& gpu);
 
     /// Reads an HDRI equirectangular image and makes what converting it
