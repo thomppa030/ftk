@@ -1,18 +1,17 @@
 #pragma once
 
 #include "gpu/owned.hpp"
+#include "gpu/pipeline.hpp"
+#include "gpu/sampler.hpp"
 #include "gpu/texture.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
 
-#include "renderer/renderer_constants.hpp"
 #include <glm/glm.hpp>
-#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
-#include <memory>
+#include <string_view>
 
 namespace fjell {
 
@@ -27,7 +26,7 @@ struct SsGiConfig {
     bool enabled{true};
 };
 
-/// GPU-side constants UBO for the SS-GI trace shader.
+/// The constants the SS-GI trace and resolve read.
 struct GpuSsGiConstants {
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
@@ -52,84 +51,56 @@ struct GpuSsGiConstants {
 
 class SsGiPass : public RenderPass {
 public:
-    /// Per-viewport resolution-dependent image state.
+    /// The names each viewport's textures are exported under.
+    static constexpr std::string_view OUTPUT_NAME = "ss_gi_output";
+    static constexpr std::string_view PREV_DEPTH_NAME = "ss_gi_prev_depth";
+
+    /// Per-viewport resolution-dependent state. The probe textures are the
+    /// pass's own and rest where its compute shaders sample them; the output
+    /// and the depth copy are exported to the frame graph.
     struct Images {
-        // Raw radiance from RT trace: probe_count.x * (probe_count.y * rays_per_probe)
-        VkImage raw_radiance_image{VK_NULL_HANDLE};
-        VmaAllocation raw_radiance_memory{VK_NULL_HANDLE};
-        VkImageView raw_radiance_view{VK_NULL_HANDLE};
+        /// What each ray brought back: probe_count.x wide, probe_count.y *
+        /// rays_per_probe tall. The trace writes it, the resolve reads it.
+        gpu::Owned<gpu::Texture> raw_radiance;
+        /// Probe irradiance blended over frames, a texel per probe.
+        gpu::Owned<gpu::Texture> resolved;
+        /// Last frame's `resolved`, which this frame's blends onto.
+        gpu::Owned<gpu::Texture> history;
+        /// The indirect light the surfaces sample, at half the viewport.
+        gpu::Owned<gpu::Texture> indirect;
+        /// The scene depth as the last frame left it, the same size and
+        /// format: the resolve drops history where the depth changed.
+        gpu::Owned<gpu::Texture> prev_depth;
 
-        // Resolved (temporally filtered) probe irradiance: probe_count.x * probe_count.y
-        VkImage resolved_image{VK_NULL_HANDLE};
-        VmaAllocation resolved_memory{VK_NULL_HANDLE};
-        VkImageView resolved_view{VK_NULL_HANDLE};
+        glm::uvec2 indirect_extent{0, 0};
+        glm::uvec2 probe_count{0, 0};
+        uint32_t rays_per_probe{0};
+        /// The upsample has written `indirect` since it was made; until it
+        /// has, the surfaces sample the fallback.
+        bool written{false};
 
-        // History (previous frame resolved): same size as resolved
-        VkImage history_image{VK_NULL_HANDLE};
-        VmaAllocation history_memory{VK_NULL_HANDLE};
-        VkImageView history_view{VK_NULL_HANDLE};
-
-        // Previous frame's depth, full-screen res. Copied from the scene depth
-        // each frame after the resolve reads it, so next frame's resolve can
-        // reject history on depth change (disocclusion).
-        VkImage prev_depth_image{VK_NULL_HANDLE};
-        VmaAllocation prev_depth_memory{VK_NULL_HANDLE};
-        VkImageView prev_depth_view{VK_NULL_HANDLE};
-        VkExtent2D depth_extent{};
-        bool prev_depth_valid{false};
-
-        // Upsampled indirect output: half-res screen
-        VkImage indirect_image{VK_NULL_HANDLE};
-        VmaAllocation indirect_memory{VK_NULL_HANDLE};
-        VkImageView indirect_view{VK_NULL_HANDLE};
-        /// The indirect output as the GPU interface's texture.
-        gpu::Owned<gpu::Texture> indirect_texture;
-        VkExtent2D indirect_extent{};
-
-        // Constants UBO, one per frame in flight. It is host-written every
-        // frame, and a frame's trace and resolve may still be pending on the
-        // GPU while the CPU records the next one, so they must not share it.
-        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> constants_ubo;
-
-        // Probe dimensions
-        glm::uvec2 probe_count{};
-        uint32_t rays_per_probe{16};
-
-        // Descriptor pool + sets. The trace and resolve sets hold resources
-        // that belong to one frame slot — the constants UBO, the TLAS, the
-        // per-instance table — and are rewritten every frame. They are
-        // update-after-bind, so rewriting a set that a pending frame still
-        // has bound would hand that frame this frame's slot: a TLAS built
-        // three frames ago against an instance table just overwritten with
-        // a different layout. One set per slot keeps each frame on its own.
-        // The upsample set's depth and normal bindings are rewritten every
-        // frame too, so it is per slot for the same reason.
-        VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> resolve_set{};
-        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> upsample_set{};
-
-        bool first_frame{true};
-
-        // Reprojection matrices for the temporal resolve: this frame's
-        // inverse view-projection and the previous frame's view-projection.
-        // Per-viewport, since each viewport has its own camera history.
-        glm::mat4 inv_view_proj{1.0f};
+        // The camera the history was resolved with, which the temporal
+        // resolve reprojects through. Per-viewport, since each viewport has
+        // its own camera history.
         glm::mat4 prev_view_proj{1.0f};
         glm::mat4 prev_inv_view_proj{1.0f};
         bool history_valid{false};
 
-        void create(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const SsGiConfig& config,
-                     uint32_t screen_w, uint32_t screen_h);
-        void resize(gpu::Device& gpu, VkDevice device, VmaAllocator allocator,
-                     const SsGiConfig& config,
-                     uint32_t screen_w, uint32_t screen_h);
-        void destroy(VkDevice device, VmaAllocator allocator);
-
-        // ImGui debug textures
+        gpu::Device* device{nullptr};
         VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
-        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(VkSampler sampler);
+
+        void create(gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        /// Releases the textures; the frames still reading them keep them
+        /// until they are done.
+        void destroy();
+        /// Made again when the probe grid or the output size changes.
+        void resize(gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        /// Makes `prev_depth` again unless it already matches `scene_depth`.
+        /// The render pipeline calls it before exporting the copy, for the
+        /// target the viewport draws into this frame.
+        void fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth);
+
+        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(gpu::Sampler sampler);
         void invalidate_imgui_texture();
     };
 
@@ -138,21 +109,19 @@ public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
-    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
-    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Where it stops before upsampling into the indirect output, the
     /// output holds what it held.
     void record_into(const FrameContext& ctx, Images& imgs);
 
-    /// Copy the scene depth into `imgs.prev_depth_image` for the next frame's
-    /// resolve, once this frame's resolve has read the last copy. The scene
-    /// depth must be in TRANSFER_SRC_OPTIMAL; SsGiDepthHistoryPass declares it.
+    /// Copy the scene depth into `imgs.prev_depth` for the next frame's
+    /// resolve. SsGiDepthHistoryPass declares both, which orders it after
+    /// this frame's resolve has read the last copy.
     void record_depth_history(const FrameContext& ctx, Images& imgs);
 
     /// Whether the pass records at all: enabled, with its trace pipeline.
     [[nodiscard]] bool active() const {
-        return config_.enabled && trace_pipeline_ != VK_NULL_HANDLE;
+        return config_.enabled && trace_pipeline_;
     }
 
     void set_config(const SsGiConfig& config) { config_ = config; }
@@ -182,70 +151,35 @@ public:
         sun_intensity_ = intensity;
     }
 
-    [[nodiscard]] VkSampler linear_sampler() const { return linear_sampler_; }
-
-    struct TracePushConstants {
-        uint32_t rays_per_probe;
-        uint32_t ray_offset;
-    };
-
-    struct ResolvePushConstants {
-        glm::uvec2 probe_count;
-        uint32_t rays_per_probe;
-        uint32_t frame_index;
-        glm::vec2 resolution;
-        uint32_t probe_spacing;
-        float hysteresis;
-    };
-
-    struct UpsamplePushConstants {
-        glm::uvec2 output_size;
-        glm::uvec2 probe_count;
-        uint32_t probe_spacing;
-        float pad0;
-    };
+    [[nodiscard]] gpu::Sampler linear_sampler() const { return linear_sampler_; }
 
 private:
-    void update_constants(Images& imgs, const FrameContext& ctx);
+    [[nodiscard]] GpuSsGiConstants constants(const Images& imgs, const FrameContext& ctx) const;
 
-    Device* device_{nullptr};
-    VkDevice vk_device_{VK_NULL_HANDLE};
-    VmaAllocator allocator_{nullptr};
     SsGiConfig config_;
     uint32_t frame_counter_{0};
-    glm::mat4 prev_view_proj_{1.0f};
 
     // Cached sun light data (set via set_sun_light before recording)
     glm::vec3 sun_direction_{0.0f, -1.0f, 0.0f};
     glm::vec3 sun_color_{1.0f};
     float sun_intensity_{1.5f};
 
-    // Trace compute pipeline, tracing with ray queries
-    VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline trace_pipeline_{VK_NULL_HANDLE};
+    /// Traces with ray queries; null on a device without them.
+    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> resolve_pipeline_;
+    gpu::Owned<gpu::ComputePipeline> upsample_pipeline_;
 
-    // Resolve compute pipeline
-    VkDescriptorSetLayout resolve_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout resolve_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline resolve_pipeline_{VK_NULL_HANDLE};
+    gpu::Sampler linear_sampler_;
+    gpu::Sampler nearest_sampler_;
 
-    // Upsample compute pipeline
-    VkDescriptorSetLayout upsample_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout upsample_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline upsample_pipeline_{VK_NULL_HANDLE};
-
-    VkSampler linear_sampler_{VK_NULL_HANDLE};
-    VkSampler nearest_sampler_{VK_NULL_HANDLE};
-
-    // RT backend
     AccelStructureManager* accel_manager_{nullptr};
     float trace_cell_size_{0.0F};
 };
 
-/// Copies the scene depth into SS-GI's private history after SS-GI has
-/// read the last copy. A node of its own so the graph moves the scene
-/// depth into the copy's layout and back to where its next reader wants it.
+/// Copies the scene depth into SS-GI's copy of it for the next frame. A node
+/// of its own so the graph moves the scene depth into the copy's layout and
+/// back to where its next reader wants it, and orders the copy after SS-GI
+/// has read the last one.
 class SsGiDepthHistoryPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;

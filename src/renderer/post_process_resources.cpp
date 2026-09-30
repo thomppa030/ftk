@@ -94,7 +94,7 @@ PostProcessResources::~PostProcessResources() {
     fog_images_.destroy();
     post_images_.destroy();
     ddgi_images_.destroy(device_, allocator_);
-    ss_gi_images_.destroy(device_, allocator_);
+    ss_gi_images_.destroy();
     taa_images_.destroy();
     rt_reflection_images_.destroy(device_, allocator_);
 }
@@ -130,7 +130,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
             fog_images_.destroy();
             post_images_.destroy();
             ddgi_images_.destroy(device_, allocator_);
-            ss_gi_images_.destroy(device_, allocator_);
+            ss_gi_images_.destroy();
             taa_images_.destroy();
             rt_reflection_images_.destroy(device_, allocator_);
         }
@@ -199,10 +199,9 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     }
     // SS-GI: deferred creation like DDGI
     if (config_.ss_gi) {
-        ss_gi_images_.resize(*gpu_, device_, allocator_, passes_->ss_gi.config(), width, height);
-    } else if (ss_gi_images_.indirect_image != VK_NULL_HANDLE) {
-        ss_gi_images_.invalidate_imgui_texture();
-        ss_gi_images_.destroy(device_, allocator_);
+        ss_gi_images_.resize(*gpu_, passes_->ss_gi.config(), width, height);
+    } else if (ss_gi_images_.indirect) {
+        ss_gi_images_.destroy();
     }
 }
 

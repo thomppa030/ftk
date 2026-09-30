@@ -473,8 +473,8 @@ private:
   /// The images this frame's global set binds at the GI slots, null for the
   /// fallback; written with the bindings, handed to the graph by the runs
   /// that bind that set.
-  VkImage bound_gi_indirect_{VK_NULL_HANDLE};
-  VkImage bound_ss_gi_emissive_{VK_NULL_HANDLE};
+  gpu::Texture bound_gi_indirect_{};
+  gpu::Texture bound_ss_gi_emissive_{};
   /// The serial of the frame begun last: what the transient pool dates its
   /// textures by.
   uint64_t frame_serial_{0};

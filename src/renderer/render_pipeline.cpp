@@ -261,14 +261,22 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             img.unwritten = ddgi->indirect_needs_init;
             decl_ctx.imports.emplace(fg_name_hash("ddgi_indirect"), img);
         }
-        if (auto* ss_gi = pp_resources->ss_gi();
-            ss_gi != nullptr && ss_gi->indirect_image != VK_NULL_HANDLE) {
-            ImportedImage img{};
-            img.view = ss_gi->indirect_texture;
-            img.persistent = true;   // the opaque pass reads it the next frame
-            img.resting = gpu::Access::sampled_fragment;
-            img.unwritten = ss_gi->first_frame;
-            decl_ctx.imports.emplace(fg_name_hash("ss_gi_output"), img);
+        if (auto* ss_gi = pp_resources->ss_gi(); ss_gi != nullptr && ss_gi->indirect) {
+            decl_ctx.export_texture(SsGiPass::OUTPUT_NAME, ss_gi->indirect,
+                                    {.persistent = true,   // the opaque pass reads it the next frame
+                                     .resting = gpu::Access::sampled_fragment,
+                                     .unwritten = !ss_gi->written});
+            // The depth this viewport drew last frame, which SS-GI's resolve
+            // reads before its depth history pass copies this frame's over
+            // it. Made for the target it draws into, which a resize or
+            // another viewport sharing these images can change.
+            if (const auto* pass = passes.try_get<SsGiPass>("ss_gi"); pass != nullptr && pass->active()) {
+                ss_gi->fit_prev_depth(*ctx.device, target.depth_texture());
+                if (ss_gi->prev_depth) {
+                    decl_ctx.export_texture(SsGiPass::PREV_DEPTH_NAME, ss_gi->prev_depth,
+                                            {.persistent = true});
+                }
+            }
         }
         // TAA's history ping-pong: the slot it writes this frame, which the
         // post pass then reads, and the one it reads back from the frame
@@ -316,17 +324,16 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // The names the surfaces read the GI outputs by stand for what the
         // global set binds at those slots: the output once it holds
         // something, nothing while the set binds the fallback.
-        auto name_if_bound = [&](std::string_view slot, std::string_view output, VkImage bound) {
+        auto name_if_bound = [&](std::string_view slot, std::string_view output, gpu::Texture bound) {
             const auto it = decl_ctx.imports.find(fg_name_hash(output));
-            if (bound == VK_NULL_HANDLE || it == decl_ctx.imports.end()
-                || gpu::vulkan::native_image(*ctx.device, it->second.view.texture) != bound) {
+            if (!bound.valid() || it == decl_ctx.imports.end() || it->second.view.texture != bound) {
                 return;
             }
             const ImportedImage img = it->second;
             decl_ctx.imports.emplace(fg_name_hash(slot), img);
         };
         name_if_bound("gi_indirect", "ddgi_indirect", ctx.bound_gi_indirect);
-        name_if_bound("ss_gi_emissive", "ss_gi_output", ctx.bound_ss_gi_emissive);
+        name_if_bound("ss_gi_emissive", SsGiPass::OUTPUT_NAME, ctx.bound_ss_gi_emissive);
     }
 
     // ── Collect declared passes + run DAG sort ────────────────────────
