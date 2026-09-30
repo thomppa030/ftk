@@ -3,7 +3,6 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "gpu/device.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -110,9 +109,6 @@ void HizPass::register_resources(ResourceRegistry& registry) {
         registry.register_image("hiz", {
             .frame_graph_id = 0,
             .texture = active_images_->pyramid,
-            .image = gpu::vulkan::native_image(*device_, active_images_->pyramid),
-            .view = gpu::vulkan::native_view(*device_, active_images_->pyramid),
-            .sampler = gpu::vulkan::native_sampler(*device_, sampler_),
             .mip_count = active_images_->mip_count});
     }
 }

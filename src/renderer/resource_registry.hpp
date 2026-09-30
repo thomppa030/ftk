@@ -3,8 +3,6 @@
 #include <gpu/buffer.hpp>
 #include "gpu/texture.hpp"
 
-#include <vulkan/vulkan.h>
-
 #include <cassert>
 #include <cstdint>
 #include <string>
@@ -12,7 +10,7 @@
 
 namespace fjell {
 
-/// Per-frame registry mapping named resources to Vulkan handles and
+/// Per-frame registry mapping named resources to their textures and
 /// FrameGraph image IDs. Bridges the string-based dependency system
 /// (RenderPipeline) with the actual image tracking (FrameGraph).
 class ResourceRegistry {
@@ -21,9 +19,6 @@ public:
         uint32_t frame_graph_id{0};
         /// The texture as the GPU interface knows it.
         gpu::Texture texture{};
-        VkImage image{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        VkSampler sampler{VK_NULL_HANDLE};
         uint32_t mip_count{0};
     };
 
@@ -76,20 +71,6 @@ public:
     [[nodiscard]] gpu::Texture texture(const std::string& name) const {
         const auto* res = find_image(name);
         return res != nullptr ? res->texture : gpu::Texture{};
-    }
-
-    /// Get the VkImageView for a named resource.
-    /// Returns VK_NULL_HANDLE if not registered.
-    [[nodiscard]] VkImageView image_view(const std::string& name) const {
-        const auto* res = find_image(name);
-        return res != nullptr ? res->view : VK_NULL_HANDLE;
-    }
-
-    /// Get the VkSampler for a named resource.
-    /// Returns VK_NULL_HANDLE if not registered.
-    [[nodiscard]] VkSampler image_sampler(const std::string& name) const {
-        const auto* res = find_image(name);
-        return res != nullptr ? res->sampler : VK_NULL_HANDLE;
     }
 
     /// Clear all entries. Called at the start of each frame.

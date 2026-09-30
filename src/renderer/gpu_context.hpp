@@ -18,12 +18,6 @@
 #include "renderer/gpu/thread_command_pools.hpp"
 #include <vulkan/vulkan.h>
 
-// Passes that still open zones with FJELL_GPU_ZONE reach Tracy's Vulkan
-// macros through here.
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
-
 #include <array>
 #include <cstdint>
 #include <memory>

@@ -617,22 +617,20 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto screen_color_id = graph.register_image(target.screen_color_texture());
     auto distortion_id   = graph.register_image(target.distortion_texture());
 
-    registry.register_image("color",         {.frame_graph_id = color_id,         .texture = target.color_texture(),         .image = target.color_image(),         .view = target.color_view()});
-    registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .texture = target.msaa_color_texture(),    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
-    registry.register_image("depth",         {.frame_graph_id = depth_id,         .texture = target.depth_texture(),         .image = target.depth_image(),         .view = target.depth_view()});
-    registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .texture = target.msaa_depth_texture(),    .image = target.msaa_depth_image(),    .view = target.msaa_depth_view()});
+    registry.register_image("color",         {.frame_graph_id = color_id,         .texture = target.color_texture()});
+    registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .texture = target.msaa_color_texture()});
+    registry.register_image("depth",         {.frame_graph_id = depth_id,         .texture = target.depth_texture()});
+    registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .texture = target.msaa_depth_texture()});
     registry.register_image("surface_depth", {.frame_graph_id = surface_depth_id,
-                                              .texture = water_draws ? target.surface_depth_texture() : target.depth_texture(),
-                                              .image = water_draws ? target.surface_depth_image() : target.depth_image(),
-                                              .view = water_draws ? target.surface_depth_view() : target.depth_view()});
-    registry.register_image("mr",            {.frame_graph_id = mr_id,            .texture = target.mr_texture(),            .image = target.mr_image(),            .view = target.mr_view()});
-    registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .texture = target.msaa_mr_texture(),       .image = target.msaa_mr_image(),       .view = target.msaa_mr_view()});
-    registry.register_image("normal",        {.frame_graph_id = normal_id,        .texture = target.normal_texture(),        .image = target.normal_image(),        .view = target.normal_view()});
-    registry.register_image("msaa_normal",   {.frame_graph_id = msaa_normal_id,   .texture = target.msaa_normal_texture(),   .image = target.msaa_normal_image(),   .view = target.msaa_normal_view()});
-    registry.register_image("velocity",      {.frame_graph_id = velocity_id,      .texture = target.velocity_texture(),      .image = target.velocity_image(),      .view = target.velocity_view()});
-    registry.register_image("msaa_velocity", {.frame_graph_id = msaa_velocity_id, .texture = target.msaa_velocity_texture(), .image = target.msaa_velocity_image(), .view = target.msaa_velocity_view()});
-    registry.register_image("screen_color",  {.frame_graph_id = screen_color_id,  .texture = target.screen_color_texture(),  .image = target.screen_color_image(),  .view = target.screen_color_view()});
-    registry.register_image("distortion",    {.frame_graph_id = distortion_id,    .texture = target.distortion_texture(),    .image = target.distortion_image(),    .view = target.distortion_view()});
+                                              .texture = water_draws ? target.surface_depth_texture() : target.depth_texture()});
+    registry.register_image("mr",            {.frame_graph_id = mr_id,            .texture = target.mr_texture()});
+    registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .texture = target.msaa_mr_texture()});
+    registry.register_image("normal",        {.frame_graph_id = normal_id,        .texture = target.normal_texture()});
+    registry.register_image("msaa_normal",   {.frame_graph_id = msaa_normal_id,   .texture = target.msaa_normal_texture()});
+    registry.register_image("velocity",      {.frame_graph_id = velocity_id,      .texture = target.velocity_texture()});
+    registry.register_image("msaa_velocity", {.frame_graph_id = msaa_velocity_id, .texture = target.msaa_velocity_texture()});
+    registry.register_image("screen_color",  {.frame_graph_id = screen_color_id,  .texture = target.screen_color_texture()});
+    registry.register_image("distortion",    {.frame_graph_id = distortion_id,    .texture = target.distortion_texture()});
 
     for (size_t idx : dag_order) {
         if (!alive[idx]) { continue; }
@@ -654,7 +652,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Take a texture per alias group from the cross-frame pool and
     // register each logical resource under the name it was declared
-    // with, where passes read it through ctx.registry->image_view(name).
+    // with, where passes read it through ctx.texture(name).
     if (ctx.transient_pool != nullptr) {
         FJELL_PROFILE_SCOPE_N("rp_alias_bind");
         auto& lifetimes = lifetimes_;
@@ -684,17 +682,12 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             const gpu::Texture texture =
                 ctx.transient_pool->acquire(group.desc, decl_ctx.viewport_extent, uses);
             if (!texture.valid()) { continue; }
-            const VkImage image = gpu::vulkan::native_image(*ctx.device, texture);
-            const VkImageView view = gpu::vulkan::native_view(*ctx.device, texture);
             for (uint32_t rid : group.resource_ids) {
                 const auto& img = imgs[rid];
                 if (img.name.empty()) { continue; }
                 ResourceRegistry::ImageResource res{};
                 res.frame_graph_id = rid;
                 res.texture = texture;
-                res.image = image;
-                res.view = view;
-                res.sampler = VK_NULL_HANDLE;
                 res.mip_count = img.mip_count;
                 registry.register_image(img.name, res);
                 // Tell the graph which texture backs this virtual resource

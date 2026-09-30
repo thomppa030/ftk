@@ -8,7 +8,6 @@
 #include "gpu/device.hpp"
 #include "gpu/shader.hpp"
 #include "gpu/upload.hpp"
-#include "gpu/vulkan/native.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass/sky_pass.hpp"
@@ -107,11 +106,7 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
 void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
     registry_ = &registry;
     const gpu::Texture sky = sky_texture();
-    registry.register_image("sky_cubemap", {.frame_graph_id = 0,
-                                            .texture = sky,
-                                            .image = gpu::vulkan::native_image(*device_, sky),
-                                            .view = gpu::vulkan::native_view(*device_, sky),
-                                            .sampler = gpu::vulkan::native_sampler(*device_, cubemap_sampler_)});
+    registry.register_image("sky_cubemap", {.frame_graph_id = 0, .texture = sky});
 }
 
 void SkyCubemapPass::destroy() {

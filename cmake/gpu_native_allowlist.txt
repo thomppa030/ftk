@@ -8,7 +8,6 @@
 src/core/engine.cpp
 src/core/play_controller.cpp
 src/core/play_controller.hpp
-src/core/profiler.hpp
 src/renderer/frame_graph.cpp
 src/renderer/frame_graph.hpp
 src/renderer/gpu/buffer.cpp
@@ -47,7 +46,6 @@ src/renderer/pass/motion_field_pass.cpp
 src/renderer/pass/motion_field_pass.hpp
 src/renderer/pass/normal_pass.hpp
 src/renderer/pass/overdraw_pass.hpp
-src/renderer/pass/pass_gpu_zone.hpp
 src/renderer/pass/post_pass.cpp
 src/renderer/pass/post_pass.hpp
 src/renderer/pass/render_pass.hpp
@@ -65,7 +63,6 @@ src/renderer/render_pipeline.hpp
 src/renderer/render_queue.hpp
 src/renderer/render_settings.cpp
 src/renderer/render_settings.hpp
-src/renderer/resource_registry.hpp
 src/renderer/resources/resource_manager.hpp
 src/renderer/resources/vertex.hpp
 src/renderer/scene_viewport.cpp

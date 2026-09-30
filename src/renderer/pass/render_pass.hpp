@@ -98,17 +98,15 @@ struct FrameContext {
     VkCommandBuffer graphics_post_cmd{VK_NULL_HANDLE};
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
-    VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
-    /// That set as the GPU interface binds it, for pipelines that name the
-    /// shared globals layout.
+    /// The view's global set, for pipelines that name the shared globals
+    /// layout.
     gpu::BindGroup globals{};
     /// What that set binds at the GI slots this run: DDGI's and SS-GI's
     /// outputs once they hold something, null while it binds the fallback.
     gpu::Texture bound_gi_indirect{};
     gpu::Texture bound_ss_gi_emissive{};
-    VkDescriptorSet bindless_set{VK_NULL_HANDLE};
-    /// That set as the GPU interface binds it, for pipelines that name the
-    /// shared bindless layout.
+    /// The bindless table, for pipelines that name the shared bindless
+    /// layout.
     gpu::BindGroup bindless{};
     /// The draw data group, for pipelines that name the shared draw data
     /// layout.
@@ -173,9 +171,6 @@ struct FrameContext {
 
     // Render statistics (draw calls, triangles, etc.)
     RenderStats* render_stats{nullptr};
-
-    // Tracy GPU profiling context (void* to avoid header dependency)
-    void* tracy_ctx{nullptr};
 
     // Render subsystems (particles, sprites, tilemaps).
     // Points into VulkanContext's cached raw-pointer vector.

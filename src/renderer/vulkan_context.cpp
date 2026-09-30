@@ -375,9 +375,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
     // Previews bind their own global set; everyone else the frame slot's.
     ctx.globals = view.global_group.valid() ? view.global_group
                                              : gpu_.global_bindings().group(current_frame_);
-    ctx.global_descriptor_set = gpu::vulkan::native_group(gpu_device(), ctx.globals);
     ctx.bindless = gpu_.bindless_textures().group(current_frame_);
-    ctx.bindless_set = gpu::vulkan::native_group(gpu_device(), ctx.bindless);
     ctx.draw_data = gatherer_.draw_data_descriptor().group(current_frame_);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
@@ -415,7 +413,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, const Viewp
 
     // Extended context for self-registering passes
     ctx.render_stats = &gpu_.render_stats();
-    ctx.tracy_ctx = gpu::vulkan::profiler_context(gpu_.core().gpu_device());
     ctx.subsystems = subsystem_ptrs_.data();
     ctx.subsystem_count = static_cast<uint32_t>(subsystem_ptrs_.size());
     ctx.active_sources = active_sources_;
