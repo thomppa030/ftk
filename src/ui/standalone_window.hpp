@@ -6,12 +6,12 @@
 
 namespace fjell {
 
-class GpuCore;
 class ImGuiLayer;
 struct ImGuiLayerFiles;
 class Window;
 
 namespace gpu {
+class Device;
 class Swapchain;
 }
 
@@ -23,7 +23,7 @@ class StandaloneWindow {
 public:
     /// `files` are where its ImGui layer finds the fonts and the sRGB
     /// fragment stage, as for the layer itself.
-    StandaloneWindow(GpuCore& gpu, const std::string& title, int width, int height,
+    StandaloneWindow(gpu::Device& device, const std::string& title, int width, int height,
                      const ImGuiLayerFiles& files);
     ~StandaloneWindow();
     StandaloneWindow(const StandaloneWindow&) = delete;
@@ -45,7 +45,7 @@ public:
     void frame(const std::function<void(float width, float height)>& draw);
 
 private:
-    GpuCore& gpu_;
+    gpu::Device& device_;
     std::unique_ptr<Window> window_;
     std::unique_ptr<gpu::Swapchain> swapchain_;
     std::unique_ptr<ImGuiLayer> imgui_;

@@ -8,7 +8,6 @@
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 
 #include <imgui_impl_vulkan.h>
 
@@ -88,11 +87,11 @@ ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
     }
 
     ImGui_ImplVulkan_InitInfo init{};
-    init.Instance = impl.core.instance();
-    init.PhysicalDevice = impl.core.physical_device();
+    init.Instance = impl.foundation.vk.instance();
+    init.PhysicalDevice = impl.foundation.vk.physical_device();
     init.Device = impl.device;
-    init.QueueFamily = impl.core.graphics_family();
-    init.Queue = impl.core.graphics_queue();
+    init.QueueFamily = impl.families[0];
+    init.Queue = impl.queues[0];
     init.DescriptorPool = state.pool;
     // The backend swallows Vulkan failures unless told where to report them;
     // an exhausted pool would otherwise show up only as images that stop

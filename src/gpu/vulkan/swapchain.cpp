@@ -5,7 +5,6 @@
 #include "gpu/vulkan/native.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/device.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 
 #include <algorithm>
@@ -65,7 +64,7 @@ VkExtent2D choose_extent(const VkSurfaceCapabilitiesKHR& capabilities, VkExtent2
 
 struct Swapchain::Impl {
     Impl(Device& gpu_device, Window& shown, VkSurfaceKHR on, bool own_surface)
-        : device(gpu_device), vk(gpu_device.impl().core.device()), window(shown), surface(on),
+        : device(gpu_device), vk(gpu_device.impl().foundation.vk), window(shown), surface(on),
           owns_surface(own_surface) {}
 
     ~Impl() {
@@ -233,9 +232,9 @@ void Swapchain::Impl::rebuild() {
 
 Result<std::unique_ptr<Swapchain>> Swapchain::create(Device& device, Window& window) {
     Device::Impl& self = device.impl();
-    fjell::Device& vk = self.core.device();
+    fjell::Device& vk = self.foundation.vk;
     std::unique_ptr<Impl> impl;
-    if (&window == &self.core.window()) {
+    if (&window == &self.foundation.window) {
         impl = std::make_unique<Impl>(device, window, vk.surface(), false);
     } else {
         VkSurfaceKHR surface{VK_NULL_HANDLE};

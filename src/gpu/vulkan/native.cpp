@@ -2,7 +2,6 @@
 
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/translate.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 namespace fjell::gpu::vulkan {
@@ -95,7 +94,7 @@ Owned<Texture> adopt(Device& device, VkImage image, VkImageView whole_view,
 }
 
 std::span<const uint32_t> upload_families(Device& device) {
-    return device.impl().core.device().upload_sharing_families();
+    return device.impl().foundation.vk.upload_sharing_families();
 }
 
 VkImageAspectFlags native_aspect(Device& device, Texture texture) {

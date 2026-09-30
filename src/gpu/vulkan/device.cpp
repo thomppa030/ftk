@@ -4,11 +4,11 @@
 #include "core/log.hpp"
 #include "gpu/vulkan/translate.hpp"
 #include "renderer/gpu/frames_in_flight.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <fstream>
 #include <span>
 #include <string>
@@ -100,14 +100,14 @@ constexpr uint64_t SCRATCH_CHUNK_SIZE = 8u << 20;
 
 // Where build scratch starts: what the device asks, where it builds
 // acceleration structures at all.
-uint64_t device_scratch_alignment(const GpuCore& core) {
-    if (!core.device().ray_tracing_supported()) return 256;
+uint64_t device_scratch_alignment(const fjell::Device& vk) {
+    if (!vk.ray_tracing_supported()) return 256;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration{};
     acceleration.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
     VkPhysicalDeviceProperties2 properties{};
     properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     properties.pNext = &acceleration;
-    vkGetPhysicalDeviceProperties2(core.physical_device(), &properties);
+    vkGetPhysicalDeviceProperties2(vk.physical_device(), &properties);
     return std::max<uint64_t>(acceleration.minAccelerationStructureScratchOffsetAlignment, 1);
 }
 
@@ -119,7 +119,30 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
                                properties.limits.minStorageBufferOffsetAlignment, 16});
 }
 
+VmaAllocator create_allocator(const fjell::Device& vk) {
+    VmaAllocatorCreateInfo info{};
+    info.instance = vk.instance();
+    info.physicalDevice = vk.physical_device();
+    info.device = vk.handle();
+    info.vulkanApiVersion = VK_API_VERSION_1_3;
+    if (vk.ray_tracing_supported()) info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    VmaAllocator allocator{VK_NULL_HANDLE};
+    vk_check(vmaCreateAllocator(&info, &allocator), "Failed to create the allocator");
+    return allocator;
+}
+
 } // namespace
+
+// ── Foundation ──────────────────────────────────────────────────────────
+
+vulkan::Foundation::Foundation(Window& shown)
+    : window(shown), vk(shown), allocator(create_allocator(vk)),
+      lanes(std::make_unique<UploadContext>(vk, allocator)) {}
+
+vulkan::Foundation::~Foundation() {
+    lanes.reset();
+    vmaDestroyAllocator(allocator);
+}
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
@@ -140,12 +163,12 @@ void Device::Impl::save_pipeline_cache() {
     pipeline_cache = VK_NULL_HANDLE;
 }
 
-Device::Impl::Impl(GpuCore& gpu_core)
-    : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()),
-      sparse_queue(gpu_core.device().sparse_bind_queue()),
-      upload_state{gpu_core.upload_context()},
+Device::Impl::Impl(Window& window)
+    : foundation(window), device(foundation.vk.handle()), allocator(foundation.allocator),
+      sparse_queue(foundation.vk.sparse_bind_queue()),
+      upload_state{*foundation.lanes},
       transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
-                 .alignment = transient_alignment(gpu_core.physical_device()),
+                 .alignment = transient_alignment(foundation.vk.physical_device()),
                  .chunk_size = TRANSIENT_CHUNK_SIZE},
                 [this](uint64_t size) -> Result<TransientChunk> {
                     auto made = make_buffer(BufferDesc{
@@ -159,7 +182,7 @@ Device::Impl::Impl(GpuCore& gpu_core)
                     const BufferRecord* record = buffers.get(*made);
                     return TransientChunk{*made, record->size, {record->mapped, record->size}};
                 }),
-      scratch_alignment(device_scratch_alignment(gpu_core)),
+      scratch_alignment(device_scratch_alignment(foundation.vk)),
       scratch({.frame_slots = MAX_FRAMES_IN_FLIGHT,
                .alignment = scratch_alignment,
                .chunk_size = SCRATCH_CHUNK_SIZE},
@@ -173,12 +196,13 @@ Device::Impl::Impl(GpuCore& gpu_core)
                   return TransientChunk{*made, size, {}};
               }) {
     VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
+    const fjell::Device& vk = foundation.vk;
+    vkGetPhysicalDeviceProperties(vk.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
-    name = gpu_core.device().gpu_name();
-    caps.mesh_shaders = gpu_core.device().mesh_shader_supported();
-    caps.mesh_max_output_vertices = gpu_core.device().mesh_shader_max_output_vertices();
-    caps.mesh_max_output_primitives = gpu_core.device().mesh_shader_max_output_primitives();
+    name = vk.gpu_name();
+    caps.mesh_shaders = vk.mesh_shader_supported();
+    caps.mesh_max_output_vertices = vk.mesh_shader_max_output_vertices();
+    caps.mesh_max_output_primitives = vk.mesh_shader_max_output_primitives();
     begin_label = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
         vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
     end_label = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
@@ -186,29 +210,33 @@ Device::Impl::Impl(GpuCore& gpu_core)
 #ifdef FJELL_ENABLE_TRACY
     // The profiler calibrates its GPU clock against the graphics queue with a
     // command buffer of its own.
+    VkCommandPoolCreateInfo profiler_pool_info{};
+    profiler_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    profiler_pool_info.queueFamilyIndex = vk.find_queue_families().graphics.value();
+    vk_check(vkCreateCommandPool(device, &profiler_pool_info, nullptr, &profiler_pool),
+             "Failed to create the profiler's command pool");
     VkCommandBufferAllocateInfo calibration_info{};
     calibration_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    calibration_info.commandPool = gpu_core.command_pool();
+    calibration_info.commandPool = profiler_pool;
     calibration_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     calibration_info.commandBufferCount = 1;
     VkCommandBuffer calibration{VK_NULL_HANDLE};
     if (vkAllocateCommandBuffers(device, &calibration_info, &calibration) == VK_SUCCESS) {
-        profiler = TracyVkContext(gpu_core.physical_device(), device, gpu_core.graphics_queue(),
-                                  calibration);
+        profiler = TracyVkContext(vk.physical_device(), device, vk.graphics_queue(), calibration);
         TracyVkContextName(profiler, "Fjell GPU", 9);
     }
 #endif
-    caps.ray_queries = gpu_core.device().ray_tracing_supported();
+    caps.ray_queries = vk.ray_tracing_supported();
     if (caps.ray_queries) {
-        create_acceleration = gpu_core.device().create_accel_struct_fn();
-        destroy_acceleration = gpu_core.device().destroy_accel_struct_fn();
-        acceleration_sizes = gpu_core.device().get_accel_struct_build_sizes_fn();
-        build_acceleration = gpu_core.device().cmd_build_accel_structs_fn();
-        acceleration_address = gpu_core.device().get_accel_struct_device_address_fn();
+        create_acceleration = vk.create_accel_struct_fn();
+        destroy_acceleration = vk.destroy_accel_struct_fn();
+        acceleration_sizes = vk.get_accel_struct_build_sizes_fn();
+        build_acceleration = vk.cmd_build_accel_structs_fn();
+        acceleration_address = vk.get_accel_struct_device_address_fn();
     }
-    draw_mesh_tasks = gpu_core.device().draw_mesh_tasks_fn();
-    draw_mesh_tasks_indirect = gpu_core.device().draw_mesh_tasks_indirect_fn();
-    draw_mesh_tasks_indirect_count = gpu_core.device().draw_mesh_tasks_indirect_count_fn();
+    draw_mesh_tasks = vk.draw_mesh_tasks_fn();
+    draw_mesh_tasks_indirect = vk.draw_mesh_tasks_indirect_fn();
+    draw_mesh_tasks_indirect_count = vk.draw_mesh_tasks_indirect_count_fn();
     locator = [](const std::string& relative) { return relative; };
     frame_sets.create(device, MAX_FRAMES_IN_FLIGHT,
                       {.acceleration_structures = caps.ray_queries ? 16U : 0U});
@@ -226,14 +254,14 @@ Device::Impl::Impl(GpuCore& gpu_core)
                         reinterpret_cast<uint64_t>(frame_timeline), "frame timeline");
 
     caps.frames_in_flight = MAX_FRAMES_IN_FLIGHT;
-    caps.max_samples = vulkan::from_vk(gpu_core.device().max_msaa_samples());
+    caps.max_samples = vulkan::from_vk(vk.max_msaa_samples());
     frames.resize(MAX_FRAMES_IN_FLIGHT);
-    const auto found = gpu_core.device().find_queue_families();
-    queues[0] = gpu_core.graphics_queue();
+    const auto found = vk.find_queue_families();
+    queues[0] = vk.graphics_queue();
     families[0] = found.graphics.value();
-    caps.async_compute = gpu_core.device().async_compute_supported();
+    caps.async_compute = vk.async_compute_supported();
     if (caps.async_compute) {
-        queues[1] = gpu_core.device().async_compute_queue();
+        queues[1] = vk.async_compute_queue();
         families[1] = found.async_compute.value();
     }
     constexpr const char* QUEUE_TIMELINE_NAMES[] = {"graphics timeline", "compute timeline"};
@@ -247,12 +275,16 @@ Device::Impl::Impl(GpuCore& gpu_core)
 }
 
 Device::Impl::~Impl() {
+    // Uploads still open may clear textures the device holds: they are sent,
+    // and finish with everything else on the GPU, before anything goes.
+    foundation.lanes->wait_all();
+    vkDeviceWaitIdle(device);
 #ifdef FJELL_ENABLE_TRACY
     if (profiler != nullptr) TracyVkDestroy(profiler);
+    vkDestroyCommandPool(device, profiler_pool, nullptr);
 #endif
     save_pipeline_cache();
-    // The GPU is idle here (GpuCore waits before destroying the device), so
-    // what is still held is destroyed now: first what was released and
+    // The GPU is idle, so what is still held is destroyed now: first what was released and
     // waits for frames, then the device's own buffers, then anything never
     // released by an owner that outlived the device.
     releases.flush();
@@ -361,7 +393,7 @@ Result<Buffer> Device::Impl::make_buffer(const BufferDesc& desc) {
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = desc.size;
     create_info.usage = vulkan::to_vk(desc.use);
-    const auto families = core.device().upload_sharing_families();
+    const auto families = foundation.vk.upload_sharing_families();
     share_with_upload_families(create_info, families);
 
     if (desc.reserve != 0 && sparse_queue != VK_NULL_HANDLE) {
@@ -528,7 +560,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     create_info.usage = vulkan::to_vk(info.use, info.format);
     create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     uint32_t family_count = 0;
-    const uint32_t* families = self.core.device().concurrent_queue_families(family_count);
+    const uint32_t* families = self.foundation.vk.concurrent_queue_families(family_count);
     if (desc.queues == Queues::graphics_and_compute && family_count >= 2) {
         create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         create_info.queueFamilyIndexCount = family_count;
@@ -623,7 +655,7 @@ Result<> Device::grow(Buffer buffer, uint64_t size) {
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = target;
     create_info.usage = record->usage;
-    const auto families = self.core.device().upload_sharing_families();
+    const auto families = self.foundation.vk.upload_sharing_families();
     share_with_upload_families(create_info, families);
     VmaAllocationCreateInfo allocation_info{};
     allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
@@ -732,12 +764,12 @@ Upload& Device::upload() {
     return *impl_->upload;
 }
 
-namespace vulkan {
-
-std::unique_ptr<Device> create_device(GpuCore& core) {
-    return std::make_unique<Device>(std::make_unique<Device::Impl>(core));
+Result<std::unique_ptr<Device>> Device::create(Window& window) {
+    try {
+        return std::make_unique<Device>(std::make_unique<Impl>(window));
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
 }
-
-} // namespace vulkan
 
 } // namespace fjell::gpu

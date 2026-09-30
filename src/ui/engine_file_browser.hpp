@@ -15,11 +15,11 @@ namespace fjell {
 /// The hub setting the file browsers' recent folders are kept under.
 inline constexpr std::string_view HUB_RECENT_FOLDERS_KEY = "recent_folders";
 
-/// Sets a file browser up the way every Fjell window has one: on `gpu`, with
+/// Sets a file browser up the way every Fjell window has one: on `device`, with
 /// the engine's ImGui files, and with the folders picked from lately kept in
 /// the hub's settings, so the hub and every editor offer the same ones.
-inline void set_up_file_browser(FileBrowser& browser, GpuCore* gpu) {
-    browser.set_gpu(gpu, engine_imgui_files());
+inline void set_up_file_browser(FileBrowser& browser, gpu::Device* device) {
+    browser.set_device(device, engine_imgui_files());
     browser.set_recent_folders({
         .load = [] {
             std::vector<std::string> folders;

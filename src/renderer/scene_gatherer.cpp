@@ -85,7 +85,7 @@ DrawCommand mesh_command(const Node& obj, const Node3D& spatial, const MeshCompo
 } // namespace
 
 void SceneGatherer::init(GpuContext& gpu) {
-    gpu::Device& device = gpu.core().gpu_device();
+    gpu::Device& device = gpu.device();
     indirect_batch_ = std::make_unique<IndirectBatch>(device);
 
     auto layout = DrawDataDescriptor::make_layout(device);

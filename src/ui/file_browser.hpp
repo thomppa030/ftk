@@ -14,7 +14,9 @@
 
 namespace fjell {
 
-class GpuCore;
+namespace gpu {
+class Device;
+}
 
 /// A file or folder browser in a window of its own (sheet 9): back and up,
 /// breadcrumbs that turn into a path field when the empty end of the bar is
@@ -49,10 +51,11 @@ public:
         std::function<void(const std::vector<std::string>&)> save;
     };
 
-    /// Set the GpuCore to share, and where the window's ImGui layer finds its
-    /// fonts and sRGB fragment stage. Must be called before open().
-    void set_gpu(GpuCore* gpu, ImGuiLayerFiles files) {
-        gpu_ = gpu;
+    /// Set the device its window draws with, and where the window's ImGui
+    /// layer finds its fonts and sRGB fragment stage. Must be called before
+    /// open().
+    void set_device(gpu::Device* device, ImGuiLayerFiles files) {
+        device_ = device;
         imgui_files_ = std::move(files);
     }
 
@@ -105,7 +108,7 @@ private:
     static std::string format_size(uintmax_t bytes);
     static std::string format_time(std::filesystem::file_time_type time);
 
-    GpuCore* gpu_{nullptr};
+    gpu::Device* device_{nullptr};
     ImGuiLayerFiles imgui_files_;
     RecentFolders recent_;
     std::unique_ptr<StandaloneWindow> window_;

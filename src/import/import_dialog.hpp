@@ -14,13 +14,12 @@
 
 namespace fjell {
 
-class GpuCore;
 class ImGuiLayer;
 class Window;
 
 /// Standalone OS window for configuring and running mesh imports.
-/// Shares the editor's Vulkan device (via GpuCore) but creates its own
-/// window, surface, swapchain, command pool, and ImGui context. Call tick()
+/// Shares the editor's GPU device but creates its own window, swapchain and
+/// ImGui context. Call tick()
 /// from the engine main loop each frame.
 class ImportDialog {
 public:
@@ -30,8 +29,8 @@ public:
     ImportDialog(const ImportDialog&) = delete;
     ImportDialog& operator=(const ImportDialog&) = delete;
 
-    /// Set the GpuCore to share. Must be called before open().
-    void set_gpu(GpuCore* gpu) { gpu_ = gpu; }
+    /// Set the device to share. Must be called before open().
+    void set_device(gpu::Device* device) { device_ = device; }
 
     /// Project root and the project's texture import directory. Texture paths
     /// in generated .fjmat files are written relative to the root. Set before
@@ -68,7 +67,7 @@ private:
     bool draw_bottom_bar();
 
     // Shared from the editor (not owned)
-    GpuCore* gpu_{nullptr};
+    gpu::Device* device_{nullptr};
     std::filesystem::path project_root_;
     std::string project_texture_dir_{"assets/textures"};
 

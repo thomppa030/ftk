@@ -4,7 +4,6 @@
 #include "gpu/device.hpp"
 #include "gpu/vulkan/device_impl.hpp"
 #include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/upload_context.hpp"
 
 #include <vk_mem_alloc.h>
@@ -90,7 +89,7 @@ bool Readback::ready() const {
     if (impl_->frame != 0) {
         if (impl_->device->finished_frame() < impl_->frame) return false;
     } else {
-        UploadContext& lanes = impl_->device->impl().core.upload_context();
+        UploadContext& lanes = *impl_->device->impl().foundation.lanes;
         if (!lanes.image_done(*impl_->batch)) return false;
     }
     impl_->finish();
@@ -115,7 +114,7 @@ void Readback::wait() {
             return;
         }
     } else {
-        UploadContext& lanes = self.core.upload_context();
+        UploadContext& lanes = *self.foundation.lanes;
         if (*impl_->batch == 0) lanes.flush();
         lanes.wait_image(*impl_->batch);
     }
@@ -218,7 +217,7 @@ Result<std::unique_ptr<Readback::Impl>> record_read(Device& device, CommandList&
 } // namespace
 
 Result<Readback> Device::read_back(const TextureView& view, const ReadbackDesc& desc) {
-    UploadContext& lanes = impl_->core.upload_context();
+    UploadContext& lanes = *impl_->foundation.lanes;
     vulkan::CommandBufferList recorder(*this, lanes.image_cb());
     auto impl = record_read(*this, recorder.list(), view, desc);
     if (!impl) return std::unexpected(impl.error());

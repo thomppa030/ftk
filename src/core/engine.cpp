@@ -102,10 +102,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     // Font bakes run on the pool from here on, project fonts included.
     vulkan_context_->font_library().set_thread_pool(&thread_pool_);
 
-    auto* gpu_core = &vulkan_context_->gpu().core();
-    import_dialog_.set_gpu(gpu_core);
-    menu_bar_.set_gpu(gpu_core);
-    set_up_file_browser(import_file_browser_, gpu_core);
+    gpu::Device* device = &vulkan_context_->gpu_device();
+    import_dialog_.set_device(device);
+    menu_bar_.set_device(device);
+    set_up_file_browser(import_file_browser_, device);
 
     init_subsystems();
     init_project(project_path, create_name);
@@ -869,17 +869,13 @@ Engine::~Engine() {
     // depends on is still alive; it's a no-op if play was never started.
     play_controller_.stop();
 
+    // Uploads are sent with a frame, so a run that ends before its first frame
+    // (a bad scenario file, a failed init) leaves everything the constructor
+    // staged in an open batch. The teardown below frees those buffers, and the
+    // batch would then be sent full of destroyed handles when the device goes.
+    // Waiting for the device sends it and lets it finish while what it names
+    // is alive; on every path that rendered there is nothing left to send.
     vulkan_context_->wait_idle();
-    // Uploads are only ever submitted from submit_and_present(), which returns
-    // early until a frame has been recorded. A run that ends before its first
-    // frame — a bad scenario file, a failed init — leaves everything the
-    // constructor staged sitting in an open batch. The teardown below frees
-    // those buffers, and the batch's command buffer then goes invalid with
-    // them, so UploadContext's own destructor would end and submit a command
-    // buffer full of destroyed handles and then wait forever on a timeline
-    // value nothing can signal. Draining here, while the resources are alive,
-    // is a no-op on every path that rendered.
-    vulkan_context_->upload_context().wait_all();
     vulkan_context_->set_overlay_callback(nullptr);
     AssetThumbnailRenderer::set_instance(nullptr);
     // Drops any directory walk still in flight, so nothing is waiting on the

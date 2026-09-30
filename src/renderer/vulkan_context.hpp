@@ -136,14 +136,13 @@ public:
 
   // ── Forwarding accessors to GpuContext ────────────────────────────────
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
-  [[nodiscard]] UploadContext& upload_context() { return gpu_.upload_context(); }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
   /// The main window's images' format, what ImGui and the game UI draw into.
   [[nodiscard]] gpu::Format swapchain_format() const;
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
   /// The GPU interface's device.
-  [[nodiscard]] gpu::Device &gpu_device() { return gpu_.core().gpu_device(); }
+  [[nodiscard]] gpu::Device &gpu_device() { return gpu_.device(); }
   [[nodiscard]] gpu::Samples msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
   [[nodiscard]] bool async_compute_supported() const { return gpu_.async_compute_supported(); }

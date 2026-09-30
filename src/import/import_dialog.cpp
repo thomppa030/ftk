@@ -47,8 +47,8 @@ ImportDialog::~ImportDialog() {
 }
 
 void ImportDialog::open(const fs::path& source_path, const fs::path& default_output_dir) {
-    if (!gpu_) {
-        FJELL_CORE_ERROR("ImportDialog::open() called without set_gpu()");
+    if (!device_) {
+        FJELL_CORE_ERROR("ImportDialog::open() called without set_device()");
         return;
     }
 
@@ -65,7 +65,7 @@ void ImportDialog::open(const fs::path& source_path, const fs::path& default_out
     inspection_.start(source_path);
     if (is_open()) return;
 
-    window_ = std::make_unique<StandaloneWindow>(*gpu_, "Import: " + source_filename_, DIALOG_WIDTH, DIALOG_HEIGHT,
+    window_ = std::make_unique<StandaloneWindow>(*device_, "Import: " + source_filename_, DIALOG_WIDTH, DIALOG_HEIGHT,
                                                  engine_imgui_files());
     job_connection_ = job_.on_complete.bind([this](bool success, const std::vector<std::string>& files) {
         on_import_complete.broadcast(success, files);

@@ -6,6 +6,7 @@
 #include "gpu/transient_memory.hpp"
 #include "gpu/upload.hpp"
 #include "gpu/vulkan/frame_descriptor_cache.hpp"
+#include "renderer/gpu/device.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -30,23 +31,42 @@
 #include <vector>
 
 namespace fjell {
-class GpuCore;
 class UploadContext;
+class Window;
 }
 
 namespace fjell::gpu {
 
 struct FrameSlot;
 
-/// The Vulkan backend's upload: the lanes `GpuCore` runs, which frames wait
-/// for.
+/// The Vulkan backend's upload: the device's lanes, which frames wait for.
 struct Upload::Impl {
     UploadContext& lanes;
 };
 
+namespace vulkan {
+
+/// What a device runs on, brought up before anything it makes and torn down
+/// after it: the Vulkan instance, the GPU chosen with its queues, the
+/// allocator, and the lanes uploads run on.
+struct Foundation {
+    explicit Foundation(Window& shown);
+    ~Foundation();
+
+    Foundation(const Foundation&) = delete;
+    Foundation& operator=(const Foundation&) = delete;
+
+    /// The window the device was chosen to show, whose surface `vk` made.
+    Window& window;
+    fjell::Device vk;
+    VmaAllocator allocator{VK_NULL_HANDLE};
+    std::unique_ptr<UploadContext> lanes;
+};
+
+} // namespace vulkan
+
 /// The Vulkan backend's device: pools of native objects behind the handles,
-/// over what `GpuCore` already brought up (the VkDevice, the allocator and
-/// the upload lanes).
+/// over its foundation.
 struct Device::Impl {
     struct BufferRecord {
         VkBuffer buffer{VK_NULL_HANDLE};
@@ -201,7 +221,7 @@ struct Device::Impl {
         std::string name;
     };
 
-    explicit Impl(GpuCore& core);
+    explicit Impl(Window& window);
     ~Impl();
 
     /// Writes the pipeline cache to its file and destroys it; nothing
@@ -282,7 +302,8 @@ struct Device::Impl {
     [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
     [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
 
-    GpuCore& core;
+    /// Made first and destroyed last.
+    vulkan::Foundation foundation;
     VkDevice device{VK_NULL_HANDLE};
     VmaAllocator allocator{VK_NULL_HANDLE};
     float max_anisotropy{1.0f};
@@ -375,8 +396,10 @@ struct Device::Impl {
         }
     };
 
-    /// The profiler's GPU context on the graphics queue.
+    /// The profiler's GPU context on the graphics queue, and the pool of the
+    /// command buffer it calibrates its clock with.
     tracy::VkCtx* profiler{nullptr};
+    VkCommandPool profiler_pool{VK_NULL_HANDLE};
     /// Every zone site seen, which the profiler keeps pointing at.
     std::unordered_map<ZoneSite, tracy::SourceLocationData, ZoneSiteHash, ZoneSiteEqual> zone_sites;
     std::mutex zone_sites_mutex;
@@ -429,10 +452,6 @@ namespace vulkan {
 /// Names a Vulkan object for validation messages and RenderDoc. Silent when
 /// debug utils are not loaded.
 void name_object(VkDevice device, VkObjectType type, uint64_t handle, std::string_view name);
-
-/// The device over what `core` already brought up. `GpuCore` makes it last
-/// and destroys it first, after the GPU is idle.
-[[nodiscard]] std::unique_ptr<Device> create_device(GpuCore& core);
 
 } // namespace vulkan
 

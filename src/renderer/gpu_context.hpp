@@ -3,7 +3,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/transient_image_pool.hpp"
 #include "renderer/global_bindings.hpp"
-#include "renderer/gpu/gpu_core.hpp"
+#include <gpu/device.hpp>
 #include "gpu/swapchain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
@@ -41,12 +41,13 @@ public:
     GpuContext(GpuContext&&) = delete;
     GpuContext& operator=(GpuContext&&) = delete;
 
-    // ── Core (forwarded from GpuCore) ──────────────────────────────────
-    [[nodiscard]] GpuCore& core() { return core_; }
-    [[nodiscard]] const GpuCore& core() const { return core_; }
+    // ── Device ──────────────────────────────────────────────────────────
+    /// The GPU, made for the window.
+    [[nodiscard]] gpu::Device& device() { return *device_; }
+    [[nodiscard]] const gpu::Device& device() const { return *device_; }
 
-    [[nodiscard]] Window& window() { return core_.window(); }
-    [[nodiscard]] const std::string& gpu_name() const { return core_.gpu_device().name(); }
+    [[nodiscard]] Window& window() { return window_; }
+    [[nodiscard]] const std::string& gpu_name() const { return device_->name(); }
 
     // ── Swapchain ───────────────────────────────────────────────────────
     /// What the main window shows.
@@ -56,13 +57,8 @@ public:
     // ── Command infrastructure ──────────────────────────────────────────
 
     [[nodiscard]] bool async_compute_supported() const {
-        return core_.gpu_device().caps().async_compute;
+        return device_->caps().async_compute;
     }
-
-    // ── Deferred destruction ────────────────────────────────────────────
-
-    // ── Batched GPU uploads ─────────────────────────────────────────────
-    [[nodiscard]] UploadContext& upload_context() { return core_.upload_context(); }
 
     // ── Global descriptors ──────────────────────────────────────────────
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
@@ -111,7 +107,7 @@ public:
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] gpu::Samples msaa_samples() const { return msaa_samples_; }
-    [[nodiscard]] bool ray_tracing_supported() const { return core_.gpu_device().caps().ray_queries; }
+    [[nodiscard]] bool ray_tracing_supported() const { return device_->caps().ray_queries; }
 
     // ── Stats ───────────────────────────────────────────────────────────
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
@@ -134,12 +130,13 @@ public:
     /// context, for the pipelines that name it.
     void share_draw_data_layout(gpu::SharedLayout layout);
 
-    void wait_idle() { core_.wait_idle(); }
+    void wait_idle() { device_->wait_idle(); }
 
 private:
     void create_descriptor_resources();
 
-    GpuCore core_;
+    Window& window_;
+    std::unique_ptr<gpu::Device> device_;
     std::unique_ptr<gpu::Swapchain> swapchain_;
 
 

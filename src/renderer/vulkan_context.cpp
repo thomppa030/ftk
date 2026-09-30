@@ -385,7 +385,7 @@ FrameContext VulkanContext::build_frame_context(const ViewportRenderRequest& vie
         ctx.gpu_driven_commands = meshlet_instance_pass()->indirect_buffer(current_frame_);
     }
     ctx.pp_resources = pp;
-    ctx.device = &gpu_.core().gpu_device();
+    ctx.device = &gpu_.device();
     ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = view.skip_shadows;

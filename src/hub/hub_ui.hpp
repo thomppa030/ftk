@@ -5,18 +5,14 @@
 
 #include <string>
 
-namespace fjell {
-class GpuCore;
-}
-
 namespace fjell::hub {
 
 class HubUI {
 public:
     HubUI();
 
-    /// Set the GpuCore for standalone file browser windows.
-    void set_gpu(fjell::GpuCore* gpu);
+    /// Set the device the file browser windows draw with.
+    void set_device(fjell::gpu::Device* device);
 
     // Draw the current frame. Returns a project path to launch, or empty.
     [[nodiscard]] std::string draw(float window_w, float window_h);

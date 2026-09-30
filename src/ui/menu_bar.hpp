@@ -11,7 +11,6 @@
 
 namespace fjell {
 
-class GpuCore;
 class Project;
 class Scene;
 class VulkanContext;
@@ -32,7 +31,7 @@ public:
     void set_kit_gallery_flag(bool* show) { show_kit_gallery_ = show; }
     void set_sdf_debug_flag(bool* show) { show_sdf_debug_ = show; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
-    void set_gpu(GpuCore* gpu);
+    void set_device(gpu::Device* device);
 
     /// Tick standalone file browser windows. Call from the main loop.
     void tick_browsers();

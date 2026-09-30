@@ -29,9 +29,9 @@ namespace fjell::hub {
 
 HubUI::HubUI() = default;
 
-void HubUI::set_gpu(fjell::GpuCore* gpu) {
-    set_up_file_browser(open_browser_, gpu);
-    set_up_file_browser(new_browser_, gpu);
+void HubUI::set_device(fjell::gpu::Device* device) {
+    set_up_file_browser(open_browser_, device);
+    set_up_file_browser(new_browser_, device);
 
     browser_connections_.push_back(
         open_browser_.on_selected.bind([this](const std::string& path) {

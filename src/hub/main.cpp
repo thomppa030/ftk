@@ -5,7 +5,6 @@
 #include "gpu/device.hpp"
 #include "gpu/frame.hpp"
 #include "gpu/swapchain.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/gpu/window.hpp"
 #include "ui/engine_imgui_files.hpp"
 #include "ui/imgui_layer.hpp"
@@ -44,8 +43,10 @@ int main() {
 
     try {
         fjell::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
-        fjell::GpuCore gpu{window};
-        fjell::gpu::Device& device = gpu.gpu_device();
+        auto made_device = fjell::gpu::Device::create(window);
+        if (!made_device) throw std::runtime_error(made_device.error());
+        const std::unique_ptr<fjell::gpu::Device> gpu_device = std::move(*made_device);
+        fjell::gpu::Device& device = *gpu_device;
         auto made = fjell::gpu::Swapchain::create(device, window);
         if (!made) throw std::runtime_error(made.error());
         const std::unique_ptr<fjell::gpu::Swapchain> swapchain = std::move(*made);
@@ -53,7 +54,7 @@ int main() {
         auto imgui_layer = fjell::ImGuiLayer(window, device, swapchain->format(), fjell::engine_imgui_files());
 
         fjell::hub::HubUI hub_ui;
-        hub_ui.set_gpu(&gpu);
+        hub_ui.set_device(&device);
         fjell::Clock clock;
 
         while (!window.should_close()) {
@@ -98,7 +99,7 @@ int main() {
             }
         }
 
-        gpu.wait_idle();
+        device.wait_idle();
 
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", e.what());

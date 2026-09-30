@@ -7,7 +7,7 @@
 //     fjell-link-editor-shell <fonts directory> <imgui.frag.spv>
 
 #include "core/log.hpp"
-#include "renderer/gpu/gpu_core.hpp"
+#include "gpu/device.hpp"
 #include "renderer/gpu/window.hpp"
 #include "ui/imgui_layer.hpp"
 #include "ui/kit/button.hpp"
@@ -25,8 +25,13 @@ int main(int argc, char** argv) {
     {
         // The device is made for a window of its own, as the editor's is.
         fjell::Window main_window("fjell-link-editor-shell", 320, 240);
-        fjell::GpuCore gpu(main_window);
-        fjell::StandaloneWindow window(gpu, "fjell-link-editor-shell", 480, 320,
+        auto made = fjell::gpu::Device::create(main_window);
+        if (!made) {
+            std::fprintf(stderr, "%s\n", made.error().c_str());
+            return 1;
+        }
+        fjell::gpu::Device& device = **made;
+        fjell::StandaloneWindow window(device, "fjell-link-editor-shell", 480, 320,
                                        {.fonts = argv[1], .srgb_fragment = argv[2]});
         for (int frame = 0; frame < 10; ++frame) {
             window.frame([&](float, float) {
@@ -34,7 +39,7 @@ int main(int argc, char** argv) {
                 ++drawn;
             });
         }
-        gpu.wait_idle();
+        device.wait_idle();
     }
     fjell::log::shutdown();
     return drawn > 0 ? 0 : 1;

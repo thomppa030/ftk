@@ -19,41 +19,52 @@ namespace fjell {
 
 // ── GpuContext ───────────────────────────────────────────────────────────
 
+namespace {
+
+std::unique_ptr<gpu::Device> make_device(Window& window) {
+    auto made = gpu::Device::create(window);
+    if (!made) throw std::runtime_error(made.error());
+    return std::move(*made);
+}
+
+} // namespace
+
 GpuContext::GpuContext(Window& window)
-    : core_{window}
+    : window_{window}
+    , device_{make_device(window)}
     , render_stats_{std::make_unique<RenderStats>()} {
     FJELL_GFX_INFO("Initializing GPU context");
 
-    auto swapchain = gpu::Swapchain::create(core_.gpu_device(), window);
+    auto swapchain = gpu::Swapchain::create(*device_, window);
     if (!swapchain) throw std::runtime_error(swapchain.error());
     swapchain_ = std::move(*swapchain);
 
     // The GPU interface's pipelines read the shaders the build compiled beside
     // the program, and keep what they learn beside it too.
-    core_.gpu_device().set_shader_locator(
+    device_->set_shader_locator(
         [](const std::string& relative) { return base_path::resolve(relative); });
-    core_.gpu_device().set_pipeline_cache_file(base_path::resolve("pipeline_cache.bin"));
+    device_->set_pipeline_cache_file(base_path::resolve("pipeline_cache.bin"));
 
     create_descriptor_resources();
-    if (auto r = bindless_textures_.create(core_.gpu_device()); !r) {
+    if (auto r = bindless_textures_.create(*device_); !r) {
         throw std::runtime_error(r.error());
     }
     shared_layouts_.bindless = bindless_textures_.layout();
 
-    transient_pool_.create(core_.gpu_device());
+    transient_pool_.create(*device_);
 
     // Multi-draw indirect setup
-    mega_buffer_ = std::make_unique<MegaBuffer>(core_.gpu_device());
+    mega_buffer_ = std::make_unique<MegaBuffer>(*device_);
 
     // Meshlet buffers + descriptor (uploaded at model load time)
-    meshlet_buffer_ = std::make_unique<MeshletBuffer>(core_.gpu_device());
-    if (auto made = meshlet_descriptor_.create(core_.gpu_device()); !made) {
+    meshlet_buffer_ = std::make_unique<MeshletBuffer>(*device_);
+    if (auto made = meshlet_descriptor_.create(*device_); !made) {
         throw std::runtime_error("Meshlet set: " + made.error());
     }
     shared_layouts_.meshlets = meshlet_descriptor_.layout();
 
     // Four samples where the GPU has them.
-    msaa_samples_ = std::min(gpu::Samples::x4, core_.gpu_device().caps().max_samples);
+    msaa_samples_ = std::min(gpu::Samples::x4, device_->caps().max_samples);
     FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
 
 
@@ -62,7 +73,7 @@ GpuContext::GpuContext(Window& window)
 
 void GpuContext::init_pipelines() {
     pipeline_cache_ = std::make_unique<PipelineCache>(
-        core_.gpu_device(),
+        *device_,
         PipelineCache::Targets{
             .color = OffscreenPass::COLOR_FORMAT,
             .mr = OffscreenPass::MR_FORMAT,
@@ -75,7 +86,7 @@ void GpuContext::init_pipelines() {
             .globals = shared_layouts_.globals,
             .bindless = shared_layouts_.bindless,
             .draw_data = shared_layouts_.draw_data,
-            .meshlets = core_.gpu_device().caps().mesh_shaders ? shared_layouts_.meshlets
+            .meshlets = device_->caps().mesh_shaders ? shared_layouts_.meshlets
                                                                 : gpu::SharedLayout{},
         });
 }
@@ -98,8 +109,7 @@ GpuContext::~GpuContext() {
 
 
 
-    // The swapchain goes next, once the GPU is idle, then GpuCore: the
-    // command pool, the device, the allocator, in that order.
+    // The swapchain goes next, once the GPU is idle, then the device.
 }
 
 void GpuContext::create_descriptor_resources() {
@@ -107,7 +117,7 @@ void GpuContext::create_descriptor_resources() {
     // Buffers, samplers, and fallback images are created here.
     // Layout/pool/set creation happens in finalize_descriptors() to allow
     // additional bindings to be declared before the layout is locked.
-    gpu::Device& device = core_.gpu_device();
+    gpu::Device& device = *device_;
 
     // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
     constexpr uint64_t tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
@@ -158,7 +168,7 @@ void GpuContext::create_descriptor_resources() {
 }
 
 void GpuContext::finalize_descriptors() {
-    if (auto made = global_bindings_.create(core_.gpu_device()); !made) {
+    if (auto made = global_bindings_.create(*device_); !made) {
         throw std::runtime_error("Global set: " + made.error());
     }
 
@@ -210,12 +220,7 @@ PassResources GpuContext::pass_resources() const {
     res.scene_velocity_format = OffscreenPass::VELOCITY_FORMAT;
     res.scene_distortion_format = OffscreenPass::DISTORTION_FORMAT;
     res.samples = msaa_samples_;
-    // Handing out mutable access to the device core_ owns, not mutating
-    // core_ itself — same "logically const" shape as every other pointer/
-    // handle field above, just needing a cast since gpu_device() isn't
-    // const-qualified on GpuCore (its callers call non-const methods on it).
-    auto& mutable_core = const_cast<GpuCore&>(core_);
-    res.device = &mutable_core.gpu_device();
+    res.device = device_.get();
     return res;
 }
 

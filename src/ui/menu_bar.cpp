@@ -2,7 +2,6 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
-#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/engine_file_browser.hpp"
 #include "ui/kit/dialog.hpp"
@@ -205,9 +204,9 @@ void MenuBar::draw_popups() {
     }
 }
 
-void MenuBar::set_gpu(GpuCore* gpu) {
-    set_up_file_browser(open_browser_, gpu);
-    set_up_file_browser(new_browser_, gpu);
+void MenuBar::set_device(gpu::Device* device) {
+    set_up_file_browser(open_browser_, device);
+    set_up_file_browser(new_browser_, device);
 
     browser_connections_.push_back(
         open_browser_.on_selected.bind([this](const std::string& path) {
