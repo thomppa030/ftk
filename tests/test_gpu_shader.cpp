@@ -93,6 +93,15 @@ TEST_CASE("stages sizing one array differently merge to the longer", "[gpu][shad
     CHECK(textures->stages == (ShaderStage::vertex | ShaderStage::fragment));
 }
 
+TEST_CASE("reflection reads an acceleration structure ray queries trace", "[gpu][shader]") {
+    const ShaderLayout layout = reflected("ray_query.comp");
+    const ShaderBinding* scene = layout.find("scene");
+    REQUIRE(scene != nullptr);
+    CHECK(scene->kind == BindingKind::acceleration_structure);
+    CHECK_FALSE(scene->array);
+    CHECK(scene->stages == ShaderStage::compute);
+}
+
 TEST_CASE("bindings come ordered by set, then binding", "[gpu][shader]") {
     const ShaderLayout layout = reflected("reflect.comp");
     REQUIRE(layout.bindings.size() == 9);

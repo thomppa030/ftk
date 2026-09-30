@@ -16,13 +16,16 @@ namespace {
 // What one pool of persistent groups holds. Groups are few and long-lived;
 // a full pool is joined by another.
 constexpr uint32_t POOL_SETS = 256;
-constexpr std::array<VkDescriptorPoolSize, 6> POOL_SIZES{{
+// The last only where the GPU has ray queries: a pool elsewhere may not name
+// the type.
+constexpr std::array<VkDescriptorPoolSize, 7> POOL_SIZES{{
     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
     {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256},
     {VK_DESCRIPTOR_TYPE_SAMPLER, 128},
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256},
     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256},
     {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 512},
+    {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 32},
 }};
 
 std::string named(std::string_view what, std::string_view name) {
@@ -57,7 +60,7 @@ std::pair<VkDescriptorSet, VkDescriptorPool> Device::Impl::allocate_set(VkDescri
             create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
             create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
             create_info.maxSets = POOL_SETS;
-            create_info.poolSizeCount = static_cast<uint32_t>(POOL_SIZES.size());
+            create_info.poolSizeCount = static_cast<uint32_t>(POOL_SIZES.size()) - (caps.ray_queries ? 0 : 1);
             create_info.pPoolSizes = POOL_SIZES.data();
             VkDescriptorPool pool{VK_NULL_HANDLE};
             if (vkCreateDescriptorPool(device, &create_info, nullptr, &pool) != VK_SUCCESS) break;
@@ -96,8 +99,8 @@ Result<> Device::Impl::check_resources(const PlacedSet& placed) {
                 present = buffers.contains(r.buffer.buffer);
                 break;
             case BindingKind::acceleration_structure:
-                return make_error("Binding " + std::to_string(entry.binding) +
-                                  ": acceleration structures are not bound through groups yet");
+                present = accelerations.contains(r.structure);
+                break;
         }
         if (!present) {
             return make_error("Binding " + std::to_string(entry.binding) + " of set " +
@@ -135,6 +138,7 @@ FrameCacheBinding Device::Impl::describe(const PlacedEntry& entry) {
                                 r.buffer.size == BufferRange::REST ? VK_WHOLE_SIZE : r.buffer.size};
             break;
         case BindingKind::acceleration_structure:
+            described.acceleration = accelerations.get(r.structure)->structure;
             break;
     }
     return described;
@@ -148,6 +152,10 @@ void Device::Impl::write_set(VkDescriptorSet set, const PlacedSet& placed) {
 
     std::vector<VkWriteDescriptorSet> writes;
     writes.reserve(described.size());
+    // Each acceleration structure's write points at one of these, kept
+    // whole until the update.
+    std::vector<VkWriteDescriptorSetAccelerationStructureKHR> structures;
+    structures.reserve(described.size());
     for (const FrameCacheBinding& binding : described) {
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -159,6 +167,12 @@ void Device::Impl::write_set(VkDescriptorSet set, const PlacedSet& placed) {
         if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
             binding.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
             write.pBufferInfo = &binding.buffer;
+        } else if (binding.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
+            VkWriteDescriptorSetAccelerationStructureKHR& written = structures.emplace_back();
+            written.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+            written.accelerationStructureCount = 1;
+            written.pAccelerationStructures = &binding.acceleration;
+            write.pNext = &written;
         } else {
             write.pImageInfo = &binding.image;
         }

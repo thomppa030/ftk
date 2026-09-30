@@ -51,7 +51,9 @@ bool FrameCacheKeyView::operator==(const FrameCacheKeyView& o) const noexcept {
         const auto& a = bindings[i];
         const auto& b = o.bindings[i];
         if (a.binding != b.binding || a.element != b.element || a.type != b.type) { return false; }
-        if (is_image_descriptor(a.type)) {
+        if (a.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
+            if (a.acceleration != b.acceleration) { return false; }
+        } else if (is_image_descriptor(a.type)) {
             if (!image_info_equal(a.image, b.image)) { return false; }
         } else {
             if (!buffer_info_equal(a.buffer, b.buffer)) { return false; }
@@ -66,8 +68,12 @@ size_t FrameCacheKeyHash::operator()(const FrameCacheKeyView& k) const noexcept 
         h = combine(h, std::hash<uint32_t>{}(b.binding));
         h = combine(h, std::hash<uint32_t>{}(b.element));
         h = combine(h, std::hash<int>{}(static_cast<int>(b.type)));
-        h = combine(h, is_image_descriptor(b.type) ? hash_image_info(b.image)
-                                                   : hash_buffer_info(b.buffer));
+        if (b.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
+            h = combine(h, std::hash<void*>{}(static_cast<void*>(b.acceleration)));
+        } else {
+            h = combine(h, is_image_descriptor(b.type) ? hash_image_info(b.image)
+                                                       : hash_buffer_info(b.buffer));
+        }
     }
     return h;
 }

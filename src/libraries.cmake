@@ -101,6 +101,7 @@ fjell_library(gpu
         gpu/shader_file.cpp
         gpu/shader_reflection.cpp
         gpu/transient_memory.cpp
+        gpu/vulkan/acceleration.cpp
         gpu/vulkan/access.cpp
         gpu/vulkan/binding.cpp
         gpu/vulkan/command_list.cpp
@@ -119,6 +120,7 @@ fjell_library(gpu
         gpu/vulkan/transitions.cpp
         gpu/vulkan/zones.cpp
     HEADERS
+        gpu/acceleration.hpp
         gpu/access.hpp
         gpu/binding.hpp
         gpu/command_list.hpp

@@ -7,11 +7,11 @@ using namespace fjell::gpu;
 
 namespace {
 
-constexpr int ACCESS_COUNT = static_cast<int>(Access::host_read) + 1;
+constexpr int ACCESS_COUNT = static_cast<int>(Access::acceleration_trace_compute) + 1;
 
 } // namespace
 
-TEST_CASE("Every texture access has a layout and stages", "[vulkan][access]") {
+TEST_CASE("Every access has a layout and stages for what it applies to", "[vulkan][access]") {
     for (int i = 0; i < ACCESS_COUNT; ++i) {
         const auto access = static_cast<Access>(i);
         INFO("access " << i);
@@ -20,8 +20,33 @@ TEST_CASE("Every texture access has a layout and stages", "[vulkan][access]") {
             CHECK((scope.layout != VK_IMAGE_LAYOUT_UNDEFINED) == applies_to_texture(access));
             CHECK((scope.stages != 0) == applies_to_texture(access));
         }
-        CHECK((vulkan::buffer_scope(access).stages != 0) == applies_to_buffer(access));
+        // An acceleration structure's memory is a buffer's, ordered alike.
+        CHECK((vulkan::buffer_scope(access).stages != 0) ==
+              (applies_to_buffer(access) || applies_to_acceleration(access)));
     }
+}
+
+TEST_CASE("Acceleration structures are built and traced at their own stages", "[vulkan][access]") {
+    const vulkan::BufferScope build = vulkan::buffer_scope(Access::acceleration_build);
+    CHECK(build.stages == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
+    CHECK(build.access == VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR);
+
+    // Vertices, indices and instance records are read as shader reads; the
+    // bottom levels a top level names as structures.
+    const vulkan::BufferScope input = vulkan::buffer_scope(Access::acceleration_build_input);
+    CHECK(input.stages == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
+    CHECK(input.access ==
+          (VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR));
+
+    const vulkan::BufferScope trace = vulkan::buffer_scope(Access::acceleration_trace_compute);
+    CHECK(trace.stages == VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    CHECK(trace.access == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+
+    CHECK(access_is_write(Access::acceleration_build));
+    CHECK_FALSE(access_is_read(Access::acceleration_build));
+    CHECK_FALSE(access_is_write(Access::acceleration_trace_compute));
+    CHECK(applies_to_buffer(Access::acceleration_build_input));
+    CHECK_FALSE(applies_to_buffer(Access::acceleration_build));
 }
 
 TEST_CASE("A sampled depth image is in the read-only depth layout", "[vulkan][access]") {

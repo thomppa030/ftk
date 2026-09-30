@@ -24,7 +24,7 @@ struct FakeChunks {
             if (fail) return make_error("out of memory");
             memory.push_back(std::make_unique<std::vector<std::byte>>(size));
             const auto index = static_cast<uint32_t>(memory.size());
-            return TransientChunk{Buffer::make(index, 1), *memory.back()};
+            return TransientChunk{Buffer::make(index, 1), memory.back()->size(), *memory.back()};
         };
     }
 };
@@ -142,4 +142,23 @@ TEST_CASE("Transient memory refuses nothing and says when no chunk can be made",
     CHECK(refused.error().find("16 bytes") != std::string::npos);
     CHECK(refused.error().find("out of memory") != std::string::npos);
     CHECK(memory.chunks().empty());
+}
+
+TEST_CASE("Transient memory the CPU cannot see hands out slices with no bytes", "[gpu][transient]") {
+    // Scratch for acceleration structure builds: chunks the GPU alone sees.
+    uint32_t made = 0;
+    TransientMemory memory(slots(1), [&made](uint64_t size) -> Result<TransientChunk> {
+        ++made;
+        return TransientChunk{Buffer::make(made, 1), size, {}};
+    });
+
+    auto first = memory.allocate(100);
+    auto second = memory.allocate(100);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(first->bytes.empty());
+    CHECK(second->bytes.empty());
+    CHECK(second->range.buffer == first->range.buffer);
+    CHECK(second->range.offset == 128);
+    CHECK(made == 1);
 }

@@ -3,6 +3,7 @@
 #include "core/handle.hpp"
 #include "gpu/usage.hpp"
 
+#include <concepts>
 #include <cstdint>
 #include <string_view>
 
@@ -17,6 +18,29 @@ using Buffer = Handle<BufferTag>;
 /// Hands a buffer back to its device, which destroys it once the GPU is done
 /// with it. `Owned<Buffer>` calls it.
 void release(Device& device, Buffer buffer);
+
+/// Part of a buffer, or the whole of it.
+struct BufferRange {
+    /// `size` reaching to the buffer's end.
+    static constexpr uint64_t REST = UINT64_MAX;
+
+    Buffer buffer{};
+    uint64_t offset{0};
+    uint64_t size{REST};
+
+    constexpr BufferRange() = default;
+
+    /// The whole buffer, from a `Buffer` or anything that holds one
+    /// (`Owned<Buffer>`).
+    template <typename T>
+        requires std::convertible_to<const T&, Buffer>
+    constexpr BufferRange(const T& whole) : buffer(static_cast<Buffer>(whole)) {}
+
+    constexpr BufferRange(Buffer whole, uint64_t from, uint64_t bytes)
+        : buffer(whole), offset(from), size(bytes) {}
+
+    bool operator==(const BufferRange&) const = default;
+};
 
 /// Where a buffer's memory lives, which decides who may read and write it.
 enum class Memory : uint8_t {

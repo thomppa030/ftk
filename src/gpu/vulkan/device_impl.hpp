@@ -141,6 +141,39 @@ struct Device::Impl {
         std::vector<View> views;
     };
 
+    /// Memory acceleration structures made together share, freed with the
+    /// last of them. A dedicated allocation, never a range of a shared
+    /// block: a freed neighbour's range handed on and written while a frame
+    /// still traced structures beside it once faulted traversal and lost the
+    /// device. Structures made together share one rather than one each,
+    /// which would count against the GPU's limit on allocations.
+    struct AccelerationMemory {
+        VmaAllocator allocator{VK_NULL_HANDLE};
+        VkBuffer buffer{VK_NULL_HANDLE};
+        VmaAllocation allocation{VK_NULL_HANDLE};
+
+        AccelerationMemory() = default;
+        AccelerationMemory(const AccelerationMemory&) = delete;
+        AccelerationMemory& operator=(const AccelerationMemory&) = delete;
+        ~AccelerationMemory();
+    };
+
+    struct AccelerationRecord {
+        VkAccelerationStructureKHR structure{VK_NULL_HANDLE};
+        std::shared_ptr<AccelerationMemory> memory;
+        /// What instance records name it by.
+        VkDeviceAddress address{0};
+        bool top{false};
+        AccelerationUse use{AccelerationUse::traced};
+        /// What it was made for, which a build may not exceed: a bottom
+        /// level's triangles and vertices, a top level's instances.
+        uint32_t primitives{0};
+        uint32_t vertices{0};
+        /// Scratch memory a build of it takes.
+        uint64_t build_scratch{0};
+        std::string name;
+    };
+
     explicit Impl(GpuCore& core);
     ~Impl();
 
@@ -150,6 +183,15 @@ struct Device::Impl {
     /// A buffer as described, which its maker releases or destroys: what
     /// `Device::create` wraps, and what transient chunks are made with.
     [[nodiscard]] Result<Buffer> make_buffer(const BufferDesc& desc);
+
+    /// Where a buffer made with `BufferUse::device_address` or
+    /// `acceleration_input` starts, as shaders and builds address it.
+    [[nodiscard]] VkDeviceAddress buffer_address(VkBuffer buffer) const;
+
+    /// The native description of a build of `record`: its level, what it
+    /// is made for, and preferences; geometry filled in by the caller.
+    [[nodiscard]] VkAccelerationStructureBuildGeometryInfoKHR build_info(
+        const AccelerationRecord& record, const VkAccelerationStructureGeometryKHR& geometry) const;
 
     /// Binds memory to a sparse buffer from its end up to `target` bytes,
     /// in whole pages and no further than its reserve, and waits for the
@@ -219,6 +261,7 @@ struct Device::Impl {
     HandlePool<PipelineRecord, GraphicsPipelineTag> graphics_pipelines;
     HandlePool<SharedRecord, SharedLayoutTag> shared_layouts;
     HandlePool<GroupRecord, BindGroupTag> groups;
+    HandlePool<AccelerationRecord, AccelerationStructureTag> accelerations;
     /// Pools persistent groups come from, each allowing sets to be freed.
     std::vector<VkDescriptorPool> group_pools;
     /// Sets that last one frame, from a pool per frame slot reset when the
@@ -302,6 +345,19 @@ struct Device::Impl {
     [[nodiscard]] const tracy::SourceLocationData* zone_source(std::string_view name,
                                                                const std::source_location& where);
 #endif
+    /// Acceleration structures, loaded where the GPU has ray queries; null
+    /// elsewhere.
+    PFN_vkCreateAccelerationStructureKHR create_acceleration{nullptr};
+    PFN_vkDestroyAccelerationStructureKHR destroy_acceleration{nullptr};
+    PFN_vkGetAccelerationStructureBuildSizesKHR acceleration_sizes{nullptr};
+    PFN_vkCmdBuildAccelerationStructuresKHR build_acceleration{nullptr};
+    PFN_vkGetAccelerationStructureDeviceAddressKHR acceleration_address{nullptr};
+    /// Where a build's scratch starts: a multiple of this.
+    uint64_t scratch_alignment{256};
+    /// What builds work in: memory only the GPU sees, a slot's handed out
+    /// anew when it comes round, the chunks the device's own. A build
+    /// larger than a chunk takes memory of its own for its frame.
+    TransientMemory scratch;
     /// Mesh draws, loaded where the GPU has mesh shaders; null elsewhere.
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect{nullptr};

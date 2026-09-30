@@ -92,6 +92,24 @@ void share_with_upload_families(VkBufferCreateInfo& info, std::span<const uint32
 // fog volumes fit in one.
 constexpr uint64_t TRANSIENT_CHUNK_SIZE = 1u << 20;
 
+// Bytes of each chunk of acceleration structure build scratch: a frame's
+// top-level builds, and bottom levels for as much new geometry as usually
+// comes into reach at once.
+constexpr uint64_t SCRATCH_CHUNK_SIZE = 8u << 20;
+
+// Where build scratch starts: what the device asks, where it builds
+// acceleration structures at all.
+uint64_t device_scratch_alignment(const GpuCore& core) {
+    if (!core.device().ray_tracing_supported()) return 256;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration{};
+    acceleration.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+    VkPhysicalDeviceProperties2 properties{};
+    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    properties.pNext = &acceleration;
+    vkGetPhysicalDeviceProperties2(core.physical_device(), &properties);
+    return std::max<uint64_t>(acceleration.minAccelerationStructureScratchOffsetAlignment, 1);
+}
+
 // Where transient slices start: somewhere every use they are bound as accepts.
 uint64_t transient_alignment(VkPhysicalDevice physical_device) {
     VkPhysicalDeviceProperties properties{};
@@ -121,8 +139,21 @@ Device::Impl::Impl(GpuCore& gpu_core)
                     });
                     if (!made) return std::unexpected(made.error());
                     const BufferRecord* record = buffers.get(*made);
-                    return TransientChunk{*made, {record->mapped, record->size}};
-                }) {
+                    return TransientChunk{*made, record->size, {record->mapped, record->size}};
+                }),
+      scratch_alignment(device_scratch_alignment(gpu_core)),
+      scratch({.frame_slots = MAX_FRAMES_IN_FLIGHT,
+               .alignment = scratch_alignment,
+               .chunk_size = SCRATCH_CHUNK_SIZE},
+              [this](uint64_t size) -> Result<TransientChunk> {
+                  auto made = make_buffer(BufferDesc{
+                      .size = size,
+                      .use = BufferUse::storage | BufferUse::device_address,
+                      .name = "acceleration scratch",
+                  });
+                  if (!made) return std::unexpected(made.error());
+                  return TransientChunk{*made, size, {}};
+              }) {
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(gpu_core.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
@@ -148,11 +179,20 @@ Device::Impl::Impl(GpuCore& gpu_core)
         TracyVkContextName(profiler, "Fjell GPU", 9);
     }
 #endif
+    caps.ray_queries = gpu_core.device().ray_tracing_supported();
+    if (caps.ray_queries) {
+        create_acceleration = gpu_core.device().create_accel_struct_fn();
+        destroy_acceleration = gpu_core.device().destroy_accel_struct_fn();
+        acceleration_sizes = gpu_core.device().get_accel_struct_build_sizes_fn();
+        build_acceleration = gpu_core.device().cmd_build_accel_structs_fn();
+        acceleration_address = gpu_core.device().get_accel_struct_device_address_fn();
+    }
     draw_mesh_tasks = gpu_core.device().draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect = gpu_core.device().draw_mesh_tasks_indirect_fn();
     draw_mesh_tasks_indirect_count = gpu_core.device().draw_mesh_tasks_indirect_count_fn();
     locator = [](const std::string& relative) { return relative; };
-    frame_sets.create(device, MAX_FRAMES_IN_FLIGHT, {});
+    frame_sets.create(device, MAX_FRAMES_IN_FLIGHT,
+                      {.acceleration_structures = caps.ray_queries ? 16U : 0U});
 
     VkSemaphoreTypeCreateInfo timeline_type{};
     timeline_type.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
@@ -198,7 +238,14 @@ Device::Impl::~Impl() {
     for (Buffer chunk : transient.chunks()) {
         if (auto record = buffers.take(chunk)) destroy_buffer(device, allocator, *record);
     }
-    uint32_t leaked = buffers.size() + textures.size();
+    for (Buffer chunk : scratch.chunks()) {
+        if (auto record = buffers.take(chunk)) destroy_buffer(device, allocator, *record);
+    }
+    uint32_t leaked = buffers.size() + textures.size() + accelerations.size();
+    accelerations.for_each([&](AccelerationStructure, AccelerationRecord& record) {
+        destroy_acceleration(device, record.structure, nullptr);
+        record.memory.reset();
+    });
     buffers.for_each([&](Buffer, BufferRecord& record) { destroy_buffer(device, allocator, record); });
     if (sparse_fence != VK_NULL_HANDLE) vkDestroyFence(device, sparse_fence, nullptr);
     textures.for_each([&](Texture, TextureRecord& record) {
@@ -226,7 +273,8 @@ Device::Impl::~Impl() {
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);
     if (leaked > 0) {
-        FJELL_GFX_WARN("GPU device destroyed with {} buffers and textures never released", leaked);
+        FJELL_GFX_WARN("GPU device destroyed with {} buffers, textures and acceleration structures "
+                       "never released", leaked);
     }
 }
 

@@ -103,6 +103,23 @@ TEST_CASE("a resource of the wrong kind is refused by name", "[gpu][binding]") {
     CHECK(placed.error().find("'source' is a sampled texture") != std::string::npos);
 }
 
+TEST_CASE("an acceleration structure is placed where a shader traces one", "[gpu][binding]") {
+    const AccelerationStructure scene = AccelerationStructure::make(1, 1);
+    const Buffer hits = Buffer::make(2, 1);
+    const BindEntry entries[] = {{"hits_out", storage(hits)}, {"scene", acceleration(scene)}};
+    auto placed = place(reflected("ray_query.comp"), entries);
+    REQUIRE(placed.has_value());
+    CHECK(placed->set == 0);
+    REQUIRE(placed->entries.size() == 2);
+    CHECK(placed->entries[0].binding == 0);
+    CHECK(placed->entries[0].resource == acceleration(scene));
+
+    const BindEntry wrong[] = {{"hits_out", storage(hits)}, {"scene", storage(hits)}};
+    auto refused = place(reflected("ray_query.comp"), wrong);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK(refused.error().find("'scene' is an acceleration structure") != std::string::npos);
+}
+
 TEST_CASE("a name the shaders do not declare is refused", "[gpu][binding]") {
     const BindEntry entries[] = {{"sauce", sampled(TEX, SMP)}};
     auto placed = place(reflected("reflect.comp"), entries);
