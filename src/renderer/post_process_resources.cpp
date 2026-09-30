@@ -75,12 +75,7 @@ PostProcessResources::PostProcessResources(gpu::Device& gpu, VkDevice device,
         taa_images_.create(*gpu_, width, height);
     }
     if (config_.rt_reflection && width > 0 && height > 0) {
-        rt_reflection_images_.create(*gpu_, device_, allocator_,
-                                      passes_->rt_reflection.trace_set_layout(),
-                                      passes_->rt_reflection.denoise_set_layout(),
-                                      passes_->rt_reflection.spatial_set_layout(),
-                                      passes_->rt_reflection.depth_format(),
-                                      width, height);
+        rt_reflection_images_.create(*gpu_, width, height);
     }
     // DDGI images are NOT created in the constructor — they're created on first
     // resize() to the real viewport size. This avoids the placeholder 256x256
@@ -96,7 +91,7 @@ PostProcessResources::~PostProcessResources() {
     ddgi_images_.destroy();
     ss_gi_images_.destroy();
     taa_images_.destroy();
-    rt_reflection_images_.destroy(device_, allocator_);
+    rt_reflection_images_.destroy();
 }
 
 PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcept
@@ -132,7 +127,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
             ddgi_images_.destroy();
             ss_gi_images_.destroy();
             taa_images_.destroy();
-            rt_reflection_images_.destroy(device_, allocator_);
+            rt_reflection_images_.destroy();
         }
         gpu_ = other.gpu_;
         device_ = other.device_;
@@ -182,12 +177,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         taa_images_.resize(*gpu_, width, height);
     }
     if (config_.rt_reflection) {
-        rt_reflection_images_.resize(*gpu_, device_, allocator_,
-                                      passes_->rt_reflection.trace_set_layout(),
-                                      passes_->rt_reflection.denoise_set_layout(),
-                                      passes_->rt_reflection.spatial_set_layout(),
-                                      passes_->rt_reflection.depth_format(),
-                                      width, height);
+        rt_reflection_images_.resize(*gpu_, width, height);
     }
     if (config_.ddgi) {
         ddgi_images_.resize(*gpu_, passes_->ddgi.config(), width, height);

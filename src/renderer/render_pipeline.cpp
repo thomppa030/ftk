@@ -286,6 +286,13 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 }
             }
         }
+        // The ray-traced reflection the SSR composite reads. Made cleared,
+        // which leaves it where the composite samples it: a frame the trace
+        // skips reads what the last one left, never an undefined image.
+        if (auto* rt = pp_resources->rt_reflection(); rt != nullptr && rt->output) {
+            decl_ctx.export_texture(RtReflectionPass::OUTPUT_NAME, rt->output,
+                                    {.resting = gpu::Access::sampled_compute});
+        }
         // TAA's history ping-pong: the slot it writes this frame, which the
         // post pass then reads, and the one it reads back from the frame
         // before. Persistent: each slot is next frame's read.

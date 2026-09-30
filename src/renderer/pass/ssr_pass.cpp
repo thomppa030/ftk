@@ -215,14 +215,18 @@ void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     if (core_ == nullptr) { return; }
 
     // ssr_output is a framegraph transient (created/cleared by SsrTracePass).
-    // rt_reflection_output is pass-private (owned by RtReflectionPass) and
-    // accessed through ResourceRegistry, not the graph — see the comment
-    // on RtReflectionPass::declare for the rationale.
+    // rt_reflection_output is each viewport's own, exported where it has one;
+    // it rests where this samples it, so it is readable whether or not the
+    // trace ran this frame.
     TextureDesc refl_desc{};
     refl_desc.format = gpu::Format::rgba16_float;
     refl_desc.size_class = SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", refl_desc);
     builder.read(ssr_out, gpu::Access::sampled_compute);
+
+    if (auto rt = builder.import_named_optional(ctx, RtReflectionPass::OUTPUT_NAME); rt.valid()) {
+        builder.read(rt, gpu::Access::sampled_compute);
+    }
 
     auto color = builder.import_named(ctx, "color");
     auto mr = builder.import_named(ctx, "mr");
@@ -239,10 +243,11 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     const gpu::Texture mr = ctx.texture("mr");
     if (!ssr.valid() || !mr.valid()) { return; }
 
-    // rt_reflection_output is missing on frames before RtReflectionPass has
-    // made its image. The binding falls back to ssr_output — in RT mode that
-    // reads black for a frame or two until the RT pass catches up.
-    gpu::Texture rt = ctx.texture("rt_reflection_output");
+    // A viewport without ray-traced reflections of its own has no output to
+    // read. The binding falls back to ssr_output, which in RT mode reads
+    // black.
+    const auto* rt_images = ctx.pp_resources != nullptr ? ctx.pp_resources->rt_reflection() : nullptr;
+    gpu::Texture rt = rt_images != nullptr ? rt_images->output.get() : gpu::Texture{};
     const bool rt_ready = rt.valid();
     if (!rt_ready) rt = ssr;
 

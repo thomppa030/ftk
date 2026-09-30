@@ -66,8 +66,6 @@ src/renderer/pass/pass_gpu_zone.hpp
 src/renderer/pass/post_pass.cpp
 src/renderer/pass/post_pass.hpp
 src/renderer/pass/render_pass.hpp
-src/renderer/pass/rt_reflection_pass.cpp
-src/renderer/pass/rt_reflection_pass.hpp
 src/renderer/pass/scene_sdf_pass.cpp
 src/renderer/pass/scene_sdf_pass.hpp
 src/renderer/pass/ss_gi_pass.cpp
