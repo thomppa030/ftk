@@ -2,14 +2,36 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace fjell {
 
 struct FjTerrainData;
 
 namespace water {
+
+/// How much of each sum of the sea reaches the water around a terrain past its
+/// land: the share of the sum's amplitude left at each point, 0 where land
+/// stands between the point and every way the sum arrives, 1 where nothing
+/// does. Baked from the terrain by `bake_exposure()` (water_shelter.hpp) and
+/// read bilinearly between its samples, like the bed.
+///
+/// The grid reaches past the terrain by a margin over which it fades back to
+/// 1, so the lee of land near the terrain's edge does not end in a line where
+/// the open sea begins.
+struct ShoreExposure {
+    std::uint32_t samples{0};      // per side
+    glm::vec2 min_corner{0.0f};    // world XZ of sample (0, 0)
+    float size{0.0f};              // metres from the first sample to the last
+    /// Per sample, row-major as `[z * samples + x]`: the Gerstner trains'
+    /// share and the simulated sea's, interleaved, as 16-bit fractions of 1.
+    /// The shader's texture holds these same numbers, so both halves read one
+    /// value rather than two roundings of it.
+    std::vector<std::uint16_t> shares;
+};
 
 /// The ground under a body of water, as the wave field reads it: a terrain's
 /// heights, where that terrain stands and where the water stands at rest.
@@ -30,6 +52,11 @@ struct ShoreBed {
     float ground_y{0.0f};
     /// World Y of the water at rest.
     float surface_y{0.0f};
+    /// The terrain's edit generation the heights are at, which says when the
+    /// land has changed under the exposure.
+    std::uint32_t generation{0};
+    /// How open the water is to the sea, or nothing: fully open everywhere.
+    std::shared_ptr<const ShoreExposure> exposure;
 };
 
 /// How deep the still water is at a point, and how that changes across it.
