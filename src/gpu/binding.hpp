@@ -149,7 +149,9 @@ struct SharedLayoutDesc {
 /// What `Device::create` makes a shared group from: resources for a shared
 /// layout the device made, bound wherever a pipeline naming the layout takes
 /// it. Every binding that is not an array is given; an array's elements may
-/// be, or left empty for later updates.
+/// be, or left empty for later updates. An entry giving an array element no
+/// resource, every handle in it empty (`gpu::sampled({}, {})`), empties that
+/// element, as an update does when what it held is going away.
 ///
 /// @code
 /// auto table = device.create(gpu::SharedGroupDesc{

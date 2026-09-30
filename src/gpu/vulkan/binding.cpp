@@ -54,12 +54,17 @@ const Device::Impl::PipelineRecord* find_pipeline(const Device::Impl& self, cons
     return self.graphics_pipelines.get(ref.graphics);
 }
 
-// Where a placed entry's element sits in a shared group's contents.
-size_t content_index(const Device::Impl::SharedRecord& shared, const PlacedEntry& entry) {
+// The index in a shared layout's bindings of binding number `binding`.
+size_t binding_index(const Device::Impl::SharedRecord& shared, uint32_t binding) {
     for (size_t i = 0; i < shared.desc.bindings.size(); ++i) {
-        if (shared.desc.bindings[i].binding == entry.binding) return shared.first[i] + entry.element;
+        if (shared.desc.bindings[i].binding == binding) return i;
     }
     return 0;
+}
+
+// Where a placed entry's element sits in a shared group's contents.
+size_t content_index(const Device::Impl::SharedRecord& shared, const PlacedEntry& entry) {
+    return shared.first[binding_index(shared, entry.binding)] + entry.element;
 }
 
 // Adds a descriptor type's count to what one set of a layout holds.
@@ -73,19 +78,58 @@ void add_size(std::vector<VkDescriptorPoolSize>& sizes, VkDescriptorType type, u
     sizes.push_back({type, count});
 }
 
+bool gives_nothing(const BindResource& r) {
+    return !r.view.texture.valid() && !r.sampler.valid() && !r.buffer.buffer.valid() &&
+           !r.structure.valid();
+}
+
+// A shared group's placed entries split in two: the resources written, and
+// the array elements given nothing, which are emptied.
+struct SharedChanges {
+    PlacedSet written;
+    SmallVector<PlacedEntry, INLINE_SET_ENTRIES> emptied;
+};
+
+Result<SharedChanges> split_changes(Device::Impl& self, const Device::Impl::SharedRecord& shared,
+                                    const PlacedSet& placed) {
+    SharedChanges changes;
+    changes.written.set = placed.set;
+    for (const PlacedEntry& entry : placed.entries) {
+        if (!gives_nothing(entry.resource)) {
+            changes.written.entries.push_back(entry);
+            continue;
+        }
+        const ShaderBinding& binding = shared.desc.bindings[binding_index(shared, entry.binding)];
+        if (!binding.array) {
+            return make_error("'" + binding.name + "' is given nothing; only an array's elements may be empty");
+        }
+        changes.emptied.push_back(entry);
+    }
+    if (auto present = self.check_resources(changes.written); !present) {
+        return std::unexpected(present.error());
+    }
+    return changes;
+}
+
+void apply_contents(Device::Impl::SharedGroupState& state, const Device::Impl::SharedRecord& shared,
+                    const SharedChanges& changes) {
+    for (const PlacedEntry& entry : changes.written.entries) {
+        state.contents[content_index(shared, entry)] = entry.resource;
+    }
+    for (const PlacedEntry& entry : changes.emptied) state.contents[content_index(shared, entry)].reset();
+}
+
 // A new version of a shared group whose set a frame still reads: a set of
-// its own, written whole from the contents with `placed` over them.
+// its own, written whole from the contents with `changes` over them.
 Result<> write_version(Device::Impl& self, Device::Impl::GroupRecord& record,
-                       Device::Impl::SharedRecord& shared, const PlacedSet& placed) {
+                       Device::Impl::SharedRecord& shared, const SharedChanges& changes) {
     const auto [set, pool] = self.allocate_shared(shared);
     if (set == VK_NULL_HANDLE) return make_error("No descriptor set could be allocated for the update");
 
     Device::Impl::SharedGroupState& state = *record.state;
-    for (const PlacedEntry& entry : placed.entries) {
-        state.contents[content_index(shared, entry)] = entry.resource;
-    }
+    apply_contents(state, shared, changes);
     PlacedSet whole;
-    whole.set = placed.set;
+    whole.set = changes.written.set;
     for (size_t i = 0; i < shared.desc.bindings.size(); ++i) {
         const ShaderBinding& binding = shared.desc.bindings[i];
         for (uint32_t element = 0; element < binding.count; ++element) {
@@ -118,7 +162,8 @@ Result<> update_shared(Device::Impl& self, Device::Impl::GroupRecord& record,
     Device::Impl::SharedRecord& shared = *self.shared_layouts.get(record.shared);
     auto placed = place_some(shared.desc, entries);
     if (!placed) return std::unexpected(placed.error());
-    if (auto present = self.check_resources(*placed); !present) return present;
+    auto changes = split_changes(self, shared, *placed);
+    if (!changes) return std::unexpected(changes.error());
 
     // The current set is written in place while no frame the GPU has yet to
     // finish binds it: before any bind, or once the last frame binding it is
@@ -128,12 +173,13 @@ Result<> update_shared(Device::Impl& self, Device::Impl::GroupRecord& record,
         uint64_t finished = 0;
         vk_check(vkGetSemaphoreCounterValue(self.device, self.frame_timeline, &finished),
                  "Failed to read the frame timeline");
-        if (bound > finished) return write_version(self, record, shared, *placed);
+        if (bound > finished) return write_version(self, record, shared, *changes);
     }
-    self.write_set(record.set, *placed);
-    for (const PlacedEntry& entry : placed->entries) {
-        record.state->contents[content_index(shared, entry)] = entry.resource;
-    }
+    // An emptied element keeps its old descriptor in place, which no shader
+    // reads: the array is partially bound, and the next version leaves it
+    // out.
+    if (!changes->written.entries.empty()) self.write_set(record.set, changes->written);
+    apply_contents(*record.state, shared, *changes);
     return {};
 }
 
@@ -424,18 +470,15 @@ Result<Owned<BindGroup>> Device::create(const SharedGroupDesc& desc) {
     auto state = std::make_unique<Impl::SharedGroupState>();
     state->contents.resize(shared->first.back() + shared->desc.bindings.back().count);
     state->name = desc.name;
-    PlacedSet placed;
-    placed.set = shared->desc.usual_set;
+    SharedChanges changes;
+    changes.written.set = shared->desc.usual_set;
     if (!desc.entries.empty()) {
-        auto given = place_some(shared->desc, desc.entries);
-        if (!given) return make_error(what + ": " + given.error());
-        if (auto present = self.check_resources(*given); !present) {
-            return make_error(what + ": " + present.error());
-        }
-        placed = std::move(*given);
-        for (const PlacedEntry& entry : placed.entries) {
-            state->contents[content_index(*shared, entry)] = entry.resource;
-        }
+        auto placed = place_some(shared->desc, desc.entries);
+        if (!placed) return make_error(what + ": " + placed.error());
+        auto split = split_changes(self, *shared, *placed);
+        if (!split) return make_error(what + ": " + split.error());
+        changes = std::move(*split);
+        apply_contents(*state, *shared, changes);
     }
     // Only an array's elements may be left for later: a single binding left
     // empty is read by every shader that declares it.
@@ -449,7 +492,7 @@ Result<Owned<BindGroup>> Device::create(const SharedGroupDesc& desc) {
     Impl::GroupRecord record;
     std::tie(record.set, record.pool) = self.allocate_shared(*shared);
     if (record.set == VK_NULL_HANDLE) return make_error(what + ": no descriptor set could be allocated");
-    if (!placed.entries.empty()) self.write_set(record.set, placed);
+    if (!changes.written.entries.empty()) self.write_set(record.set, changes.written);
     vulkan::name_object(self.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(record.set),
                         desc.name);
     record.layout = shared->layout;

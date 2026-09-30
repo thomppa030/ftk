@@ -228,7 +228,8 @@ int main() {
         // place until a frame binds it; then an update is a new version,
         // and the next, before another bind, goes into that one. Once the
         // frame that bound it is finished, the set is written in place
-        // again. A single binding left empty is refused.
+        // again. An element given nothing is emptied; a single binding left
+        // empty, or given nothing, is refused.
         bool shared_groups = false;
         if (table && with_table && texture) {
             using fjell::gpu::vulkan::native_group;
@@ -261,9 +262,12 @@ int main() {
                 vkDeviceWaitIdle(core.vk_device());
                 shared_groups = shared_groups && element(6) && native_group(device, *group) == version;
 
+                const fjell::gpu::BindEntry emptied[] = {{"textures", fjell::gpu::sampled({}, {}), 5}};
+                shared_groups = shared_groups && device.update(*group, emptied).has_value();
+
                 const auto& contents = device.impl().groups.get(*group)->state->contents;
-                for (uint32_t at : {3u, 4u, 5u, 6u, 17u}) shared_groups = shared_groups && contents[at];
-                shared_groups = shared_groups && !contents[0] && !contents[16];
+                for (uint32_t at : {3u, 4u, 6u, 17u}) shared_groups = shared_groups && contents[at];
+                shared_groups = shared_groups && !contents[0] && !contents[5] && !contents[16];
 
                 const fjell::gpu::BindEntry unknown[] = {{"missing", fjell::gpu::sampled(*texture, sampler)}};
                 shared_groups = shared_groups && !device.update(*group, unknown).has_value();
@@ -273,7 +277,11 @@ int main() {
                 .bindings = {{.name = "params", .kind = BindingKind::uniform_buffer}},
             });
             shared_groups = shared_groups && single &&
-                            !device.create(fjell::gpu::SharedGroupDesc{.layout = *single}).has_value();
+                            !device.create(fjell::gpu::SharedGroupDesc{.layout = *single}).has_value() &&
+                            !device.create(fjell::gpu::SharedGroupDesc{
+                                               .layout = *single,
+                                               .entries = {{"params", fjell::gpu::uniform({})}}})
+                                 .has_value();
         }
         if (!shared_groups) std::fprintf(stderr, "shared groups failed\n");
         pipelines = pipelines && shared_groups;
