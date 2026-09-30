@@ -84,11 +84,16 @@ TEST_CASE("each use adds usage of its own", "[gpu]") {
     for (BufferUse use : {BufferUse::uniform, BufferUse::storage, BufferUse::vertex,
                           BufferUse::index, BufferUse::indirect,
                           BufferUse::acceleration_input, BufferUse::device_address}) {
-        const VkBufferUsageFlags added = vulkan::to_vk(BufferUses{use}) & ~buffer_base;
+        VkBufferUsageFlags added = vulkan::to_vk(BufferUses{use}) & ~buffer_base;
+        // A build reads its input by address, so a build input brings the
+        // device address with it, which is also a use of its own.
+        if (use == BufferUse::acceleration_input) added &= ~VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         CHECK(added != 0);
         CHECK((added & buffer_seen) == 0);
         buffer_seen |= added;
     }
+    CHECK((vulkan::to_vk(BufferUses{BufferUse::acceleration_input}) &
+           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0);
 }
 
 TEST_CASE("a clear value is read the way the cleared format holds it", "[gpu]") {

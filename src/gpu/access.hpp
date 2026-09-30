@@ -65,6 +65,15 @@ enum class Access : uint8_t {
     present,
     /// Read by the CPU once the GPU is done: a readback's buffer.
     host_read,
+
+    // Acceleration structures
+    /// The structure a build writes.
+    acceleration_build,
+    /// What a build reads: the vertices, indices or instance records it is
+    /// built from, and the bottom levels a top level's instances name.
+    acceleration_build_input,
+    /// Traced by ray queries in a compute shader.
+    acceleration_trace_compute,
 };
 
 template <>
@@ -85,6 +94,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_buffer_read_write_compute:
         case Access::copy_dst:
         case Access::clear:
+        case Access::acceleration_build:
             return true;
         default:
             return false;
@@ -102,6 +112,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_buffer_write_compute:
         case Access::copy_dst:
         case Access::clear:
+        case Access::acceleration_build:
             return false;
         default:
             return true;
@@ -151,6 +162,19 @@ using AccessSet = Flags<Access>;
         case Access::copy_dst:
         case Access::clear:
         case Access::host_read:
+        case Access::acceleration_build_input:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// Whether an acceleration structure can be used this way.
+[[nodiscard]] constexpr bool applies_to_acceleration(Access a) noexcept {
+    switch (a) {
+        case Access::acceleration_build:
+        case Access::acceleration_build_input:
+        case Access::acceleration_trace_compute:
             return true;
         default:
             return false;

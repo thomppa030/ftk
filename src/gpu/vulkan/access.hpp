@@ -21,7 +21,7 @@ struct ImageScope {
     VkAccessFlags2 access{VK_ACCESS_2_NONE};
 };
 
-/// An access to a buffer.
+/// An access to a buffer or an acceleration structure.
 struct BufferScope {
     VkPipelineStageFlags2 stages{VK_PIPELINE_STAGE_2_NONE};
     VkAccessFlags2 access{VK_ACCESS_2_NONE};
@@ -46,8 +46,8 @@ struct BufferScope {
 /// empty set is an undefined layout and no stages.
 [[nodiscard]] ImageScope merged_image_scope(AccessSet accesses, bool depth);
 
-/// What `access` is to a buffer; no stages for an access that does not apply
-/// to buffers.
+/// What `access` is to a buffer, or to an acceleration structure, whose
+/// memory is one; no stages for an access that applies to neither.
 [[nodiscard]] BufferScope buffer_scope(Access access);
 
 /// What `accesses` are to a buffer together.

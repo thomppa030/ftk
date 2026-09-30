@@ -162,6 +162,7 @@ Frame& Device::begin_frame() {
     self.frame_slot = slot;
     self.frame_sets.begin_frame(slot);
     self.transient.begin_frame(slot);
+    self.scratch.begin_frame(slot);
     self.recording = serial;
     self.releases.collect(finished_frame());
     return self.frames[slot]->frame;

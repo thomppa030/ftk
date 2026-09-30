@@ -16,11 +16,14 @@ namespace fjell::gpu {
 /// A buffer transient memory hands out slices of, and the CPU's view of it.
 struct TransientChunk {
     Buffer buffer{};
+    /// Bytes the buffer holds.
+    uint64_t size{0};
+    /// The CPU's view of them; empty for memory only the GPU sees.
     std::span<std::byte> bytes{};
 };
 
 /// A slice of transient memory: the range to bind, and its bytes for the CPU
-/// to fill before the frame is submitted.
+/// to fill before the frame is submitted (none in memory only the GPU sees).
 struct TransientSlice {
     BufferRange range{};
     std::span<std::byte> bytes{};
@@ -28,7 +31,8 @@ struct TransientSlice {
 
 /// Memory that lasts one frame, what `cmd.transient` copies into: uniforms,
 /// storage, vertices, indices and indirect arguments written by the CPU each
-/// frame. Each frame slot keeps the buffers ("chunks") it has needed and hands
+/// frame; and, in memory only the GPU sees, what acceleration structure
+/// builds work in. Each frame slot keeps the buffers ("chunks") it has needed and hands
 /// out aligned slices of them in order; when the slot comes round again, the
 /// GPU being done with its last frame, it hands them out anew from the start.
 /// A slice larger than a chunk gets a chunk of its own size. Chunks are kept
@@ -38,7 +42,7 @@ struct TransientSlice {
 /// Any thread may allocate; each call takes a lock.
 class TransientMemory {
 public:
-    /// Makes a mapped chunk of at least `size` bytes, or says why it cannot.
+    /// Makes a chunk of at least `size` bytes, or says why it cannot.
     /// The owner keeps what it makes and destroys it (`chunks()`).
     using MakeChunk = std::function<Result<TransientChunk>(uint64_t size)>;
 

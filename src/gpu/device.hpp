@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/acceleration.hpp"
 #include "gpu/binding.hpp"
 #include "gpu/buffer.hpp"
 #include "gpu/frame.hpp"
@@ -18,6 +19,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace fjell::gpu {
 
@@ -37,6 +39,9 @@ struct Caps {
     bool async_compute{false};
     /// How many frames may be recorded or on the GPU at once.
     uint32_t frames_in_flight{1};
+    /// Whether the GPU builds acceleration structures and traces them with
+    /// ray queries. Without it none can be made.
+    bool ray_queries{false};
 };
 
 /// Finds a file the build produced (`"shaders/grid.vert.spv"`) and returns its
@@ -111,6 +116,33 @@ public:
     /// The bytes of GPU memory a texture takes; 0 for one made outside the
     /// device and for a handle that finds no texture.
     [[nodiscard]] uint64_t memory_size(Texture texture) const;
+
+    /// An acceleration structure sized as described, in memory of its own.
+    /// @return the structure, or why it could not be made: the GPU has no
+    ///         ray queries, the description is empty, or there is no memory.
+    [[nodiscard]] Result<Owned<AccelerationStructure>> create(const AccelerationStructureDesc& desc);
+
+    /// Several structures in one allocation, as a model's submeshes are, each
+    /// released on its own; the memory goes with the last of them. Fewer
+    /// allocations than one each, which a GPU counts.
+    /// @return the structures in the order described, or why they could not
+    ///         be made (the message names the one that failed).
+    [[nodiscard]] Result<std::vector<Owned<AccelerationStructure>>> create(
+        std::span<const AccelerationStructureDesc> descs);
+
+    /// Bytes one instance record takes in the buffer a top level is built
+    /// from.
+    [[nodiscard]] uint32_t instance_record_size() const;
+
+    /// Writes `instances` as the records a top level is built from into
+    /// `out`, `instance_record_size()` bytes each, which `out` has room for.
+    /// An instance naming no structure is written as one no ray hits.
+    void write_instances(std::span<std::byte> out, std::span<const AccelerationInstance> instances) const;
+
+    /// What an instance record names `structure` by, for records a shader
+    /// writes (the backend's GLSL layout); 0, which names nothing, for a
+    /// handle that finds no structure.
+    [[nodiscard]] uint64_t instance_reference(AccelerationStructure structure) const;
 
     /// A compute pipeline, its layout read from the shader.
     /// @return the pipeline, or why it could not be made (the message names it

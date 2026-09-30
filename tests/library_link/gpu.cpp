@@ -4,6 +4,7 @@
 // buffer, a texture with a view, a sampler, pipelines, bind groups and
 // transient memory through the GPU interface, and records a dispatch, copies,
 // clears and draws through command lists, two of them at once on two threads,
+// and acceleration structure builds and a ray query where the GPU has them,
 // which takes a GPU and a display: it is run by hand, not as a test.
 
 #include "core/log.hpp"
@@ -533,6 +534,69 @@ int main() {
         }
         if (!rendered) std::fprintf(stderr, "rendering failed\n");
         pipelines = pipelines && rendered;
+
+        // Acceleration structures, where the GPU has ray queries: a
+        // triangle's bottom level and a top level holding it once under a
+        // custom index, both built in one list, then two rays traced at it,
+        // the first through it and the second beside it.
+        bool traced = !device.caps().ray_queries;
+        if (device.caps().ray_queries) {
+            using fjell::gpu::BufferUse;
+            using fjell::gpu::Memory;
+            const std::array<float, 9> corners{-1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+            const std::array<uint32_t, 3> order{0, 1, 2};
+            auto vertices = device.create(fjell::gpu::BufferDesc{
+                .size = sizeof(corners), .use = BufferUse::acceleration_input, .memory = Memory::upload,
+                .name = "link_vertices"});
+            auto indices = device.create(fjell::gpu::BufferDesc{
+                .size = sizeof(order), .use = BufferUse::acceleration_input, .memory = Memory::upload,
+                .name = "link_indices"});
+            auto records = device.create(fjell::gpu::BufferDesc{
+                .size = device.instance_record_size(), .use = BufferUse::acceleration_input,
+                .memory = Memory::upload, .name = "link_instances"});
+            auto hits = device.create(fjell::gpu::BufferDesc{
+                .size = 4 * sizeof(uint32_t), .use = BufferUse::storage, .memory = Memory::readback,
+                .name = "link_hits"});
+            auto trace = device.create(
+                fjell::gpu::ComputePipelineDesc{.shader = "ray_query.comp", .name = "link_ray_query"});
+            if (vertices && indices && records && hits && trace) {
+                const fjell::gpu::Triangles triangle{.vertices = *vertices,
+                                                     .vertex_stride = 3 * sizeof(float),
+                                                     .vertex_count = 3,
+                                                     .indices = *indices,
+                                                     .triangle_count = 1};
+                auto bottom = device.create(
+                    fjell::gpu::AccelerationStructureDesc{.triangles = triangle, .name = "link_bottom"});
+                auto top = device.create(fjell::gpu::AccelerationStructureDesc{
+                    .instances = 1, .use = fjell::gpu::AccelerationUse::rebuilt, .name = "link_top"});
+                if (bottom && top) {
+                    std::memcpy(device.mapped(*vertices).data(), corners.data(), sizeof(corners));
+                    std::memcpy(device.mapped(*indices).data(), order.data(), sizeof(order));
+                    const fjell::gpu::AccelerationInstance instance{.custom_index = 42, .structure = *bottom};
+                    device.write_instances(device.mapped(*records), std::span(&instance, 1));
+                    const size_t reported_before = device.impl().reported.size();
+                    run([&](fjell::gpu::CommandList& cmd) {
+                        using fjell::gpu::Access;
+                        auto zone = cmd.zone("link acceleration structures");
+                        cmd.build(*bottom, triangle);
+                        cmd.barrier(*bottom, Access::acceleration_build, Access::acceleration_build_input);
+                        cmd.build(*top, *records, 1);
+                        cmd.barrier(*top, Access::acceleration_build, Access::acceleration_trace_compute);
+                        cmd.set_pipeline(*trace);
+                        cmd.bind({{"scene", fjell::gpu::acceleration(*top)},
+                                  {"hits_out", fjell::gpu::storage(*hits)}});
+                        cmd.dispatch(1, 1, 1);
+                    });
+                    traced = device.impl().reported.size() == reported_before && word(*hits, 0) == 1 &&
+                             word(*hits, 1) == 42 && word(*hits, 2) == 0;
+                }
+                if (!bottom) std::fprintf(stderr, "%s\n", bottom.error().c_str());
+                if (!top) std::fprintf(stderr, "%s\n", top.error().c_str());
+            }
+            if (!trace) std::fprintf(stderr, "%s\n", trace.error().c_str());
+        }
+        if (!traced) std::fprintf(stderr, "acceleration structures failed\n");
+        pipelines = pipelines && traced;
 
         if (commands_pipeline) commands_pipeline->reset();
         if (results) results->reset();

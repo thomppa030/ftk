@@ -103,7 +103,9 @@ VkBufferUsageFlags to_vk(BufferUses uses) {
             case BufferUse::index:    flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT; break;
             case BufferUse::indirect: flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT; break;
             case BufferUse::acceleration_input:
-                flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+                // Builds read their input by address.
+                flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
                 break;
             case BufferUse::device_address:
                 flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;

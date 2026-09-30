@@ -26,6 +26,10 @@ namespace fjell::gpu::vulkan {
 /// The VkBuffer behind a buffer; null when the handle finds none.
 [[nodiscard]] VkBuffer native_buffer(Device& device, Buffer buffer);
 
+/// The VkAccelerationStructureKHR behind an acceleration structure; null
+/// when the handle finds none.
+[[nodiscard]] VkAccelerationStructureKHR native_acceleration(Device& device, AccelerationStructure structure);
+
 /// The VkImage behind a texture; null when the handle finds none.
 [[nodiscard]] VkImage native_image(Device& device, Texture texture);
 

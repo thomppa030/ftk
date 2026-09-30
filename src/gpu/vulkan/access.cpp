@@ -164,6 +164,17 @@ BufferScope buffer_scope(Access access) {
             return {VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT};
         case Access::host_read:
             return {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT};
+        case Access::acceleration_build:
+            return {VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR};
+        // A build reads its vertices, indices and instance records as shader
+        // reads, and the bottom levels a top level names as structures.
+        case Access::acceleration_build_input:
+            return {VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                    VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR};
+        case Access::acceleration_trace_compute:
+            return {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR};
         default:
             return {};
     }

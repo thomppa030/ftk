@@ -11,19 +11,21 @@ namespace fjell {
 namespace {
 
 VkDescriptorPool create_pool(VkDevice device, const FrameCachePoolBudget& budget) {
-    std::array<VkDescriptorPoolSize, 6> sizes{{
+    std::array<VkDescriptorPoolSize, 7> sizes{{
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, budget.sampled_images},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          budget.separate_images},
         {VK_DESCRIPTOR_TYPE_SAMPLER,                budget.samplers},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          budget.storage_images},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         budget.uniform_buffers},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         budget.storage_buffers},
+        {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, budget.acceleration_structures},
     }};
+    const uint32_t kinds = budget.acceleration_structures > 0 ? 7 : 6;
 
     VkDescriptorPoolCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     info.maxSets = budget.max_sets;
-    info.poolSizeCount = static_cast<uint32_t>(sizes.size());
+    info.poolSizeCount = kinds;
     info.pPoolSizes = sizes.data();
     // No FREE_DESCRIPTOR_SET_BIT — we rely on vkResetDescriptorPool at
     // begin_frame for bulk reclaim. Free-individual is slower and wasted
@@ -129,6 +131,10 @@ void FrameDescriptorCache::write_bindings(VkDescriptorSet set,
                                            std::span<const FrameCacheBinding> bindings) {
     std::vector<VkWriteDescriptorSet> writes;
     writes.reserve(bindings.size());
+    // Each acceleration structure's write points at one of these, kept
+    // whole until the update.
+    std::vector<VkWriteDescriptorSetAccelerationStructureKHR> structures;
+    structures.reserve(bindings.size());
     for (const auto& b : bindings) {
         VkWriteDescriptorSet w{};
         w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -137,7 +143,13 @@ void FrameDescriptorCache::write_bindings(VkDescriptorSet set,
         w.dstArrayElement = b.element;
         w.descriptorCount = 1;
         w.descriptorType = b.type;
-        if (is_image_descriptor(b.type)) {
+        if (b.type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
+            VkWriteDescriptorSetAccelerationStructureKHR& written = structures.emplace_back();
+            written.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+            written.accelerationStructureCount = 1;
+            written.pAccelerationStructures = &b.acceleration;
+            w.pNext = &written;
+        } else if (is_image_descriptor(b.type)) {
             w.pImageInfo = &b.image;
         } else {
             w.pBufferInfo = &b.buffer;

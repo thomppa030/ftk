@@ -42,6 +42,14 @@ FrameCacheBinding storage_buf(uint32_t binding, VkBuffer buf,
     return b;
 }
 
+FrameCacheBinding acceleration(uint32_t binding, VkAccelerationStructureKHR structure) {
+    FrameCacheBinding b{};
+    b.binding = binding;
+    b.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    b.acceleration = structure;
+    return b;
+}
+
 } // namespace
 
 TEST_CASE("FrameCacheKey: empty keys with same layout are equal", "[frame_cache_key]") {
@@ -184,4 +192,17 @@ TEST_CASE("FrameCacheKey: a request's view finds the key it matches", "[frame_ca
     std::vector<FrameCacheBinding> other = request;
     other[1].buffer.offset = 0;
     CHECK(cache.find(FrameCacheKeyView{layout, other}) == cache.end());
+}
+
+TEST_CASE("FrameCacheKey: acceleration structures dedup by structure", "[frame_cache_key]") {
+    auto layout = fake_handle<VkDescriptorSetLayout>(0x10);
+    auto scene = fake_handle<VkAccelerationStructureKHR>(0x40);
+    auto other = fake_handle<VkAccelerationStructureKHR>(0x50);
+    FrameCacheKey a{layout, {acceleration(0, scene)}};
+    FrameCacheKey b{layout, {acceleration(0, scene)}};
+    FrameCacheKey c{layout, {acceleration(0, other)}};
+    REQUIRE(a == b);
+    REQUIRE(FrameCacheKeyHash{}(a) == FrameCacheKeyHash{}(b));
+    REQUIRE_FALSE(a == c);
+    REQUIRE(FrameCacheKeyHash{}(a) != FrameCacheKeyHash{}(c));
 }

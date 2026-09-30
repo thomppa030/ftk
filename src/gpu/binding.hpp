@@ -3,6 +3,7 @@
 #include "core/handle.hpp"
 #include "core/result.hpp"
 #include "core/small_vector.hpp"
+#include "gpu/acceleration.hpp"
 #include "gpu/buffer.hpp"
 #include "gpu/pipeline.hpp"
 #include "gpu/sampler.hpp"
@@ -27,36 +28,15 @@ using BindGroup = Handle<BindGroupTag>;
 /// Hands a bind group back to its device. `Owned<BindGroup>` calls it.
 void release(Device& device, BindGroup group);
 
-/// Part of a buffer, or the whole of it.
-struct BufferRange {
-    /// `size` reaching to the buffer's end.
-    static constexpr uint64_t REST = UINT64_MAX;
-
-    Buffer buffer{};
-    uint64_t offset{0};
-    uint64_t size{REST};
-
-    constexpr BufferRange() = default;
-
-    /// The whole buffer, from a `Buffer` or anything that holds one
-    /// (`Owned<Buffer>`).
-    template <typename T>
-        requires std::convertible_to<const T&, Buffer>
-    constexpr BufferRange(const T& whole) : buffer(static_cast<Buffer>(whole)) {}
-
-    constexpr BufferRange(Buffer whole, uint64_t from, uint64_t bytes)
-        : buffer(whole), offset(from), size(bytes) {}
-
-    bool operator==(const BufferRange&) const = default;
-};
-
-/// What goes into one binding: a texture view, a sampler, a buffer range, or
-/// a texture view with its sampler, as the binding's kind asks.
+/// What goes into one binding: a texture view, a sampler, a buffer range, a
+/// texture view with its sampler, or an acceleration structure, as the
+/// binding's kind asks.
 struct BindResource {
     BindingKind kind{BindingKind::uniform_buffer};
     TextureView view{};
     Sampler sampler{};
     BufferRange buffer{};
+    AccelerationStructure structure{};
 
     bool operator==(const BindResource&) const = default;
 };
@@ -89,6 +69,11 @@ struct BindResource {
 /// A uniform buffer: `uniform`.
 [[nodiscard]] constexpr BindResource uniform(const BufferRange& range) {
     return {.kind = BindingKind::uniform_buffer, .buffer = range};
+}
+
+/// An acceleration structure ray queries trace: `accelerationStructureEXT`.
+[[nodiscard]] constexpr BindResource acceleration(AccelerationStructure structure) {
+    return {.kind = BindingKind::acceleration_structure, .structure = structure};
 }
 
 /// A resource for the binding the shader calls `name`, and for an array the

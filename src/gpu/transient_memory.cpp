@@ -5,6 +5,15 @@
 
 namespace fjell::gpu {
 
+namespace {
+
+// The CPU's view of a slice: none for memory only the GPU sees.
+std::span<std::byte> cpu_view(const TransientChunk& chunk, uint64_t offset, uint64_t size) {
+    return chunk.bytes.empty() ? std::span<std::byte>{} : chunk.bytes.subspan(offset, size);
+}
+
+} // namespace
+
 TransientMemory::TransientMemory(const Desc& desc, MakeChunk make)
     : slots_(desc.frame_slots), alignment_(desc.alignment), chunk_size_(desc.chunk_size),
       make_(std::move(make)) {}
@@ -25,10 +34,10 @@ Result<TransientSlice> TransientMemory::allocate(uint64_t size) {
     for (size_t i = frame.current; i < frame.chunks.size(); ++i) {
         Chunk& chunk = frame.chunks[i];
         const uint64_t offset = (chunk.used + alignment_ - 1) & ~(alignment_ - 1);
-        if (offset + size > chunk.memory.bytes.size()) continue;
+        if (offset + size > chunk.memory.size) continue;
         chunk.used = offset + size;
         frame.current = i;
-        return TransientSlice{{chunk.memory.buffer, offset, size}, chunk.memory.bytes.subspan(offset, size)};
+        return TransientSlice{{chunk.memory.buffer, offset, size}, cpu_view(chunk.memory, offset, size)};
     }
 
     auto made = make_(std::max(chunk_size_, size));
@@ -38,7 +47,7 @@ Result<TransientSlice> TransientMemory::allocate(uint64_t size) {
     }
     frame.chunks.push_back({*made, size});
     frame.current = frame.chunks.size() - 1;
-    return TransientSlice{{made->buffer, 0, size}, made->bytes.first(size)};
+    return TransientSlice{{made->buffer, 0, size}, cpu_view(*made, 0, size)};
 }
 
 std::vector<Buffer> TransientMemory::chunks() const {

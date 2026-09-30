@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "gpu/acceleration.hpp"
 #include "gpu/access.hpp"
 #include "gpu/binding.hpp"
 #include "gpu/clear.hpp"
@@ -153,6 +154,17 @@ public:
     /// before and after.
     void generate_mipmaps(Texture texture);
 
+    /// Builds a bottom level from `triangles`, as many as it was made for or
+    /// fewer. It writes the structure as `Access::acceleration_build` and
+    /// reads the buffers as `Access::acceleration_build_input`.
+    void build(AccelerationStructure structure, const Triangles& triangles);
+
+    /// Builds a top level from `count` instance records at `instances`
+    /// (`Device::write_instances`), as many as it was made for or fewer. The
+    /// bottom levels they name are built, and read with the records as
+    /// `Access::acceleration_build_input`.
+    void build(AccelerationStructure structure, BufferRange instances, uint32_t count);
+
     /// Begins drawing into `targets` until the returned encoder goes out of
     /// scope. Targets that cannot be drawn to are reported, and the encoder
     /// records nothing.
@@ -169,6 +181,13 @@ public:
     /// several textures together, where one barrier each would wait as
     /// many times.
     void barrier(std::span<const TextureView> views, AccessSet before, AccessSet after);
+    /// Orders what comes after on acceleration structures behind what came
+    /// before: bottom levels built before a top level over them, a top
+    /// level built before it is traced.
+    void barrier(std::span<const AccelerationStructure> structures, AccessSet before, AccessSet after);
+    void barrier(AccelerationStructure structure, AccessSet before, AccessSet after) {
+        barrier(std::span(&structure, 1), before, after);
+    }
 
     /// The frame graph's: every transition it worked out between two passes,
     /// as one batch. Work waited on from the other queue is ordered by the

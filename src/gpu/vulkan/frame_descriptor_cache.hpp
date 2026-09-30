@@ -21,6 +21,7 @@ struct FrameCacheBinding {
     // Exactly one of these is populated depending on `type`.
     VkDescriptorImageInfo image{};
     VkDescriptorBufferInfo buffer{};
+    VkAccelerationStructureKHR acceleration{VK_NULL_HANDLE};
 };
 
 /// Pool budget sized for one in-flight frame. The cache keeps a separate
@@ -33,6 +34,8 @@ struct FrameCachePoolBudget {
     uint32_t storage_images{128};
     uint32_t uniform_buffers{64};
     uint32_t storage_buffers{128};
+    /// None on a GPU without ray queries, whose pools may not name the type.
+    uint32_t acceleration_structures{0};
     uint32_t max_sets{512};
 };
 
