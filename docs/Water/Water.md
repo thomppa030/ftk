@@ -153,6 +153,10 @@ Wakes are a second pair of the same kind — `fjell_water_wake.glsl` and
 `water_wake.cpp`, pinned by `tests/test_water_wake.cpp` — summed on top of the
 field for whatever has moved through the water. See [Wakes](Wakes.md).
 
+The shore is a third — `fjell_water_shore.glsl` and `water_shore.cpp`, pinned
+by `tests/test_water_shore.cpp` — which scales the sea by the ground under it,
+so waves grow into the shallows and break on the beach. See [Shore](Shore.md).
+
 The CPU side offers `height_at()` for the common case and
 `height_at_iterative()` when a body must sit on the water actually above it —
 Gerstner moves a vertex sideways, so the surface over a column started
@@ -246,6 +250,12 @@ prepass and before the water shades: the surface shader samples the
 integrated fog at its own depth and at the bed's and divides one by the
 other, and the fog composite then fogs the air in front of the surface. The
 two together are the whole path.
+
+### Breaking on the shore
+
+`BREAKING` is how much of its height the sea has lost to breaking on the
+ground under it: 0 in water deep enough to carry it, 1 at the waterline. What
+a surf zone foams on; see [Shore](Shore.md).
 
 ### Meeting solid things
 
