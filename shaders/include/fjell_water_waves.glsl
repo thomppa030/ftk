@@ -169,8 +169,10 @@ vec3 fjell_water_normal(vec2 world_xz, float time) {
     return fjell_water_normal_from(fjell_water_tangents(world_xz, time));
 }
 
-// d(displaced)/d(rest) of the horizontal displacement, as the three distinct
-// entries of a symmetric 2x2. Matches HorizontalJacobian.
+// d(displaced)/d(rest) of the horizontal displacement. Matches
+// HorizontalJacobian: `xz` is how the x displacement changes along z, `zx` the
+// z displacement along x. Waves alone make the two equal; a shore scaling
+// them by a factor that changes across the ground does not.
 //
 // Apart from its determinant for the reason the tangents are apart from the
 // normal: the entries add across contributors and the determinant does not.
@@ -178,10 +180,11 @@ struct FjellWaterJacobian {
     float xx;
     float zz;
     float xz;
+    float zx;
 };
 
 float fjell_water_determinant(FjellWaterJacobian j) {
-    return j.xx * j.zz - j.xz * j.xz;
+    return j.xx * j.zz - j.xz * j.zx;
 }
 
 // Matches jacobian_terms(): the closed-form contributors' share, starting
@@ -215,6 +218,7 @@ FjellWaterJacobian fjell_water_jacobian_terms(vec2 world_xz, float time) {
     result.xx = jxx;
     result.zz = jzz;
     result.xz = jxz;
+    result.zx = jxz;
     return result;
 }
 

@@ -120,21 +120,26 @@ struct TrainAngles {
     return *water.packed_trains;
 }
 
-// d(displaced)/d(rest) of the horizontal displacement, as the three distinct
-// entries of a symmetric 2x2.
+// d(displaced)/d(rest) of the horizontal displacement. `xz` is how the x
+// displacement changes along z and `zx` the z displacement along x. A sea of
+// waves alone moves the surface as the gradient of one potential, which makes
+// the two equal; a shore scaling the sea by a factor that changes across the
+// ground does not, so both are kept.
 struct HorizontalJacobian {
     float xx{1.0f};
     float zz{1.0f};
     float xz{0.0f};
+    float zx{0.0f};
 
-    [[nodiscard]] float determinant() const { return xx * zz - xz * xz; }
+    [[nodiscard]] float determinant() const { return xx * zz - xz * zx; }
 };
 
 // The Gerstner contributors' share alone, for whoever works the simulated
-// sea's share out another way.
-[[nodiscard]] HorizontalJacobian gerstner_jacobian_terms(const FjWaterData& water,
-                                                         glm::vec2 world_xz, float time) {
-    // At rest it is the identity; as trains bunch together the diagonal falls.
+// sea's share out another way: the change the trains make, without the
+// identity the flat surface starts from.
+[[nodiscard]] HorizontalJacobian gerstner_jacobian_sums(const FjWaterData& water,
+                                                        glm::vec2 world_xz, float time) {
+    // As trains bunch together the diagonal falls.
     const PackedTrains& t = trains_of(water);
     simd::f32x8 xx = _mm256_setzero_ps(), zz = _mm256_setzero_ps(), xz = _mm256_setzero_ps();
     for (std::size_t i = 0; i < t.k.size(); i += 8) {
@@ -151,23 +156,108 @@ struct HorizontalJacobian {
         xz = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), was, xz);
     }
     HorizontalJacobian j;
-    j.xx += sum8(xx);
-    j.zz += sum8(zz);
-    j.xz += sum8(xz);
+    j.xx = sum8(xx);
+    j.zz = sum8(zz);
+    j.xz = sum8(xz);
+    j.zx = j.xz;
     return j;
 }
 
+[[nodiscard]] HorizontalJacobian gerstner_jacobian_terms(const FjWaterData& water,
+                                                         glm::vec2 world_xz, float time) {
+    // At rest it is the identity.
+    const HorizontalJacobian sums = gerstner_jacobian_sums(water, world_xz, time);
+    HorizontalJacobian j;
+    j.xx += sums.xx;
+    j.zz += sums.zz;
+    j.xz += sums.xz;
+    j.zx += sums.zx;
+    return j;
+}
+
+// Where the Gerstner trains move a rest position, and how fast.
+[[nodiscard]] SurfaceMotion gerstner_motion(const PackedTrains& t, glm::vec2 world_xz,
+                                            float time) {
+    simd::f32x8 dx = _mm256_setzero_ps(), dy = _mm256_setzero_ps(), dz = _mm256_setzero_ps();
+    simd::f32x8 vx = _mm256_setzero_ps(), vy = _mm256_setzero_ps(), vz = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        const simd::f32x8 amp = _mm256_loadu_ps(&t.amplitude[i]);
+        const simd::f32x8 omega = _mm256_loadu_ps(&t.omega[i]);
+        // q * A * dir, the horizontal bunching toward the crest; then the crest.
+        const simd::f32x8 qa = _mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), amp);
+        const simd::f32x8 qax = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_x[i]));
+        const simd::f32x8 qaz = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_z[i]));
+        dx = _mm256_fmadd_ps(qax, a.cos, dx);
+        dz = _mm256_fmadd_ps(qaz, a.cos, dz);
+        dy = _mm256_fmadd_ps(amp, a.sin, dy);
+        // The phase falls at omega: cos becomes omega sin, sin becomes -omega cos.
+        vx = _mm256_fmadd_ps(_mm256_mul_ps(qax, a.sin), omega, vx);
+        vz = _mm256_fmadd_ps(_mm256_mul_ps(qaz, a.sin), omega, vz);
+        vy = _mm256_fnmadd_ps(_mm256_mul_ps(amp, a.cos), omega, vy);
+    }
+    SurfaceMotion m;
+    m.displacement = {sum8(dx), sum8(dy), sum8(dz)};
+    m.velocity = {sum8(vx), sum8(vy), sum8(vz)};
+    return m;
+}
+
+// The simulated sea's strongest waves where the field carries them, and
+// where they move a rest position; nothing where it does not.
+[[nodiscard]] glm::vec3 simulated_displacement(const FjWaterData& water, glm::vec2 world_xz,
+                                               float time) {
+    if (!water.simulated.has_value()) return glm::vec3(0.0f);
+    return spectral_displacement(water.simulated->packed, water.simulated->choppiness, world_xz,
+                                 time);
+}
+
+// How a sum of the sea, scaled by a factor that changes across the ground,
+// changes along x or z: the factor times the sum's own change that way, plus
+// what the sum moves the point by times the factor's change that way.
+[[nodiscard]] glm::vec3 scaled_derivative(glm::vec3 derivative, float factor,
+                                          glm::vec3 displacement, float factor_slope) {
+    return (derivative * factor) + (displacement * factor_slope);
+}
+
 // Everything the CPU sums: the Gerstner contributors, and the simulated sea's
-// strongest waves where the field has been given them.
+// strongest waves where the field has been given them, each scaled by the
+// shore where there is one.
 [[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
                                                 float time) {
-    HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
+    const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
+    if (!shore.has_value()) {
+        HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
+        if (water.simulated.has_value()) {
+            const SpectralDerivatives d = spectral_derivatives(
+                water.simulated->packed, water.simulated->choppiness, world_xz, time);
+            j.xx += d.xx;
+            j.zz += d.zz;
+            j.xz += d.xz;
+            j.zx += d.xz;
+        }
+        return j;
+    }
+
+    // Each sum's own change across the point, scaled, plus what it moves the
+    // point by times how its factor changes: x's displacement along z is not
+    // z's along x once the factor slopes.
+    const HorizontalJacobian g = gerstner_jacobian_sums(water, world_xz, time);
+    const glm::vec3 g_moved = gerstner_motion(trains_of(water), world_xz, time).displacement;
+    const glm::vec2 g_slope = shore->gerstner_gradient;
+    HorizontalJacobian j;
+    j.xx += (g.xx * shore->gerstner) + (g_moved.x * g_slope.x);
+    j.zz += (g.zz * shore->gerstner) + (g_moved.z * g_slope.y);
+    j.xz += (g.xz * shore->gerstner) + (g_moved.x * g_slope.y);
+    j.zx += (g.zx * shore->gerstner) + (g_moved.z * g_slope.x);
     if (water.simulated.has_value()) {
         const SpectralDerivatives d = spectral_derivatives(
             water.simulated->packed, water.simulated->choppiness, world_xz, time);
-        j.xx += d.xx;
-        j.zz += d.zz;
-        j.xz += d.xz;
+        const glm::vec3 s_moved = simulated_displacement(water, world_xz, time);
+        const glm::vec2 s_slope = shore->simulated_gradient;
+        j.xx += (d.xx * shore->simulated) + (s_moved.x * s_slope.x);
+        j.zz += (d.zz * shore->simulated) + (s_moved.z * s_slope.y);
+        j.xz += (d.xz * shore->simulated) + (s_moved.x * s_slope.y);
+        j.zx += (d.xz * shore->simulated) + (s_moved.z * s_slope.x);
     }
     return j;
 }
@@ -434,31 +524,21 @@ FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
 
 SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time,
                              std::uint32_t exclude_node) {
-    SurfaceMotion m;
-    const PackedTrains& t = trains_of(water);
-    simd::f32x8 dx = _mm256_setzero_ps(), dy = _mm256_setzero_ps(), dz = _mm256_setzero_ps();
-    simd::f32x8 vx = _mm256_setzero_ps(), vy = _mm256_setzero_ps(), vz = _mm256_setzero_ps();
-    for (std::size_t i = 0; i < t.k.size(); i += 8) {
-        const TrainAngles a = train_angles(t, i, world_xz, time);
-        const simd::f32x8 amp = _mm256_loadu_ps(&t.amplitude[i]);
-        const simd::f32x8 omega = _mm256_loadu_ps(&t.omega[i]);
-        // q * A * dir, the horizontal bunching toward the crest; then the crest.
-        const simd::f32x8 qa = _mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), amp);
-        const simd::f32x8 qax = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_x[i]));
-        const simd::f32x8 qaz = _mm256_mul_ps(qa, _mm256_loadu_ps(&t.dir_z[i]));
-        dx = _mm256_fmadd_ps(qax, a.cos, dx);
-        dz = _mm256_fmadd_ps(qaz, a.cos, dz);
-        dy = _mm256_fmadd_ps(amp, a.sin, dy);
-        // The phase falls at omega: cos becomes omega sin, sin becomes -omega cos.
-        vx = _mm256_fmadd_ps(_mm256_mul_ps(qax, a.sin), omega, vx);
-        vz = _mm256_fmadd_ps(_mm256_mul_ps(qaz, a.sin), omega, vz);
-        vy = _mm256_fnmadd_ps(_mm256_mul_ps(amp, a.cos), omega, vy);
+    SurfaceMotion m = gerstner_motion(trains_of(water), world_xz, time);
+    // The shore scales each sum by its own factor, which does not change in
+    // time: the velocity scales with the displacement.
+    const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
+    if (shore.has_value()) {
+        m.displacement *= shore->gerstner;
+        m.velocity *= shore->gerstner;
     }
-    m.displacement = {sum8(dx), sum8(dy), sum8(dz)};
-    m.velocity = {sum8(vx), sum8(vy), sum8(vz)};
     if (water.simulated.has_value()) {
-        const SpectralMotion s = spectral_motion(water.simulated->packed,
-                                                 water.simulated->choppiness, world_xz, time);
+        SpectralMotion s = spectral_motion(water.simulated->packed, water.simulated->choppiness,
+                                           world_xz, time);
+        if (shore.has_value()) {
+            s.displacement *= shore->simulated;
+            s.velocity *= shore->simulated;
+        }
         m.displacement += s.displacement;
         m.velocity += s.velocity;
     }
@@ -507,15 +587,40 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
         ty = _mm256_fmadd_ps(dz, wac, ty);
         tz = _mm256_fnmadd_ps(_mm256_mul_ps(dz, dz), qwas, tz);
     }
-    glm::vec3 binormal{1.0f + sum8(bx), sum8(by), sum8(bz)};  // d/dx
-    glm::vec3 tangent{sum8(tx), sum8(ty), 1.0f + sum8(tz)};   // d/dz
+    glm::vec3 binormal;   // d/dx
+    glm::vec3 tangent;    // d/dz
+    const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
+    if (!shore.has_value()) {
+        binormal = {1.0f + sum8(bx), sum8(by), sum8(bz)};
+        tangent = {sum8(tx), sum8(ty), 1.0f + sum8(tz)};
+    } else {
+        // Scaled by a factor that changes across the ground, the trains
+        // change across it by the factor's slope as well as their own.
+        const glm::vec3 moved = gerstner_motion(t, world_xz, time).displacement;
+        binormal = glm::vec3(1.0f, 0.0f, 0.0f)
+                 + scaled_derivative({sum8(bx), sum8(by), sum8(bz)}, shore->gerstner, moved,
+                                     shore->gerstner_gradient.x);
+        tangent = glm::vec3(0.0f, 0.0f, 1.0f)
+                + scaled_derivative({sum8(tx), sum8(ty), sum8(tz)}, shore->gerstner, moved,
+                                    shore->gerstner_gradient.y);
+    }
     if (water.simulated.has_value()) {
         // Tangents add across contributors where normals do not, so the
         // simulated waves go in before the cross product, as in the shader.
         const SpectralDerivatives d = spectral_derivatives(
             water.simulated->packed, water.simulated->choppiness, world_xz, time);
-        binormal += glm::vec3(d.xx, d.dh_dx, d.xz);
-        tangent += glm::vec3(d.xz, d.dh_dz, d.zz);
+        const glm::vec3 d_dx(d.xx, d.dh_dx, d.xz);
+        const glm::vec3 d_dz(d.xz, d.dh_dz, d.zz);
+        if (!shore.has_value()) {
+            binormal += d_dx;
+            tangent += d_dz;
+        } else {
+            const glm::vec3 moved = simulated_displacement(water, world_xz, time);
+            binormal += scaled_derivative(d_dx, shore->simulated, moved,
+                                          shore->simulated_gradient.x);
+            tangent += scaled_derivative(d_dz, shore->simulated, moved,
+                                         shore->simulated_gradient.y);
+        }
     }
     if (!water.wakes.empty()) {
         const WakeSurface w = wake_surface(water.wakes, world_xz, time);
@@ -583,6 +688,7 @@ float folded_share(const FjWaterData& authored) {
             j.xx += simulated_part.xx[cell];
             j.zz += simulated_part.zz[cell];
             j.xz += simulated_part.xz[cell];
+            j.zx += simulated_part.xz[cell];
             if (j.determinant() <= FOLDED_AT) ++folded;
         }
     }
@@ -693,7 +799,7 @@ glm::vec2 rest_position_for(const FjWaterData& water, glm::vec2 world_xz, float 
         if (std::abs(det) < 1e-6f) break;
 
         glm::vec2 step(( j.zz * error.x - j.xz * error.y) / det,
-                       (-j.xz * error.x + j.xx * error.y) / det);
+                       (-j.zx * error.x + j.xx * error.y) / det);
         const float step_len = glm::length(step);
         if (step_len > max_step) step *= max_step / step_len;
         rest -= step;

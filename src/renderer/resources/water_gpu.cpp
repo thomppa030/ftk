@@ -1,5 +1,6 @@
 #include "renderer/resources/water_gpu.hpp"
 
+#include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/water_surface.hpp"
 
 #include <algorithm>
@@ -29,6 +30,27 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
     });
     if (const auto* fft = water::simulated_sea(water)) {
         field.simulated_patch_size = fft->patch_size;
+    }
+    if (water.shore.has_value() && water.shore->terrain != nullptr) {
+        const water::ShoreBed& bed = *water.shore;
+        const FjTerrainHeader& header = bed.terrain->header;
+        GpuWaterShore& shore = field.shore;
+        shore.bed_min_corner = bed.min_corner;
+        shore.bed_size = header.world_size;
+        shore.bed_samples = header.sample_count;
+        shore.bed_height_scale = header.height_scale;
+        shore.bed_height_offset = header.height_offset;
+        shore.ground_y = bed.ground_y;
+        shore.surface_y = bed.surface_y;
+        if (water.packed_trains.has_value()) {
+            const water::ShoalingSum& sum = water.packed_trains->shoaling;
+            shore.trains = {sum.k, sum.amplitude};
+        }
+        if (water.simulated.has_value()) {
+            const water::ShoalingSum& sum = water.simulated->shoaling;
+            shore.simulated = {sum.k, sum.amplitude};
+        }
+        shore.present = 1;
     }
     return field;
 }

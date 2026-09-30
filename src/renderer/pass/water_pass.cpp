@@ -9,6 +9,7 @@
 #include "gpu/device.hpp"
 #include "gpu/shader.hpp"
 #include "renderer/bindless.hpp"
+#include "renderer/components/terrain_component.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -18,6 +19,7 @@
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/resources/water_surface.hpp"
 #include "renderer/uniform_types.hpp"
@@ -82,6 +84,14 @@ Result<> WaterPass::create(const PassResources& resources) {
                               .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
                               .name = "water_no_medium",
                           }));
+    FJELL_TRY(no_bed_, device_->create(gpu::TextureDesc{
+                           .format = gpu::Format::r16_unorm,
+                           .width = 1,
+                           .height = 1,
+                           .use = gpu::TextureUse::sampled,
+                           .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                           .name = "water_no_bed",
+                       }));
     return {};
 }
 
@@ -90,7 +100,9 @@ void WaterPass::destroy() {
     depth_pipeline_.reset();
     line_pipeline_.reset();
     no_medium_.reset();
+    no_bed_.reset();
     fields_.clear();
+    beds_.clear();
 }
 
 void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
@@ -345,8 +357,30 @@ void WaterPass::resolve_node_material(const WaterComponent& comp, gpu::GraphicsP
 
 void WaterPass::gather_fields(const FrameContext& ctx) {
     fields_.clear();
+    beds_.clear();
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
         GpuWaterField field = to_gpu_field(wc->effective_water);
+
+        // The ground is the terrain whose heights the shore holds: the same
+        // array, so the texture drawn from is that terrain's. One that has
+        // gone since the step that found it leaves the water without ground
+        // until the next step says where it is.
+        if (field.shore.present != 0) {
+            const FjTerrainData* heights = wc->effective_water.shore->terrain.get();
+            gpu::Texture bed{};
+            for (auto [terrain_node, tc] : ctx.scene->view<TerrainComponent>()) {
+                if (tc->terrain != nullptr && tc->terrain->shared_data().get() == heights) {
+                    bed = tc->terrain->height_texture();
+                    break;
+                }
+            }
+            if (bed.valid()) {
+                beds_[wc] = bed;
+            } else {
+                field.shore.present = 0;
+            }
+        }
+
         // A field with a simulated contributor is drawn with the sea the
         // world is running, which is its own unless another body of water
         // asked first. The textures tile at the running sea's patch whoever
@@ -398,7 +432,8 @@ void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
     cmd.set_pipeline(line_pipeline_);
     cmd.bind(ctx.globals);
     // Set 2 is the water set the mesh stage reads, set 3 the mask written.
-    cmd.bind(water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {}));
+    cmd.bind(water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {},
+                       bed_of(water)));
     cmd.bind({{"water_line", gpu::storage(mask)}});
     cmd.push(push);
     const gpu::TextureInfo& size = device_->info(mask);
@@ -426,14 +461,21 @@ std::span<const GpuWakeSource> WaterPass::wake_records() const {
     return wakes_.empty() ? std::span(&none, 1) : std::span(wakes_);
 }
 
+gpu::Texture WaterPass::bed_of(const WaterComponent* water) const {
+    const auto bed = beds_.find(water);
+    return bed != beds_.end() ? bed->second : gpu::Texture{};
+}
+
 std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange field,
                                                  gpu::BufferRange clipmap, gpu::BufferRange wakes,
-                                                 gpu::Texture medium) const {
+                                                 gpu::Texture medium, gpu::Texture bed) const {
     const gpu::Sampler sampler = simulation_->sampler();
+    // The bed is read a sample at a time, so the sampler never filters it.
     std::vector<gpu::BindEntry> entries{
         {"water", gpu::uniform(field)},
         {"simulated_displacement", gpu::sampled(simulation_->displacement(), sampler)},
         {"wakes", gpu::storage(wakes)},
+        {"bed_heights", gpu::sampled(bed.valid() ? bed : no_bed_.get(), sampler)},
     };
     if (use == WaterSet::line) return entries;
     entries.push_back({"clip", gpu::uniform(clipmap)});
@@ -533,7 +575,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
         pass.set_pipeline(pipeline);
         pass.bind(ctx.globals);
         if (use == WaterSet::colour) pass.bind(ctx.bindless);
-        pass.bind(water_set(use, pass.transient(field->second), clipmap, wakes, medium));
+        pass.bind(water_set(use, pass.transient(field->second), clipmap, wakes, medium, bed_of(wc)));
 
         const bool infinite = wc->extent == WaterComponent::Extent::infinite;
         const uint32_t patches = wc->patches_per_side > 0 ? wc->patches_per_side : 1;

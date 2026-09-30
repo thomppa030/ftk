@@ -6,8 +6,45 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "renderer/resources/water_gpu.hpp"
+
 #include <cmath>
+#include <cstring>
 #include <memory>
+
+// The shader half of the shore, compiled as C++ so the two can be compared.
+// See glsl_shim.hpp.
+#include "glsl_shim.hpp"
+
+// In a namespace of this file's own: other tests compile the wave field's
+// shader too, and the copies must not meet at link time.
+namespace shore_shim {
+
+struct FjellWaterField;
+FjellWaterField& shim_water_field();
+float shim_bed(ivec2 texel);
+#define FJELL_WATER_FIELD shim_water_field()
+#define FJELL_WATER_BED(texel) shim_bed(texel)
+#include "../shaders/include/fjell_water_waves.glsl"
+#include "../shaders/include/fjell_water_shore.glsl"
+
+FjellWaterField& shim_water_field() {
+    static FjellWaterField field{};
+    return field;
+}
+
+// The heights the shader's bed texture holds, one per texel.
+std::vector<float>& shim_bed_heights() {
+    static std::vector<float> heights;
+    return heights;
+}
+
+float shim_bed(ivec2 texel) {
+    const auto samples = static_cast<int>(shim_water_field().shore.bed_samples);
+    return shim_bed_heights()[static_cast<std::size_t>((texel.y * samples) + texel.x)];
+}
+
+} // namespace shore_shim
 
 using namespace fjell;
 using Catch::Approx;
@@ -229,4 +266,244 @@ TEST_CASE("The shore factor's gradient is its change across the point", "[water_
         CHECK(at->simulated_gradient.x == Approx(s_rate * slope.x).margin(1e-4));
         CHECK(at->simulated_gradient.y == Approx(s_rate * slope.y).margin(1e-4));
     }
+}
+
+namespace {
+
+// A beach: a bed rising 1 in 30 toward +x, 10 m under the water at x = 0 and
+// breaking the surface at x = 300. A plane, so the bed has one slope
+// everywhere and the surface over it has no kinks for a finite difference to
+// straddle.
+water::ShoreBed beach() {
+    auto data = terrain(129, 512.0f, 20.0f, -20.0f, [](std::uint32_t i, std::uint32_t) {
+        // x = 4 i metres from the corner at x = -100; bed height -10 + x / 30.
+        const float x = -100.0f + (4.0f * static_cast<float>(i));
+        return ((-10.0f + (x / 30.0f)) + 20.0f) / 20.0f;
+    });
+    water::ShoreBed bed;
+    bed.terrain = data;
+    bed.min_corner = {-100.0f, -256.0f};
+    return bed;
+}
+
+// A sea of both kinds: three Gerstner trains and a simulated sea whose
+// strongest waves physics sums, over the beach.
+FjWaterData sea_on_the_beach() {
+    GerstnerContributor trains;
+    trains.waves = {
+        WaterWave{{1.0f, 0.1f}, 48.0f, 0.9f, 0.6f, 1.0f},
+        WaterWave{{0.8f, 0.5f}, 17.0f, 0.3f, 0.7f, 1.1f},
+        WaterWave{{0.9f, -0.4f}, 9.0f, 0.12f, 0.5f, 0.9f},
+    };
+    FftContributor simulated;
+    simulated.resolution = 32;
+    simulated.patch_size = 96.0f;
+    simulated.physics_waves = 24;
+    simulated.amplitude_scale = 1.5f;
+
+    FjWaterData authored;
+    authored.contributors = {trains, simulated};
+    FjWaterData water = water::derive_effective(authored, {0.0f, 0.0f});
+    water.shore = beach();
+    return water;
+}
+
+// Depths along the beach worth looking at: shoaling alone, the break point,
+// deep in the breaking, and nearly on the sand.
+constexpr float BEACH_X[] = {-60.0f, 120.0f, 180.0f, 240.0f, 270.0f, 290.0f};
+
+glm::vec3 surface_point(const FjWaterData& water, glm::vec2 rest, float time) {
+    const glm::vec3 d = water::displace(water, rest, time);
+    return {rest.x + d.x, d.y, rest.y + d.z};
+}
+
+} // namespace
+
+TEST_CASE("Near the shore the normal is the displaced surface's", "[water_shore]") {
+    const FjWaterData water = sea_on_the_beach();
+    for (const float x : BEACH_X) {
+        for (const float time : {0.0f, 2.3f, 7.9f}) {
+            const glm::vec2 rest{x, 13.0f};
+            REQUIRE(water::shore_at(water, rest).has_value());
+
+            // The surface's own tangents, from where it puts points either
+            // side of this one.
+            const float h = 0.01f;
+            const glm::vec3 along_x = surface_point(water, rest + glm::vec2(h, 0.0f), time)
+                                    - surface_point(water, rest - glm::vec2(h, 0.0f), time);
+            const glm::vec3 along_z = surface_point(water, rest + glm::vec2(0.0f, h), time)
+                                    - surface_point(water, rest - glm::vec2(0.0f, h), time);
+            const glm::vec3 expected = glm::normalize(glm::cross(along_z, along_x));
+
+            const glm::vec3 normal = water::normal_at(water, rest, time);
+            CHECK(normal.x == Approx(expected.x).margin(2e-3));
+            CHECK(normal.y == Approx(expected.y).margin(2e-3));
+            CHECK(normal.z == Approx(expected.z).margin(2e-3));
+        }
+    }
+}
+
+TEST_CASE("Near the shore the fold measure is the displaced surface's", "[water_shore]") {
+    const FjWaterData water = sea_on_the_beach();
+    for (const float x : BEACH_X) {
+        for (const float time : {0.0f, 2.3f, 7.9f}) {
+            const glm::vec2 rest{x, -41.0f};
+            const float h = 0.01f;
+            const glm::vec3 along_x = surface_point(water, rest + glm::vec2(h, 0.0f), time)
+                                    - surface_point(water, rest - glm::vec2(h, 0.0f), time);
+            const glm::vec3 along_z = surface_point(water, rest + glm::vec2(0.0f, h), time)
+                                    - surface_point(water, rest - glm::vec2(0.0f, h), time);
+            // d(displaced x, z)/d(rest x, z), and its determinant.
+            const float xx = along_x.x / (2.0f * h);
+            const float zx = along_x.z / (2.0f * h);
+            const float xz = along_z.x / (2.0f * h);
+            const float zz = along_z.z / (2.0f * h);
+            CHECK(water::horizontal_jacobian(water, rest, time)
+                  == Approx((xx * zz) - (xz * zx)).margin(2e-3));
+        }
+    }
+}
+
+TEST_CASE("Near the shore the water's velocity is how its surface moves", "[water_shore]") {
+    const FjWaterData water = sea_on_the_beach();
+    for (const float x : BEACH_X) {
+        const glm::vec2 rest{x, 5.0f};
+        const float time = 4.2f;
+        const float h = 1e-3f;
+        const glm::vec3 expected = (water::displace(water, rest, time + h)
+                                    - water::displace(water, rest, time - h))
+                                 / (2.0f * h);
+        const glm::vec3 velocity = water::surface_motion(water, rest, time).velocity;
+        CHECK(velocity.x == Approx(expected.x).margin(5e-3));
+        CHECK(velocity.y == Approx(expected.y).margin(5e-3));
+        CHECK(velocity.z == Approx(expected.z).margin(5e-3));
+    }
+}
+
+TEST_CASE("Near the shore the column's rest position is still found", "[water_shore]") {
+    const FjWaterData water = sea_on_the_beach();
+    for (const float x : BEACH_X) {
+        for (const float time : {1.0f, 6.5f}) {
+            const glm::vec2 column{x, 22.0f};
+            const glm::vec2 rest = water::rest_position_for(water, column, time);
+            const glm::vec3 d = water::displace(water, rest, time);
+            CHECK(glm::length(rest + glm::vec2(d.x, d.z) - column) < 2e-3f);
+        }
+    }
+}
+
+TEST_CASE("The sea dies at the waterline and is gone on the sand", "[water_shore]") {
+    const FjWaterData water = sea_on_the_beach();
+    for (const float time : {0.0f, 3.3f, 9.1f}) {
+        // On the sand the surface lies flat, under the ground.
+        for (const float x : {300.0f, 305.0f, 380.0f}) {
+            const water::SurfaceMotion m = water::surface_motion(water, {x, 0.0f}, time);
+            CHECK(m.displacement == glm::vec3(0.0f));
+            CHECK(m.velocity == glm::vec3(0.0f));
+        }
+        // And in the last few centimetres of water it is barely moving:
+        // breaking holds the sea to 0.39 of the depth.
+        const glm::vec3 d = water::displace(water, {299.4f, 0.0f}, time);
+        CHECK(std::abs(d.y) < 0.39f * 0.02f * 3.0f);
+    }
+}
+
+namespace {
+
+// Put a field where the shader reads it, as the water pass would upload it,
+// and its ground's heights where it reads those.
+void give_the_shader(const FjWaterData& water) {
+    const GpuWaterField packed = to_gpu_field(water);
+    static_assert(sizeof(packed) == sizeof(shore_shim::FjellWaterField));
+    std::memcpy(&shore_shim::shim_water_field(), &packed, sizeof(packed));
+    shore_shim::shim_bed_heights() = water.shore->terrain->heights;
+}
+
+// The sea on the beach with its Gerstner trains alone: the simulated sea
+// reaches the shader as textures, which this cannot compile.
+FjWaterData trains_on_the_beach() {
+    FjWaterData water = sea_on_the_beach();
+    water.simulated.reset();
+    return water;
+}
+
+} // namespace
+
+TEST_CASE("Shader and CPU agree on what the shore does", "[water_shore]") {
+    // The whole sea, both sums: the factors do not need the textures.
+    const FjWaterData water = sea_on_the_beach();
+    give_the_shader(water);
+    for (float x = -120.0f; x < 420.0f; x += 7.3f) {
+        for (const float z : {-200.0f, 0.5f, 170.0f}) {
+            const auto cpu = water::shore_at(water, {x, z});
+            const shore_shim::FjellShoreEffect gpu = shore_shim::fjell_water_shore({x, z});
+            if (!cpu.has_value()) {
+                CHECK(gpu.gerstner == 1.0f);
+                CHECK(gpu.simulated == 1.0f);
+                CHECK(gpu.breaking == 0.0f);
+                continue;
+            }
+            CHECK(gpu.gerstner == Approx(cpu->gerstner).margin(1e-5));
+            CHECK(gpu.simulated == Approx(cpu->simulated).margin(1e-5));
+            CHECK(gpu.gerstner_gradient.x == Approx(cpu->gerstner_gradient.x).margin(1e-5));
+            CHECK(gpu.gerstner_gradient.y == Approx(cpu->gerstner_gradient.y).margin(1e-5));
+            CHECK(gpu.simulated_gradient.x == Approx(cpu->simulated_gradient.x).margin(1e-5));
+            CHECK(gpu.simulated_gradient.y == Approx(cpu->simulated_gradient.y).margin(1e-5));
+            CHECK(gpu.breaking == Approx(cpu->breaking).margin(1e-5));
+        }
+    }
+}
+
+TEST_CASE("Shader and CPU agree on the sea over the shore", "[water_shore]") {
+    // What the mesh stage makes of the trains: scaled, and their tangents and
+    // fold terms carried through the shore, against the CPU's evaluators.
+    const FjWaterData water = trains_on_the_beach();
+    give_the_shader(water);
+    for (float x = -60.0f; x < 310.0f; x += 11.9f) {
+        for (const float time : {0.0f, 3.1f, 8.4f}) {
+            const glm::vec2 rest{x, 9.0f};
+            const shore_shim::FjellShoreEffect shore = shore_shim::fjell_water_shore(rest);
+            const vec3 trains = shore_shim::fjell_water_displace(rest, time);
+
+            const glm::vec3 displaced = water::displace(water, rest, time);
+            const vec3 shaded = trains * shore.gerstner;
+            CHECK(shaded.x == Approx(displaced.x).margin(1e-4));
+            CHECK(shaded.y == Approx(displaced.y).margin(1e-4));
+            CHECK(shaded.z == Approx(displaced.z).margin(1e-4));
+
+            const vec3 normal = shore_shim::fjell_water_normal_from(
+                shore_shim::fjell_water_shore_tangents(shore_shim::fjell_water_tangents(rest, time),
+                                                       trains, shore.gerstner,
+                                                       shore.gerstner_gradient));
+            const glm::vec3 cpu_normal = water::normal_at(water, rest, time);
+            CHECK(normal.x == Approx(cpu_normal.x).margin(1e-4));
+            CHECK(normal.y == Approx(cpu_normal.y).margin(1e-4));
+            CHECK(normal.z == Approx(cpu_normal.z).margin(1e-4));
+
+            const float fold = shore_shim::fjell_water_determinant(
+                shore_shim::fjell_water_shore_jacobian(
+                    shore_shim::fjell_water_jacobian_terms(rest, time), trains, shore.gerstner,
+                    shore.gerstner_gradient));
+            CHECK(fold == Approx(water::horizontal_jacobian(water, rest, time)).margin(1e-4));
+        }
+    }
+}
+
+TEST_CASE("The GPU shore matches the shader's struct", "[water_shore]") {
+    using shore_shim::FjellWaterField;
+    using shore_shim::FjellWaterShore;
+    REQUIRE(sizeof(GpuWaterShore) == sizeof(FjellWaterShore));
+    REQUIRE(offsetof(GpuWaterField, shore) == offsetof(FjellWaterField, shore));
+    REQUIRE(offsetof(GpuWaterShore, bed_min_corner) == offsetof(FjellWaterShore, bed_min_corner));
+    REQUIRE(offsetof(GpuWaterShore, bed_size) == offsetof(FjellWaterShore, bed_size));
+    REQUIRE(offsetof(GpuWaterShore, bed_samples) == offsetof(FjellWaterShore, bed_samples));
+    REQUIRE(offsetof(GpuWaterShore, bed_height_scale)
+            == offsetof(FjellWaterShore, bed_height_scale));
+    REQUIRE(offsetof(GpuWaterShore, bed_height_offset)
+            == offsetof(FjellWaterShore, bed_height_offset));
+    REQUIRE(offsetof(GpuWaterShore, ground_y) == offsetof(FjellWaterShore, ground_y));
+    REQUIRE(offsetof(GpuWaterShore, surface_y) == offsetof(FjellWaterShore, surface_y));
+    REQUIRE(offsetof(GpuWaterShore, trains) == offsetof(FjellWaterShore, trains));
+    REQUIRE(offsetof(GpuWaterShore, simulated) == offsetof(FjellWaterShore, simulated));
+    REQUIRE(offsetof(GpuWaterShore, present) == offsetof(FjellWaterShore, present));
 }

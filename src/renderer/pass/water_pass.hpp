@@ -173,10 +173,13 @@ private:
     /// the waterline the field, the sea's displacement and the wakes.
     enum class WaterSet : uint8_t { mesh, colour, line };
     /// The water set for one draw or dispatch: `field` and `clipmap` and
-    /// `wakes` copies made for it, and `medium` the fog's volume or unset.
+    /// `wakes` copies made for it, `medium` the fog's volume or unset, and
+    /// `bed` the heights of the ground under this water or unset.
     [[nodiscard]] std::vector<gpu::BindEntry> water_set(WaterSet use, gpu::BufferRange field,
                                                         gpu::BufferRange clipmap, gpu::BufferRange wakes,
-                                                        gpu::Texture medium) const;
+                                                        gpu::Texture medium, gpu::Texture bed) const;
+    /// The heights of the ground under `water`, or unset where it has none.
+    [[nodiscard]] gpu::Texture bed_of(const WaterComponent* water) const;
 
 public:
     /// Whether the camera is under the body of water `node_id`, as decided
@@ -258,12 +261,18 @@ private:
     /// Bound in place of the fog's volume where there is none: one texel
     /// of air, which nothing samples while there is no medium.
     gpu::Owned<gpu::Texture> no_medium_;
+    /// Bound in place of a terrain's heights where the water has no ground
+    /// under it: one texel, which nothing reads while the field says so.
+    gpu::Owned<gpu::Texture> no_bed_;
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};
     /// Each node's wave field this frame, and the one value of it the push
     /// constants also need.
     std::unordered_map<const WaterComponent*, GpuWaterField> fields_;
+    /// Each node's ground this frame: the height texture of the terrain its
+    /// field's shore reads. Absent for a node with no shore.
+    std::unordered_map<const WaterComponent*, gpu::Texture> beds_;
     /// The levels an infinite surface is drawn from, recentered on the camera
     /// once per frame. One set of levels for the scene rather than one per
     /// node: they follow the camera, not the water, so two infinite seas at

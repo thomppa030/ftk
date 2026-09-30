@@ -44,6 +44,30 @@ struct GpuGerstnerContributor {
 static_assert(sizeof(GpuGerstnerContributor) == MAX_WATER_WAVES * 32 + 16,
               "must match FjellGerstnerContributor in GLSL");
 
+/// The ground under the water as the shader reads it: where the terrain's
+/// heights stand, and what each sum of the sea shoals by. Mirrors
+/// `FjellWaterShore`. The heights are the terrain's own texture, bound
+/// beside the field.
+struct GpuWaterShore {
+    glm::vec2 bed_min_corner{0.0f};
+    float bed_size{0.0f};
+    std::uint32_t bed_samples{0};
+    float bed_height_scale{0.0f};
+    float bed_height_offset{0.0f};
+    float ground_y{0.0f};
+    float surface_y{0.0f};
+    /// Dominant wavenumber and significant amplitude, of the Gerstner sum and
+    /// of the simulated sea.
+    glm::vec2 trains{0.0f};
+    glm::vec2 simulated{0.0f};
+    /// 0 is open water everywhere, and nothing above is read.
+    std::uint32_t present{0};
+    std::uint32_t _pad0{0};
+    std::uint32_t _pad1{0};
+    std::uint32_t _pad2{0};
+};
+static_assert(sizeof(GpuWaterShore) == 64, "must match FjellWaterShore in GLSL");
+
 /// The wave field, as one uniform buffer. Mirrors `FjellWaterField`.
 ///
 /// Too large for push constants: one contributor of sixteen trains is 528
@@ -65,15 +89,20 @@ struct GpuWaterField {
     float simulated_patch_size{0.0f};
     std::uint32_t _pad0{0};
     std::uint32_t _pad1{0};
+    GpuWaterShore shore;
 };
 static_assert(sizeof(GpuWaterField)
-                  == MAX_GERSTNER_CONTRIBUTORS * sizeof(GpuGerstnerContributor) + 16,
+                  == MAX_GERSTNER_CONTRIBUTORS * sizeof(GpuGerstnerContributor) + 16
+                         + sizeof(GpuWaterShore),
               "must match FjellWaterField in GLSL");
 // Where the compiled shader puts them, read out of its SPIR-V.
 static_assert(offsetof(GpuGerstnerContributor, wave_count) == 512);
 static_assert(offsetof(GpuGerstnerContributor, steepness_headroom) == 524);
 static_assert(offsetof(GpuWaterField, gerstner_count) == 2112);
 static_assert(offsetof(GpuWaterField, simulated_patch_size) == 2116);
+static_assert(offsetof(GpuWaterField, shore) == 2128);
+static_assert(offsetof(GpuWaterShore, trains) == 32);
+static_assert(offsetof(GpuWaterShore, present) == 48);
 
 /// One source and its trail as the shader reads it. Mirrors `FjellWakeSource`
 /// in shaders/include/fjell_water_wake.glsl. Nothing but vec4s, so std430 and

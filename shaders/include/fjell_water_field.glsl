@@ -34,6 +34,25 @@ struct FjellGerstnerContributor {
     float steepness_headroom;
 };
 
+// The ground under the water, when it has any: where a terrain's heights
+// stand, and what each sum of the sea shoals by. Mirrors GpuWaterShore; the
+// heights themselves are the terrain's own texture, bound beside the field.
+struct FjellWaterShore {
+    vec2  bed_min_corner;      // world XZ of the terrain's min corner
+    float bed_size;            // metres across it
+    uint  bed_samples;         // height samples along a side
+    float bed_height_scale;    // metres of a normalized height of 1
+    float bed_height_offset;   // metres of a normalized height of 0
+    float ground_y;            // world Y of the terrain node
+    float surface_y;           // world Y of the water at rest
+    vec2  trains;              // the Gerstner sum: dominant wavenumber, significant amplitude
+    vec2  simulated;           // the simulated sea's, likewise
+    uint  present;             // 0: open water everywhere, and nothing above is read
+    uint  _pad0;
+    uint  _pad1;
+    uint  _pad2;
+};
+
 // The field: every contributor the surface sums. Mirrors GpuWaterField.
 //
 // Read a contributor through the field (`FJELL_WATER_FIELD.gerstner[c].waves[i]`) and
@@ -48,6 +67,7 @@ struct FjellWaterField {
     float simulated_patch_size;
     uint  _pad0;
     uint  _pad1;
+    FjellWaterShore shore;
 };
 
 #endif // FJELL_WATER_FIELD_GLSL
