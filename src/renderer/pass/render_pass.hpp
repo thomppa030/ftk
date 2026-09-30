@@ -59,6 +59,8 @@ struct PassResources {
     gpu::Format scene_mr_format{gpu::Format::undefined};
     gpu::Format scene_normal_format{gpu::Format::undefined};
     gpu::Format scene_velocity_format{gpu::Format::undefined};
+    /// The single-sampled target distortion draws its screen offsets into.
+    gpu::Format scene_distortion_format{gpu::Format::undefined};
     gpu::Samples samples{gpu::Samples::x1};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};

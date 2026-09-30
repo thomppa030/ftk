@@ -1,21 +1,19 @@
 #include "renderer/systems/particle_system.hpp"
+#include "core/small_vector.hpp"
 #include "environment/environment_state.hpp"
+#include "gpu/command_list.hpp"
+#include "gpu/device.hpp"
+#include "gpu/render_encoder.hpp"
 #include "renderer/frustum.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "renderer/gpu/shader_utils.hpp"
+#include "renderer/resources/vertex.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression_eval.hpp"
 #include "renderer/systems/vfx_module.hpp"
-#include "renderer/gpu/vk_check.hpp"
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -25,12 +23,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <span>
 #include <stdexcept>
+#include <string_view>
 
 namespace fjell {
 
 // Must match the GPU Particle struct in particle_common.glsl
-constexpr VkDeviceSize PARTICLE_STRIDE = 80;
+constexpr uint64_t PARTICLE_STRIDE = 80;
 
 // Hard per-emitter cap on module_buffer_ usage. Curve modules run up to
 // 528 bytes each; a handful of those plus the usual spawn/update stack can
@@ -38,6 +38,11 @@ constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 // common case. write_gpu_modules() enforces this exactly — see its
 // definition for why the enforcement has to live there.
 constexpr uint32_t MODULE_BUDGET_BYTES = 2048;
+
+// Sub-emitter events a parent may report per frame; matches the GLSL define.
+constexpr uint32_t MAX_SUB_EVENTS_PER_EMITTER = 256;
+// Bytes of one sub-emitter event: sizeof(SubEmitterEvent) in GLSL.
+constexpr uint64_t SUB_EVENT_SIZE = 64;
 
 namespace {
 
@@ -50,260 +55,67 @@ bool draws_in(const ParticleSystem::EmitterGpu& em, const FrameContext& ctx) {
     return em.active && em.visible && ctx.scene != nullptr && em.scene_id == ctx.scene->id();
 }
 
-// Sets the mega buffer's vertices and 32-bit indices, which mesh particles
-// draw from.
-void bind_mega_buffer(const FrameContext& ctx) {
-    const VkBuffer vertices = gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->vertex_buffer());
-    const VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &vertices, &offset);
-    vkCmdBindIndexBuffer(ctx.cmd, gpu::vulkan::native_buffer(*ctx.device, ctx.mega_buffer->index_buffer()), 0,
-                         VK_INDEX_TYPE_UINT32);
-}
+// Colour over what is there by the source's alpha, the alpha summed.
+constexpr gpu::Blend ALPHA_BLEND{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
+                                 gpu::BlendFactor::one, gpu::BlendFactor::one};
+// Colour added by the source's alpha, the alpha summed.
+constexpr gpu::Blend ADDITIVE_BLEND{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one,
+                                    gpu::BlendFactor::one, gpu::BlendFactor::one};
+// Screen offsets summed.
+constexpr gpu::Blend SUM_BLEND{true, gpu::BlendFactor::one, gpu::BlendFactor::one, gpu::BlendFactor::one,
+                               gpu::BlendFactor::one};
+
+// What the compute steps read and write, and what each step of a
+// dispatch's sequence leaves for the next.
+constexpr gpu::Access COMPUTE = gpu::Access::storage_buffer_read_write_compute;
 
 } // namespace
 
-// Sub-emitter events a parent may report per frame; matches the GLSL define.
-constexpr uint32_t MAX_SUB_EVENTS_PER_EMITTER = 256;
-
-void ParticleSystem::create(Device& device, const PassResources& resources) {
-    device_ = device.handle();
+void ParticleSystem::create(Device& /*device*/, const PassResources& resources) {
     gpu_device_ = resources.device;
-    vk_pipeline_cache_ = resources.pipeline_cache;
-    allocator_ = resources.allocator;
-    global_set_layout_ = resources.global_set_layout;
-    bindless_set_layout_ = resources.material_set_layout;
-    color_format_ = resources.color_format;
-    depth_format_ = resources.depth_format;
-    sample_count_ = resources.sample_count;
+    targets_ = resources;
+    gpu::Device& gpu = *gpu_device_;
 
-    // ── GPU-only mega buffers (sparse-growing, see growable_buffer.hpp) ──
-    // Small initial commit — sparse growth is cheap (no device stall), so
-    // there's no reason to over-commit up front like MegaBuffer does for
-    // its much larger, load-time-known mesh data. Virtual capacity caps
-    // how far ensure_capacity() can ever grow: the scene budgets in
-    // particle_budget.hpp, which reserve address space and nothing else.
-    //
-    // The counter/indirect buffers are naturally tiny (a handful of uints
-    // per emitter) — their virtual capacity must still be at least one
-    // sparse block (64KB on this hardware; queried at runtime, not assumed)
-    // or the bind rounds to something misaligned. GrowableBuffer doesn't
-    // guard against this itself — a virtual_capacity smaller than the
-    // device's sparse block alignment produces an invalid bind, caught
-    // live via validation, not by inspection. Floor both at 1MB, which is
-    // already far more headroom than any realistic emitter count needs.
-    constexpr VkDeviceSize INITIAL_PARTICLES = 512;
-    constexpr VkDeviceSize MAX_PARTICLES = MAX_SCENE_PARTICLES;
-    constexpr VkDeviceSize INITIAL_EMITTERS = 8;
-    constexpr VkDeviceSize MAX_EMITTERS = MAX_SCENE_EMITTERS;
-    constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
+    // Soft particles read the scene's depth, which means nothing between two
+    // texels.
+    depth_sampler_ = gpu.sampler({.filter = gpu::Filter::nearest,
+                                  .mip_filter = gpu::Filter::nearest,
+                                  .address = gpu::Address::clamp});
 
-    auto& upload = *resources.upload_context;
-
-    mega_particle_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, *gpu_device_,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        INITIAL_PARTICLES * PARTICLE_STRIDE, MAX_PARTICLES * PARTICLE_STRIDE, "particle_mega");
-
-    mega_counter_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, *gpu_device_,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        INITIAL_EMITTERS * 3 * sizeof(uint32_t),
-        std::max(MAX_EMITTERS * 3 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_counters");
-
-    mega_indirect_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, *gpu_device_,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        INITIAL_EMITTERS * 4 * sizeof(uint32_t),
-        std::max(MAX_EMITTERS * 4 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_indirect");
-
-    mega_alive_buffer_ = std::make_unique<GrowableBuffer>(
-        device, allocator_, upload, *gpu_device_,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_alive");
-
-    // The frame graph tracks the ones the draws read.
-    mega_particle_buffer_->share();
-    mega_indirect_buffer_->share();
-    mega_alive_buffer_->share();
-
-    // ── Compute descriptor set layout ──
-    // 0=particles, 1=counters, 3=emitter_data, 4=indirect, 5=modules
-    // 6=sub_emitter_events, 7=sub_emitter_event_counters. Binding 2 once
-    // held a free list; emission is a ring and the number stays unused.
-
-    constexpr uint32_t COMPUTE_BINDING_IDS[] = {0, 1, 3, 4, 5, 6, 7};
-    constexpr uint32_t COMPUTE_BINDINGS = 7;
-    VkDescriptorSetLayoutBinding compute_bindings[COMPUTE_BINDINGS]{};
-    for (uint32_t i = 0; i < COMPUTE_BINDINGS; ++i) {
-        compute_bindings[i].binding = COMPUTE_BINDING_IDS[i];
-        compute_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        compute_bindings[i].descriptorCount = 1;
-        compute_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = COMPUTE_BINDINGS;
-    layout_ci.pBindings = compute_bindings;
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &compute_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create particle compute set layout");
-    }
-
-    // ── Compute pipeline layout ──
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.size = sizeof(ParticleComputePush);
-
-    // Set 0 = particle SSBOs, Set 1 = global (for SDF access in sim shader)
-    VkDescriptorSetLayout compute_sets[] = {compute_set_layout_, global_set_layout_};
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 2;
-    pipe_layout_ci.pSetLayouts = compute_sets;
-    pipe_layout_ci.pushConstantRangeCount = 1;
-    pipe_layout_ci.pPushConstantRanges = &push_range;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &compute_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create particle compute pipeline layout");
-    }
-
-    // ── Depth sampler for soft particles ──
-
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_NEAREST;
-    sampler_ci.minFilter = VK_FILTER_NEAREST;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    vk_check(vkCreateSampler(device_, &sampler_ci, nullptr, &depth_sampler_),
-             "create particle depth sampler");
-
-    // ── Render descriptor set layout ──
-    // 0 particles, 1 depth, 2 emitter data, 3 counters, 4 mesh instances, 5 alive list
-
-    constexpr uint32_t RENDER_BINDINGS = 6;
-    VkDescriptorSetLayoutBinding render_bindings[RENDER_BINDINGS]{};
-    for (uint32_t b = 0; b < RENDER_BINDINGS; ++b) {
-        render_bindings[b].binding = b;
-        render_bindings[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        render_bindings[b].descriptorCount = 1;
-        render_bindings[b].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    }
-    render_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    render_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    // Partially bound + update-after-bind so depth_tex (binding 1) can have
-    // a stale layout when the opaque pass doesn't access it.
-    VkDescriptorBindingFlags binding_flags[RENDER_BINDINGS] = {};
-    binding_flags[1] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-                       VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_ci{};
-    binding_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    binding_flags_ci.bindingCount = RENDER_BINDINGS;
-    binding_flags_ci.pBindingFlags = binding_flags;
-
-    VkDescriptorSetLayoutCreateInfo render_layout_ci{};
-    render_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    render_layout_ci.pNext = &binding_flags_ci;
-    render_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    render_layout_ci.bindingCount = RENDER_BINDINGS;
-    render_layout_ci.pBindings = render_bindings;
-    vk_check(vkCreateDescriptorSetLayout(device_, &render_layout_ci, nullptr, &render_set_layout_),
-             "create particle render set layout");
-
-    // ── Graphics pipeline layouts ──
-    // set 0 = global, set 1 = particle SSBOs + depth, set 2 = bindless
-    // textures. Unlit needs no push constants; lit pushes metallic/
-    // roughness/material; distortion pushes its strength.
-
-    VkDescriptorSetLayout render_sets[] = {global_set_layout_, render_set_layout_, bindless_set_layout_};
-    auto make_layout = [&](const VkPushConstantRange* push, const char* what) {
-        VkPipelineLayoutCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        ci.setLayoutCount = 3;
-        ci.pSetLayouts = render_sets;
-        ci.pushConstantRangeCount = push != nullptr ? 1 : 0;
-        ci.pPushConstantRanges = push;
-        VkPipelineLayout layout = VK_NULL_HANDLE;
-        vk_check(vkCreatePipelineLayout(device_, &ci, nullptr, &layout), what);
-        return layout;
+    // Each buffer is made small and reserves room for the scene budgets in
+    // particle_budget.hpp, which it grows into in place: growing waits for
+    // nothing, and what is bound to it is never rewritten.
+    constexpr uint64_t INITIAL_PARTICLES = 512;
+    constexpr uint64_t INITIAL_EMITTERS = 8;
+    auto make = [&](uint64_t per_item, uint64_t initial, uint64_t budget, gpu::BufferUses use,
+                    std::string_view name) {
+        auto made = gpu.create(gpu::BufferDesc{
+            .size = initial * per_item, .reserve = budget * per_item, .use = use, .name = name});
+        if (!made) throw std::runtime_error("Particles: " + made.error());
+        return std::move(*made);
     };
-    VkPushConstantRange lit_push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ParticleLitPush)};
-    VkPushConstantRange dist_push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float)};
-    render_layout_ = make_layout(nullptr, "create particle render pipeline layout");
-    render_lit_layout_ = make_layout(&lit_push, "create particle lit pipeline layout");
-    render_opaque_layout_ = make_layout(nullptr, "create particle opaque pipeline layout");
-    render_opaque_lit_layout_ = make_layout(&lit_push, "create particle opaque lit pipeline layout");
-    render_distortion_layout_ = make_layout(&dist_push, "create particle distortion pipeline layout");
+    const gpu::BufferUses storage = gpu::BufferUse::storage;
+    const gpu::BufferUses drawn = gpu::BufferUse::storage | gpu::BufferUse::indirect;
+    particles_ = make(PARTICLE_STRIDE, INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage, "particle_mega");
+    alive_ = make(sizeof(uint32_t), INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage, "particle_alive");
+    mesh_instances_ = make(sizeof(GpuMeshInstance), INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage,
+                           "particle_mesh_instances");
+    counters_ = make(3 * sizeof(uint32_t), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, storage, "particle_counters");
+    indirect_ = make(sizeof(gpu::DrawArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn, "particle_indirect");
+    mesh_indirect_ = make(sizeof(gpu::DrawIndexedArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn,
+                          "particle_mesh_indirect");
+    mesh_instance_counts_ = make(sizeof(uint32_t), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, storage,
+                                 "particle_mesh_counts");
+    sub_events_ = make(MAX_SUB_EVENTS_PER_EMITTER * SUB_EVENT_SIZE, INITIAL_EMITTERS, MAX_SCENE_EMITTERS,
+                       storage, "particle_sub_events");
+    sub_event_counts_ = make(sizeof(uint32_t), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, storage,
+                             "particle_sub_event_counts");
+    total_particle_capacity_ = INITIAL_PARTICLES;
+    emitter_capacity_ = INITIAL_EMITTERS;
 
-    // ── Mesh instance compute set + pipeline layout ──
-    {
-        VkDescriptorSetLayoutBinding mesh_comp_bindings[8]{};
-        for (int b = 0; b < 8; ++b) {
-            mesh_comp_bindings[b].binding = static_cast<uint32_t>(b);
-            mesh_comp_bindings[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            mesh_comp_bindings[b].descriptorCount = 1;
-            mesh_comp_bindings[b].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        }
-        VkDescriptorSetLayoutCreateInfo mesh_comp_layout_ci{};
-        mesh_comp_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        mesh_comp_layout_ci.bindingCount = 8;
-        mesh_comp_layout_ci.pBindings = mesh_comp_bindings;
-        vk_check(vkCreateDescriptorSetLayout(device_, &mesh_comp_layout_ci, nullptr, &mesh_compute_set_layout_),
-                 "create mesh compute set layout");
-
-        VkPipelineLayoutCreateInfo mesh_comp_pipe_ci{};
-        mesh_comp_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        mesh_comp_pipe_ci.setLayoutCount = 1;
-        mesh_comp_pipe_ci.pSetLayouts = &mesh_compute_set_layout_;
-        VkPushConstantRange mesh_push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ParticleComputePush)};
-        mesh_comp_pipe_ci.pushConstantRangeCount = 1;
-        mesh_comp_pipe_ci.pPushConstantRanges = &mesh_push;
-        vk_check(vkCreatePipelineLayout(device_, &mesh_comp_pipe_ci, nullptr, &mesh_compute_layout_),
-                 "create mesh compute pipeline layout");
-    }
-
-    // ── Pipelines ──
     if (!build_pipelines(pipelines_)) {
         throw std::runtime_error("Failed to build particle pipelines");
     }
-
-    // ── Descriptor pool ──
-
-    // rebuild_mega_buffers() (buffer-capacity growth) retires the old
-    // compute/mesh compute/render sets, then immediately allocates their
-    // replacements from this same pool — but a retired set is not freed
-    // until the GPU has finished the frame it was retired in, up to
-    // MAX_FRAMES_IN_FLIGHT frames later. So the pool holds every generation
-    // retired in that window alongside the live one. A generation is retired by a
-    // sync that grows the buffers, and a frame syncs at most twice: once
-    // for the frame's own scene and once for a scene rendered outside the
-    // frame (an asset thumbnail). That bounds the overlap, and the bound
-    // is what the pool is sized for; sizing it for a single overlapping
-    // generation made the allocation fail on the second growth in a row,
-    // leaving null sets that crashed the next dispatch.
-    constexpr uint32_t POOL_GENERATIONS = 2 * MAX_FRAMES_IN_FLIGHT + 1;
-    VkDescriptorPoolSize pool_sizes[2]{};
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    // Per region: 7 compute + 5 render (particles, emitters, counters, instances, alive) + 8 compaction
-    pool_sizes[0].descriptorCount = (7 + 5 + 8) * DISPATCH_REGIONS * POOL_GENERATIONS;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = DISPATCH_REGIONS * POOL_GENERATIONS; // depth texture per render set
-
-    VkDescriptorPoolCreateInfo desc_pool_ci{};
-    desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    desc_pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT |
-                         VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    desc_pool_ci.maxSets = 3 * DISPATCH_REGIONS * POOL_GENERATIONS; // compute + mesh compute + render, per region
-    desc_pool_ci.poolSizeCount = 2;
-    desc_pool_ci.pPoolSizes = pool_sizes;
-    if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create particle descriptor pool");
-    }
-
     FJELL_GFX_DEBUG("Particle system created");
 }
 
@@ -313,564 +125,147 @@ void ParticleSystem::recreate_pipelines() {
         FJELL_GFX_ERROR("Particle pipelines not reloaded; the previous ones stay in use");
         return;
     }
-    // Frames still in flight may be drawing with the pipelines replaced.
-    gpu::vulkan::defer(*gpu_device_, [device = device_, old = pipelines_]() mutable {
-        destroy_pipelines(device, old);
-    });
-    pipelines_ = fresh;
+    // Frames still in flight keep drawing with the pipelines replaced until
+    // they are done.
+    pipelines_ = std::move(fresh);
     FJELL_GFX_DEBUG("Particle pipelines reloaded");
 }
 
-void ParticleSystem::destroy_pipelines(VkDevice device, Pipelines& p) {
-    for (VkPipeline* handle : {&p.emit, &p.sim, &p.indirect, &p.mesh_instance,
-                               &p.additive, &p.alpha, &p.trail_additive, &p.trail_alpha,
-                               &p.lit_additive, &p.lit_alpha, &p.lit_trail_additive, &p.lit_trail_alpha,
-                               &p.mesh_additive, &p.mesh_alpha, &p.mesh_lit_additive, &p.mesh_lit_alpha,
-                               &p.opaque, &p.opaque_lit, &p.mesh_opaque, &p.mesh_opaque_lit,
-                               &p.distortion}) {
-        if (*handle != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device, *handle, nullptr);
-            *handle = VK_NULL_HANDLE;
-        }
-    }
-}
-
 bool ParticleSystem::build_pipelines(Pipelines& out) {
-    out = Pipelines{};
+    gpu::Device& gpu = *gpu_device_;
     bool ok = true;
 
-    // ── Shader modules ──
-    std::vector<VkShaderModule> modules;
-    auto load = [&](const char* path) {
-        try {
-            VkShaderModule mod = create_shader_module(device_, read_spirv(base_path::resolve(path)));
-            modules.push_back(mod);
-            return mod;
-        } catch (const std::exception& e) {
-            FJELL_GFX_ERROR("Particle shader {}: {}", path, e.what());
+    // Only the simulation reads the globals: the scene's SDF, to collide.
+    auto compute = [&](const char* shader, bool reads_globals) {
+        auto made = gpu.create(gpu::ComputePipelineDesc{
+            .shader = shader,
+            .shared = reads_globals ? std::vector<gpu::SharedLayout>{targets_.globals}
+                                    : std::vector<gpu::SharedLayout>{},
+            .name = shader,
+        });
+        if (!made) {
+            FJELL_GFX_ERROR("Particles: {}", made.error());
             ok = false;
-            return VkShaderModule{VK_NULL_HANDLE};
+            return gpu::Owned<gpu::ComputePipeline>{};
         }
+        return std::move(*made);
     };
-    VkShaderModule emit_mod = load("shaders/particle_emit.comp.spv");
-    VkShaderModule sim_mod = load("shaders/particle_sim.comp.spv");
-    VkShaderModule indirect_mod = load("shaders/particle_indirect.comp.spv");
-    VkShaderModule compact_mod = load("shaders/particle_compact.comp.spv");
-    VkShaderModule vert_mod = load("shaders/particle.vert.spv");
-    VkShaderModule trail_vert_mod = load("shaders/particle_trail.vert.spv");
-    VkShaderModule mesh_vert_mod = load("shaders/particle_mesh.vert.spv");
-    VkShaderModule frag_mod = load("shaders/particle.frag.spv");
-    VkShaderModule lit_frag_mod = load("shaders/particle_lit.frag.spv");
-    VkShaderModule opaque_frag_mod = load("shaders/particle_opaque.frag.spv");
-    VkShaderModule opaque_lit_frag_mod = load("shaders/particle_opaque_lit.frag.spv");
-    VkShaderModule dist_frag_mod = load("shaders/particle_distortion.frag.spv");
-
-    auto release_modules = [&]() {
-        for (VkShaderModule mod : modules) vkDestroyShaderModule(device_, mod, nullptr);
-        modules.clear();
-    };
-    if (!ok) {
-        release_modules();
-        return false;
-    }
-
-    // ── Compute ──
-    auto make_compute = [&](VkShaderModule mod, VkPipelineLayout layout, const char* what) {
-        VkPipelineShaderStageCreateInfo stage{};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage.module = mod;
-        stage.pName = "main";
-
-        VkComputePipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        ci.stage = stage;
-        ci.layout = layout;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
-            FJELL_GFX_ERROR("Failed to create particle {} pipeline", what);
-            ok = false;
-        }
-        return pipeline;
-    };
-    out.emit = make_compute(emit_mod, compute_layout_, "emit");
-    out.sim = make_compute(sim_mod, compute_layout_, "simulate");
-    out.indirect = make_compute(indirect_mod, compute_layout_, "indirect");
-    out.mesh_instance = make_compute(compact_mod, mesh_compute_layout_, "compaction");
-
-    // ── Graphics state shared by every draw pipeline ──
-    VkPipelineVertexInputStateCreateInfo no_vertex_input{};
-    no_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-    auto binding_desc = Vertex::get_binding_description();
-    auto attr_descs = Vertex::get_attribute_descriptions();
-    VkPipelineVertexInputStateCreateInfo mesh_vertex_input{};
-    mesh_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    mesh_vertex_input.vertexBindingDescriptionCount = 1;
-    mesh_vertex_input.pVertexBindingDescriptions = &binding_desc;
-    mesh_vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attr_descs.size());
-    mesh_vertex_input.pVertexAttributeDescriptions = attr_descs.data();
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = 2;
-    dynamic_state.pDynamicStates = dynamic_states;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = sample_count_;
-
-    VkPipelineMultisampleStateCreateInfo single_sample{};
-    single_sample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    single_sample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineDepthStencilStateCreateInfo depth_read{};
-    depth_read.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_read.depthTestEnable = VK_TRUE;
-    depth_read.depthWriteEnable = VK_FALSE;
-    depth_read.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPipelineDepthStencilStateCreateInfo depth_write = depth_read;
-    depth_write.depthWriteEnable = VK_TRUE;
-
-    // The scene targets: colour, metallic/roughness, normal, velocity
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT,
-                                OffscreenPass::VELOCITY_FORMAT};
-    VkPipelineRenderingCreateInfo scene_rendering{};
-    scene_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    scene_rendering.colorAttachmentCount = 4;
-    scene_rendering.pColorAttachmentFormats = color_formats;
-    scene_rendering.depthAttachmentFormat = depth_format_;
-
-    VkFormat dist_format = OffscreenPass::DISTORTION_FORMAT;
-    VkPipelineRenderingCreateInfo dist_rendering{};
-    dist_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    dist_rendering.colorAttachmentCount = 1;
-    dist_rendering.pColorAttachmentFormats = &dist_format;
-    dist_rendering.depthAttachmentFormat = depth_format_;
+    out.emit = compute("shaders/particle_emit.comp", false);
+    out.sim = compute("shaders/particle_sim.comp", true);
+    out.indirect = compute("shaders/particle_indirect.comp", false);
+    out.compact = compute("shaders/particle_compact.comp", false);
 
     // How a pipeline writes the scene targets. Blended ones leave
     // metallic/roughness and normal alone: those attachments have no alpha,
     // so a write would stamp the particle over the surface under the whole
-    // quad, fringes included. Opaque ones write both.
-    enum class Blend { additive, alpha, opaque };
-    constexpr VkColorComponentFlags RGBA = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    constexpr VkColorComponentFlags RG = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-
-    struct Draw {
-        VkShaderModule vert;
-        VkShaderModule frag;
-        VkPipelineLayout layout;
-        const VkPipelineVertexInputStateCreateInfo* vertex_input;
-        VkPrimitiveTopology topology;
-        Blend blend;
-        const char* what;
-    };
-    auto make_draw = [&](const Draw& d) {
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = d.vert;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = d.frag;
-        stages[1].pName = "main";
-
-        VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-        input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        input_assembly.topology = d.topology;
-
-        VkPipelineColorBlendAttachmentState color{};
-        color.colorWriteMask = RGBA;
-        if (d.blend != Blend::opaque) {
-            color.blendEnable = VK_TRUE;
-            color.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            color.dstColorBlendFactor = d.blend == Blend::additive ? VK_BLEND_FACTOR_ONE
-                                                                   : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            color.colorBlendOp = VK_BLEND_OP_ADD;
-            color.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            color.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            color.alphaBlendOp = VK_BLEND_OP_ADD;
-        }
-        VkPipelineColorBlendAttachmentState surface{};
-        surface.colorWriteMask = d.blend == Blend::opaque ? RG : 0;
-        VkPipelineColorBlendAttachmentState velocity{};
-        VkPipelineColorBlendAttachmentState attachments[] = {color, surface, surface, velocity};
-
-        VkPipelineColorBlendStateCreateInfo color_blending{};
-        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 4;
-        color_blending.pAttachments = attachments;
-
-        VkGraphicsPipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        ci.pNext = &scene_rendering;
-        ci.stageCount = 2;
-        ci.pStages = stages;
-        ci.pVertexInputState = d.vertex_input;
-        ci.pInputAssemblyState = &input_assembly;
-        ci.pViewportState = &viewport_state;
-        ci.pRasterizationState = &rasterizer;
-        ci.pMultisampleState = &multisampling;
-        ci.pDepthStencilState = d.blend == Blend::opaque ? &depth_write : &depth_read;
-        ci.pColorBlendState = &color_blending;
-        ci.pDynamicState = &dynamic_state;
-        ci.layout = d.layout;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
-            FJELL_GFX_ERROR("Failed to create particle {} pipeline", d.what);
+    // quad, fringes included. Opaque ones write both. Nothing writes motion.
+    enum class Look { additive, alpha, opaque };
+    constexpr const char* BILLBOARD = "shaders/particle.vert";
+    constexpr const char* TRAIL = "shaders/particle_trail.vert";
+    constexpr const char* MESH = "shaders/particle_mesh.vert";
+    constexpr const char* UNLIT = "shaders/particle.frag";
+    constexpr const char* LIT = "shaders/particle_lit.frag";
+    constexpr const char* OPAQUE = "shaders/particle_opaque.frag";
+    constexpr const char* OPAQUE_LIT = "shaders/particle_opaque_lit.frag";
+    constexpr auto LIST = gpu::Topology::triangles;
+    constexpr auto STRIP = gpu::Topology::triangle_strip;
+    auto draw = [&](const char* vertex, const char* fragment, gpu::Topology topology, Look look,
+                    std::string_view name) {
+        const bool opaque = look == Look::opaque;
+        const gpu::Blend colour = look == Look::additive ? ADDITIVE_BLEND
+                                  : look == Look::alpha  ? ALPHA_BLEND
+                                                         : gpu::Blend::none;
+        const gpu::ChannelMask surface =
+            opaque ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
+        // Mesh particles draw the mega buffer's vertices.
+        const bool mesh = vertex == MESH;
+        auto made = gpu.create(gpu::GraphicsPipelineDesc{
+            .vertex = vertex,
+            .fragment = fragment,
+            .vertex_layout = mesh ? Vertex::layout() : gpu::VertexLayout{},
+            .topology = topology,
+            .depth = {.test = true, .write = opaque, .compare = gpu::Compare::less_equal},
+            .color = {{targets_.scene_color_format, colour},
+                      {targets_.scene_mr_format, gpu::Blend::none, surface},
+                      {targets_.scene_normal_format, gpu::Blend::none, surface},
+                      {targets_.scene_velocity_format, gpu::Blend::none, gpu::ChannelMask{}}},
+            .depth_format = targets_.scene_depth_format,
+            .samples = targets_.samples,
+            .shared = {targets_.globals, targets_.bindless},
+            .name = name,
+        });
+        if (!made) {
+            FJELL_GFX_ERROR("Particles: {}", made.error());
             ok = false;
+            return gpu::Owned<gpu::GraphicsPipeline>{};
         }
-        return pipeline;
+        return std::move(*made);
     };
+    out.additive = draw(BILLBOARD, UNLIT, LIST, Look::additive, "particle_additive");
+    out.alpha = draw(BILLBOARD, UNLIT, LIST, Look::alpha, "particle_alpha");
+    out.trail_additive = draw(TRAIL, UNLIT, STRIP, Look::additive, "particle_trail_additive");
+    out.trail_alpha = draw(TRAIL, UNLIT, STRIP, Look::alpha, "particle_trail_alpha");
+    out.lit_additive = draw(BILLBOARD, LIT, LIST, Look::additive, "particle_lit_additive");
+    out.lit_alpha = draw(BILLBOARD, LIT, LIST, Look::alpha, "particle_lit_alpha");
+    out.lit_trail_additive = draw(TRAIL, LIT, STRIP, Look::additive, "particle_lit_trail_additive");
+    out.lit_trail_alpha = draw(TRAIL, LIT, STRIP, Look::alpha, "particle_lit_trail_alpha");
+    out.mesh_additive = draw(MESH, UNLIT, LIST, Look::additive, "particle_mesh_additive");
+    out.mesh_alpha = draw(MESH, UNLIT, LIST, Look::alpha, "particle_mesh_alpha");
+    out.mesh_lit_additive = draw(MESH, LIT, LIST, Look::additive, "particle_mesh_lit_additive");
+    out.mesh_lit_alpha = draw(MESH, LIT, LIST, Look::alpha, "particle_mesh_lit_alpha");
+    out.opaque = draw(BILLBOARD, OPAQUE, LIST, Look::opaque, "particle_opaque");
+    out.opaque_lit = draw(BILLBOARD, OPAQUE_LIT, LIST, Look::opaque, "particle_opaque_lit");
+    out.mesh_opaque = draw(MESH, OPAQUE, LIST, Look::opaque, "particle_mesh_opaque");
+    out.mesh_opaque_lit = draw(MESH, OPAQUE_LIT, LIST, Look::opaque, "particle_mesh_opaque_lit");
 
-    constexpr auto LIST = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    constexpr auto STRIP = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-    out.additive = make_draw({vert_mod, frag_mod, render_layout_, &no_vertex_input, LIST, Blend::additive, "additive"});
-    out.alpha = make_draw({vert_mod, frag_mod, render_layout_, &no_vertex_input, LIST, Blend::alpha, "alpha"});
-    out.trail_additive = make_draw({trail_vert_mod, frag_mod, render_layout_, &no_vertex_input, STRIP, Blend::additive, "trail additive"});
-    out.trail_alpha = make_draw({trail_vert_mod, frag_mod, render_layout_, &no_vertex_input, STRIP, Blend::alpha, "trail alpha"});
-    out.lit_additive = make_draw({vert_mod, lit_frag_mod, render_lit_layout_, &no_vertex_input, LIST, Blend::additive, "lit additive"});
-    out.lit_alpha = make_draw({vert_mod, lit_frag_mod, render_lit_layout_, &no_vertex_input, LIST, Blend::alpha, "lit alpha"});
-    out.lit_trail_additive = make_draw({trail_vert_mod, lit_frag_mod, render_lit_layout_, &no_vertex_input, STRIP, Blend::additive, "lit trail additive"});
-    out.lit_trail_alpha = make_draw({trail_vert_mod, lit_frag_mod, render_lit_layout_, &no_vertex_input, STRIP, Blend::alpha, "lit trail alpha"});
-    out.mesh_additive = make_draw({mesh_vert_mod, frag_mod, render_layout_, &mesh_vertex_input, LIST, Blend::additive, "mesh additive"});
-    out.mesh_alpha = make_draw({mesh_vert_mod, frag_mod, render_layout_, &mesh_vertex_input, LIST, Blend::alpha, "mesh alpha"});
-    out.mesh_lit_additive = make_draw({mesh_vert_mod, lit_frag_mod, render_lit_layout_, &mesh_vertex_input, LIST, Blend::additive, "mesh lit additive"});
-    out.mesh_lit_alpha = make_draw({mesh_vert_mod, lit_frag_mod, render_lit_layout_, &mesh_vertex_input, LIST, Blend::alpha, "mesh lit alpha"});
-    out.opaque = make_draw({vert_mod, opaque_frag_mod, render_opaque_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque"});
-    out.opaque_lit = make_draw({vert_mod, opaque_lit_frag_mod, render_opaque_lit_layout_, &no_vertex_input, LIST, Blend::opaque, "opaque lit"});
-    out.mesh_opaque = make_draw({mesh_vert_mod, opaque_frag_mod, render_opaque_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque"});
-    out.mesh_opaque_lit = make_draw({mesh_vert_mod, opaque_lit_frag_mod, render_opaque_lit_layout_, &mesh_vertex_input, LIST, Blend::opaque, "mesh opaque lit"});
-
-    // ── Distortion: one R16G16 attachment, offsets summed, single-sampled ──
-    {
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vert_mod;
-        stages[0].pName = "main";
-        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = dist_frag_mod;
-        stages[1].pName = "main";
-
-        VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-        input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        input_assembly.topology = LIST;
-
-        VkPipelineColorBlendAttachmentState blend{};
-        blend.colorWriteMask = RG;
-        blend.blendEnable = VK_TRUE;
-        blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.colorBlendOp = VK_BLEND_OP_ADD;
-        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-        VkPipelineColorBlendStateCreateInfo color_blending{};
-        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 1;
-        color_blending.pAttachments = &blend;
-
-        VkGraphicsPipelineCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        ci.pNext = &dist_rendering;
-        ci.stageCount = 2;
-        ci.pStages = stages;
-        ci.pVertexInputState = &no_vertex_input;
-        ci.pInputAssemblyState = &input_assembly;
-        ci.pViewportState = &viewport_state;
-        ci.pRasterizationState = &rasterizer;
-        ci.pMultisampleState = &single_sample;
-        ci.pDepthStencilState = &depth_read;
-        ci.pColorBlendState = &color_blending;
-        ci.pDynamicState = &dynamic_state;
-        ci.layout = render_distortion_layout_;
-
-        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &out.distortion) != VK_SUCCESS) {
-            FJELL_GFX_ERROR("Failed to create particle distortion pipeline");
-            ok = false;
-        }
+    // Distortion: one R16G16 target of screen offsets, summed, single-sampled.
+    auto distortion = gpu.create(gpu::GraphicsPipelineDesc{
+        .vertex = BILLBOARD,
+        .fragment = "shaders/particle_distortion.frag",
+        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .color = {{targets_.scene_distortion_format, SUM_BLEND, gpu::Channel::r | gpu::Channel::g}},
+        .depth_format = targets_.scene_depth_format,
+        .shared = {targets_.globals, targets_.bindless},
+        .name = "particle_distortion",
+    });
+    if (!distortion) {
+        FJELL_GFX_ERROR("Particles: {}", distortion.error());
+        ok = false;
+    } else {
+        out.distortion = std::move(*distortion);
     }
-
-    release_modules();
-    if (!ok) {
-        destroy_pipelines(device_, out);
-        return false;
-    }
-    return true;
+    return ok;
 }
 
 void ParticleSystem::destroy() {
-    mega_particle_buffer_.reset();
-    mega_counter_buffer_.reset();
-    mega_indirect_buffer_.reset();
-    mega_alive_buffer_.reset();
-    for (auto& b : emitter_data_buffers_) b.reset();
-    for (auto& b : module_buffers_) b.reset();
-    sub_event_buffer_.reset();
-    sub_event_counter_buffer_.reset();
-    mesh_instance_buffer_.reset();
-    mesh_indirect_buffer_.reset();
-    mesh_instance_count_buffer_.reset();
+    pipelines_ = {};
+    for (auto* buffer : {&particles_, &counters_, &indirect_, &alive_, &sub_events_, &sub_event_counts_,
+                         &mesh_instances_, &mesh_instance_counts_, &mesh_indirect_}) {
+        buffer->reset();
+    }
     emitters_.clear();
-
-    auto safe_destroy = [&](auto& handle, auto destroy_fn) {
-        if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
-    };
-
-    destroy_pipelines(device_, pipelines_);
-    safe_destroy(depth_sampler_, vkDestroySampler);
-    safe_destroy(pool_, vkDestroyDescriptorPool);
-    safe_destroy(render_lit_layout_, vkDestroyPipelineLayout);
-    safe_destroy(render_opaque_layout_, vkDestroyPipelineLayout);
-    safe_destroy(render_opaque_lit_layout_, vkDestroyPipelineLayout);
-    safe_destroy(render_distortion_layout_, vkDestroyPipelineLayout);
-    safe_destroy(render_layout_, vkDestroyPipelineLayout);
-    safe_destroy(render_set_layout_, vkDestroyDescriptorSetLayout);
-    safe_destroy(mesh_compute_layout_, vkDestroyPipelineLayout);
-    safe_destroy(mesh_compute_set_layout_, vkDestroyDescriptorSetLayout);
-    safe_destroy(compute_layout_, vkDestroyPipelineLayout);
-    safe_destroy(compute_set_layout_, vkDestroyDescriptorSetLayout);
 }
 
-void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count) {
-    // The four GPU-only buffers grow in place via sparse binding — their
-    // handle never changes, so this is just "make sure there's room," not
-    // a recreation. ensure_capacity() is a no-op if the buffer is already
-    // big enough. Deliberately done before the descriptor sets are torn
-    // down below: nothing here needs that, and it keeps the sparse-growth
-    // path visually distinct from the emitter_data_/module_buffer_ path
-    // that still does.
-    mega_particle_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE);
-    mega_counter_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t));
-    mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
-    mega_alive_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
-
-    // Retire old descriptor sets rather than freeing them immediately — a frame still in flight when this runs
-    // may still have a command buffer bound to one of these (same reason
-    // the buffer replacements above go through retire() instead of a bare
-    // reset), and freeing a set a submitted command buffer references is
-    // undefined behavior per the Vulkan spec.
-    auto retire_set = [&](VkDescriptorSet& set) {
-        if (set == VK_NULL_HANDLE) return;
-        VkDescriptorSet doomed = set;
-        VkDescriptorPool doomed_pool = pool_;
-        VkDevice dev = device_;
-        gpu::vulkan::defer(*gpu_device_, [dev, doomed_pool, doomed]() mutable {
-            vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
-        });
-        set = VK_NULL_HANDLE;
+void ParticleSystem::grow_buffers(uint32_t total_particles, uint32_t emitter_count) {
+    auto grow = [&](gpu::Buffer buffer, uint64_t size) {
+        if (auto grown = gpu_device_->grow(buffer, size); !grown) {
+            FJELL_GFX_ERROR("Particles: {}", grown.error());
+        }
     };
-    for (auto& set : compute_sets_) retire_set(set);
-    for (auto& set : mesh_compute_sets_) retire_set(set);
-    for (auto& set : render_sets_) retire_set(set);
-
+    const uint64_t particles = total_particles;
+    const uint64_t emitters = emitter_count;
+    grow(particles_, particles * PARTICLE_STRIDE);
+    grow(alive_, particles * sizeof(uint32_t));
+    grow(mesh_instances_, particles * sizeof(GpuMeshInstance));
+    grow(counters_, emitters * 3 * sizeof(uint32_t));
+    grow(indirect_, emitters * sizeof(gpu::DrawArgs));
+    grow(mesh_indirect_, emitters * sizeof(gpu::DrawIndexedArgs));
+    grow(mesh_instance_counts_, emitters * sizeof(uint32_t));
+    grow(sub_events_, emitters * MAX_SUB_EVENTS_PER_EMITTER * SUB_EVENT_SIZE);
+    grow(sub_event_counts_, emitters * sizeof(uint32_t));
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
-
-    // These buffers are fully recreated on every growth (no in-place
-    // resize like the sparse GrowableBuffers above) — the old instance is
-    // retired rather than destroyed immediately,
-    // since a frame still in flight when this runs may still be reading
-    // it. This is what lets sync_emitters skip vkDeviceWaitIdle/
-    // vkQueueWaitIdle before calling rebuild_mega_buffers.
-    VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
-    // Module buffer: MODULE_BUDGET_BYTES per emitter.
-    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * MODULE_BUDGET_BYTES;
-
-    for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
-        if (emitter_data_buffers_[r]) gpu::vulkan::retire(*gpu_device_, std::move(emitter_data_buffers_[r]));
-        emitter_data_buffers_[r] = std::make_unique<Buffer>(
-            allocator_, emitter_data_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        emitter_data_buffers_[r]->map();
-
-        if (module_buffers_[r]) gpu::vulkan::retire(*gpu_device_, std::move(module_buffers_[r]));
-        module_buffers_[r] = std::make_unique<Buffer>(
-            allocator_, module_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        module_buffers_[r]->map();
-    }
-
-    // Sub-emitter event buffer: 64 bytes per event, 256 events per emitter max
-    constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
-    VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_SUB_EVENTS_PER_EMITTER * EVENT_SIZE);
-    if (sub_event_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(sub_event_buffer_));
-    sub_event_buffer_ = std::make_unique<Buffer>(
-        allocator_, event_buf_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Sub-emitter event counters: one uint32 per emitter
-    VkDeviceSize counter_buf_size = std::max(static_cast<VkDeviceSize>(4), static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t));
-    if (sub_event_counter_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(sub_event_counter_buffer_));
-    sub_event_counter_buffer_ = std::make_unique<Buffer>(
-        allocator_, counter_buf_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // ── Allocate descriptor sets ──
-
-    VkDescriptorSetAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc.descriptorPool = pool_;
-    alloc.descriptorSetCount = DISPATCH_REGIONS;
-
-    std::array<VkDescriptorSetLayout, DISPATCH_REGIONS> layouts{};
-    layouts.fill(compute_set_layout_);
-    alloc.pSetLayouts = layouts.data();
-    vk_check(vkAllocateDescriptorSets(device_, &alloc, compute_sets_.data()),
-             "allocate particle compute descriptor sets");
-
-    layouts.fill(render_set_layout_);
-    vk_check(vkAllocateDescriptorSets(device_, &alloc, render_sets_.data()),
-             "allocate particle render descriptor sets");
-
-    // ── Write descriptors ──
-
-    // VK_WHOLE_SIZE rather than capacity(): these are sparse buffers whose
-    // handle is permanent but whose committed capacity grows over time —
-    // pinning the range to today's capacity would need rewriting the
-    // descriptor on every growth, exactly what sparse binding exists to
-    // avoid. VK_WHOLE_SIZE tracks the buffer's own size automatically.
-    VkDescriptorBufferInfo particle_info{mega_particle_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo alive_info{mega_alive_buffer_->handle(), 0, VK_WHOLE_SIZE};
-    VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
-    VkDescriptorBufferInfo sub_counter_info{sub_event_counter_buffer_->handle(), 0, sub_event_counter_buffer_->size()};
-
-    for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
-        VkDescriptorBufferInfo emitter_info{emitter_data_buffers_[r]->handle(), 0,
-                                            emitter_data_buffers_[r]->size()};
-        VkDescriptorBufferInfo module_info{module_buffers_[r]->handle(), 0, module_buffers_[r]->size()};
-
-        auto storage_write = [](VkDescriptorSet set, uint32_t binding,
-                                const VkDescriptorBufferInfo* info) {
-            VkWriteDescriptorSet w{};
-            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w.dstSet = set;
-            w.dstBinding = binding;
-            w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            w.descriptorCount = 1;
-            w.pBufferInfo = info;
-            return w;
-        };
-
-        // Compute set
-        VkWriteDescriptorSet writes[7] = {
-            storage_write(compute_sets_[r], 0, &particle_info),
-            storage_write(compute_sets_[r], 1, &counter_info),
-            storage_write(compute_sets_[r], 3, &emitter_info),
-            storage_write(compute_sets_[r], 4, &indirect_info),
-            storage_write(compute_sets_[r], 5, &module_info),
-            storage_write(compute_sets_[r], 6, &sub_event_info),
-            storage_write(compute_sets_[r], 7, &sub_counter_info),
-        };
-        vkUpdateDescriptorSets(device_, 7, writes, 0, nullptr);
-
-        // Render set: particles, emitters, counters, alive list (depth is written per draw)
-        VkWriteDescriptorSet render_writes[4] = {
-            storage_write(render_sets_[r], 0, &particle_info),
-            storage_write(render_sets_[r], 2, &emitter_info),
-            storage_write(render_sets_[r], 3, &counter_info),
-            storage_write(render_sets_[r], 5, &alive_info),
-        };
-        vkUpdateDescriptorSets(device_, 4, render_writes, 0, nullptr);
-    }
-
-    // ── Mesh particle instance buffer + compute set ──
-    constexpr VkBufferUsageFlags STORAGE_FLAGS = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    VkDeviceSize instance_size = static_cast<VkDeviceSize>(total_particles) * sizeof(GpuMeshInstance);
-    if (instance_size == 0) instance_size = sizeof(GpuMeshInstance); // minimum 1 slot
-    if (mesh_instance_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_instance_buffer_));
-    mesh_instance_buffer_ = std::make_unique<Buffer>(
-        allocator_, instance_size, STORAGE_FLAGS, VMA_MEMORY_USAGE_AUTO);
-    mesh_instance_buffer_->share(*gpu_device_);
-
-    VkDeviceSize instance_count_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t);
-    if (instance_count_size == 0) instance_count_size = sizeof(uint32_t);
-    if (mesh_instance_count_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_instance_count_buffer_));
-    mesh_instance_count_buffer_ = std::make_unique<Buffer>(
-        allocator_, instance_count_size,
-        STORAGE_FLAGS | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO);
-
-    // Mesh indirect buffer: one VkDrawIndexedIndirectCommand per emitter
-    VkDeviceSize mesh_indirect_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(VkDrawIndexedIndirectCommand);
-    if (mesh_indirect_size == 0) mesh_indirect_size = sizeof(VkDrawIndexedIndirectCommand);
-    if (mesh_indirect_buffer_) gpu::vulkan::retire(*gpu_device_, std::move(mesh_indirect_buffer_));
-    mesh_indirect_buffer_ = std::make_unique<Buffer>(
-        allocator_, mesh_indirect_size,
-        STORAGE_FLAGS | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-    mesh_indirect_buffer_->share(*gpu_device_);
-
-    // Allocate mesh compute descriptor sets
-    if (mesh_compute_set_layout_ != VK_NULL_HANDLE) {
-        layouts.fill(mesh_compute_set_layout_);
-        vk_check(vkAllocateDescriptorSets(device_, &alloc, mesh_compute_sets_.data()),
-                 "allocate mesh compute descriptor sets");
-
-        // Compaction set: 0 particles, 1 mesh indirect, 2 billboard indirect,
-        // 3 emitter data, 4 alive list, 6 mesh instances, 7 alive counts
-        VkDescriptorBufferInfo inst_info{mesh_instance_buffer_->handle(), 0, mesh_instance_buffer_->size()};
-        VkDescriptorBufferInfo inst_count_info{mesh_instance_count_buffer_->handle(), 0, mesh_instance_count_buffer_->size()};
-        VkDescriptorBufferInfo mesh_indirect_info{mesh_indirect_buffer_->handle(), 0, mesh_indirect_buffer_->size()};
-        for (uint32_t r = 0; r < DISPATCH_REGIONS; ++r) {
-            VkDescriptorBufferInfo emitter_info{emitter_data_buffers_[r]->handle(), 0,
-                                                emitter_data_buffers_[r]->size()};
-            VkWriteDescriptorSet mc_writes[7]{};
-            for (auto& w : mc_writes) {
-                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                w.dstSet = mesh_compute_sets_[r];
-                w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                w.descriptorCount = 1;
-            }
-            mc_writes[0].dstBinding = 0; mc_writes[0].pBufferInfo = &particle_info;
-            mc_writes[1].dstBinding = 1; mc_writes[1].pBufferInfo = &mesh_indirect_info;
-            mc_writes[2].dstBinding = 2; mc_writes[2].pBufferInfo = &indirect_info;
-            mc_writes[3].dstBinding = 3; mc_writes[3].pBufferInfo = &emitter_info;
-            mc_writes[4].dstBinding = 4; mc_writes[4].pBufferInfo = &alive_info;
-            mc_writes[5].dstBinding = 6; mc_writes[5].pBufferInfo = &inst_info;
-            mc_writes[6].dstBinding = 7; mc_writes[6].pBufferInfo = &inst_count_info;
-            vkUpdateDescriptorSets(device_, 7, mc_writes, 0, nullptr);
-
-            // Instance buffer for the mesh vertex shader (binding 4)
-            VkWriteDescriptorSet inst_write{};
-            inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            inst_write.dstSet = render_sets_[r];
-            inst_write.dstBinding = 4;
-            inst_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            inst_write.descriptorCount = 1;
-            inst_write.pBufferInfo = &inst_info;
-            vkUpdateDescriptorSets(device_, 1, &inst_write, 0, nullptr);
-        }
-    }
-
-    FJELL_GFX_DEBUG("Particle mega-buffers rebuilt: {} particles, {} emitters",
-                    total_particles, emitter_count);
+    FJELL_GFX_DEBUG("Particle buffers grown: {} particles, {} emitters", total_particles, emitter_count);
 }
 
 void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
@@ -880,56 +275,32 @@ void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
     }
 }
 
-void ParticleSystem::record_pending_inits(VkCommandBuffer cmd) {
+void ParticleSystem::record_pending_inits(gpu::CommandList& cmd) {
     if (pending_inits_.empty()) return;
 
-    // Earlier frames may still be simulating or drawing these ranges; the
-    // fills have to come after them, and the dispatches that follow have to
-    // see the fills.
-    auto memory_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                              VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
-        VkMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = src_stage;
-        barrier.srcAccessMask = src_access;
-        barrier.dstStageMask = dst_stage;
-        barrier.dstAccessMask = dst_access;
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    };
-    constexpr VkPipelineStageFlags2 USER_STAGES = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-        | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-    constexpr VkAccessFlags2 USER_ACCESS = VK_ACCESS_2_SHADER_STORAGE_READ_BIT
-        | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-
-    memory_barrier(USER_STAGES, USER_ACCESS,
-                   VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-
+    // The dispatches of this pass and earlier frames read and write these
+    // ranges; the fills come after them, and what follows sees the fills.
+    cmd.barrier(particles_, COMPUTE, gpu::Access::clear);
+    cmd.barrier(indirect_, COMPUTE, gpu::Access::clear);
+    cmd.barrier(counters_, COMPUTE, gpu::Access::copy_dst);
     for (const auto& init : pending_inits_) {
         // A zeroed particle has lifetime 0: dead until emission overwrites it.
-        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(init.base_offset) * PARTICLE_STRIDE;
-        VkDeviceSize particle_size = static_cast<VkDeviceSize>(init.max_particles) * PARTICLE_STRIDE;
+        const uint64_t particle_size = init.max_particles * PARTICLE_STRIDE;
         if (particle_size > 0) {
-            vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), particle_offset, particle_size, 0);
+            cmd.fill(gpu::BufferRange(particles_, init.base_offset * PARTICLE_STRIDE, particle_size), 0);
         }
         if (!init.reset_counters) continue;
 
-        VkDeviceSize indirect_offset = static_cast<VkDeviceSize>(init.slot) * 4 * sizeof(uint32_t);
-        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), indirect_offset, 4 * sizeof(uint32_t), 0);
-
+        cmd.fill(gpu::BufferRange(indirect_, init.slot * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 0);
         // alive, dead, trail_head
-        uint32_t counters[3] = {0, init.max_particles, 0};
-        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(init.slot) * 3 * sizeof(uint32_t);
-        vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), counter_offset,
-                          sizeof(counters), counters);
+        const std::array<uint32_t, 3> counters{0, init.max_particles, 0};
+        cmd.copy(cmd.transient(counters),
+                 gpu::BufferRange(counters_, init.slot * sizeof(counters), sizeof(counters)));
     }
     pending_inits_.clear();
-
-    memory_barrier(VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                   USER_STAGES, USER_ACCESS);
+    cmd.barrier(particles_, gpu::Access::clear, COMPUTE);
+    cmd.barrier(indirect_, gpu::Access::clear, COMPUTE);
+    cmd.barrier(counters_, gpu::Access::copy_dst, COMPUTE);
 }
 
 // ── RenderSubsystem overrides ──────────────────────────────────────────
@@ -989,83 +360,69 @@ void ParticleSystem::collect_exports(DeclareContext& ctx) const {
         if (!buffer.valid()) { return; }
         ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, persistent}, draw_access});
     };
-    // The particles themselves carry into the next frame; the alive lists,
-    // commands and mesh instances are rebuilt from them every frame.
-    if (mega_particle_buffer_) {
-        add(mega_particle_buffer_->shared(), true, gpu::Access::storage_buffer_read_vertex);
-        // The ray-traced GI builds its particle instances from these.
-        ctx.buffer_imports.emplace(fg_name_hash("particle_state"),
-                                   BufferImport{mega_particle_buffer_->shared(), true});
-    }
-    if (mega_alive_buffer_) {
-        add(mega_alive_buffer_->shared(), false, gpu::Access::storage_buffer_read_vertex);
-    }
-    if (mega_indirect_buffer_) {
-        add(mega_indirect_buffer_->shared(), false, gpu::Access::indirect_read);
-    }
-    if (mesh_instance_buffer_) {
-        add(mesh_instance_buffer_->shared(), false, gpu::Access::storage_buffer_read_vertex);
-    }
-    if (mesh_indirect_buffer_) {
-        add(mesh_indirect_buffer_->shared(), false, gpu::Access::indirect_read);
+    // The particles and their counters carry into the next frame; the alive
+    // lists, commands and mesh instances are rebuilt from them every frame.
+    add(particles_, true, gpu::Access::storage_buffer_read_vertex);
+    add(counters_, true, gpu::Access::storage_buffer_read_vertex);
+    add(alive_, false, gpu::Access::storage_buffer_read_vertex);
+    add(indirect_, false, gpu::Access::indirect_read);
+    add(mesh_instances_, false, gpu::Access::storage_buffer_read_vertex);
+    add(mesh_indirect_, false, gpu::Access::indirect_read);
+    // The ray-traced GI builds its particle instances from these.
+    if (particles_) {
+        ctx.buffer_imports.emplace(fg_name_hash("particle_state"), BufferImport{particles_, true});
     }
 }
 
-void ParticleSystem::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
-    record_render_opaque(ctx);
+void ParticleSystem::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+    record_render_opaque(ctx, pass);
 }
 
-void ParticleSystem::record_distortion(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
-    record_render_distortion(ctx);
+void ParticleSystem::record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+    record_render_distortion(ctx, pass);
 }
 
-void ParticleSystem::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& /*pass*/) {
-    record_render(ctx);
+void ParticleSystem::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+    record_render(ctx, pass);
 }
 
-void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
-    if (emitters_.empty() || !mega_indirect_buffer_) return;
+void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline) {
+    pass.set_pipeline(pipeline);
+    pass.bind(ctx.globals);
+    pass.bind(ctx.bindless);
+    // Each pairing of shaders reads its own few of these.
+    const gpu::BindEntry offered[] = {
+        {"ParticleBuffer", gpu::storage(particles_)},
+        {"AliveList", gpu::storage(alive_)},
+        {"EmitterBuffer", gpu::storage(emitter_records_)},
+        {"Counters", gpu::storage(counters_)},
+        {"InstanceBuffer", gpu::storage(mesh_instances_)},
+        {"depth_tex", gpu::sampled(ctx.target->depth_texture(), depth_sampler_)},
+    };
+    const gpu::ShaderLayout& layout = gpu_device_->layout(pipeline);
+    SmallVector<gpu::BindEntry, std::size(offered)> read;
+    for (const gpu::BindEntry& entry : offered) {
+        if (layout.find(entry.name) != nullptr) read.push_back(entry);
+    }
+    pass.bind(std::span<const gpu::BindEntry>(read.data(), read.size()));
+}
+
+void ParticleSystem::record_render_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
 
     bool has_any = false;
     for (const auto& em : emitters_) {
         if (draws_in(em, ctx) && em.is_distortion) { has_any = true; break; }
     }
     if (!has_any) return;
-    FJELL_GPU_ZONE(ctx, "Particles: Distortion");
+    auto zone = ctx.commands().zone("Particles: Distortion");
 
-    VkDescriptorSet frame_set = render_sets_[region_];
-    if (frame_set == VK_NULL_HANDLE) return;
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_.distortion);
-    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
-                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
-                            1, 1, &frame_set, 0, nullptr);
-    if (ctx.bindless_set != VK_NULL_HANDLE) {
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
-                                2, 1, &ctx.bindless_set, 0, nullptr);
-    }
-
-    constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
-
+    use(ctx, pass, pipelines_.distortion);
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
         if (!draws_in(emitters_[i], ctx) || !emitters_[i].is_distortion) continue;
-
-        float strength = emitters_[i].distortion_strength;
-        vkCmdPushConstants(ctx.cmd, render_distortion_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(float), &strength);
-        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(), i * stride, 1, stride);
+        pass.push(emitters_[i].distortion_strength);
+        pass.draw_indirect(gpu::BufferRange(indirect_, i * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
+                           sizeof(gpu::DrawArgs));
     }
 }
 
@@ -1199,16 +556,12 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     uint32_t total = particle_extent();
     uint32_t count = static_cast<uint32_t>(emitters_.size());
 
-    bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
-
-    // No device/queue idle wait needed before growing: the four sparse
-    // buffers grow in place (ensure_capacity above), and the buffers/
-    // descriptor sets rebuild_mega_buffers still fully recreates are
-    // retired instead of being freed immediately — see its call sites.
-    if (needs_realloc) {
+    // The buffers grow in place, keeping their handles, so nothing waits
+    // for the device.
+    if (total > total_particle_capacity_ || count > emitter_capacity_) {
         uint32_t new_total = grow_buffer_to(total, total_particle_capacity_, MAX_SCENE_PARTICLES);
         uint32_t new_count = grow_buffer_to(count, emitter_capacity_, MAX_SCENE_EMITTERS);
-        rebuild_mega_buffers(new_total, new_count);
+        grow_buffers(new_total, new_count);
     }
     init_emitter_slots(new_slots);
 }
@@ -1312,42 +665,15 @@ static float max_velocity_magnitude(const VfxEmitter& emitter) {
     return max_speed;
 }
 
-uint32_t ParticleSystem::take_region(uint32_t frame_index) {
-    // The frame slot's fence has been waited on, so every region of the
-    // slot is free of GPU work when the slot's first dispatch is recorded;
-    // a preview rendered ahead of the frame waits for its own submission,
-    // so the ordinal only has to keep the dispatches recorded into one
-    // command buffer apart from each other.
-    if (frame_index != region_frame_) {
-        region_frame_ = frame_index;
-        region_ordinal_ = 0;
-    }
-    if (region_ordinal_ >= DISPATCHES_PER_FRAME && !region_overflow_warned_) {
-        region_overflow_warned_ = true;
-        FJELL_GFX_WARN("Particles: more than {} dispatches in one frame; "
-                       "a region is reused while its earlier dispatch may still run",
-                       DISPATCHES_PER_FRAME);
-    }
-    uint32_t region = frame_index * DISPATCHES_PER_FRAME + region_ordinal_ % DISPATCHES_PER_FRAME;
-    ++region_ordinal_;
-    return region;
-}
-
 void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind,
                                       const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
-    FJELL_GPU_ZONE(ctx, "Particles: Compute");
-    VkCommandBuffer cmd = ctx.cmd;
-    VkDescriptorSet global_set = ctx.global_descriptor_set;
+    auto& cmd = ctx.commands();
+    auto zone = cmd.zone("Particles: Compute");
     const glm::vec3 camera_pos = ctx.camera_position;
     float dt = ctx.delta_time;
     record_pending_inits(cmd);
-    region_ = take_region(ctx.frame_index);
-    Buffer& emitter_data_buffer = *emitter_data_buffers_[region_];
-    Buffer& module_buffer = *module_buffers_[region_];
-    VkDescriptorSet compute_set = compute_sets_[region_];
-    VkDescriptorSet mesh_compute_set = mesh_compute_sets_[region_];
     // One long frame would otherwise move every particle far enough in a
     // single step to pass through whatever it was about to hit. Past this
     // the simulation runs slow instead.
@@ -1369,7 +695,9 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     uint32_t max_emit_count = 0;
     uint32_t max_child_emit = 0; // threads the child emit pass needs across emitters
 
-    auto* module_ptr = static_cast<uint8_t*>(module_buffer.mapped());
+    // Room for every emitter's whole budget; what is sent is what was written.
+    module_bytes_.resize(static_cast<size_t>(emitter_count) * MODULE_BUDGET_BYTES);
+    auto* module_ptr = reinterpret_cast<uint8_t*>(module_bytes_.data());
     uint32_t module_word_offset = 0;
 
     for (size_t i = 0; i < emitters_.size(); ++i) {
@@ -1680,7 +1008,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         // never bleed into the next emitter's window — see its definition
         // for why that check has to live there rather than out here.
         data.module_offset = module_word_offset;
-        uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer.size());
+        uint32_t module_buf_capacity = static_cast<uint32_t>(module_bytes_.size());
         uint32_t byte_offset = module_word_offset * 4;
         if (byte_offset + MODULE_BUDGET_BYTES > module_buf_capacity) {
             FJELL_GFX_ERROR("Module buffer overflow: offset {} + {} > capacity {}",
@@ -1712,9 +1040,11 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         if (ec) ec->fire = false;
     }
 
-    // Upload emitter data
-    std::memcpy(emitter_data_buffer.mapped(), emitter_data_cache_.data(),
-                emitter_count * sizeof(GpuEmitterData));
+    // This dispatch's emitter records and module bytes, which the frame's
+    // trail draws read too.
+    emitter_records_ = cmd.transient(std::span<const GpuEmitterData>(emitter_data_cache_.data(), emitter_count));
+    const gpu::BufferRange modules = cmd.transient(
+        std::span<const std::byte>(module_bytes_.data(), static_cast<size_t>(module_word_offset) * 4));
 
     ParticleComputePush push{};
     push.dt = dt;
@@ -1722,104 +1052,69 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     push.emitter_count = emitter_count;
     push.total_max_particles = total_max;
 
-    auto compute_barrier = [&]() {
-        VkMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
+    // Each step sees what the one before it wrote to `written`.
+    auto settle = [&](std::initializer_list<gpu::Buffer> written) {
+        for (gpu::Buffer buffer : written) cmd.barrier(buffer, COMPUTE, COMPUTE);
+    };
+    const gpu::BindEntry simulation[] = {
+        {"ParticleBuffer", gpu::storage(particles_)},
+        {"Counters", gpu::storage(counters_)},
+        {"EmitterBuffer", gpu::storage(emitter_records_)},
+        {"ModuleBuffer", gpu::storage(modules)},
+        {"SubEmitterEventBuf", gpu::storage(sub_events_)},
+        {"SubEmitterEventCounters", gpu::storage(sub_event_counts_)},
+    };
+    auto use_simulation = [&](gpu::ComputePipeline pipeline) {
+        cmd.set_pipeline(pipeline);
+        cmd.bind(simulation);
+        cmd.push(push);
     };
 
-    // Bind both descriptor sets: set 0 = particle SSBOs, set 1 = global (SDF access)
-    auto bind_compute_sets = [&]() {
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                                0, 1, &compute_set, 0, nullptr);
-        if (global_set != VK_NULL_HANDLE) {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                                    1, 1, &global_set, 0, nullptr);
-        }
-    };
-
-    // Clear sub-emitter event counters. One buffer serves every frame, so the
-    // clear waits for the last step's shaders and clear to be done with it,
-    // and the shaders here wait for the clear.
-    if (sub_event_counter_buffer_) {
-        auto memory_barrier = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                  VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
-            VkMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = src_stage;
-            barrier.srcAccessMask = src_access;
-            barrier.dstStageMask = dst_stage;
-            barrier.dstAccessMask = dst_access;
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.memoryBarrierCount = 1;
-            dep.pMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        };
-        constexpr VkAccessFlags2 SHADER_ACCESS =
-            VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        memory_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT,
-                       SHADER_ACCESS | VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                       VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-        vkCmdFillBuffer(cmd, sub_event_counter_buffer_->handle(),
-                        0, sub_event_counter_buffer_->size(), 0);
-        memory_barrier(VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, SHADER_ACCESS);
-    }
+    // Sub-emitter events counted afresh. The last frame's steps are done with
+    // the counts before the clear, and this frame's wait for it.
+    const gpu::BufferRange event_counts(sub_event_counts_, 0, uint64_t{emitter_count} * sizeof(uint32_t));
+    cmd.barrier(event_counts, COMPUTE, gpu::Access::clear);
+    cmd.fill(event_counts, 0);
+    cmd.barrier(event_counts, gpu::Access::clear, COMPUTE);
 
     // ── Phase 1: Emit normal emitters (sub_emit_pass=0, skip children) ──
     push.sub_emit_pass = 0;
     if (max_emit_count > 0) {
-        FJELL_GPU_ZONE(ctx, "Particles: Emit");
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.emit);
-        bind_compute_sets();
-        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDispatch(cmd, (max_emit_count + 255) / 256, emitter_count, 1);
-        compute_barrier();
+        auto step = cmd.zone("Particles: Emit");
+        use_simulation(pipelines_.emit);
+        cmd.dispatch((max_emit_count + 255) / 256, emitter_count, 1);
+        settle({particles_, counters_});
     }
 
     // ── Phase 2: Simulate (writes sub-emitter events on death/collision) ──
     {
-        FJELL_GPU_ZONE(ctx, "Particles: Simulate");
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.sim);
-        bind_compute_sets();
-        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDispatch(cmd, (total_max + 255) / 256, 1, 1);
-        compute_barrier();
+        auto step = cmd.zone("Particles: Simulate");
+        use_simulation(pipelines_.sim);
+        cmd.bind(ctx.globals);
+        cmd.dispatch((total_max + 255) / 256, 1, 1);
+        settle({particles_, counters_, sub_events_, sub_event_counts_});
     }
 
     // ── Phase 3: Emit child emitters (sub_emit_pass=1, consume events) ──
     push.sub_emit_pass = 1;
     if (max_child_emit > 0) {
-        FJELL_GPU_ZONE(ctx, "Particles: Emit Children");
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.emit);
-        bind_compute_sets();
-        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDispatch(cmd, (max_child_emit + 255) / 256, emitter_count, 1);
-        compute_barrier();
+        auto step = cmd.zone("Particles: Emit Children");
+        use_simulation(pipelines_.emit);
+        cmd.dispatch((max_child_emit + 255) / 256, emitter_count, 1);
+        settle({particles_, counters_});
     }
 
     // ── Phase 4: Indirect prep (billboard/trail emitters) ──
     push.sub_emit_pass = 0;
     {
-        FJELL_GPU_ZONE(ctx, "Particles: Indirect");
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.indirect);
-        bind_compute_sets();
-        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                           0, sizeof(push), &push);
-        vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);
+        auto step = cmd.zone("Particles: Indirect");
+        cmd.set_pipeline(pipelines_.indirect);
+        cmd.bind({{"Counters", gpu::storage(counters_)},
+                  {"EmitterBuffer", gpu::storage(emitter_records_)},
+                  {"IndirectDraw", gpu::storage(indirect_)}});
+        cmd.push(push);
+        cmd.dispatch((emitter_count + 255) / 256, 1, 1);
+        settle({indirect_});
     }
 
     // ── Phase 5: Compaction (billboard and mesh emitters) ──
@@ -1830,82 +1125,43 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     // only orders invocations within one workgroup, and max_particles
     // routinely spans several (local_size_x = 256) — see
     // particle_compact.comp's header comment.
-    if (pipelines_.mesh_instance != VK_NULL_HANDLE && mesh_compute_set != VK_NULL_HANDLE) {
-        auto bind_mesh_compute_set = [&]() {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_compute_layout_,
-                                    0, 1, &mesh_compute_set, 0, nullptr);
-        };
-        uint32_t max_slots = 0;
-        for (const auto& em : emitters_) {
-            if (em.active && !em.is_trail) max_slots = std::max(max_slots, em.max_particles);
-        }
-        if (max_slots > 0) {
-            FJELL_GPU_ZONE(ctx, "Particles: Mesh Compact");
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines_.mesh_instance);
-            bind_mesh_compute_set();
+    uint32_t max_slots = 0;
+    for (const auto& em : emitters_) {
+        if (em.active && !em.is_trail) max_slots = std::max(max_slots, em.max_particles);
+    }
+    if (max_slots > 0) {
+        auto step = cmd.zone("Particles: Mesh Compact");
+        cmd.set_pipeline(pipelines_.compact);
+        cmd.bind({{"ParticleBuffer", gpu::storage(particles_)},
+                  {"MeshIndirect", gpu::storage(mesh_indirect_)},
+                  {"BillboardIndirect", gpu::storage(indirect_)},
+                  {"EmitterBuffer", gpu::storage(emitter_records_)},
+                  {"AliveList", gpu::storage(alive_)},
+                  {"InstanceBuffer", gpu::storage(mesh_instances_)},
+                  {"AliveCounts", gpu::storage(mesh_instance_counts_)}});
+        const auto compacted = {mesh_indirect_.get(), indirect_.get(), alive_.get(), mesh_instances_.get(),
+                                mesh_instance_counts_.get()};
 
-            push.sub_emit_pass = 0; // reset
-            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(push), &push);
-            vkCmdDispatch(cmd, 1, emitter_count, 1);
-            compute_barrier();
+        push.sub_emit_pass = 0; // reset
+        cmd.push(push);
+        cmd.dispatch(1, emitter_count, 1);
+        settle(compacted);
 
-            push.sub_emit_pass = 1; // compact
-            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(push), &push);
-            vkCmdDispatch(cmd, (max_slots + 255) / 256, emitter_count, 1);
-            compute_barrier();
+        push.sub_emit_pass = 1; // compact
+        cmd.push(push);
+        cmd.dispatch((max_slots + 255) / 256, emitter_count, 1);
+        settle(compacted);
 
-            push.sub_emit_pass = 2; // finalize
-            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(push), &push);
-            vkCmdDispatch(cmd, 1, emitter_count, 1);
-        }
+        push.sub_emit_pass = 2; // finalize
+        cmd.push(push);
+        cmd.dispatch(1, emitter_count, 1);
     }
 }
 
-void ParticleSystem::record_render(const FrameContext& ctx) {
+void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     FJELL_PROFILE_SCOPE_N("particle_record_render");
-    if (emitters_.empty()) return;
-    FJELL_GPU_ZONE(ctx, "Particles: Transparent");
-
-    // Update this dispatch's depth texture descriptor: the region's set is
-    // in use by nothing else, see take_region.
-    VkDescriptorSet frame_set = render_sets_[region_];
-
-    VkDescriptorImageInfo depth_info{};
-    depth_info.sampler = depth_sampler_;
-    depth_info.imageView = ctx.target->depth_view();
-    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet depth_write{};
-    depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    depth_write.dstSet = frame_set;
-    depth_write.dstBinding = 1;
-    depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    depth_write.descriptorCount = 1;
-    depth_write.pImageInfo = &depth_info;
-    vkUpdateDescriptorSets(device_, 1, &depth_write, 0, nullptr);
-
-    // Bind global + particle set (SSBO + depth) + bindless textures
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
-                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
-                            1, 1, &frame_set, 0, nullptr);
-    if (ctx.bindless_set != VK_NULL_HANDLE) {
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
-                                2, 1, &ctx.bindless_set, 0, nullptr);
-    }
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-
-    constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
+    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
+    auto zone = ctx.commands().zone("Particles: Transparent");
 
     // Build sorted draw order: additive first (order-independent),
     // then alpha-blended back-to-front by distance to camera.
@@ -1932,56 +1188,31 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     });
     draw_order.insert(draw_order.end(), alpha_indices.begin(), alpha_indices.end());
 
-    VkPipeline current_pipeline = VK_NULL_HANDLE;
-    VkPipelineLayout current_layout = render_layout_;
-
+    gpu::GraphicsPipeline bound{};
     for (uint32_t idx : draw_order) {
         if (emitters_[idx].is_mesh) continue; // mesh particles drawn separately
 
-        bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
-        bool lit = emitters_[idx].is_lit;
-        bool trail = emitters_[idx].is_trail;
-
-        VkPipeline needed;
-        VkPipelineLayout needed_layout;
+        const bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
+        const bool lit = emitters_[idx].is_lit;
+        const bool trail = emitters_[idx].is_trail;
+        gpu::GraphicsPipeline needed{};
         if (lit) {
-            needed_layout = render_lit_layout_;
-            if (trail)    needed = additive ? pipelines_.lit_trail_additive : pipelines_.lit_trail_alpha;
-            else          needed = additive ? pipelines_.lit_additive : pipelines_.lit_alpha;
+            if (trail) needed = additive ? pipelines_.lit_trail_additive : pipelines_.lit_trail_alpha;
+            else       needed = additive ? pipelines_.lit_additive : pipelines_.lit_alpha;
         } else {
-            needed_layout = render_layout_;
-            if (trail)    needed = additive ? pipelines_.trail_additive : pipelines_.trail_alpha;
-            else          needed = additive ? pipelines_.additive : pipelines_.alpha;
+            if (trail) needed = additive ? pipelines_.trail_additive : pipelines_.trail_alpha;
+            else       needed = additive ? pipelines_.additive : pipelines_.alpha;
         }
-
-        if (needed != current_pipeline) {
-            current_pipeline = needed;
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-            vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-            vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-            // Re-bind descriptor sets when layout changes
-            if (needed_layout != current_layout) {
-                current_layout = needed_layout;
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                        0, 1, &ctx.global_descriptor_set, 0, nullptr);
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                        1, 1, &frame_set, 0, nullptr);
-                if (ctx.bindless_set != VK_NULL_HANDLE) {
-                    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                            2, 1, &ctx.bindless_set, 0, nullptr);
-                }
-            }
+        if (needed != bound) {
+            use(ctx, pass, needed);
+            bound = needed;
         }
-
         if (lit) {
-            ParticleLitPush push{emitters_[idx].lit_metallic, emitters_[idx].lit_roughness, emitters_[idx].mesh_material_id};
-            vkCmdPushConstants(ctx.cmd, render_lit_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(push), &push);
+            pass.push(ParticleLitPush{emitters_[idx].lit_metallic, emitters_[idx].lit_roughness,
+                                      emitters_[idx].mesh_material_id});
         }
-
-        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
-                          idx * stride, 1, stride);
+        pass.draw_indirect(gpu::BufferRange(indirect_, idx * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
+                           sizeof(gpu::DrawArgs));
     }
 
     // ── Mesh particle rendering ──
@@ -1994,71 +1225,40 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     for (const auto& em : emitters_) {
         if (em.is_mesh && draws_in(em, ctx)) { any_mesh = true; break; }
     }
+    if (!any_mesh || !ctx.mega_buffer) return;
 
-    if (any_mesh && ctx.mega_buffer) {
-        bind_mega_buffer(ctx);
+    bound = {};
+    for (uint32_t idx : draw_order) {
+        if (!emitters_[idx].is_mesh) continue;
 
-        current_pipeline = VK_NULL_HANDLE;
-        current_layout = render_layout_;
-
-        for (uint32_t idx : draw_order) {
-            if (!emitters_[idx].is_mesh) continue;
-
-            bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
-            bool lit = emitters_[idx].is_lit;
-
-            VkPipeline needed;
-            VkPipelineLayout needed_layout;
-            if (lit) {
-                needed_layout = render_lit_layout_;
-                needed = additive ? pipelines_.mesh_lit_additive : pipelines_.mesh_lit_alpha;
-            } else {
-                needed_layout = render_layout_;
-                needed = additive ? pipelines_.mesh_additive : pipelines_.mesh_alpha;
-            }
-
-            if (needed != current_pipeline) {
-                current_pipeline = needed;
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-                vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-                vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-                if (needed_layout != current_layout) {
-                    current_layout = needed_layout;
-                    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
-                    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                            1, 1, &frame_set, 0, nullptr);
-                    if (ctx.bindless_set != VK_NULL_HANDLE) {
-                        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                                2, 1, &ctx.bindless_set, 0, nullptr);
-                    }
-                }
-            }
-
-            if (lit) {
-                ParticleLitPush push{emitters_[idx].lit_metallic, emitters_[idx].lit_roughness, emitters_[idx].mesh_material_id};
-                vkCmdPushConstants(ctx.cmd, render_lit_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                   0, sizeof(push), &push);
-            }
-
-            // Indirect indexed draw: particle_compact.comp compacted
-            // this emitter's alive particles into a dense GpuMeshInstance
-            // range and wrote indexCount/instanceCount/firstIndex/
-            // vertexOffset/firstInstance into mesh_indirect_buffer_ — the
-            // vertex shader reads gl_InstanceIndex straight out of that
-            // compacted buffer, so instanceCount reflects live particles
-            // only instead of the emitter's full max_particles budget.
-            vkCmdDrawIndexedIndirect(ctx.cmd, mesh_indirect_buffer_->handle(),
-                                     idx * sizeof(VkDrawIndexedIndirectCommand), 1,
-                                     sizeof(VkDrawIndexedIndirectCommand));
+        const bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
+        const bool lit = emitters_[idx].is_lit;
+        const gpu::GraphicsPipeline needed =
+            lit ? (additive ? pipelines_.mesh_lit_additive : pipelines_.mesh_lit_alpha)
+                : (additive ? pipelines_.mesh_additive : pipelines_.mesh_alpha);
+        if (needed != bound) {
+            use(ctx, pass, needed);
+            pass.set_vertex_buffer(ctx.mega_buffer->vertex_buffer());
+            pass.set_index_buffer(ctx.mega_buffer->index_buffer(), gpu::IndexType::u32);
+            bound = needed;
         }
+        if (lit) {
+            pass.push(ParticleLitPush{emitters_[idx].lit_metallic, emitters_[idx].lit_roughness,
+                                      emitters_[idx].mesh_material_id});
+        }
+        // particle_compact.comp compacted this emitter's alive particles
+        // into a dense GpuMeshInstance range and wrote the indexed draw for
+        // them: the vertex shader reads gl_InstanceIndex straight out of
+        // that range, so only live particles are drawn.
+        pass.draw_indexed_indirect(
+            gpu::BufferRange(mesh_indirect_, idx * sizeof(gpu::DrawIndexedArgs), sizeof(gpu::DrawIndexedArgs)),
+            1, sizeof(gpu::DrawIndexedArgs));
     }
 }
 
-void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
+void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
     FJELL_PROFILE_SCOPE_N("particle_record_render_opaque");
-    if (emitters_.empty()) return;
+    if (emitters_.empty() || !emitter_records_.buffer.valid()) return;
 
     // Check if any opaque emitters exist
     bool any_opaque = false;
@@ -2066,80 +1266,44 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
         if (draws_in(em, ctx) && em.blend_mode == ParticleBlendMode::opaque) { any_opaque = true; break; }
     }
     if (!any_opaque) return;
-    FJELL_GPU_ZONE(ctx, "Particles: Opaque");
-
-    VkDescriptorSet frame_set = render_sets_[region_];
+    auto zone = ctx.commands().zone("Particles: Opaque");
     // The opaque shaders read no depth: they blend nothing, so they have no
     // soft fade, and they write the depth this pass draws into.
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-
-    constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
 
     if (ctx.mega_buffer && !primitives_uploaded_) {
         upload_primitives(*ctx.mega_buffer);
     }
 
-    VkPipeline current_pipeline = VK_NULL_HANDLE;
-    VkPipelineLayout current_layout = render_opaque_layout_;
-
+    gpu::GraphicsPipeline bound{};
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
         if (!draws_in(emitters_[i], ctx)) continue;
         if (emitters_[i].blend_mode != ParticleBlendMode::opaque) continue;
 
-        bool lit = emitters_[i].is_lit;
-        bool mesh = emitters_[i].is_mesh;
-
-        VkPipeline needed;
-        VkPipelineLayout needed_layout;
-        if (mesh) {
-            needed_layout = lit ? render_opaque_lit_layout_ : render_opaque_layout_;
-            needed = lit ? pipelines_.mesh_opaque_lit : pipelines_.mesh_opaque;
-        } else {
-            needed_layout = lit ? render_opaque_lit_layout_ : render_opaque_layout_;
-            needed = lit ? pipelines_.opaque_lit : pipelines_.opaque;
-        }
-
-        if (needed != current_pipeline) {
-            current_pipeline = needed;
-            current_layout = needed_layout;
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-            vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-            vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-
-            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                    0, 1, &ctx.global_descriptor_set, 0, nullptr);
-            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                    1, 1, &frame_set, 0, nullptr);
-            if (ctx.bindless_set != VK_NULL_HANDLE) {
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_layout,
-                                        2, 1, &ctx.bindless_set, 0, nullptr);
+        const bool lit = emitters_[i].is_lit;
+        const bool mesh = emitters_[i].is_mesh && ctx.mega_buffer != nullptr;
+        const gpu::GraphicsPipeline needed = mesh ? (lit ? pipelines_.mesh_opaque_lit : pipelines_.mesh_opaque)
+                                                  : (lit ? pipelines_.opaque_lit : pipelines_.opaque);
+        if (needed != bound) {
+            use(ctx, pass, needed);
+            if (mesh) {
+                pass.set_vertex_buffer(ctx.mega_buffer->vertex_buffer());
+                pass.set_index_buffer(ctx.mega_buffer->index_buffer(), gpu::IndexType::u32);
             }
+            bound = needed;
         }
-
         if (lit) {
-            ParticleLitPush push{emitters_[i].lit_metallic, emitters_[i].lit_roughness, emitters_[i].mesh_material_id};
-            vkCmdPushConstants(ctx.cmd, current_layout, VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(push), &push);
+            pass.push(ParticleLitPush{emitters_[i].lit_metallic, emitters_[i].lit_roughness,
+                                      emitters_[i].mesh_material_id});
         }
-
-        if (mesh && ctx.mega_buffer) {
-            bind_mega_buffer(ctx);
-            // See record_render's mesh loop — same compacted-instance
-            // indirect draw, just in the opaque pass.
-            vkCmdDrawIndexedIndirect(ctx.cmd, mesh_indirect_buffer_->handle(),
-                                     i * sizeof(VkDrawIndexedIndirectCommand), 1,
-                                     sizeof(VkDrawIndexedIndirectCommand));
+        if (mesh) {
+            // See record_render's mesh loop: the same compacted-instance
+            // draw, in the opaque pass.
+            pass.draw_indexed_indirect(
+                gpu::BufferRange(mesh_indirect_, i * sizeof(gpu::DrawIndexedArgs), sizeof(gpu::DrawIndexedArgs)),
+                1, sizeof(gpu::DrawIndexedArgs));
         } else {
-            // Billboard opaque — use indirect command
-            vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
-                              i * stride, 1, stride);
+            pass.draw_indirect(gpu::BufferRange(indirect_, i * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
+                               sizeof(gpu::DrawArgs));
         }
     }
 }
