@@ -187,6 +187,8 @@ PackedTrains pack_trains(const FjWaterData& water) {
         field->assign(padded, 0.0f);
     }
     // A padding train has amplitude zero and adds nothing whatever its phase.
+    float strongest = 0.0f;
+    float variance = 0.0f;
     for (std::size_t i = 0; i < prepared.size(); ++i) {
         p.dir_x[i] = prepared[i].dir.x;
         p.dir_z[i] = prepared[i].dir.y;
@@ -194,7 +196,19 @@ PackedTrains pack_trains(const FjWaterData& water) {
         p.amplitude[i] = prepared[i].amplitude;
         p.q[i] = prepared[i].q;
         p.omega[i] = prepared[i].omega;
+
+        // The trains shoal by the strongest of them, the wave that is seen,
+        // and break by how tall they stand together. A train's variance is
+        // half its amplitude squared, and the significant amplitude is twice
+        // the standard deviation of them all.
+        const float amplitude = std::abs(prepared[i].amplitude);
+        if (amplitude > strongest) {
+            strongest = amplitude;
+            p.shoaling.k = prepared[i].k;
+        }
+        variance += 0.5f * amplitude * amplitude;
     }
+    p.shoaling.amplitude = 2.0f * std::sqrt(variance);
     return p;
 }
 
@@ -375,6 +389,10 @@ FjWaterData::SimulatedSea draw_simulated_sea(const FftContributor& sea,
                                               const SpectrumNoise* noise) {
     FjWaterData::SimulatedSea drawn;
     drawn.drawn_from = sea;
+    // Deep water's wavenumber for the peak frequency: omega^2 = g k.
+    const float peak = peak_frequency(sea);
+    drawn.shoaling.k = peak * peak / GRAVITY;
+    drawn.shoaling.amplitude = significant_amplitude(sea);
     drawn.drawn_from.physics_waves = 0;   // retune() takes the waves and says so
     drawn.spectrum = std::make_shared<const SpectrumField>(
         noise != nullptr ? generate_spectrum(sea, *noise) : generate_spectrum(sea));
@@ -451,6 +469,17 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
         m.velocity.y += w.velocity;
     }
     return m;
+}
+
+std::optional<ShoreEffect> shore_at(const FjWaterData& water, glm::vec2 world_xz) {
+    if (!water.shore.has_value()) return std::nullopt;
+    const std::optional<StillDepth> depth = still_depth(*water.shore, world_xz);
+    if (!depth.has_value()) return std::nullopt;
+    const ShoalingSum trains =
+        water.packed_trains.has_value() ? water.packed_trains->shoaling : ShoalingSum{};
+    const ShoalingSum simulated =
+        water.simulated.has_value() ? water.simulated->shoaling : ShoalingSum{};
+    return shore_effect(*depth, trains, simulated);
 }
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {

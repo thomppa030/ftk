@@ -343,6 +343,9 @@ struct PackedWaves {
 struct PackedTrains {
     std::vector<float> dir_x, dir_z, k, amplitude, q, omega;
     std::size_t count{0};
+    /// What the trains shoal by: the strongest train's wavenumber, and the
+    /// significant amplitude of them all.
+    ShoalingSum shoaling;
 };
 
 /// One sea drawn from a spectrum: the complex amplitude of every wavevector
@@ -421,6 +424,9 @@ struct FjWaterData {
         /// current, since it is applied as the sea is animated and costs no
         /// redraw to change.
         float choppiness{0.0f};
+        /// What this sea shoals by: its spectral peak, and its significant
+        /// amplitude. Of the sea drawn, so it changes when the drawing does.
+        water::ShoalingSum shoaling;
     };
     std::optional<SimulatedSea> simulated;
 
