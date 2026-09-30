@@ -12,7 +12,6 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"
-#include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
@@ -155,7 +154,6 @@ private:
     TransientImagePool transient_pool_;
 
     // Pipelines
-    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     std::unique_ptr<PipelineCache> pipeline_cache_;
 
     // Shared GPU buffers

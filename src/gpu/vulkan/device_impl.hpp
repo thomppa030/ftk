@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <filesystem>
 #include <vector>
 
 namespace fjell {
@@ -202,6 +203,10 @@ struct Device::Impl {
 
     explicit Impl(GpuCore& core);
     ~Impl();
+
+    /// Writes the pipeline cache to its file and destroys it; nothing
+    /// without one.
+    void save_pipeline_cache();
 
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -397,9 +402,10 @@ struct Device::Impl {
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count{nullptr};
-    /// The engine's pipeline cache, which it loads and saves; null until the
-    /// engine hands it over.
+    /// What pipelines are built through, loaded from and saved to
+    /// `pipeline_cache_file`; null without one.
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
+    std::filesystem::path pipeline_cache_file;
     ShaderLocator locator;
     Caps caps;
     /// Every sampler made, by its description; few enough to search.

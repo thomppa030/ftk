@@ -9,6 +9,7 @@
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
+#include <fstream>
 #include <span>
 #include <string>
 
@@ -122,6 +123,23 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
+void Device::Impl::save_pipeline_cache() {
+    if (pipeline_cache == VK_NULL_HANDLE) return;
+    size_t size = 0;
+    if (vkGetPipelineCacheData(device, pipeline_cache, &size, nullptr) == VK_SUCCESS && size > 0) {
+        std::vector<char> data(size);
+        if (vkGetPipelineCacheData(device, pipeline_cache, &size, data.data()) == VK_SUCCESS) {
+            std::ofstream file(pipeline_cache_file, std::ios::binary | std::ios::trunc);
+            if (file.is_open()) {
+                file.write(data.data(), static_cast<std::streamsize>(size));
+                FJELL_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
+            }
+        }
+    }
+    vkDestroyPipelineCache(device, pipeline_cache, nullptr);
+    pipeline_cache = VK_NULL_HANDLE;
+}
+
 Device::Impl::Impl(GpuCore& gpu_core)
     : core(gpu_core), device(gpu_core.vk_device()), allocator(gpu_core.allocator()),
       sparse_queue(gpu_core.device().sparse_bind_queue()),
@@ -231,6 +249,7 @@ Device::Impl::~Impl() {
 #ifdef FJELL_ENABLE_TRACY
     if (profiler != nullptr) TracyVkDestroy(profiler);
 #endif
+    save_pipeline_cache();
     // The GPU is idle here (GpuCore waits before destroying the device), so
     // what is still held is destroyed now: first what was released and
     // waits for frames, then the device's own buffers, then anything never
@@ -630,6 +649,32 @@ Result<> Device::grow(Buffer buffer, uint64_t size) {
 uint32_t Device::generation(Buffer buffer) const {
     const Impl::BufferRecord* record = impl_->buffers.get(buffer);
     return record != nullptr ? record->generation : 0;
+}
+
+void Device::set_pipeline_cache_file(const std::filesystem::path& file) {
+    Impl& self = *impl_;
+    self.save_pipeline_cache();
+    self.pipeline_cache_file = file;
+
+    std::vector<char> data;
+    if (std::ifstream in(file, std::ios::binary | std::ios::ate); in.is_open()) {
+        data.resize(static_cast<size_t>(in.tellg()));
+        in.seekg(0);
+        in.read(data.data(), static_cast<std::streamsize>(data.size()));
+        FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", data.size());
+    }
+    VkPipelineCacheCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    info.initialDataSize = data.size();
+    info.pInitialData = data.empty() ? nullptr : data.data();
+    if (vkCreatePipelineCache(self.device, &info, nullptr, &self.pipeline_cache) != VK_SUCCESS) {
+        // What the file held is from another driver or device.
+        FJELL_GFX_WARN("Pipeline cache {} did not load; starting empty", file.string());
+        info.initialDataSize = 0;
+        info.pInitialData = nullptr;
+        vk_check(vkCreatePipelineCache(self.device, &info, nullptr, &self.pipeline_cache),
+                 "Failed to create a pipeline cache");
+    }
 }
 
 void Device::set_shader_locator(ShaderLocator locator) {

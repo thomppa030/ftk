@@ -19,6 +19,4 @@ src/renderer/gpu/vk_utils.hpp
 src/renderer/gpu/vma_impl.cpp
 src/renderer/gpu/window.cpp
 src/renderer/gpu/window.hpp
-src/renderer/gpu_context.cpp
-src/renderer/gpu_context.hpp
 tests/library_link/gpu.cpp

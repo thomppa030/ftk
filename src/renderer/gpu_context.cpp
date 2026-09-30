@@ -1,6 +1,4 @@
 #include "renderer/gpu_context.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "gpu/vulkan/translate.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
@@ -13,59 +11,11 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <span>
 #include <stdexcept>
 
 namespace fjell {
-
-// ── Pipeline cache persistence ──────────────────────────────────────────
-
-static VkPipelineCache load_pipeline_cache(VkDevice device) {
-    VkPipelineCache cache = VK_NULL_HANDLE;
-    std::vector<char> data;
-    auto path = base_path::resolve("pipeline_cache.bin");
-    if (std::filesystem::exists(path)) {
-        std::ifstream f(path, std::ios::binary | std::ios::ate);
-        if (f.is_open()) {
-            auto file_size = static_cast<size_t>(f.tellg());
-            data.resize(file_size);
-            f.seekg(0);
-            f.read(data.data(), static_cast<std::streamsize>(file_size));
-            FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", file_size);
-        }
-    }
-
-    VkPipelineCacheCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-    ci.initialDataSize = data.size();
-    ci.pInitialData = data.empty() ? nullptr : data.data();
-
-    if (vkCreatePipelineCache(device, &ci, nullptr, &cache) != VK_SUCCESS) {
-        FJELL_GFX_WARN("Failed to create pipeline cache, starting fresh");
-        ci.initialDataSize = 0;
-        ci.pInitialData = nullptr;
-        vkCreatePipelineCache(device, &ci, nullptr, &cache);
-    }
-    return cache;
-}
-
-static void save_pipeline_cache(VkDevice device, VkPipelineCache cache) {
-    if (cache == VK_NULL_HANDLE) return;
-
-    size_t size = 0;
-    vkGetPipelineCacheData(device, cache, &size, nullptr);
-    std::vector<char> data(size);
-    vkGetPipelineCacheData(device, cache, &size, data.data());
-
-    auto path = base_path::resolve("pipeline_cache.bin");
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (f.is_open()) {
-        f.write(data.data(), static_cast<std::streamsize>(size));
-        FJELL_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
-    }
-}
 
 // ── GpuContext ───────────────────────────────────────────────────────────
 
@@ -78,12 +28,11 @@ GpuContext::GpuContext(Window& window)
     if (!swapchain) throw std::runtime_error(swapchain.error());
     swapchain_ = std::move(*swapchain);
 
-    vk_pipeline_cache_ = load_pipeline_cache(core_.vk_device());
     // The GPU interface's pipelines read the shaders the build compiled beside
-    // the program, through the engine's pipeline cache.
+    // the program, and keep what they learn beside it too.
     core_.gpu_device().set_shader_locator(
         [](const std::string& relative) { return base_path::resolve(relative); });
-    gpu::vulkan::use_pipeline_cache(core_.gpu_device(), vk_pipeline_cache_);
+    core_.gpu_device().set_pipeline_cache_file(base_path::resolve("pipeline_cache.bin"));
 
     create_descriptor_resources();
     if (auto r = bindless_textures_.create(core_.gpu_device()); !r) {
@@ -132,15 +81,6 @@ void GpuContext::init_pipelines() {
 }
 
 GpuContext::~GpuContext() {
-    auto vk_device = core_.vk_device();
-
-    save_pipeline_cache(vk_device, vk_pipeline_cache_);
-    gpu::vulkan::use_pipeline_cache(core_.gpu_device(), VK_NULL_HANDLE);
-    if (vk_pipeline_cache_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineCache(vk_device, vk_pipeline_cache_, nullptr);
-        vk_pipeline_cache_ = VK_NULL_HANDLE;
-    }
-
     for (auto& buffer : tile_light_ssbo_) buffer.reset();
     view_data_fallback_.reset();
     unoccluded_.reset();
