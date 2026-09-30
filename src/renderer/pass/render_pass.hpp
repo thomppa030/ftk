@@ -32,11 +32,10 @@ class RenderSubsystem;
 class ResourceRegistry;
 class Scene;
 
-// Shared descriptor set layouts needed by passes at pipeline creation time.
+// What a pass needs to make its pipelines: the shared layouts, the scene
+// targets' formats and sample count, and the device.
 struct PassResources {
-    VkDescriptorSetLayout global_set_layout{VK_NULL_HANDLE};
-    VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
-    /// The same four as the GPU interface knows them: what a pipeline names
+    /// What a pipeline names
     /// in `.shared` to bind the engine's globals, bindless table, draw data
     /// and meshlets.
     gpu::SharedLayout globals{};
@@ -46,8 +45,6 @@ struct PassResources {
     /// The GPU interface's device, for what a pass makes through it or hands
     /// it: an image made before the interface is adopted where it is made.
     gpu::Device* device{nullptr};
-    VkFormat depth_format{VK_FORMAT_UNDEFINED};
-    VkFormat color_format{VK_FORMAT_UNDEFINED};
     /// The scene colour's and depth's formats as the GPU interface names
     /// them, for pipelines it builds.
     gpu::Format scene_color_format{gpu::Format::undefined};
@@ -60,10 +57,6 @@ struct PassResources {
     /// The single-sampled target distortion draws its screen offsets into.
     gpu::Format scene_distortion_format{gpu::Format::undefined};
     gpu::Samples samples{gpu::Samples::x1};
-    VmaAllocator allocator{VK_NULL_HANDLE};
-    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
-    VkCommandPool command_pool{VK_NULL_HANDLE};
-    VkQueue graphics_queue{VK_NULL_HANDLE};
 };
 
 class FrameDescriptorCache;

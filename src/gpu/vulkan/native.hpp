@@ -86,10 +86,6 @@ void use_pipeline_cache(Device& device, VkPipelineCache cache);
 /// frame may read.
 [[nodiscard]] VkDescriptorSet native_group(Device& device, BindGroup group);
 
-/// The VkDescriptorSetLayout behind a shared layout, for pipelines still made
-/// natively that bind its groups; null when the handle finds none.
-[[nodiscard]] VkDescriptorSetLayout native_set_layout(const Device& device, SharedLayout layout);
-
 /// Keeps `object` alive until the GPU has finished the frame recording now,
 /// then lets its destructor run: for what was made before the interface and
 /// has no handle to release.

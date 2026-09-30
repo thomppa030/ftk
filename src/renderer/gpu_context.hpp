@@ -83,7 +83,6 @@ public:
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
     [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }
     /// The global set's layout, for pipelines still made natively.
-    [[nodiscard]] VkDescriptorSetLayout global_set_layout() const;
     /// The frame slot's GlobalUbo behind global binding "global_ubo", written
     /// through `mapped()`.
     [[nodiscard]] gpu::Buffer uniform_buffer(uint32_t frame_index) const {

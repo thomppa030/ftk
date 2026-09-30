@@ -1054,28 +1054,9 @@ void VulkanContext::update_fog_volume_ssbo(uint32_t frame_index) {
     }
 }
 
-void VulkanContext::init_game_ui(GameUi& ui, VkFormat output_format, bool world) {
-    PassResources res{};
-    res.global_set_layout = gpu_.global_set_layout();
-    res.material_set_layout =
-        gpu::vulkan::native_set_layout(gpu_device(), gpu_.bindless_textures().layout());
-    const auto& shared = gpu_.shared_layouts();
-    res.globals = shared.globals;
-    res.bindless = shared.bindless;
-    res.draw_data = shared.draw_data;
-    res.meshlets = shared.meshlets;
-    res.device = &gpu_.core().gpu_device();
-    res.depth_format = gpu_.device_ref().find_depth_format();
-    res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
-    res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
-    res.scene_mr_format = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT);
-    res.scene_normal_format = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT);
-    res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
-    res.scene_distortion_format = gpu::vulkan::from_vk(OffscreenPass::DISTORTION_FORMAT);
-    res.samples = gpu_.msaa_samples();
-
-    ui.create(res, *font_library_, gpu_.pipeline_cache(), gpu::vulkan::from_vk(output_format));
+void VulkanContext::init_game_ui(GameUi& ui, gpu::Format output_format, bool world) {
+    const PassResources res = gpu_.pass_resources();
+    ui.create(res, *font_library_, gpu_.pipeline_cache(), output_format);
     if (world) ui.create_world_pipelines(res);
 }
 

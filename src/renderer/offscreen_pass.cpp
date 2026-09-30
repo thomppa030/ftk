@@ -160,7 +160,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo color_info{};
     color_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     color_info.imageType = VK_IMAGE_TYPE_2D;
-    color_info.format = COLOR_FORMAT;
+    color_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
     color_info.extent = {width, height, 1};
     color_info.mipLevels = 1;
     color_info.arrayLayers = 1;
@@ -180,7 +180,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     color_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     color_view_info.image = color_image_;
     color_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    color_view_info.format = COLOR_FORMAT;
+    color_view_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
     color_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &color_view_info, nullptr, &color_view_) != VK_SUCCESS) {
@@ -193,7 +193,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         VkImageCreateInfo resolve_info{};
         resolve_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         resolve_info.imageType = VK_IMAGE_TYPE_2D;
-        resolve_info.format = COLOR_FORMAT;
+        resolve_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
         resolve_info.extent = {width, height, 1};
         resolve_info.mipLevels = 1;
         resolve_info.arrayLayers = 1;
@@ -211,7 +211,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         resolve_view_info.image = resolve_color_image_;
         resolve_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        resolve_view_info.format = COLOR_FORMAT;
+        resolve_view_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
         resolve_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         if (vkCreateImageView(vk, &resolve_view_info, nullptr, &resolve_color_view_) != VK_SUCCESS) {
@@ -222,7 +222,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     }
 
     // -- Depth image (MSAA when enabled) --
-    VkFormat depth_format = device_.find_depth_format();
+    const VkFormat depth_format = gpu::vulkan::to_vk(DEPTH_FORMAT);
 
     VkImageCreateInfo depth_info{};
     depth_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -386,7 +386,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo mr_info{};
     mr_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     mr_info.imageType = VK_IMAGE_TYPE_2D;
-    mr_info.format = MR_FORMAT;
+    mr_info.format = gpu::vulkan::to_vk(MR_FORMAT);
     mr_info.extent = {width, height, 1};
     mr_info.mipLevels = 1;
     mr_info.arrayLayers = 1;
@@ -405,7 +405,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     mr_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     mr_view_info.image = mr_image_;
     mr_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    mr_view_info.format = MR_FORMAT;
+    mr_view_info.format = gpu::vulkan::to_vk(MR_FORMAT);
     mr_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &mr_view_info, nullptr, &mr_view_) != VK_SUCCESS) {
@@ -418,7 +418,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         VkImageCreateInfo resolve_mr_info{};
         resolve_mr_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         resolve_mr_info.imageType = VK_IMAGE_TYPE_2D;
-        resolve_mr_info.format = MR_FORMAT;
+        resolve_mr_info.format = gpu::vulkan::to_vk(MR_FORMAT);
         resolve_mr_info.extent = {width, height, 1};
         resolve_mr_info.mipLevels = 1;
         resolve_mr_info.arrayLayers = 1;
@@ -435,7 +435,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_mr_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         resolve_mr_view_info.image = resolve_mr_image_;
         resolve_mr_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        resolve_mr_view_info.format = MR_FORMAT;
+        resolve_mr_view_info.format = gpu::vulkan::to_vk(MR_FORMAT);
         resolve_mr_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         if (vkCreateImageView(vk, &resolve_mr_view_info, nullptr, &resolve_mr_view_) != VK_SUCCESS) {
@@ -449,7 +449,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo normal_info{};
     normal_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     normal_info.imageType = VK_IMAGE_TYPE_2D;
-    normal_info.format = NORMAL_FORMAT;
+    normal_info.format = gpu::vulkan::to_vk(NORMAL_FORMAT);
     normal_info.extent = {width, height, 1};
     normal_info.mipLevels = 1;
     normal_info.arrayLayers = 1;
@@ -468,7 +468,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     normal_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     normal_view_info.image = normal_image_;
     normal_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    normal_view_info.format = NORMAL_FORMAT;
+    normal_view_info.format = gpu::vulkan::to_vk(NORMAL_FORMAT);
     normal_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &normal_view_info, nullptr, &normal_view_) != VK_SUCCESS) {
@@ -481,7 +481,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         VkImageCreateInfo resolve_normal_info{};
         resolve_normal_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         resolve_normal_info.imageType = VK_IMAGE_TYPE_2D;
-        resolve_normal_info.format = NORMAL_FORMAT;
+        resolve_normal_info.format = gpu::vulkan::to_vk(NORMAL_FORMAT);
         resolve_normal_info.extent = {width, height, 1};
         resolve_normal_info.mipLevels = 1;
         resolve_normal_info.arrayLayers = 1;
@@ -498,7 +498,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_normal_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         resolve_normal_view_info.image = resolve_normal_image_;
         resolve_normal_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        resolve_normal_view_info.format = NORMAL_FORMAT;
+        resolve_normal_view_info.format = gpu::vulkan::to_vk(NORMAL_FORMAT);
         resolve_normal_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         if (vkCreateImageView(vk, &resolve_normal_view_info, nullptr, &resolve_normal_view_) != VK_SUCCESS) {
@@ -512,7 +512,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo vel_info{};
     vel_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     vel_info.imageType = VK_IMAGE_TYPE_2D;
-    vel_info.format = VELOCITY_FORMAT;
+    vel_info.format = gpu::vulkan::to_vk(VELOCITY_FORMAT);
     vel_info.extent = {width, height, 1};
     vel_info.mipLevels = 1;
     vel_info.arrayLayers = 1;
@@ -531,7 +531,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     vel_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     vel_view_info.image = velocity_image_;
     vel_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vel_view_info.format = VELOCITY_FORMAT;
+    vel_view_info.format = gpu::vulkan::to_vk(VELOCITY_FORMAT);
     vel_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &vel_view_info, nullptr, &velocity_view_) != VK_SUCCESS) {
@@ -544,7 +544,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         VkImageCreateInfo resolve_vel_info{};
         resolve_vel_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         resolve_vel_info.imageType = VK_IMAGE_TYPE_2D;
-        resolve_vel_info.format = VELOCITY_FORMAT;
+        resolve_vel_info.format = gpu::vulkan::to_vk(VELOCITY_FORMAT);
         resolve_vel_info.extent = {width, height, 1};
         resolve_vel_info.mipLevels = 1;
         resolve_vel_info.arrayLayers = 1;
@@ -561,7 +561,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_vel_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         resolve_vel_view_info.image = resolve_velocity_image_;
         resolve_vel_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        resolve_vel_view_info.format = VELOCITY_FORMAT;
+        resolve_vel_view_info.format = gpu::vulkan::to_vk(VELOCITY_FORMAT);
         resolve_vel_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         if (vkCreateImageView(vk, &resolve_vel_view_info, nullptr, &resolve_velocity_view_) != VK_SUCCESS) {
@@ -575,7 +575,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo sc_info{};
     sc_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     sc_info.imageType = VK_IMAGE_TYPE_2D;
-    sc_info.format = COLOR_FORMAT;
+    sc_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
     sc_info.extent = {width, height, 1};
     sc_info.mipLevels = 1;
     sc_info.arrayLayers = 1;
@@ -592,7 +592,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     sc_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     sc_view_info.image = screen_color_image_;
     sc_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    sc_view_info.format = COLOR_FORMAT;
+    sc_view_info.format = gpu::vulkan::to_vk(COLOR_FORMAT);
     sc_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &sc_view_info, nullptr, &screen_color_view_) != VK_SUCCESS) {
@@ -605,7 +605,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     VkImageCreateInfo dist_info{};
     dist_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     dist_info.imageType = VK_IMAGE_TYPE_2D;
-    dist_info.format = DISTORTION_FORMAT;
+    dist_info.format = gpu::vulkan::to_vk(DISTORTION_FORMAT);
     dist_info.extent = {width, height, 1};
     dist_info.mipLevels = 1;
     dist_info.arrayLayers = 1;
@@ -622,7 +622,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     dist_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     dist_view_info.image = distortion_image_;
     dist_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    dist_view_info.format = DISTORTION_FORMAT;
+    dist_view_info.format = gpu::vulkan::to_vk(DISTORTION_FORMAT);
     dist_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     if (vkCreateImageView(vk, &dist_view_info, nullptr, &distortion_view_) != VK_SUCCESS) {

@@ -265,7 +265,7 @@ public:
   /// Initialize a GameUi with the renderer's resources and font library.
   /// Ownership stays with the caller. `world` also builds the worldspace
   /// pipelines (HDR format + scene MSAA) for a widget drawn in the scene.
-  void init_game_ui(class GameUi& ui, VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB,
+  void init_game_ui(class GameUi& ui, gpu::Format output_format = gpu::Format::rgba8_srgb,
                     bool world = false);
 
   /// Every font atlas on the GPU, shared by all GameUi instances.

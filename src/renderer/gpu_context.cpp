@@ -112,16 +112,14 @@ GpuContext::GpuContext(Window& window)
 }
 
 void GpuContext::init_pipelines() {
-    VkFormat depth_format = core_.device().find_depth_format();
-
     pipeline_cache_ = std::make_unique<PipelineCache>(
         core_.gpu_device(),
         PipelineCache::Targets{
-            .color = gpu::vulkan::from_vk(OffscreenPass::COLOR_FORMAT),
-            .mr = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT),
-            .normal = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT),
-            .velocity = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT),
-            .depth = gpu::vulkan::from_vk(depth_format),
+            .color = OffscreenPass::COLOR_FORMAT,
+            .mr = OffscreenPass::MR_FORMAT,
+            .normal = OffscreenPass::NORMAL_FORMAT,
+            .velocity = OffscreenPass::VELOCITY_FORMAT,
+            .depth = OffscreenPass::DEPTH_FORMAT,
             .samples = msaa_samples_,
         },
         PipelineCache::SharedLayouts{
@@ -227,10 +225,6 @@ void GpuContext::create_descriptor_resources() {
     FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
 
-VkDescriptorSetLayout GpuContext::global_set_layout() const {
-    return gpu::vulkan::native_set_layout(core_.gpu_device(), global_bindings_.layout());
-}
-
 void GpuContext::finalize_descriptors() {
     if (auto made = global_bindings_.create(core_.gpu_device()); !made) {
         throw std::runtime_error("Global set: " + made.error());
@@ -283,21 +277,13 @@ PassResources GpuContext::pass_resources() const {
     res.bindless = shared_layouts_.bindless;
     res.draw_data = shared_layouts_.draw_data;
     res.meshlets = shared_layouts_.meshlets;
-    res.global_set_layout = global_set_layout();
-    res.material_set_layout = gpu::vulkan::native_set_layout(core_.gpu_device(), bindless_textures_.layout());
-    res.depth_format = core_.device().find_depth_format();
-    res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.scene_color_format = gpu::vulkan::from_vk(res.color_format);
-    res.scene_depth_format = gpu::vulkan::from_vk(res.depth_format);
-    res.scene_mr_format = gpu::vulkan::from_vk(OffscreenPass::MR_FORMAT);
-    res.scene_normal_format = gpu::vulkan::from_vk(OffscreenPass::NORMAL_FORMAT);
-    res.scene_velocity_format = gpu::vulkan::from_vk(OffscreenPass::VELOCITY_FORMAT);
-    res.scene_distortion_format = gpu::vulkan::from_vk(OffscreenPass::DISTORTION_FORMAT);
+    res.scene_color_format = OffscreenPass::COLOR_FORMAT;
+    res.scene_depth_format = OffscreenPass::DEPTH_FORMAT;
+    res.scene_mr_format = OffscreenPass::MR_FORMAT;
+    res.scene_normal_format = OffscreenPass::NORMAL_FORMAT;
+    res.scene_velocity_format = OffscreenPass::VELOCITY_FORMAT;
+    res.scene_distortion_format = OffscreenPass::DISTORTION_FORMAT;
     res.samples = msaa_samples_;
-    res.allocator = core_.allocator();
-    res.pipeline_cache = vk_pipeline_cache_;
-    res.command_pool = core_.command_pool();
-    res.graphics_queue = core_.graphics_queue();
     // Handing out mutable access to the device core_ owns, not mutating
     // core_ itself — same "logically const" shape as every other pointer/
     // handle field above, just needing a cast since gpu_device() isn't

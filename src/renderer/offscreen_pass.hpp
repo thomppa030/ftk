@@ -73,11 +73,14 @@ public:
     void invalidate_imgui_texture();
     void invalidate_depth_imgui_texture();
 
-    static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
-    static constexpr VkFormat MR_FORMAT = VK_FORMAT_R8G8_UNORM;
-    static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16_SFLOAT;
-    static constexpr VkFormat VELOCITY_FORMAT = VK_FORMAT_R16G16_SFLOAT;
-    static constexpr VkFormat DISTORTION_FORMAT = VK_FORMAT_R16G16_SFLOAT;
+    static constexpr gpu::Format COLOR_FORMAT = gpu::Format::rgba16_float;
+    static constexpr gpu::Format MR_FORMAT = gpu::Format::rg8_unorm;
+    static constexpr gpu::Format NORMAL_FORMAT = gpu::Format::rg16_float;
+    static constexpr gpu::Format VELOCITY_FORMAT = gpu::Format::rg16_float;
+    static constexpr gpu::Format DISTORTION_FORMAT = gpu::Format::rg16_float;
+    /// Depth without stencil: the scene needs none, and every GPU the engine
+    /// runs on renders to it, Apple's included, which lack 24-bit depth.
+    static constexpr gpu::Format DEPTH_FORMAT = gpu::Format::d32_float;
 
     // Returns the single-sample metallic/roughness view (resolve target when MSAA, direct when 1x).
     [[nodiscard]] VkImageView mr_view() const { return resolve_mr_view_ ? resolve_mr_view_ : mr_view_; }
