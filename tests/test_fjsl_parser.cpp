@@ -111,7 +111,7 @@ TEST_CASE("A group never reaches the generated GLSL", "[fjsl]") {
         void fragment() { ALBEDO = tint; }
     )");
     const std::string tmpl =
-        "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\n"
+        "/*FJSL_USER_GLOBALS*/\n"
         "void main() {\n/*FJSL_USER_CODE*/\n}\n";
     const std::string glsl = generate_fragment_shader(meta, tmpl);
     CHECK(glsl.find("group") == std::string::npos);
@@ -205,7 +205,7 @@ TEST_CASE("shader_type ui reads its material through the quad record", "[fjsl][u
         uniform sampler2D noise;
         void fragment() { ALBEDO = glow * texture(noise, UV).r; }
     )");
-    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\nvoid main() {\n/*FJSL_USER_CODE*/\n}\n";
+    std::string tmpl = "/*FJSL_USER_GLOBALS*/\nvoid main() {\n/*FJSL_USER_CODE*/\n}\n";
     auto result = generate_fragment_shader(meta, tmpl);
     REQUIRE(result.find("materials[quads[frag_quad_index].material_id].param_offset") != std::string::npos);
     REQUIRE(result.find("materials[quads[frag_quad_index].material_id].texture_indices[4]") != std::string::npos);
@@ -428,12 +428,13 @@ TEST_CASE("An int is read rounded, wherever its uniform is read", "[fjsl]") {
     REQUIRE_FALSE(meta.has_errors());
     // A track or a blend may leave the stored float between two whole
     // numbers; the shader must see the nearest, not the truncation.
-    auto frag = generate_fragment_shader(meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_CODE*/\n");
-    REQUIRE(frag.find("#define mode (int(round(custom_params[materials[draws[frag_draw_index]"
-                      ".material_id].param_offset + 2])))") != std::string::npos);
-    REQUIRE(frag.find("#define offset (vec2(custom_params[") != std::string::npos);
+    auto frag = generate_fragment_shader(meta, "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
+    REQUIRE(frag.find("int fjell_uniform_mode() { return int(round(custom_params["
+                      "materials[draws[frag_draw_index].material_id].param_offset + 2])); }")
+            != std::string::npos);
+    REQUIRE(frag.find("vec2 fjell_uniform_offset() { return vec2(custom_params[") != std::string::npos);
     auto vert = generate_vertex_shader(meta, "/*FJSL_VERTEX_GLOBALS*/\n/*FJSL_VERTEX_USER_CODE*/\n");
-    REQUIRE(vert.find("#define mode (int(round(custom_params[mat.param_offset + 2])))")
+    REQUIRE(vert.find("int fjell_uniform_mode() { return int(round(custom_params[mat.param_offset + 2])); }")
             != std::string::npos);
 }
 
@@ -840,21 +841,19 @@ TEST_CASE("generate_fragment_shader substitutes placeholders", "[fjsl]") {
     )");
 
     std::string tmpl = R"(
-/*FJSL_CUSTOM_TEXTURES*/
+/*FJSL_USER_GLOBALS*/
 void main() {
-/*FJSL_CUSTOM_PARAMS*/
 /*FJSL_USER_CODE*/
 }
 )";
 
     auto result = generate_fragment_shader(meta, tmpl);
-    // Custom params should define strength from SSBO
-    REQUIRE(result.find("strength") != std::string::npos);
-    REQUIRE(result.find("custom_params") != std::string::npos);
+    // The uniform is read from the SSBO where the code names it.
+    REQUIRE(result.find("float fjell_uniform_strength() { return custom_params[") != std::string::npos);
     // User code should be injected
-    REQUIRE(result.find("ALBEDO *= strength") != std::string::npos);
+    REQUIRE(result.find("ALBEDO *= fjell_uniform_strength()") != std::string::npos);
     // Placeholders should be gone
-    REQUIRE(result.find("/*FJSL_CUSTOM_PARAMS*/") == std::string::npos);
+    REQUIRE(result.find("/*FJSL_USER_GLOBALS*/") == std::string::npos);
     REQUIRE(result.find("/*FJSL_USER_CODE*/") == std::string::npos);
 }
 
@@ -876,8 +875,10 @@ void fjell_hook_vertex() {
 )";
 
     auto result = generate_vertex_shader(meta, tmpl);
-    // A parameter is read by name at file scope, as on the fragment side.
-    REQUIRE(result.find("#define wave_height (custom_params[mat.param_offset + 0])") != std::string::npos);
+    // A uniform is read through a function at file scope, as on the fragment side.
+    REQUIRE(result.find("float fjell_uniform_wave_height() { return custom_params[mat.param_offset + 0]; }")
+            != std::string::npos);
+    REQUIRE(result.find("sin(VERTEX.x) * fjell_uniform_wave_height()") != std::string::npos);
     REQUIRE(result.find("VERTEX.y") != std::string::npos);
     REQUIRE(result.find("/*FJSL_VERTEX_GLOBALS*/") == std::string::npos);
     REQUIRE(result.find("/*FJSL_VERTEX_USER_CODE*/") == std::string::npos);
@@ -925,7 +926,7 @@ TEST_CASE("Each stage gets the helpers its hooks reach", "[fjsl]") {
     CHECK(vert.find("Reads a fragment built-in") == std::string::npos);
 
     const std::string frag = generate_fragment_shader(
-        meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
+        meta, "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
     CHECK(frag.find("vec3 screen_tint(") != std::string::npos);
     CHECK(frag.find("const float LIFT") != std::string::npos);
     CHECK(frag.find("float sway(") == std::string::npos);
@@ -946,17 +947,18 @@ TEST_CASE("A macro or a constant calling a helper keeps it", "[fjsl]") {
     CHECK(frag.find("float ramp(") != std::string::npos);
 }
 
-TEST_CASE("generate_fragment_shader with sampler2D defines texture macro", "[fjsl]") {
+TEST_CASE("A sampler2D uniform is a texture handle from the row", "[fjsl]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;
         uniform sampler2D detail_tex;
         void fragment() {}
     )");
 
-    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_CUSTOM_PARAMS*/\n/*FJSL_USER_CODE*/\n";
+    std::string tmpl = "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n";
     auto result = generate_fragment_shader(meta, tmpl);
-    REQUIRE(result.find("#define detail_tex") != std::string::npos);
-    REQUIRE(result.find("texture_indices[4]") != std::string::npos);
+    REQUIRE(result.find("FjellTexture fjell_uniform_detail_tex() { return FjellTexture("
+                        "materials[draws[frag_draw_index].material_id].texture_indices[4]); }")
+            != std::string::npos);
 }
 
 // --- Stress ---
@@ -1311,6 +1313,209 @@ TEST_CASE("Helpers reach vertex() in every vertex template, and stay in their st
     compile("helpers.frag", "frag", frag);
 }
 
+// A uniform's name means the uniform only where GLSL's scoping says so. A
+// struct field, a parameter or a local of the same name is its own, in every
+// stage, and the uniform is still what the hooks and helpers read elsewhere.
+TEST_CASE("A field, a parameter or a local may share a uniform's name", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float halo : hint_range(0.0, 1.0, 0.01) = 0.5;\n"
+                           "uniform vec3 tint : hint_color = vec3(1.0);\n"
+                           "struct Glow { float halo; vec3 tint; };\n"
+                           "float doubled(float halo) { return halo * 2.0; }\n"
+                           "float lift() { return halo * 0.1; }\n"
+                           "vec3 glow(Glow look) { return look.tint * doubled(look.halo); }\n"
+                           "void vertex() {\n    float tint = lift();\n    VERTEX.y += tint;\n}\n"
+                           "void fragment() {\n"
+                           "    Glow look;\n    look.halo = halo;\n    look.tint = tint;\n"
+                           "    ALBEDO = glow(look);\n}\n");
+    REQUIRE_FALSE(meta.has_errors());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-uniform-scope-test";
+    std::filesystem::create_directories(out_dir);
+    auto compile = [&](const std::string& name, const std::string& stage, const std::string& glsl) {
+        auto src = out_dir / name;
+        std::ofstream(src) << glsl;
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=" + stage + " -I "
+                                    + quoted(shader_dir / "include") + " " + quoted(src) + " -o "
+                                    + quoted(out_dir / (name + ".spv")));
+        INFO(output);
+        REQUIRE(status == 0);
+    };
+
+    const std::pair<const char*, const char*> vertex_templates[] = {
+        {"fjell_mesh_template.glsl", "mesh"},
+        {"fjell_vertex_template.glsl", "vert"},
+        {"fjell_depth_mesh_template.glsl", "mesh"},
+        {"fjell_depth_vertex_template.glsl", "vert"},
+        {"fjell_shadow_vertex_template.glsl", "vert"},
+        {"fjell_outline_vertex_template.glsl", "vert"},
+    };
+    for (const auto& [file, stage] : vertex_templates) {
+        INFO("template: " << file);
+        auto tmpl = read_text(shader_dir / "include" / file);
+        REQUIRE_FALSE(tmpl.empty());
+        compile(file, stage, generate_vertex_shader(meta, tmpl));
+    }
+    auto frag_tmpl = read_text(shader_dir / "include" / "fjell_spatial_template.glsl");
+    REQUIRE_FALSE(frag_tmpl.empty());
+    compile("scope.frag", "frag", generate_fragment_shader(meta, frag_tmpl));
+}
+
+// The same for what a shader includes, which it did not write and cannot
+// rename: the painted sun's struct has fields a sky's own uniforms are
+// naturally called.
+TEST_CASE("An include may declare what a uniform is called", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_sky_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto meta = parse_fjsl("shader_type sky;\n"
+                           "#include \"sky/painted_sun.glsl\"\n"
+                           "uniform float size : hint_range(0.1, 8.0, 0.01) = 1.8;\n"
+                           "uniform float halo : hint_range(0.0, 4.0, 0.05) = 1.0;\n"
+                           "void sky() {\n"
+                           "    PaintedSun look;\n"
+                           "    look.size = size;\n    look.halo = halo;\n"
+                           "    look.halo_size = 8.0;\n    look.halo_core = 1.5;\n"
+                           "    look.halo_spread = 0.45;\n    look.halo_stretch = 1.0;\n"
+                           "    look.stylize = 0.0;\n    look.form_scale = 1.2;\n"
+                           "    look.tear = 0.06;\n    look.corona = 0.22;\n"
+                           "    look.core = 0.62;\n    look.hot = 0.0;\n    look.boil = 0.06;\n"
+                           "    look.rim_color = vec3(1.0);\n    look.body_color = vec3(1.0);\n"
+                           "    look.hot_color = vec3(1.0);\n"
+                           "    SKY = painted_sun(look, VIEW_DIR, SUN_DIR, SUN_COLOR, TIME, 1.0, 1.0);\n"
+                           "}\n");
+    REQUIRE_FALSE(meta.has_errors());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-uniform-include-test";
+    std::filesystem::create_directories(out_dir);
+    auto src = out_dir / "include_scope.frag";
+    std::ofstream(src) << generate_fragment_shader(meta, tmpl);
+    const std::string includes = "-I " + quoted(shader_dir / "include") + " ";
+    auto [drawn, drawn_output] = run("glslc --target-env=vulkan1.3 " + includes + quoted(src)
+                                     + " -o " + quoted(out_dir / "include_scope.spv"));
+    INFO(drawn_output);
+    REQUIRE(drawn == 0);
+    auto [baked, baked_output] = run("glslc --target-env=vulkan1.3 -fshader-stage=compute "
+                                     "-DFJELL_SKY_CUBEMAP " + includes + quoted(src) + " -o "
+                                     + quoted(out_dir / "include_scope.cubemap.spv"));
+    INFO(baked_output);
+    REQUIRE(baked == 0);
+}
+
+// Each place a name could mean the uniform, and what it means there.
+TEST_CASE("A uniform is read where the code names it, by GLSL's scoping", "[fjsl]") {
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float halo = 0.5;\n"
+                           "uniform vec3 tint : hint_color = vec3(1.0);\n"
+                           "struct Glow { float halo; vec3 tint; };\n"
+                           "float doubled(float halo) { return halo * 2.0; }\n"
+                           "float lift() { return halo * 0.1; }\n"
+                           "#define BRIGHT (halo * 4.0)\n"
+                           "void fragment() {\n"
+                           "    Glow look;\n"
+                           "    look.halo = halo; // halo, in a comment\n"
+                           "    for (int tint = 0; tint < 2; ++tint) { ALBEDO.r += float(tint); }\n"
+                           "    { vec3 tint = vec3(0.0); ALBEDO += tint; }\n"
+                           "    float a = 1.0, halo = lift();\n"
+                           "    ALBEDO *= tint * doubled(look.halo) * BRIGHT * halo;\n"
+                           "}\n");
+    REQUIRE_FALSE(meta.has_errors());
+    const std::string glsl = generate_fragment_shader(
+        meta, "/*FJSL_USER_GLOBALS*/\nvoid main() {\n/*FJSL_USER_CODE*/\n}\n");
+    INFO(glsl);
+    // A struct field, a parameter and a member access are their own.
+    CHECK(glsl.find("struct Glow { float halo; vec3 tint; };") != std::string::npos);
+    CHECK(glsl.find("float doubled(float halo) { return halo * 2.0; }") != std::string::npos);
+    // A helper and a macro read the uniform, and so does a hook.
+    CHECK(glsl.find("return fjell_uniform_halo() * 0.1;") != std::string::npos);
+    CHECK(glsl.find("#define BRIGHT (fjell_uniform_halo() * 4.0)") != std::string::npos);
+    CHECK(glsl.find("look.halo = fjell_uniform_halo(); // halo, in a comment") != std::string::npos);
+    // A for's variable and a block's local hold to the end of their scope.
+    CHECK(glsl.find("for (int tint = 0; tint < 2; ++tint) { ALBEDO.r += float(tint); }")
+          != std::string::npos);
+    CHECK(glsl.find("{ vec3 tint = vec3(0.0); ALBEDO += tint; }") != std::string::npos);
+    // After them the name is the uniform again, until a local takes it for
+    // the rest of the body, the second of two declared on one line.
+    CHECK(glsl.find("ALBEDO *= fjell_uniform_tint() * doubled(look.halo) * BRIGHT * halo;")
+          != std::string::npos);
+}
+
+// A uniform is never called, so a name followed by `(` is a function. A post
+// shader may have a `vignette` dial and call the vignette() effect with it.
+TEST_CASE("A uniform may share its name with a function", "[fjsl][glslc][post]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_post_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto meta = parse_fjsl("shader_type post;\n"
+                           "uniform float vignette : hint_range(0.0, 1.0, 0.01) = 0.6;\n"
+                           "void color() { COLOR *= vignette(SCREEN_UV, vignette, 0.5); }\n");
+    REQUIRE_FALSE(meta.has_errors());
+    const std::string glsl = generate_fragment_shader(meta, tmpl);
+    CHECK(glsl.find("vignette(SCREEN_UV, fjell_uniform_vignette(), 0.5)") != std::string::npos);
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-uniform-function-test";
+    std::filesystem::create_directories(out_dir);
+    auto src = out_dir / "shared_name.frag";
+    std::ofstream(src) << glsl;
+    auto [status, output] = run("glslc --target-env=vulkan1.3 -I " + quoted(shader_dir / "include")
+                                + " " + quoted(src) + " -o " + quoted(out_dir / "shared_name.spv"));
+    INFO(output);
+    REQUIRE(status == 0);
+}
+
+TEST_CASE("Writing a uniform is refused where it is written", "[fjsl]") {
+    const std::string head = "shader_type spatial;\n"
+                             "uniform float halo = 0.5;\n"
+                             "uniform vec3 tint : hint_color = vec3(1.0);\n";
+    for (const std::string write : {"tint = vec3(0.0);", "tint.r = 0.5;", "halo += 1.0;",
+                                    "halo++;", "--halo;"}) {
+        INFO("write: " << write);
+        auto meta = parse_fjsl(head + "void fragment() {\n    " + write + "\n}\n");
+        REQUIRE(meta.has_errors());
+        const auto& d = meta.diagnostics.front();
+        CHECK(d.line == 5);
+        CHECK(d.message.find("is a uniform") != std::string::npos);
+    }
+    // A local of the same name, a member, and a comparison write nothing of
+    // the uniform's.
+    auto meta = parse_fjsl(head + "struct Glow { float halo; };\n"
+                                  "void fragment() {\n"
+                                  "    Glow look;\n    look.halo = 1.0;\n"
+                                  "    if (halo == 1.0) { ALBEDO = tint; }\n"
+                                  "    float halo = 2.0;\n    halo += 1.0;\n"
+                                  "}\n");
+    CHECK_FALSE(meta.has_errors());
+}
+
+TEST_CASE("A uniform's name cannot be declared again at file scope", "[fjsl]") {
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float halo = 0.5;\n"
+                           "const float halo = 1.0;\n"
+                           "void fragment() {}\n");
+    REQUIRE(meta.has_errors());
+    CHECK(meta.diagnostics.front().line == 3);
+    CHECK(meta.diagnostics.front().message.find("already a uniform") != std::string::npos);
+
+    // A parameter, a field and a function are not file-scope declarations of
+    // the name.
+    auto fine = parse_fjsl("shader_type spatial;\n"
+                           "uniform float halo = 0.5;\n"
+                           "struct Glow { float halo; };\n"
+                           "float doubled(float halo) { return halo * 2.0; }\n"
+                           "void fragment() {}\n");
+    CHECK_FALSE(fine.has_errors());
+}
+
 // --- A `return` in a hook ends the hook, not the shader ---
 //
 // An author's hook is a function, as in Godot: returning early keeps what it
@@ -1524,7 +1729,7 @@ TEST_CASE("Water reaches its material row through the push block", "[fjsl][water
         uniform float murk = 0.5;
         void fragment() { ALPHA = murk; }
     )");
-    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_CUSTOM_PARAMS*/\n/*FJSL_USER_CODE*/\n";
+    std::string tmpl = "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n";
     auto result = generate_fragment_shader(meta, tmpl);
     REQUIRE(result.find("push.water_material_id") != std::string::npos);
 }
@@ -1698,7 +1903,7 @@ TEST_CASE("Fog reads its material row through the push block", "[fjsl][fog]") {
         void density() { DENSITY = density * texture(detail, WORLD_POS.xz).r; }
     )");
     REQUIRE_FALSE(meta.has_errors());
-    const std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\nvoid f() {\n/*FJSL_USER_CODE*/\n}\n"
+    const std::string tmpl = "/*FJSL_USER_GLOBALS*/\nvoid f() {\n/*FJSL_USER_CODE*/\n}\n"
                              "void l() {\n/*FJSL_LIGHT_USER_CODE*/\n}\n";
     auto glsl = generate_fragment_shader(meta, tmpl);
     REQUIRE(glsl.find("materials[pc.fog_material_id].param_offset") != std::string::npos);
@@ -1843,13 +2048,13 @@ TEST_CASE("Post reads its values from the pass and its textures from the row", "
         void color() { COLOR *= tint * texture(grain, SCREEN_UV).r * float(mode); }
     )");
     REQUIRE_FALSE(meta.has_errors());
-    auto glsl = generate_fragment_shader(meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_CODE*/\n");
+    auto glsl = generate_fragment_shader(meta, "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
     // The values differ per viewport, so they come from the pass's buffer at
     // the pushed base, never from the material row's slice of the params.
-    REQUIRE(glsl.find("#define tint (vec3(post_params[push.param_base + 0], "
-                      "post_params[push.param_base + 1], post_params[push.param_base + 2]))")
+    REQUIRE(glsl.find("vec3 fjell_uniform_tint() { return vec3(post_params[push.param_base + 0], "
+                      "post_params[push.param_base + 1], post_params[push.param_base + 2]); }")
             != std::string::npos);
-    REQUIRE(glsl.find("#define mode (int(round(post_params[push.param_base + 3])))")
+    REQUIRE(glsl.find("int fjell_uniform_mode() { return int(round(post_params[push.param_base + 3])); }")
             != std::string::npos);
     REQUIRE(glsl.find("custom_params") == std::string::npos);
     REQUIRE(glsl.find("materials[push.material_id].texture_indices[4]") != std::string::npos);
@@ -1927,7 +2132,7 @@ TEST_CASE("Terrain params read the pushed material row", "[fjsl][terrain]") {
         uniform sampler2D detail;
         void fragment() {}
     )");
-    std::string tmpl = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_LAYERS_USER_CODE*/\n/*FJSL_USER_CODE*/\n";
+    std::string tmpl = "/*FJSL_USER_GLOBALS*/\n/*FJSL_LAYERS_USER_CODE*/\n/*FJSL_USER_CODE*/\n";
     auto result = generate_fragment_shader(meta, tmpl);
     REQUIRE(result.find("materials[push.terrain_material_id].param_offset") != std::string::npos);
     REQUIRE(result.find("materials[push.terrain_material_id].texture_indices[4]") != std::string::npos);
@@ -2561,8 +2766,8 @@ TEST_CASE("A composed function's textures take the consumer's slots", "[fjsl][co
     // The consumer's own sampler keeps slot 4, the first after the PBR set,
     // and each function's follows. Landing two on one slot is the failure this
     // guards: valid GLSL, one picture where two were meant.
-    REQUIRE(glsl.find("own FjellTexture(materials[push.sky_material_id]"
-                      ".texture_indices[4])") != std::string::npos);
+    REQUIRE(glsl.find("FjellTexture fjell_uniform_own() { return FjellTexture("
+                      "materials[push.sky_material_id].texture_indices[4]); }") != std::string::npos);
     REQUIRE(glsl.find("aurora_ramp FjellTexture(materials[push.sky_material_id]"
                       ".texture_indices[5])") != std::string::npos);
     REQUIRE(glsl.find("grain_noise FjellTexture(materials[push.sky_material_id]"

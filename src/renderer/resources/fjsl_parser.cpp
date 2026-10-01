@@ -7,6 +7,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -251,6 +252,327 @@ std::string mask_comments(const std::string& source) {
         at += length;
     }
     return code;
+}
+
+// ── Which names in the shader's own code are its uniforms ───────────────────
+//
+// A uniform is read through a function the generator emits for it, and the
+// shader's own code is rewritten to call that function wherever a name means
+// the uniform. Where it does is decided by GLSL's own scoping, so a uniform's
+// name never reaches anything but the author's code: not a file it includes,
+// not the template, not a struct field or a parameter that happens to share it.
+
+using UniformNames = std::set<std::string, std::less<>>;
+
+// One place the code names a uniform.
+struct UniformReference {
+    size_t offset{0};
+    std::string name;
+};
+
+struct UniformScan {
+    /// Where the code reads a uniform, in order.
+    std::vector<UniformReference> reads;
+    /// The reads that assign to it, or increment or decrement it.
+    std::vector<UniformReference> writes;
+    /// A uniform's name declared again at file scope.
+    std::vector<UniformReference> redeclared;
+};
+
+struct GlslToken {
+    enum class Kind : uint8_t { Word, Number, Punct };
+    Kind kind{Kind::Punct};
+    size_t begin{0};
+    size_t end{0};
+};
+
+// A #define's body, which is code like any other, and the names its
+// parameters give inside it.
+struct MacroBody {
+    size_t begin{0};
+    size_t end{0};
+    std::vector<std::string> parameters;
+};
+
+// The operators longer than one character, longest first so `<<=` is not
+// read as `<<` and `=`.
+constexpr std::string_view LONG_OPERATORS[] = {
+    "<<=", ">>=", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
+    "==", "!=", "<=", ">=", "&&", "||", "^^", "<<", ">>",
+};
+
+// The tokens of `code[begin, end)`, whose comments are already blanked:
+// words, numbers and operators. A string, which FJSL has (`group "Sun"`) and
+// GLSL does not, is skipped, and so is every preprocessor line with its
+// continuations; a #define's body is handed to `macros` to be read on its own.
+std::vector<GlslToken> tokenize_glsl(std::string_view code, size_t begin, size_t end,
+                                     std::vector<MacroBody>* macros) {
+    std::vector<GlslToken> tokens;
+    bool line_start = true;
+    size_t i = begin;
+    auto word_end = [&](size_t at) {
+        while (at < end && is_identifier_char(code[at])) ++at;
+        return at;
+    };
+    while (i < end) {
+        const char c = code[i];
+        if (c == '\n') {
+            line_start = true;
+            ++i;
+            continue;
+        }
+        if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+            ++i;
+            continue;
+        }
+        if (c == '#' && line_start) {
+            size_t line_end = i;
+            while (line_end < end
+                   && !(code[line_end] == '\n' && code[line_end - 1] != '\\')) {
+                ++line_end;
+            }
+            size_t at = i + 1;
+            while (at < line_end && (code[at] == ' ' || code[at] == '\t')) ++at;
+            const size_t directive_end = word_end(at);
+            if (macros != nullptr && code.substr(at, directive_end - at) == "define") {
+                at = directive_end;
+                while (at < line_end && (code[at] == ' ' || code[at] == '\t')) ++at;
+                MacroBody macro;
+                at = word_end(at);
+                if (at < line_end && code[at] == '(') {
+                    while (at < line_end && code[at] != ')') {
+                        if (is_identifier_char(code[at])) {
+                            const size_t name_end = word_end(at);
+                            macro.parameters.emplace_back(code.substr(at, name_end - at));
+                            at = name_end;
+                        } else {
+                            ++at;
+                        }
+                    }
+                    if (at < line_end) ++at;
+                }
+                macro.begin = at;
+                macro.end = line_end;
+                macros->push_back(std::move(macro));
+            }
+            i = line_end;
+            continue;
+        }
+        line_start = false;
+        if (c == '"') {
+            ++i;
+            while (i < end && code[i] != '"' && code[i] != '\n') ++i;
+            if (i < end && code[i] == '"') ++i;
+            continue;
+        }
+        const bool digit = std::isdigit(static_cast<unsigned char>(c)) != 0;
+        if (digit || (c == '.' && i + 1 < end
+                      && std::isdigit(static_cast<unsigned char>(code[i + 1])) != 0)) {
+            const size_t start = i;
+            ++i;
+            while (i < end && (is_identifier_char(code[i]) || code[i] == '.'
+                               || ((code[i] == '+' || code[i] == '-')
+                                   && (code[i - 1] == 'e' || code[i - 1] == 'E')))) {
+                ++i;
+            }
+            tokens.push_back({GlslToken::Kind::Number, start, i});
+            continue;
+        }
+        if (is_identifier_char(c)) {
+            tokens.push_back({GlslToken::Kind::Word, i, word_end(i)});
+            i = tokens.back().end;
+            continue;
+        }
+        size_t length = 1;
+        for (std::string_view op : LONG_OPERATORS) {
+            if (code.substr(i, op.size()) == op) {
+                length = op.size();
+                break;
+            }
+        }
+        tokens.push_back({GlslToken::Kind::Punct, i, i + length});
+        i += length;
+    }
+    return tokens;
+}
+
+// A word after which the next one is not being declared.
+bool is_statement_keyword(std::string_view word) {
+    return word == "return" || word == "else" || word == "case" || word == "do"
+        || word == "default" || word == "break" || word == "continue" || word == "discard";
+}
+
+// FJSL's own statements, written at file scope and not GLSL: a uniform's
+// declaration names the uniform itself, and the rest name nothing code reads.
+bool is_fjsl_statement(std::string_view word) {
+    return word == "uniform" || word == "shader_type" || word == "shader_function"
+        || word == "render_mode" || word == "group" || word == "use" || word == "in"
+        || word == "out";
+}
+
+bool is_assignment(std::string_view op) {
+    return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%="
+        || op == "&=" || op == "|=" || op == "^=" || op == "<<=" || op == ">>=";
+}
+
+// Walks `tokens` with GLSL's scopes: braces open one, a parameter list or a
+// for's header declares into the scope its `{` opens, and a declaration holds
+// to the end of its scope. A name is a uniform's where none of that declares
+// it, it is not a member (after a `.`) and it is not called (before a `(`).
+// `in_function` is true for a hook's body, whose outermost declarations are
+// locals; `declared` are names already in scope, a macro's parameters.
+void scan_tokens(std::string_view code, const std::vector<GlslToken>& tokens,
+                 const UniformNames& uniforms, bool in_function,
+                 const std::vector<std::string>& declared, UniformScan& out) {
+    using Scope = std::vector<std::string_view>;
+    const size_t outermost = in_function ? 2 : 1;
+    std::vector<Scope> scopes(outermost);
+    for (const auto& name : declared) scopes.back().push_back(name);
+    // A function's parameters or a for's variables: in scope from the `{`
+    // that follows, or to the end of the statement when no brace does.
+    Scope pending;
+    int depth = 0;  // parentheses and brackets
+    bool declaring = false;
+    int declaring_depth = 0;
+    bool next_declares = false;
+    bool skipping = false;
+
+    const size_t count = tokens.size();
+    auto text = [&](size_t k) {
+        return code.substr(tokens[k].begin, tokens[k].end - tokens[k].begin);
+    };
+    auto punct = [&](size_t k, std::string_view p) {
+        return k < count && tokens[k].kind == GlslToken::Kind::Punct && text(k) == p;
+    };
+    auto in_scope = [&](std::string_view name) {
+        for (const auto& scope : scopes) {
+            if (std::find(scope.begin(), scope.end(), name) != scope.end()) return true;
+        }
+        return std::find(pending.begin(), pending.end(), name) != pending.end();
+    };
+    // Whether the read at `k` is written: a member or an element of it may
+    // come between the name and the operator.
+    auto written = [&](size_t k) {
+        if (k > 0 && (punct(k - 1, "++") || punct(k - 1, "--"))) return true;
+        size_t j = k + 1;
+        while (j < count) {
+            if (punct(j, ".") && j + 1 < count && tokens[j + 1].kind == GlslToken::Kind::Word) {
+                j += 2;
+            } else if (punct(j, "[")) {
+                int open = 0;
+                for (; j < count; ++j) {
+                    if (punct(j, "[")) ++open;
+                    if (punct(j, "]") && --open == 0) break;
+                }
+                ++j;
+            } else {
+                break;
+            }
+        }
+        return j < count && tokens[j].kind == GlslToken::Kind::Punct
+            && (is_assignment(text(j)) || text(j) == "++" || text(j) == "--");
+    };
+
+    for (size_t k = 0; k < count; ++k) {
+        const std::string_view word = text(k);
+        if (tokens[k].kind == GlslToken::Kind::Punct) {
+            if (skipping) {
+                if (word == ";") skipping = false;
+            } else if (word == "(" || word == "[") {
+                ++depth;
+            } else if (word == ")" || word == "]") {
+                depth = std::max(0, depth - 1);
+            } else if (word == "{") {
+                scopes.push_back(std::move(pending));
+                pending.clear();
+                declaring = false;
+                next_declares = false;
+            } else if (word == "}") {
+                if (scopes.size() > outermost) scopes.pop_back();
+                declaring = false;
+            } else if (word == ";" && depth == 0) {
+                pending.clear();
+                declaring = false;
+                next_declares = false;
+            } else if (word == "," && declaring && depth == declaring_depth) {
+                next_declares = true;
+            }
+            continue;
+        }
+        if (tokens[k].kind != GlslToken::Kind::Word || skipping) continue;
+
+        const bool statement_start = k == 0 || punct(k - 1, ";") || punct(k - 1, "{")
+                                  || punct(k - 1, "}");
+        if (statement_start && scopes.size() == 1 && depth == 0 && is_fjsl_statement(word)) {
+            skipping = true;
+            continue;
+        }
+        if (k > 0 && punct(k - 1, ".")) continue;
+
+        const bool call = punct(k + 1, "(");
+        const bool after_type =
+            k > 0 && ((tokens[k - 1].kind == GlslToken::Kind::Word
+                       && !is_statement_keyword(text(k - 1)))
+                      || punct(k - 1, "]"));
+        if (next_declares || after_type) {
+            next_declares = false;
+            // A function's own name: it is called, never read.
+            if (call) continue;
+            (depth > 0 ? pending : scopes.back()).push_back(word);
+            declaring = true;
+            declaring_depth = depth;
+            if (scopes.size() == 1 && depth == 0 && uniforms.contains(word)) {
+                out.redeclared.push_back({tokens[k].begin, std::string(word)});
+            }
+            continue;
+        }
+        if (call || !uniforms.contains(word) || in_scope(word)) continue;
+        out.reads.push_back({tokens[k].begin, std::string(word)});
+        if (written(k)) out.writes.push_back(out.reads.back());
+    }
+}
+
+// Every place `code` names one of `uniforms`; `code` has its comments blanked.
+UniformScan scan_uniform_names(std::string_view code, const UniformNames& uniforms,
+                               bool in_function) {
+    UniformScan scan;
+    if (uniforms.empty()) return scan;
+    std::vector<MacroBody> macros;
+    const auto tokens = tokenize_glsl(code, 0, code.size(), &macros);
+    scan_tokens(code, tokens, uniforms, in_function, {}, scan);
+    // A macro is expanded where it is used, but what it names is decided
+    // where it is written: a uniform, unless the macro's own parameter.
+    for (const auto& macro : macros) {
+        const auto body = tokenize_glsl(code, macro.begin, macro.end, nullptr);
+        scan_tokens(code, body, uniforms, true, macro.parameters, scan);
+    }
+    std::sort(scan.reads.begin(), scan.reads.end(),
+              [](const auto& a, const auto& b) { return a.offset < b.offset; });
+    return scan;
+}
+
+// The function the generator emits for reading uniform `name`.
+std::string uniform_accessor(std::string_view name) {
+    return "fjell_uniform_" + std::string(name);
+}
+
+// `text`, the shader's own code, with every read of one of `uniforms` turned
+// into a call of the function that reads it. `in_function` is true for a
+// hook's body.
+std::string resolve_uniform_reads(const std::string& text, const UniformNames& uniforms,
+                                  bool in_function) {
+    const UniformScan scan = scan_uniform_names(mask_comments(text), uniforms, in_function);
+    if (scan.reads.empty()) return text;
+    std::string out;
+    out.reserve(text.size() + scan.reads.size() * 16);
+    size_t copied = 0;
+    for (const auto& read : scan.reads) {
+        out.append(text, copied, read.offset - copied);
+        out += uniform_accessor(read.name) + "()";
+        copied = read.offset + read.name.size();
+    }
+    out.append(text, copied, std::string::npos);
+    return out;
 }
 
 // Whether `text` reads an output of the use called `name`: the whole word,
@@ -1320,6 +1642,27 @@ ShaderMetadata parse_fjsl(const std::string& source) {
                      + std::string(rule.refusal));
     }
 
+    // Where the code names a uniform is decided by GLSL's scoping (see
+    // scan_uniform_names). Two things GLSL would refuse are refused here,
+    // where they can be pointed at: writing a uniform, which holds the
+    // material's value and nothing else, and declaring its name again at file
+    // scope, which would leave every read of it meaning something else.
+    {
+        UniformNames names;
+        for (const auto& u : meta.uniforms) names.insert(u.name);
+        const UniformScan scan = scan_uniform_names(code, names, false);
+        for (const auto& write : scan.writes) {
+            diagnose(write.offset, FjslSeverity::error,
+                     "'" + write.name + "' is a uniform, which a shader reads but cannot "
+                     "write: copy it into a local to change it");
+        }
+        for (const auto& again : scan.redeclared) {
+            diagnose(again.offset, FjslSeverity::error,
+                     "'" + again.name + "' is already a uniform: nothing at file scope "
+                     "can take its name");
+        }
+    }
+
     // An empty fragment() is standard PBR and an empty sky() is black, but a
     // fog shader with no density() makes no fog at all, which reads as the
     // pass being broken rather than the file being incomplete.
@@ -1797,6 +2140,34 @@ std::string uniform_read(const FjslUniform& u, const FjslUniformAccess& access, 
     return out + ")";
 }
 
+/// The functions that read the shader's uniforms, one each, named by
+/// uniform_accessor(). The shader's own code calls them wherever a name means
+/// the uniform (resolve_uniform_reads), so a uniform is read where it is used,
+/// as cheap as reading the buffer there directly. `samplers` is false for a
+/// stage with no texture access, which leaves them out.
+std::string emit_uniform_accessors(const ShaderMetadata& meta, const FjslUniformAccess& access,
+                                   bool samplers) {
+    std::string out;
+    for (const auto& u : meta.uniforms) {
+        const bool sampler = u.type == UniformType::Sampler2D;
+        if (sampler && !samplers) continue;
+        out += std::string(sampler ? "FjellTexture" : glsl_type_name(u.type)) + " "
+             + uniform_accessor(u.name) + "() { return "
+             + (sampler ? access.texture(u.slot) : uniform_read(u, access, u.slot)) + "; }\n";
+    }
+    return out;
+}
+
+/// The names of the uniforms a stage reads, for resolve_uniform_reads.
+UniformNames uniform_names(const ShaderMetadata& meta, bool samplers) {
+    UniformNames names;
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D && !samplers) continue;
+        names.insert(u.name);
+    }
+    return names;
+}
+
 /// A composed function, emitted at file scope: its globals, its uniforms'
 /// defines, its outputs as variables, and its body wrapped in a function the
 /// consumer calls.
@@ -1883,11 +2254,6 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     std::string result = template_source;
     const std::string generated_name = GENERATED_NAME;
 
-    // Generate custom param reads as file-scope #defines so they're visible
-    // inside fragment(), light(), and any user helper function — not just
-    // inside main(). Each macro reads from the materials SSBO using
-    // frag_draw_index, which is in scope throughout the fragment shader.
-    std::string param_defines;
     // Each shader type reaches its material row differently. Sky is a single
     // fullscreen pass with no draws[] SSBO, so the row index is pushed as
     // `push.sky_material_id`; terrain and water likewise push their row per
@@ -1909,8 +2275,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // Scalars read the material row's slice of the params SSBO, except for
     // post, whose values differ per viewport and come from the post pass's
     // own buffer (see fjell_post_template.glsl). Samplers are handles of the
-    // bindless table made from the row's texture indices, at file scope, so
-    // they work in light() and helpers as well as in main().
+    // bindless table made from the row's texture indices.
     const bool is_post = meta.shader_type == ShaderType::Post;
     const std::string param_array = is_post ? "post_params" : "custom_params";
     const std::string param_base = is_post ? "push.param_base" : mat_expr + ".param_offset";
@@ -1922,16 +2287,7 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
             return "FjellTexture(" + mat_expr + ".texture_indices[" + std::to_string(slot) + "])";
         },
     };
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        param_defines += "#define " + u.name + " (" + uniform_read(u, access, u.slot) + ")\n";
-    }
-    std::string tex_defines;
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) {
-            tex_defines += "#define " + u.name + " " + access.texture(u.slot) + "\n";
-        }
-    }
+    const UniformNames uniforms = uniform_names(meta, true);
 
     // Substitute placeholders
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {
@@ -1964,19 +2320,15 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         std::string calls;
         if (composition != nullptr && !meta.uses.empty()) {
             rewritten.code = rewrite_use_references(body.code, meta.uses);
-            calls = emit_use_calls(meta.uses, *composition);
+            calls = resolve_uniform_reads(emit_use_calls(meta.uses, *composition), uniforms, true);
         }
+        rewritten.code = resolve_uniform_reads(rewritten.code, uniforms, true);
         std::string text = calls + with_line_markers(rewritten, meta)
                          + "#line " + std::to_string(resume)
                          + " \"" + generated_name + "\"\n";
         result.replace(pos, placeholder.size(), text);
     };
 
-    replace("/*FJSL_CUSTOM_TEXTURES*/", tex_defines + param_defines);
-    // The CUSTOM_PARAMS placeholder originally injected local reads inside
-    // main(); now param values come from the file-scope #defines emitted
-    // above, so the in-main slot becomes empty.
-    replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
     // Composed functions go in ahead of the consumer's own globals, at file
     // scope and above main() — a template without an FJSL_LIGHTING_END marker
     // has its unlit path cut to main()'s closing brace, found with rfind('}'),
@@ -1999,13 +2351,16 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     for (const auto& use : meta.uses) {
         for (const auto& argument : use.arguments) roots.push_back(argument.second);
     }
-    globals += globals_reached_from(meta.user_globals, roots);
+    globals += resolve_uniform_reads(globals_reached_from(meta.user_globals, roots), uniforms,
+                                     false);
     // A sampler uniform is a texture of the bindless table, which travels as
     // a handle (fjell_bindless.glsl): GLSL never passes a texture and sampler
     // combined. A function the author writes taking a sampler2D takes the
     // handle, by a name mapped around the author's code alone, so what they
     // wrote stays as written.
-    replace("/*FJSL_USER_GLOBALS*/", "#define sampler2D FjellTexture\n" + globals + "#undef sampler2D\n");
+    replace("/*FJSL_USER_GLOBALS*/", emit_uniform_accessors(meta, access, true)
+                                     + "#define sampler2D FjellTexture\n" + globals
+                                     + "#undef sampler2D\n");
     replace_body("/*FJSL_USER_CODE*/", meta.fragment_body);
     replace_body("/*FJSL_LAYERS_USER_CODE*/", meta.layers_body);
 
@@ -2104,22 +2459,21 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
                                     const std::string& template_source) {
     std::string result = template_source;
 
-    // The parameters as file-scope #defines, as on the fragment side, so a
-    // helper reads them by name just as vertex() does. The vertex stage has no
-    // texture access, so samplers are left out. `mat` is the template's, set
-    // before the hook runs.
-    std::string globals;
+    // The uniforms read as on the fragment side, so a helper reads them just
+    // as vertex() does. The vertex stage has no texture access, so samplers
+    // are left out. `mat` is the template's, set before the hook runs.
     const FjslUniformAccess access{
         .param = [](uint32_t index) { return "custom_params[mat.param_offset + " + std::to_string(index) + "]"; },
         .texture = {},
     };
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        globals += "#define " + u.name + " (" + uniform_read(u, access, u.slot) + ")\n";
-    }
+    const UniformNames uniforms = uniform_names(meta, false);
+    std::string globals = emit_uniform_accessors(meta, access, false);
     // The file's own helpers that vertex() reaches; one written for
     // fragment() stays out, since it may read what this stage lacks.
-    globals += globals_reached_from(meta.user_globals, {meta.vertex_body.code});
+    globals += resolve_uniform_reads(globals_reached_from(meta.user_globals, {meta.vertex_body.code}),
+                                     uniforms, false);
+    FjslBody body = meta.vertex_body;
+    body.code = resolve_uniform_reads(body.code, uniforms, true);
 
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {
         auto pos = result.find(placeholder);
@@ -2135,14 +2489,14 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
     // of them rather than to six different generated lines.
     {
         auto pos = result.find("/*FJSL_VERTEX_USER_CODE*/");
-        if (pos != std::string::npos && !meta.vertex_body.empty()) {
+        if (pos != std::string::npos && !body.empty()) {
             const uint32_t resume = line_at(result, pos) + 1;
             result.replace(pos, std::string("/*FJSL_VERTEX_USER_CODE*/").size(),
-                           with_line_markers(meta.vertex_body, meta)
+                           with_line_markers(body, meta)
                                + "#line " + std::to_string(resume)
                                + " \"" + GENERATED_NAME + "\"\n");
         } else {
-            replace("/*FJSL_VERTEX_USER_CODE*/", meta.vertex_body.code);
+            replace("/*FJSL_VERTEX_USER_CODE*/", body.code);
         }
     }
 

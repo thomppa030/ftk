@@ -51,7 +51,7 @@ const std::string SUN_FN =
     "out vec3 color;\n"
     "void main() { color = dir * strength; }\n";
 
-const std::string TEMPLATE = "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_CODE*/\n";
+const std::string TEMPLATE = "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n";
 
 } // namespace
 

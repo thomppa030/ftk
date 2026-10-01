@@ -72,9 +72,9 @@ reason for every hook the type cannot run ("only a shader_type fog shader
 writes a medium"), and a template in `shaders/include/` that the parser
 splices the hooks into. Built-ins are locals or parameters in the template's
 hook wrapper. A hook wrapper is a `void` function with `inout` outputs, so a
-body may `return;` early, and its locals carry an engine prefix, because a
-shader's uniforms are file-scope `#define`s and a uniform named `density`
-would otherwise rewrite a local of that name.
+body may `return;` early, and its locals carry an engine prefix, because the
+body is spliced into the wrapper and an author's local of the same name would
+clash with one of them.
 
 Every constant that was hardcoded in the engine shader either becomes a
 uniform of the default `.fjsl` or stays in the template with a comment

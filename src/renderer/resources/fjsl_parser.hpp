@@ -362,8 +362,9 @@ struct FjslUniformAccess {
 
 // Generate a .vert or .mesh GLSL file from a vertex/mesh template + FJSL metadata.
 // Used for both vertex shaders and mesh shaders — same placeholder substitution.
-// The parameters become file-scope #defines and the file's helpers that
-// vertex() reaches go in with them, so a helper reads what the hook reads.
+// The uniforms are read through the same functions as on the fragment side
+// and the file's helpers that vertex() reaches go in with them, so a helper
+// reads what the hook reads.
 // Each stage gets only the helpers its own hooks reach.
 [[nodiscard]] std::string generate_vertex_shader(const ShaderMetadata& meta,
                                                   const std::string& template_source);

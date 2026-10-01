@@ -15,7 +15,7 @@ namespace fjell {
 /// of fjsl_parser.cpp, so changing how that emits must invalidate everything:
 /// the .fjsl did not move but what it produces did. Bump it whenever
 /// generation changes shape.
-inline constexpr uint32_t FJELL_SHADER_CODEGEN_VERSION = 2;
+inline constexpr uint32_t FJELL_SHADER_CODEGEN_VERSION = 3;
 
 /// Where the file a shader reference names is on disk, or empty when it is
 /// nowhere the host looks. A reference is what a material or a `use` wrote:

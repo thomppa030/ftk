@@ -47,6 +47,8 @@ void vertex() {
 }
 ```
 
+A uniform's name follows GLSL's scoping. A parameter, a local or a struct field with the same name is its own, and so is anything declared in a file the shader includes, so a shader can fill an included function's settings struct field by field: `look.halo = halo;`. A uniform is never called, so it can share its name with a function: a post shader's `vignette` dial can be passed to the `vignette()` effect. Two things are errors, reported where they are written: writing a uniform (copy it into a local to change it), and declaring its name again at file scope.
+
 ### Built-in Outputs
 
 All have PBR defaults. Just write the ones you want to change.
@@ -143,7 +145,7 @@ Set the object's `material` field to the `.fjmat` path in the scene file:
 ## How It Works
 
 1. **Parse** — the FJSL parser reads the `.fjsl` file and extracts uniform declarations, hints, defaults, and the fragment body
-2. **Generate** — a complete GLSL fragment shader is produced from `fjell_spatial_template.glsl` with param reads substituted in and the body placed in the template's hook function, which `main()` calls between filling the built-ins and shading from them
+2. **Generate** — a complete GLSL fragment shader is produced from `fjell_spatial_template.glsl`: each uniform becomes a function that reads it from the material's row (`fjell_uniform_tint()`), called wherever the shader's own code names the uniform, and the body goes into the template's hook function, which `main()` calls between filling the built-ins and shading from them
 3. **Compile** — the `ShaderCompiler` compiles the generated `.frag` to SPIR-V with `glslc` at runtime, or copies it from `shaders/generated/.fjcache` when the same source was compiled before
 4. **Pipeline** — the `PipelineCache` creates opaque, transparent, and mesh shader pipeline variants using the compiled fragment module
 5. **Render** — draw commands are sorted by pipeline ID, and each range gets its pipeline bound before the indirect draw call
