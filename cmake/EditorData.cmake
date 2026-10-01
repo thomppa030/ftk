@@ -3,10 +3,10 @@
 #
 #     ftk_stage_editor_data(<target> [DESTINATION <dir>])
 #
-# compiles the ImGui layer's sRGB fragment stage and copies the theme's fonts
-# into <dir> (default ftk) next to <target>'s binary, before <target> is
-# built and again whenever either changes. The program hands the paths to its
-# ImGui layer:
+# compiles the ImGui layer's sRGB fragment stage and copies the theme's fonts,
+# with the licences each copy has to carry, into <dir> (default ftk) next to
+# <target>'s binary, before <target> is built and again whenever either
+# changes. The program hands the paths to its ImGui layer:
 #
 #     ImGuiLayerFiles{.fonts = exe_dir / "ftk" / "fonts",
 #                     .srgb_fragment = exe_dir / "ftk" / "imgui.frag.spv"}
@@ -38,13 +38,13 @@ function(ftk_stage_editor_data target)
         VERBATIM)
     set(staged "${spirv}")
 
-    file(GLOB fonts CONFIGURE_DEPENDS "${ftk_root}/fonts/*.ttf")
-    foreach(font IN LISTS fonts)
-        get_filename_component(name "${font}" NAME)
+    file(GLOB fonts CONFIGURE_DEPENDS "${ftk_root}/fonts/*.ttf" "${ftk_root}/fonts/*.txt")
+    foreach(source IN LISTS fonts)
+        get_filename_component(name "${source}" NAME)
         add_custom_command(
             OUTPUT "${staging}/fonts/${name}"
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${font}" "${staging}/fonts/${name}"
-            DEPENDS "${font}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${source}" "${staging}/fonts/${name}"
+            DEPENDS "${source}"
             VERBATIM)
         list(APPEND staged "${staging}/fonts/${name}")
     endforeach()
