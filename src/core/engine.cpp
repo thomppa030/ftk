@@ -7,6 +7,7 @@
 #include "ui/asset_kinds.hpp"
 #include "ui/asset_picker.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/editor_view_settings.hpp"
 #include "ui/engine_file_browser.hpp"
 #include "ui/engine_imgui_files.hpp"
 #include "core/input_component.hpp"
@@ -241,6 +242,10 @@ void Engine::init_ui() {
     register_asset_kinds();
     imgui_layer_ = std::make_unique<ftk::ImGuiLayer>(window_, vulkan_context_->gpu_device(),
                                                 vulkan_context_->swapchain_format(), engine_imgui_files());
+    // Before the first frame reads the ini the section is saved in.
+    imgui_layer_->activate();
+    register_editor_view_settings();
+    imgui_layer_->deactivate();
 
     vulkan_context_->set_overlay_callback([this](ftk::gpu::RenderEncoder& pass) { imgui_layer_->render(pass); });
 

@@ -5,7 +5,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "ui/inspectors/inspector_registry.hpp"
-#include "ftk/app/editor_view_settings.hpp"
+#include "ui/editor_view_settings.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
@@ -200,7 +200,7 @@ void HierarchyPanel::draw_settings_menu() {
     {
         // Its colours are popped before the menu ends.
         ftk::ui::InsetFields inset;
-        auto& settings = ftk::editor_view_settings();
+        auto& settings = editor_view_settings();
         ImGui::AlignTextToFramePadding();
         ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_disabled());
         ImGui::TextUnformatted(ftk::ui::icon::ui_text);
@@ -208,9 +208,9 @@ void HierarchyPanel::draw_settings_menu() {
         ImGui::SameLine();
         ImGui::TextUnformatted("Text size");
         ImGui::SameLine(0.0f, ftk::theme::GAP_L);
-        if (ftk::ui::stepper("##text_size", settings.hierarchy_text_size, ftk::HIERARCHY_TEXT_MIN, ftk::HIERARCHY_TEXT_MAX,
+        if (ftk::ui::stepper("##text_size", settings.hierarchy_text_size, HIERARCHY_TEXT_MIN, HIERARCHY_TEXT_MAX,
                         ftk::ui::Unit::Pixels).changed) {
-            ftk::editor_view_settings_changed();
+            editor_view_settings_changed();
         }
     }
     ImGui::EndPopup();
@@ -283,7 +283,7 @@ void HierarchyPanel::draw() {
         // A rename outlives its row only until the node is gone.
         if (rename_.editing() && *selected_id_ == 0) rename_.cancel();
 
-        if (auto tree = ftk::ui::Tree("##scene", static_cast<float>(ftk::editor_view_settings().hierarchy_text_size))) {
+        if (auto tree = ftk::ui::Tree("##scene", static_cast<float>(editor_view_settings().hierarchy_text_size))) {
             auto it = children_map_.find(-1);
             if (it != children_map_.end()) {
                 for (auto* obj : it->second) draw_node(*obj, 0);

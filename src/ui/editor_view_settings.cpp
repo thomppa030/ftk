@@ -1,4 +1,4 @@
-#include "ftk/app/editor_view_settings.hpp"
+#include "ui/editor_view_settings.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace ftk {
+namespace fjell {
 
 namespace {
 
@@ -58,4 +58,4 @@ void editor_view_settings_changed() {
     ImGui::MarkIniSettingsDirty();
 }
 
-} // namespace ftk
+} // namespace fjell

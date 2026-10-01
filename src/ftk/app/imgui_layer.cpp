@@ -1,5 +1,4 @@
 #include "ftk/app/imgui_layer.hpp"
-#include "ftk/app/editor_view_settings.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/gpu/window.hpp"
 
@@ -41,9 +40,6 @@ ImGuiLayer::ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_fo
   auto* prev_ctx = ImGui::GetCurrentContext();
   context_ = ImGui::CreateContext();
   ImGui::SetCurrentContext(context_);
-
-  // Before the first frame reads the ini the section is saved in.
-  register_editor_view_settings();
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;

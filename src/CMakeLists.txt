@@ -262,6 +262,7 @@ add_executable(fjell
     net/replication_graph.cpp
     net/net_subsystem.cpp
     ui/asset_kinds.cpp
+    ui/editor_view_settings.cpp
     ui/asset_picker.cpp
     ui/asset_ref_widget.cpp
     ui/node_slot.cpp
