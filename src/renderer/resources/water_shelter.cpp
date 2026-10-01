@@ -4,6 +4,7 @@
 #include "core/thread_pool.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/fjwater.hpp"
+#include "renderer/resources/water_refraction.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 
 #include <algorithm>
@@ -54,29 +55,6 @@ constexpr float MARGIN_SHARE = 0.25f;
 // The depth the warp's grid records where there is no bed: deep enough for any
 // wave.
 constexpr float DEEP = 1e6f;
-
-// (k / k_deep) * sqrt(mu) over mu in [0, SHOALING_DEEP_MU], as a Chebyshev
-// series, where mu = k_deep * d and k comes from the dispersion relation
-// x tanh(x) = mu, x = k d. The ratio itself runs off to infinity as the water
-// shallows, as 1 / sqrt(mu), so what is fitted is what is left once that is
-// taken out: smooth, 1 at mu = 0, and pinned at the deep end to sqrt of it, so
-// the ratio is exactly 1 where the sea counts as deep. Fitted by least
-// squares to the relation solved directly; within 7e-6 of it wherever the
-// ratio is under MAX_SHORTENING.
-constexpr std::array<float, 13> SHORTENING_SERIES = {
-    1.83677852f,      0.848780692f,     -0.0241584145f,  -0.0255942829f,
-    0.0117992051f,    -0.000964379753f, -0.00157152792f, 0.000806956552f,
-    -1.85162335e-05f, -0.000158622643f, 6.91958849e-05f, 3.67324469e-06f,
-    -2.12423183e-05f,
-};
-
-// k / k_deep for a wave at depth `mu` = k_deep * d, held to MAX_SHORTENING.
-// No more than nothing is land, where the wave carries on unshortened.
-[[nodiscard]] float shortening(float mu) {
-    if (mu <= 0.0f || mu >= SHOALING_DEEP_MU) return 1.0f;
-    const float t = (2.0f * mu / SHOALING_DEEP_MU) - 1.0f;
-    return std::min(portable::chebyshev(SHORTENING_SERIES, t) / std::sqrt(mu), MAX_SHORTENING);
-}
 
 // Back to nothing across the margin: the share of a sample's value kept, by
 // how far it lies inside the grid's edge.
@@ -411,7 +389,7 @@ ShoreWarp bake_warp(const ShelterLand& land, const ShelterSources& sources) {
     const auto bake_one = [&](const WarpSource& dominant, std::uint32_t pair) {
         if (dominant.k <= 0.0f) return;
         for (std::size_t i = 0; i < count; ++i) {
-            shorter[i] = shortening(dominant.k * land.warp_depths[i]) - 1.0f;
+            shorter[i] = shortening_at(dominant.k * land.warp_depths[i]) - 1.0f;
         }
         carry(m, land.size, dominant.travel, TAU / dominant.k, 0.0f, lag,
               [&](std::size_t i, float carried, float step) {
