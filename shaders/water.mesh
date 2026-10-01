@@ -93,6 +93,28 @@ void main() {
             tangents.tangent.y += v.wake.slope.y;
         }
 
+        // The swash: its slope from the arriving sea's slope along the
+        // shore, and where it stood a frame ago from the sea arriving then.
+        if (v.swash.applies) {
+            vec2 arriving_slope = vec2(0.0);
+            float arriving_before = 0.0;
+            if (v.swash.swing > 0.0f) {
+                FjellWaterTangents there = fjell_water_tangents(v.swash.waterline, time);
+                arriving_slope = vec2(there.binormal.y, there.tangent.y);
+                arriving_before = fjell_water_displace(v.swash.waterline, time - push.delta_time).y;
+                if (water.field.simulated_patch_size > 0.0) {
+                    float texels = float(textureSize(simulated_displacement, 0).x);
+                    vec2 uv = v.swash.waterline / water.field.simulated_patch_size + 0.5 / texels;
+                    arriving_slope += textureLod(simulated_derivatives, uv, v.simulated_lod).xy;
+                    arriving_before += textureLod(simulated_previous, uv, v.simulated_lod).y;
+                }
+            }
+            FjellSwash now = fjell_water_swash_from(v.swash, v.swash_arriving, arriving_slope, 0.0);
+            tangents.binormal.y += now.gradient.x;
+            tangents.tangent.y += now.gradient.y;
+            prev_offset.y += fjell_water_swash_from(v.swash, arriving_before, vec2(0.0), 0.0).lift;
+        }
+
         vec3 world_pos = fjell_water_world_position(v);
 
         gl_MeshVerticesEXT[i].gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);

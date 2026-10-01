@@ -432,20 +432,58 @@ TEST_CASE("Near the shore the column's rest position is still found", "[water_sh
     }
 }
 
-TEST_CASE("The sea dies at the waterline and is gone on the sand", "[water_shore]") {
+TEST_CASE("Past the waterline only the swash crosses onto the sand", "[water_shore]") {
     const FjWaterData water = sea_on_the_beach();
-    for (const float time : {0.0f, 3.3f, 9.1f}) {
-        // On the sand the surface lies flat, under the ground.
-        for (const float x : {300.0f, 305.0f, 380.0f}) {
-            const water::SurfaceMotion m = water::surface_motion(water, {x, 0.0f}, time);
-            CHECK(m.displacement == glm::vec3(0.0f));
-            CHECK(m.velocity == glm::vec3(0.0f));
+    // The beach rises 1 in 30 from the still waterline at x = 300.
+    const auto sand_above_water = [](float x) { return (x - 300.0f) / 30.0f; };
+    int covered = 0;
+    int bare = 0;
+    for (float time = 0.0f; time < 60.0f; time += 0.37f) {
+        // The waves themselves are gone on the sand: nothing moves sideways.
+        for (const float x : {301.0f, 305.0f, 380.0f}) {
+            const glm::vec3 d = water::displace(water, {x, 0.0f}, time);
+            CHECK(d.x == 0.0f);
+            CHECK(d.z == 0.0f);
         }
-        // And in the last few centimetres of water it is barely moving:
-        // breaking holds the sea to 0.39 of the depth.
-        const glm::vec3 d = water::displace(water, {299.4f, 0.0f}, time);
-        CHECK(std::abs(d.y) < 0.39f * 0.02f * 3.0f);
+        // High up the beach the water stays under the sand whatever arrives.
+        CHECK(water::displace(water, {380.0f, 0.0f}, time).y < sand_above_water(380.0f));
+        // A metre up it, the edge comes and goes with the sea.
+        const float level = water::displace(water, {301.0f, 0.0f}, time).y;
+        (level > sand_above_water(301.0f) ? covered : bare) += 1;
     }
+    CHECK(covered > 0);
+    CHECK(bare > 0);
+}
+
+TEST_CASE("The swash stands and swings as Stockdon's beach measurements give", "[water_shore]") {
+    // One train on a bare beach of 1 in 30. Its significant amplitude is
+    // sqrt 2 times its own, so H0 = 2 sqrt 2 A; L0 is its wavelength. The
+    // heights then come from the published formulas, worked here.
+    constexpr float AMPLITUDE = 0.8f;
+    constexpr float WAVELENGTH = 50.0f;
+    constexpr float BETA = 1.0f / 30.0f;
+    water::ShoreBed bed = beach();
+    bed.exposure = nullptr;
+    const water::ShoalingSum train{2.0f * 3.14159265f / WAVELENGTH, std::sqrt(2.0f) * AMPLITUDE};
+
+    const float h0 = 2.0f * std::sqrt(2.0f) * AMPLITUDE;
+    const float root = std::sqrt(h0 * WAVELENGTH);
+    const float setup = 0.35f * BETA * root;
+    const float swing = 0.5f * root * std::sqrt((0.563f * BETA * BETA) + 0.004f);
+
+    for (const float x : {300.0f, 302.0f}) {   // at the still waterline, and up the sand
+        const auto plan = water::swash_plan(bed, train, {}, {x, 7.0f});
+        REQUIRE(plan.has_value());
+        CHECK(plan->setup == Approx(setup).epsilon(1e-3));
+        CHECK(plan->swing == Approx(swing).epsilon(1e-3));
+        CHECK(plan->share == 1.0f);
+        // Read at the still waterline straight down the beach.
+        CHECK(plan->waterline.x == Approx(300.0f).margin(1e-2));
+        CHECK(plan->waterline.y == Approx(7.0f).margin(1e-3));
+        CHECK(plan->seaward.x == Approx(-1.0f).margin(1e-5));
+    }
+    // Out past where the sea breaks there is no swash.
+    CHECK_FALSE(water::swash_plan(bed, train, {}, {0.0f, 7.0f}).has_value());
 }
 
 namespace {
@@ -508,16 +546,32 @@ TEST_CASE("Shader and CPU agree on the sea over the shore", "[water_shore]") {
             const shore_shim::FjellShoreEffect shore = shore_shim::fjell_water_shore(rest);
             const vec3 trains = shore_shim::fjell_water_displace(rest, time);
 
+            // The swash, as the mesh stage adds it: the trains arriving at
+            // the plan's waterline, their height and their slope there.
+            const shore_shim::FjellSwashPlan plan = shore_shim::fjell_water_swash_plan(rest);
+            shore_shim::FjellSwash swash{};
+            if (plan.applies) {
+                const vec3 arriving = shore_shim::fjell_water_displace(plan.waterline, time);
+                const shore_shim::FjellWaterTangents there =
+                    shore_shim::fjell_water_tangents(plan.waterline, time);
+                swash = shore_shim::fjell_water_swash_from(
+                    plan, plan.swing > 0.0f ? arriving.y : 0.0f,
+                    plan.swing > 0.0f ? vec2(there.binormal.y, there.tangent.y) : vec2(0.0f),
+                    0.0f);
+            }
+
             const glm::vec3 displaced = water::displace(water, rest, time);
-            const vec3 shaded = trains * shore.gerstner;
+            const vec3 shaded = trains * shore.gerstner + vec3(0.0f, swash.lift, 0.0f);
             CHECK(shaded.x == Approx(displaced.x).margin(1e-4));
             CHECK(shaded.y == Approx(displaced.y).margin(1e-4));
             CHECK(shaded.z == Approx(displaced.z).margin(1e-4));
 
-            const vec3 normal = shore_shim::fjell_water_normal_from(
-                shore_shim::fjell_water_shore_tangents(shore_shim::fjell_water_tangents(rest, time),
-                                                       trains, shore.gerstner,
-                                                       shore.gerstner_gradient));
+            shore_shim::FjellWaterTangents tangents = shore_shim::fjell_water_shore_tangents(
+                shore_shim::fjell_water_tangents(rest, time), trains, shore.gerstner,
+                shore.gerstner_gradient);
+            tangents.binormal.y += swash.gradient.x;
+            tangents.tangent.y += swash.gradient.y;
+            const vec3 normal = shore_shim::fjell_water_normal_from(tangents);
             const glm::vec3 cpu_normal = water::normal_at(water, rest, time);
             CHECK(normal.x == Approx(cpu_normal.x).margin(1e-4));
             CHECK(normal.y == Approx(cpu_normal.y).margin(1e-4));
@@ -628,4 +682,33 @@ TEST_CASE("The shore factor's gradient follows the lee as well as the bed", "[wa
                   == Approx((ahead.simulated - behind.simulated) / (2.0f * h)).margin(2e-4));
         }
     }
+}
+
+TEST_CASE("Shader and CPU agree on the swash", "[water_shore]") {
+    // The whole sea, both sums: a plan needs none of the sea's textures.
+    const FjWaterData water = sea_on_the_beach();
+    give_the_shader(water);
+    const water::ShoalingSum trains =
+        water.packed_trains.has_value() ? water.packed_trains->shoaling : water::ShoalingSum{};
+    const water::ShoalingSum simulated =
+        water.simulated.has_value() ? water.simulated->shoaling : water::ShoalingSum{};
+    int active = 0;
+    for (float x = 200.0f; x < 330.0f; x += 1.7f) {
+        for (const float z : {-120.0f, 3.0f, 95.0f}) {
+            const auto cpu = water::swash_plan(*water.shore, trains, simulated, {x, z});
+            const shore_shim::FjellSwashPlan gpu = shore_shim::fjell_water_swash_plan({x, z});
+            REQUIRE(gpu.applies == cpu.has_value());
+            if (!cpu.has_value()) continue;
+            ++active;
+            CHECK(gpu.waterline.x == Approx(cpu->waterline.x).margin(1e-3));
+            CHECK(gpu.waterline.y == Approx(cpu->waterline.y).margin(1e-3));
+            CHECK(gpu.setup == Approx(cpu->setup).margin(1e-5));
+            CHECK(gpu.swing == Approx(cpu->swing).margin(1e-5));
+            CHECK(gpu.setup_gradient.x == Approx(cpu->setup_gradient.x).margin(1e-5));
+            CHECK(gpu.swing_gradient.x == Approx(cpu->swing_gradient.x).margin(1e-5));
+            CHECK(gpu.scale == Approx(cpu->scale).margin(1e-5));
+            CHECK(gpu.share == Approx(cpu->share).margin(1e-5));
+        }
+    }
+    CHECK(active > 20);
 }

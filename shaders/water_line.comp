@@ -98,6 +98,19 @@ void main() {
     if (push.wake_count > 0u) {
         height += fjell_water_wake_surface(push.wake_first, push.wake_count, rest, ubo.time, 0.0).height;
     }
+    FjellSwashPlan swash = fjell_water_swash_plan(rest);
+    if (swash.applies) {
+        float arriving = 0.0;
+        if (swash.swing > 0.0f) {
+            arriving = fjell_water_displace(swash.waterline, ubo.time).y;
+            if (push.simulated_patch_size > 0.0) {
+                float texels = float(textureSize(simulated_displacement, 0).x);
+                vec2 at = swash.waterline / push.simulated_patch_size + 0.5 / texels;
+                arriving += textureLod(simulated_displacement, at, 0.0).y;
+            }
+        }
+        height += fjell_water_swash_from(swash, arriving, vec2(0.0), 0.0).lift;
+    }
 
     bool under = near.y < height;
     bool other_side = under != (push.camera_below != 0u);

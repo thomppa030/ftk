@@ -219,6 +219,71 @@ struct HorizontalJacobian {
     return (derivative * factor) + (displacement * factor_slope);
 }
 
+// The sums of the sea as the shore reads them.
+[[nodiscard]] ShoalingSum trains_sum(const FjWaterData& water) {
+    return water.packed_trains.has_value() ? water.packed_trains->shoaling : ShoalingSum{};
+}
+[[nodiscard]] ShoalingSum simulated_sum(const FjWaterData& water) {
+    return water.simulated.has_value() ? water.simulated->shoaling : ShoalingSum{};
+}
+
+// The sea at a point as it arrives, before any shore scales it: where it
+// moves the point and how fast.
+[[nodiscard]] SurfaceMotion arriving_motion(const FjWaterData& water, glm::vec2 world_xz,
+                                            float time) {
+    SurfaceMotion m = gerstner_motion(trains_of(water), world_xz, time);
+    if (water.simulated.has_value()) {
+        const SpectralMotion s = spectral_motion(water.simulated->packed,
+                                                 water.simulated->choppiness, world_xz, time);
+        m.displacement += s.displacement;
+        m.velocity += s.velocity;
+    }
+    return m;
+}
+
+// How steeply the arriving sea's surface rises along x and along z at a rest
+// position, before any shore scales it.
+[[nodiscard]] glm::vec2 arriving_slope(const FjWaterData& water, glm::vec2 world_xz, float time) {
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 along_x = _mm256_setzero_ps(), along_z = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        // d(A sin)/d(rest) = k A cos dir.
+        const simd::f32x8 wac = _mm256_mul_ps(
+            _mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i])), a.cos);
+        along_x = _mm256_fmadd_ps(_mm256_loadu_ps(&t.dir_x[i]), wac, along_x);
+        along_z = _mm256_fmadd_ps(_mm256_loadu_ps(&t.dir_z[i]), wac, along_z);
+    }
+    glm::vec2 slope{sum8(along_x), sum8(along_z)};
+    if (water.simulated.has_value()) {
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
+        slope += glm::vec2(d.dh_dx, d.dh_dz);
+    }
+    return slope;
+}
+
+// The swash at a point, from the sea arriving at its waterline; with
+// `with_slope`, how it changes across the point too, which takes another look
+// at the sea there.
+[[nodiscard]] std::optional<Swash> swash_at(const FjWaterData& water, glm::vec2 world_xz,
+                                            float time, bool with_slope) {
+    if (!water.shore.has_value()) return std::nullopt;
+    const std::optional<SwashPlan> plan =
+        swash_plan(*water.shore, trains_sum(water), simulated_sum(water), world_xz);
+    if (!plan.has_value()) return std::nullopt;
+    float height = 0.0f;
+    float rate = 0.0f;
+    glm::vec2 slope{0.0f};
+    if (plan->swing > 0.0f) {
+        const SurfaceMotion arriving = arriving_motion(water, plan->waterline, time);
+        height = arriving.displacement.y;
+        rate = arriving.velocity.y;
+        if (with_slope) slope = arriving_slope(water, plan->waterline, time);
+    }
+    return swash_from(*plan, height, slope, rate);
+}
+
 // Everything the CPU sums: the Gerstner contributors, and the simulated sea's
 // strongest waves where the field has been given them, each scaled by the
 // shore where there is one.
@@ -542,6 +607,11 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
         m.displacement += s.displacement;
         m.velocity += s.velocity;
     }
+    if (const std::optional<Swash> swash = swash_at(water, world_xz, time, false)) {
+        // Vertical only, like a wake: the level the beach is washed to.
+        m.displacement.y += swash->lift;
+        m.velocity.y += swash->rate;
+    }
     if (!water.wakes.empty()) {
         // Vertical only, so it adds to the height and nothing else.
         const WakeSurface w = wake_surface(water.wakes, world_xz, time, exclude_node);
@@ -558,11 +628,7 @@ std::optional<ShoreEffect> shore_at(const FjWaterData& water, glm::vec2 world_xz
     const ExposureAt exposure =
         bed.exposure != nullptr ? exposure_at(*bed.exposure, world_xz) : ExposureAt{};
     if (!depth.has_value() && exposure.open()) return std::nullopt;
-    const ShoalingSum trains =
-        water.packed_trains.has_value() ? water.packed_trains->shoaling : ShoalingSum{};
-    const ShoalingSum simulated =
-        water.simulated.has_value() ? water.simulated->shoaling : ShoalingSum{};
-    return shore_effect(depth, exposure, trains, simulated);
+    return shore_effect(depth, exposure, trains_sum(water), simulated_sum(water));
 }
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
@@ -624,6 +690,10 @@ glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
             tangent += scaled_derivative(d_dz, shore->simulated, moved,
                                          shore->simulated_gradient.y);
         }
+    }
+    if (const std::optional<Swash> swash = swash_at(water, world_xz, time, true)) {
+        binormal.y += swash->gradient.x;
+        tangent.y += swash->gradient.y;
     }
     if (!water.wakes.empty()) {
         const WakeSurface w = wake_surface(water.wakes, world_xz, time);

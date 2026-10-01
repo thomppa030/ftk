@@ -138,8 +138,25 @@ struct FjellWaterVertex {
     vec2 simulated_uv;
     float simulated_lod;
     FjellWakeSurface wake;   // the wakes wide enough to move this grid; zero without any
+    // The swash: how the level here rides the sea arriving at the waterline,
+    // and the sea's height there as it arrived, before the shore scaled it.
+    FjellSwashPlan swash;
+    float swash_arriving;
     vec3 offset;             // all of it together: where the vertex moves from rest
 };
+
+// The sea's height at a rest position as it arrives, before any shore scales
+// it: the closed-form contributors and, when there is one, the simulated sea
+// read at `lod`.
+float fjell_water_arriving_height(vec2 at, float time, float lod) {
+    float height = fjell_water_displace(at, time).y;
+    float patch_size = water.field.simulated_patch_size;
+    if (patch_size > 0.0) {
+        float texels = float(textureSize(simulated_displacement, 0).x);
+        height += textureLod(simulated_displacement, at / patch_size + 0.5 / texels, lod).y;
+    }
+    return height;
+}
 
 // The cell size a vertex's wakes are faded out by: the level's own, or on an
 // edge shared with a coarser level, that level's.
@@ -251,6 +268,18 @@ FjellWaterVertex fjell_water_vertex(uint i, float time) {
         v.wake = fjell_water_wake_surface(push.wake_first, push.wake_count, v.rest, time,
                                           fjell_water_wake_cell(v));
         v.offset.y += v.wake.height;
+    }
+
+    // The swash: near the waterline the level rides the sea arriving there,
+    // which is what moves the water's edge up and down the sand. Vertical
+    // only, like a wake.
+    v.swash = fjell_water_swash_plan(v.rest);
+    v.swash_arriving = 0.0;
+    if (v.swash.applies) {
+        if (v.swash.swing > 0.0f) {
+            v.swash_arriving = fjell_water_arriving_height(v.swash.waterline, time, v.simulated_lod);
+        }
+        v.offset.y += fjell_water_swash_from(v.swash, v.swash_arriving, vec2(0.0), 0.0).lift;
     }
     return v;
 }

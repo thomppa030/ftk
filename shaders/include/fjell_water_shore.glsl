@@ -280,6 +280,110 @@ FjellShoreEffect fjell_water_shore(vec2 world_xz) {
     return e;
 }
 
+// Mirrors SWASH_STEEPEST_BEACH.
+#define FJELL_SWASH_STEEPEST_BEACH 0.15f
+
+// Matches SwashPlan, and whether there is one.
+struct FjellSwashPlan {
+    bool  applies;
+    vec2  waterline;
+    vec2  seaward;
+    float setup;
+    vec2  setup_gradient;
+    float swing;
+    vec2  swing_gradient;
+    float scale;
+    float share;
+};
+
+// Matches swash_plan().
+FjellSwashPlan fjell_water_swash_plan(vec2 world_xz) {
+    FjellSwashPlan plan;
+    plan.applies = false;
+    plan.waterline = world_xz;
+    plan.seaward = vec2(1.0f, 0.0f);
+    plan.setup = 0.0f;
+    plan.setup_gradient = vec2(0.0f);
+    plan.swing = 0.0f;
+    plan.swing_gradient = vec2(0.0f);
+    plan.scale = 0.0f;
+    plan.share = 0.0f;
+
+    FjellWaterStillDepth still = fjell_water_still_depth(world_xz);
+    if (!still.known) return plan;
+    vec2 trains = FJELL_WATER_FIELD.shore.trains;
+    vec2 simulated = FJELL_WATER_FIELD.shore.simulated;
+    bool has_trains = trains.y > 0.0f && trains.x > 0.0f;
+    bool has_simulated = simulated.y > 0.0f && simulated.x > 0.0f;
+    if (!has_trains && !has_simulated) return plan;
+
+    FjellWaterExposure open = fjell_water_exposure_at(world_xz);
+    float g_amplitude = has_trains ? trains.y * open.trains : 0.0f;
+    float s_amplitude = has_simulated ? simulated.y * open.simulated : 0.0f;
+    float g_energy = g_amplitude * g_amplitude;
+    float s_energy = s_amplitude * s_amplitude;
+    if (g_energy + s_energy <= 0.0f) return plan;
+    float height = 2.0f * sqrt(g_energy + s_energy);
+    float wavelength = ((has_trains ? g_energy * FJELL_WATER_TAU / trains.x : 0.0f)
+                        + (has_simulated ? s_energy * FJELL_WATER_TAU / simulated.x : 0.0f))
+                     / (g_energy + s_energy);
+
+    float d = still.depth;
+    float breaks_at = height / FJELL_BREAKER_INDEX;
+    float slope = length(still.gradient);
+    if (d >= breaks_at || slope < 1e-4f) return plan;
+
+    float beach = min(slope, FJELL_SWASH_STEEPEST_BEACH);
+    float root = sqrt(height * wavelength);
+    float full_setup = 0.35f * beach * root;
+    float full_swing = 0.5f * root * sqrt((0.563f * beach * beach) + 0.004f);
+    if (-d > full_setup + full_swing) return plan;
+
+    plan.applies = true;
+    plan.seaward = still.gradient / slope;
+    plan.waterline = world_xz - (plan.seaward * (d / slope));
+
+    plan.setup = full_setup * (d <= 0.0f ? 1.0f : 1.0f - (d / breaks_at));
+    plan.setup_gradient = d <= 0.0f ? vec2(0.0f) : -full_setup * still.gradient / breaks_at;
+
+    float swing_depth = min(max(2.0f * full_swing, 0.25f), breaks_at);
+    plan.share = d <= 0.0f ? 1.0f : max(1.0f - (d / swing_depth), 0.0f);
+    plan.swing = full_swing * plan.share;
+    plan.swing_gradient = (d <= 0.0f || d >= swing_depth) ? vec2(0.0f)
+                                                         : -full_swing * still.gradient / swing_depth;
+
+    float raw = sqrt((has_trains ? trains.y * trains.y : 0.0f)
+                     + (has_simulated ? simulated.y * simulated.y : 0.0f));
+    plan.scale = 1.0f / raw;
+    return plan;
+}
+
+// Matches Swash.
+struct FjellSwash {
+    float lift;
+    vec2  gradient;
+    float rate;
+};
+
+// Matches swash_from().
+FjellSwash fjell_water_swash_from(FjellSwashPlan plan, float sea_height, vec2 sea_slope,
+                                  float sea_rate) {
+    float arriving = sea_height * plan.scale;
+    float share = clamp(arriving, -1.0f, 1.0f);
+    bool held = arriving != share;
+
+    FjellSwash result;
+    result.lift = plan.setup + (plan.swing * share);
+    result.gradient = plan.setup_gradient + (plan.swing_gradient * share);
+    result.rate = 0.0f;
+    if (!held) {
+        vec2 along = sea_slope - (plan.seaward * dot(plan.seaward, sea_slope));
+        result.gradient += plan.swing * plan.scale * along;
+        result.rate = plan.swing * plan.scale * sea_rate;
+    }
+    return result;
+}
+
 // A sum of the sea's tangents once the shore has scaled it. `moved` is what
 // the sum displaces the point by before scaling: a factor that changes across
 // the ground changes the surface by the factor's slope times that, as well

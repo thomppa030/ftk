@@ -157,6 +157,70 @@ struct ShoreEffect {
                                                       ShoalingSum gerstner,
                                                       ShoalingSum simulated);
 
+/// Steepest beach the swash formulas are taken for: past it the ground is a
+/// rock face or a cliff, which takes spray rather than setup.
+inline constexpr float SWASH_STEEPEST_BEACH = 0.15f;
+
+/// How the water level at one point rides the waves arriving at the beach:
+/// what it takes, before the arriving sea is known.
+///
+/// Broken waves run on up the sand as a sheet and drain back, so the water's
+/// edge moves up and down the beach with them, and the mean level across the
+/// surf stands raised (setup). Both are a vertical lift of the still level
+/// near the waterline; where the water's edge lands is then the terrain's.
+/// The swash follows the sea arriving at the still waterline straight down the
+/// beach from this point, read there as a share of its significant amplitude,
+/// so the edge runs up with the breakers that are drawn arriving.
+///
+/// Heights after Stockdon et al. (2006), from the sea's sheltered significant
+/// height H0, its wavelength L0 and the beach slope: setup
+/// `0.35 β sqrt(H0 L0)`, and the level swinging half of
+/// `sqrt(H0 L0 (0.563 β² + 0.004))` either side of it.
+struct SwashPlan {
+    /// Where on the still waterline the arriving sea is read.
+    glm::vec2 waterline{0.0f};
+    /// The way down the beach, seaward.
+    glm::vec2 seaward{1.0f, 0.0f};
+    /// Metres the mean level stands raised here, and how that changes across
+    /// the point: all of it at and above the waterline, falling to nothing
+    /// at the depth the sea breaks in.
+    float setup{0.0f};
+    glm::vec2 setup_gradient{0.0f};
+    /// Metres the level swings either side of that with the sea arriving in
+    /// full, and how that changes: all of it at and above the waterline,
+    /// falling to nothing in water twice as deep as the swing.
+    float swing{0.0f};
+    glm::vec2 swing_gradient{0.0f};
+    /// One over the significant amplitude of the sea as it arrives, before
+    /// the shore scales it: the arriving height times this is its share.
+    float scale{0.0f};
+    /// How much of the swing this point carries, 0 to 1: what a material reads
+    /// as SWASH.
+    float share{0.0f};
+};
+
+/// The swash at `world_xz` over `bed` for a sea of `gerstner` and `simulated`,
+/// or nothing where there is none: off the terrain, on level ground, in water
+/// deeper than the sea breaks in, and on sand higher than it can ever reach.
+[[nodiscard]] std::optional<SwashPlan> swash_plan(const ShoreBed& bed, ShoalingSum gerstner,
+                                                  ShoalingSum simulated, glm::vec2 world_xz);
+
+/// The lift a plan comes to with the sea arriving at its waterline at
+/// `sea_height` (before the shore scaled it), its slope there `sea_slope` and
+/// its rate of rise `sea_rate`: the lift, how it changes across the point and
+/// how fast it rises.
+///
+/// Every point down one line of the beach reads the same sample, so across the
+/// point the arriving sea changes only along the shore: its slope there is
+/// taken without the part down the beach.
+struct Swash {
+    float lift{0.0f};
+    glm::vec2 gradient{0.0f};
+    float rate{0.0f};
+};
+[[nodiscard]] Swash swash_from(const SwashPlan& plan, float sea_height, glm::vec2 sea_slope,
+                               float sea_rate);
+
 /// The still-water depth at world `world_xz`, or nothing where the bed is not
 /// known: off the terrain, or with no terrain at all. Nothing is open water —
 /// no bed near enough to matter — and not a depth of zero.

@@ -138,6 +138,82 @@ std::optional<ShoreEffect> shore_effect(const std::optional<StillDepth>& still,
     return e;
 }
 
+std::optional<SwashPlan> swash_plan(const ShoreBed& bed, ShoalingSum gerstner,
+                                    ShoalingSum simulated, glm::vec2 world_xz) {
+    const std::optional<StillDepth> still = still_depth(bed, world_xz);
+    if (!still.has_value()) return std::nullopt;
+    const bool has_gerstner = gerstner.amplitude > 0.0f && gerstner.k > 0.0f;
+    const bool has_simulated = simulated.amplitude > 0.0f && simulated.k > 0.0f;
+    if (!has_gerstner && !has_simulated) return std::nullopt;
+
+    // The sea as it reaches this beach: through whatever the land lets past,
+    // its significant height and the wavelength its energy is carried at.
+    const ExposureAt open =
+        bed.exposure != nullptr ? exposure_at(*bed.exposure, world_xz) : ExposureAt{};
+    const float g_amplitude = has_gerstner ? gerstner.amplitude * open.trains : 0.0f;
+    const float s_amplitude = has_simulated ? simulated.amplitude * open.simulated : 0.0f;
+    const float g_energy = g_amplitude * g_amplitude;
+    const float s_energy = s_amplitude * s_amplitude;
+    if (g_energy + s_energy <= 0.0f) return std::nullopt;
+    constexpr float TAU = 6.28318530717958647692f;
+    const float height = 2.0f * std::sqrt(g_energy + s_energy);
+    const float wavelength = ((has_gerstner ? g_energy * TAU / gerstner.k : 0.0f)
+                              + (has_simulated ? s_energy * TAU / simulated.k : 0.0f))
+                           / (g_energy + s_energy);
+
+    // Out past where it breaks the sea is the sea's; level ground has no way
+    // up the beach to run.
+    const float d = still->depth;
+    const float breaks_at = height / BREAKER_INDEX;
+    const float slope = glm::length(still->gradient);
+    if (d >= breaks_at || slope < 1e-4f) return std::nullopt;
+
+    const float beach = std::min(slope, SWASH_STEEPEST_BEACH);
+    const float root = std::sqrt(height * wavelength);
+    const float full_setup = 0.35f * beach * root;
+    const float full_swing = 0.5f * root * std::sqrt((0.563f * beach * beach) + 0.004f);
+    // Sand higher than the swash can ever reach keeps the water under it.
+    if (-d > full_setup + full_swing) return std::nullopt;
+
+    SwashPlan plan;
+    plan.seaward = still->gradient / slope;
+    plan.waterline = world_xz - (plan.seaward * (d / slope));
+
+    // Setup across the surf, all of it at the waterline and above.
+    plan.setup = full_setup * (d <= 0.0f ? 1.0f : 1.0f - (d / breaks_at));
+    plan.setup_gradient = d <= 0.0f ? glm::vec2(0.0f) : -full_setup * still->gradient / breaks_at;
+
+    // The swing at the waterline, gone in water twice as deep as it.
+    const float swing_depth = std::min(std::max(2.0f * full_swing, 0.25f), breaks_at);
+    plan.share = d <= 0.0f ? 1.0f : std::max(1.0f - (d / swing_depth), 0.0f);
+    plan.swing = full_swing * plan.share;
+    plan.swing_gradient = d <= 0.0f || d >= swing_depth
+        ? glm::vec2(0.0f)
+        : -full_swing * still->gradient / swing_depth;
+
+    const float raw = std::sqrt((has_gerstner ? gerstner.amplitude * gerstner.amplitude : 0.0f)
+                                + (has_simulated ? simulated.amplitude * simulated.amplitude
+                                                 : 0.0f));
+    plan.scale = 1.0f / raw;
+    return plan;
+}
+
+Swash swash_from(const SwashPlan& plan, float sea_height, glm::vec2 sea_slope, float sea_rate) {
+    const float arriving = sea_height * plan.scale;
+    const float share = std::clamp(arriving, -1.0f, 1.0f);
+    const bool held = arriving != share;
+
+    Swash out;
+    out.lift = plan.setup + (plan.swing * share);
+    out.gradient = plan.setup_gradient + (plan.swing_gradient * share);
+    if (!held) {
+        const glm::vec2 along = sea_slope - (plan.seaward * glm::dot(plan.seaward, sea_slope));
+        out.gradient += plan.swing * plan.scale * along;
+        out.rate = plan.swing * plan.scale * sea_rate;
+    }
+    return out;
+}
+
 ExposureAt exposure_at(const ShoreExposure& exposure, glm::vec2 world_xz) {
     ExposureAt out;
     const std::uint32_t n = exposure.samples;
