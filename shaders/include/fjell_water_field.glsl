@@ -51,6 +51,11 @@ struct FjellWaterShore {
     uint  _pad0;
     uint  _pad1;
     uint  _pad2;
+    // How open the water is to the sea past the land: the exposure grid, its
+    // two shares a texture of their own. No samples, no exposure: open.
+    vec2  exposure_min_corner; // world XZ of its sample (0, 0)
+    float exposure_size;       // metres from its first sample to its last
+    uint  exposure_samples;    // per side
 };
 
 // The field: every contributor the surface sums. Mirrors GpuWaterField.

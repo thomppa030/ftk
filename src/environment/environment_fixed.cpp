@@ -48,6 +48,7 @@ std::optional<water::ShoreBed> shore_under(const Scene& scene, const WaterCompon
         bed.min_corner = {corner.x, corner.z};
         bed.ground_y = world[3].y;
         bed.surface_y = centre.y;
+        bed.generation = terrain->terrain->edit_generation();
         return bed;
     }
     return std::nullopt;
@@ -122,6 +123,11 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
 
     scene.each<WaterComponent>([&](Node& node, WaterComponent& water_component) {
         auto* water = &water_component;
+        // What the field last had, shown until this water's own bake is
+        // ready: a body of water just copied into play brings it along.
+        std::shared_ptr<const water::ShoreExposure> previous_exposure =
+            water->effective_water.shore.has_value() ? water->effective_water.shore->exposure
+                                                     : nullptr;
         water->effective_water = water->derivation.derive(water->water, wind_xz, workers);
 
         const auto* spatial = node.as_spatial();
@@ -129,8 +135,12 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
         const glm::vec3 centre{scene.current_world_matrix(*spatial)[3]};
 
         // The ground it has been put over, which the sea shallows and breaks
-        // against.
+        // against, and how open the water around it is to that sea.
         water->effective_water.shore = shore_under(scene, *water, centre);
+        if (auto& shore = water->effective_water.shore; shore.has_value()) {
+            shore->exposure = water->shelter.derive(*shore, water->effective_water, workers,
+                                                    std::move(previous_exposure));
+        }
 
         // What has moved through it, on top of the sea the wind made. The
         // trails are laid against that sea, since whether a wader's feet are

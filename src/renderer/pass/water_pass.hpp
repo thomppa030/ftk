@@ -177,14 +177,25 @@ private:
     /// and derivatives too, and in its fragment stage the fog's medium; the
     /// waterline the field, the ground, the sea's displacement and the wakes.
     enum class WaterSet : uint8_t { depth, colour, line };
+    /// The ground under one body of water as its draws bind it: its
+    /// terrain's heights and how open the water is to the sea, either unset
+    /// where it has none.
+    struct Ground {
+        gpu::Texture bed;
+        gpu::Texture exposure;
+    };
     /// The water set for one draw or dispatch: `field` and `clipmap` and
-    /// `wakes` copies made for it, `medium` the fog's volume or unset, and
-    /// `bed` the heights of the ground under this water or unset.
+    /// `wakes` copies made for it, `medium` the fog's volume or unset, and the
+    /// ground under this water.
     [[nodiscard]] std::vector<gpu::BindEntry> water_set(WaterSet use, gpu::BufferRange field,
                                                         gpu::BufferRange clipmap, gpu::BufferRange wakes,
-                                                        gpu::Texture medium, gpu::Texture bed) const;
-    /// The heights of the ground under `water`, or unset where it has none.
-    [[nodiscard]] gpu::Texture bed_of(const WaterComponent* water) const;
+                                                        gpu::Texture medium, Ground ground) const;
+    /// The ground under `water` this frame.
+    [[nodiscard]] Ground ground_of(const WaterComponent* water) const;
+    /// `water`'s exposure on the GPU, uploaded when a new bake has arrived;
+    /// unset if it could not be made.
+    [[nodiscard]] gpu::Texture exposure_texture(const WaterComponent* water,
+                                                const std::shared_ptr<const water::ShoreExposure>& exposure);
 
 public:
     /// Whether the camera is under the body of water `node_id`, as decided
@@ -269,6 +280,8 @@ private:
     /// Bound in place of a terrain's heights where the water has no ground
     /// under it: one texel, which nothing reads while the field says so.
     gpu::Owned<gpu::Texture> no_bed_;
+    /// The same for an exposure: one texel of open sea.
+    gpu::Owned<gpu::Texture> no_exposure_;
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};
@@ -276,8 +289,16 @@ private:
     /// constants also need.
     std::unordered_map<const WaterComponent*, GpuWaterField> fields_;
     /// Each node's ground this frame: the height texture of the terrain its
-    /// field's shore reads. Absent for a node with no shore.
-    std::unordered_map<const WaterComponent*, gpu::Texture> beds_;
+    /// field's shore reads, and its exposure. Absent for a node with no shore.
+    std::unordered_map<const WaterComponent*, Ground> grounds_;
+    /// Each node's exposure on the GPU and the bake it came from. A new bake
+    /// is a new texture, the old one released once the frames reading it are
+    /// done, rather than written over under them.
+    struct ExposureTexture {
+        std::shared_ptr<const water::ShoreExposure> from;
+        gpu::Owned<gpu::Texture> texture;
+    };
+    std::unordered_map<const WaterComponent*, ExposureTexture> exposures_;
     /// The levels an infinite surface is drawn from, recentered on the camera
     /// once per frame. One set of levels for the scene rather than one per
     /// node: they follow the camera, not the water, so two infinite seas at

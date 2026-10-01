@@ -221,9 +221,10 @@ inline constexpr float SILT_REFERENCE_DEPTH = 3.0f;
 [[nodiscard]] float advance_silt(float load, float agitation, float dt);
 
 /// What the ground under this water does to the sea at `world_xz`, or
-/// nothing where it does nothing: off the shore's terrain, in water deep
-/// enough for every sum of the sea, or with no shore at all. The evaluators
-/// below apply it; see `shore_effect()` for what it holds.
+/// nothing where it does nothing: in water deep enough for every sum of the
+/// sea and wholly open to it, beyond the reach of the shore's terrain and its
+/// lee, or with no shore at all. The evaluators below apply it; see
+/// `shore_effect()` for what it holds.
 [[nodiscard]] std::optional<ShoreEffect> shore_at(const FjWaterData& water, glm::vec2 world_xz);
 
 /// Where the surface at rest position `world_xz` has moved to at `time`.

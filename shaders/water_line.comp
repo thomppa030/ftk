@@ -33,6 +33,8 @@ layout(set = 2, binding = 2) uniform sampler2D simulated_displacement;
 
 layout(set = 2, binding = 7) uniform sampler2D bed_heights;
 #define FJELL_WATER_BED(texel) texelFetch(bed_heights, texel, 0).r
+layout(set = 2, binding = 8) uniform sampler2D shore_exposure;
+#define FJELL_WATER_EXPOSURE(texel) texelFetch(shore_exposure, texel, 0).rg
 #include "fjell_water_shore.glsl"
 
 layout(std430, set = 2, binding = 5) readonly buffer WakeBuffer {

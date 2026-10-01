@@ -2,6 +2,7 @@
 
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_derivation.hpp"
+#include "renderer/resources/water_shelter.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "core/named_value.hpp"
@@ -86,6 +87,11 @@ struct WaterComponent : NodeComponent {
     /// What derives `effective_water` from `water` each frame. Its own per
     /// body of water: it keeps the sea it last drew and any being shaped.
     water::SeaDerivation derivation;
+
+    /// What keeps this water's exposure current: how open it is to the sea
+    /// past the land around it, baked from the terrain under it and the ways
+    /// its sea arrives. Its own per body of water, like `derivation`.
+    water::ShoreDerivation shelter;
 
     /// The trails of whatever has moved through this water lately, laid each
     /// frame from the scene's motion sources and handed to `effective_water`

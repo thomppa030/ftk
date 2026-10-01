@@ -65,8 +65,12 @@ struct GpuWaterShore {
     std::uint32_t _pad0{0};
     std::uint32_t _pad1{0};
     std::uint32_t _pad2{0};
+    /// The exposure grid's placement; no samples is no exposure, wholly open.
+    glm::vec2 exposure_min_corner{0.0f};
+    float exposure_size{0.0f};
+    std::uint32_t exposure_samples{0};
 };
-static_assert(sizeof(GpuWaterShore) == 64, "must match FjellWaterShore in GLSL");
+static_assert(sizeof(GpuWaterShore) == 80, "must match FjellWaterShore in GLSL");
 
 /// The wave field, as one uniform buffer. Mirrors `FjellWaterField`.
 ///
@@ -103,6 +107,8 @@ static_assert(offsetof(GpuWaterField, simulated_patch_size) == 2116);
 static_assert(offsetof(GpuWaterField, shore) == 2128);
 static_assert(offsetof(GpuWaterShore, trains) == 32);
 static_assert(offsetof(GpuWaterShore, present) == 48);
+static_assert(offsetof(GpuWaterShore, exposure_min_corner) == 64);
+static_assert(offsetof(GpuWaterShore, exposure_samples) == 76);
 
 /// One source and its trail as the shader reads it. Mirrors `FjellWakeSource`
 /// in shaders/include/fjell_water_wake.glsl. Nothing but vec4s, so std430 and

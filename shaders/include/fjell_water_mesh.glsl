@@ -55,6 +55,11 @@ layout(set = 2, binding = 1) uniform WaterClipmapBuffer {
 // never read.
 layout(set = 2, binding = 7) uniform sampler2D bed_heights;
 #define FJELL_WATER_BED(texel) texelFetch(bed_heights, texel, 0).r
+// And how open it is to the sea past its land: two amplitude shares a sample,
+// the Gerstner trains' and the simulated sea's. A texel of open sea when the
+// field has no exposure, and then never read.
+layout(set = 2, binding = 8) uniform sampler2D shore_exposure;
+#define FJELL_WATER_EXPOSURE(texel) texelFetch(shore_exposure, texel, 0).rg
 #include "fjell_water_shore.glsl"
 
 // The simulated sea, when the field has one (field.simulated_patch_size > 0):

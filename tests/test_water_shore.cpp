@@ -23,8 +23,10 @@ namespace shore_shim {
 struct FjellWaterField;
 FjellWaterField& shim_water_field();
 float shim_bed(ivec2 texel);
+vec2 shim_exposure(ivec2 texel);
 #define FJELL_WATER_FIELD shim_water_field()
 #define FJELL_WATER_BED(texel) shim_bed(texel)
+#define FJELL_WATER_EXPOSURE(texel) shim_exposure(texel)
 #include "../shaders/include/fjell_water_waves.glsl"
 #include "../shaders/include/fjell_water_shore.glsl"
 
@@ -42,6 +44,19 @@ std::vector<float>& shim_bed_heights() {
 float shim_bed(ivec2 texel) {
     const auto samples = static_cast<int>(shim_water_field().shore.bed_samples);
     return shim_bed_heights()[static_cast<std::size_t>((texel.y * samples) + texel.x)];
+}
+
+// The exposure's shares, as its texture holds them.
+std::vector<std::uint16_t>& shim_exposure_shares() {
+    static std::vector<std::uint16_t> shares;
+    return shares;
+}
+
+vec2 shim_exposure(ivec2 texel) {
+    const auto samples = static_cast<int>(shim_water_field().shore.exposure_samples);
+    const auto i = static_cast<std::size_t>(2 * ((texel.y * samples) + texel.x));
+    return {static_cast<float>(shim_exposure_shares()[i]) / 65535.0f,
+            static_cast<float>(shim_exposure_shares()[i + 1]) / 65535.0f};
 }
 
 } // namespace shore_shim
@@ -208,7 +223,7 @@ TEST_CASE("The coastal sea shoals and breaks as the plan worked it out", "[water
     };
     for (const Row row : {Row{10.0f, 1.98f}, Row{6.0f, 1.94f}, Row{4.0f, 1.56f},
                           Row{2.0f, 0.78f}, Row{1.0f, 0.39f}, Row{0.5f, 0.20f}}) {
-        const auto effect = water::shore_effect({row.depth, {0.0f, 0.0f}}, {}, drawn.shoaling);
+        const auto effect = water::shore_effect(water::StillDepth{row.depth, {0.0f, 0.0f}}, {}, {}, drawn.shoaling);
         REQUIRE(effect.has_value());
         CHECK(effect->simulated * drawn.shoaling.amplitude == Approx(row.amplitude).margin(0.01));
     }
@@ -219,15 +234,15 @@ TEST_CASE("The shore leaves deep water and a flat sea alone", "[water_shore]") {
     const water::ShoalingSum chop{2.0f * 3.14159265f / 10.0f, 0.3f};     // a 10 m one
 
     // Deep for the longest wave present is deep for the sea.
-    CHECK_FALSE(water::shore_effect({120.0f, {}}, swell, chop).has_value());
-    CHECK_FALSE(water::shore_effect({12.0f, {}}, {}, chop).has_value());
+    CHECK_FALSE(water::shore_effect(water::StillDepth{120.0f, {}}, {}, swell, chop).has_value());
+    CHECK_FALSE(water::shore_effect(water::StillDepth{12.0f, {}}, {}, {}, chop).has_value());
     // A sea with nothing in it has nothing to shoal, however shallow.
-    CHECK_FALSE(water::shore_effect({0.5f, {}}, {}, {}).has_value());
+    CHECK_FALSE(water::shore_effect(water::StillDepth{0.5f, {}}, {}, {}, {}).has_value());
 
     // Shallow for the swell, still deep for the chop: the chop does not grow
     // by any coefficient of its own, only shares what breaking keeps, which
     // at this depth is all of it.
-    const auto mixed = water::shore_effect({12.0f, {}}, swell, chop);
+    const auto mixed = water::shore_effect(water::StillDepth{12.0f, {}}, {}, swell, chop);
     REQUIRE(mixed.has_value());
     CHECK(mixed->simulated == 1.0f);
     CHECK(mixed->gerstner != 1.0f);
@@ -237,7 +252,7 @@ TEST_CASE("The shore leaves deep water and a flat sea alone", "[water_shore]") {
 TEST_CASE("There is no sea on dry ground", "[water_shore]") {
     const water::ShoalingSum sea{0.2f, 1.0f};
     for (const float depth : {0.0f, -0.1f, -30.0f}) {
-        const auto effect = water::shore_effect({depth, {0.3f, 0.0f}}, sea, sea);
+        const auto effect = water::shore_effect(water::StillDepth{depth, {0.3f, 0.0f}}, {}, sea, sea);
         REQUIRE(effect.has_value());
         CHECK(effect->gerstner == 0.0f);
         CHECK(effect->simulated == 0.0f);
@@ -254,11 +269,11 @@ TEST_CASE("The shore factor's gradient is its change across the point", "[water_
 
     // From shoaling alone to deep in the breaking zone.
     for (const float depth : {20.0f, 8.0f, 5.0f, 2.5f, 1.0f, 0.3f}) {
-        const auto at = water::shore_effect({depth, slope}, swell, sea);
+        const auto at = water::shore_effect(water::StillDepth{depth, slope}, {}, swell, sea);
         REQUIRE(at.has_value());
         const float h = depth * 1e-3f;
-        const auto deeper = water::shore_effect({depth + h, slope}, swell, sea);
-        const auto shallower = water::shore_effect({depth - h, slope}, swell, sea);
+        const auto deeper = water::shore_effect(water::StillDepth{depth + h, slope}, {}, swell, sea);
+        const auto shallower = water::shore_effect(water::StillDepth{depth - h, slope}, {}, swell, sea);
         const float g_rate = (deeper->gerstner - shallower->gerstner) / (2.0f * h);
         const float s_rate = (deeper->simulated - shallower->simulated) / (2.0f * h);
         CHECK(at->gerstner_gradient.x == Approx(g_rate * slope.x).margin(1e-4));
@@ -269,6 +284,30 @@ TEST_CASE("The shore factor's gradient is its change across the point", "[water_
 }
 
 namespace {
+
+// A lee over the beach and past it: the trains' share falling away toward +x
+// and +z, the simulated sea's toward +x and rising toward +z. Planes, which
+// bilinear blending reproduces exactly, so a finite difference across one
+// sees no kink; sampled 10 m apart over 600 m from (-150, -300).
+water::ShoreExposure lee() {
+    water::ShoreExposure e;
+    e.samples = 61;
+    e.min_corner = {-150.0f, -300.0f};
+    e.size = 600.0f;
+    e.shares.resize(2u * 61u * 61u);
+    for (std::uint32_t z = 0; z < 61; ++z) {
+        for (std::uint32_t x = 0; x < 61; ++x) {
+            const float wx = 10.0f * static_cast<float>(x);   // metres from the corner
+            const float wz = 10.0f * static_cast<float>(z);
+            const std::size_t i = 2 * ((static_cast<std::size_t>(z) * 61) + x);
+            e.shares[i] = static_cast<std::uint16_t>(
+                std::lround((0.95f - (0.001f * wx) - (0.0005f * wz)) * 65535.0f));
+            e.shares[i + 1] = static_cast<std::uint16_t>(
+                std::lround((0.8f - (0.0008f * wx) + (0.0002f * wz)) * 65535.0f));
+        }
+    }
+    return e;
+}
 
 // A beach: a bed rising 1 in 30 toward +x, 10 m under the water at x = 0 and
 // breaking the surface at x = 300. A plane, so the bed has one slope
@@ -283,6 +322,7 @@ water::ShoreBed beach() {
     water::ShoreBed bed;
     bed.terrain = data;
     bed.min_corner = {-100.0f, -256.0f};
+    bed.exposure = std::make_shared<const water::ShoreExposure>(lee());
     return bed;
 }
 
@@ -417,6 +457,9 @@ void give_the_shader(const FjWaterData& water) {
     static_assert(sizeof(packed) == sizeof(shore_shim::FjellWaterField));
     std::memcpy(&shore_shim::shim_water_field(), &packed, sizeof(packed));
     shore_shim::shim_bed_heights() = water.shore->terrain->heights;
+    shore_shim::shim_exposure_shares() =
+        water.shore->exposure != nullptr ? water.shore->exposure->shares
+                                         : std::vector<std::uint16_t>{};
 }
 
 // The sea on the beach with its Gerstner trains alone: the simulated sea
@@ -506,4 +549,83 @@ TEST_CASE("The GPU shore matches the shader's struct", "[water_shore]") {
     REQUIRE(offsetof(GpuWaterShore, trains) == offsetof(FjellWaterShore, trains));
     REQUIRE(offsetof(GpuWaterShore, simulated) == offsetof(FjellWaterShore, simulated));
     REQUIRE(offsetof(GpuWaterShore, present) == offsetof(FjellWaterShore, present));
+    REQUIRE(offsetof(GpuWaterShore, exposure_min_corner)
+            == offsetof(FjellWaterShore, exposure_min_corner));
+    REQUIRE(offsetof(GpuWaterShore, exposure_size) == offsetof(FjellWaterShore, exposure_size));
+    REQUIRE(offsetof(GpuWaterShore, exposure_samples)
+            == offsetof(FjellWaterShore, exposure_samples));
+}
+
+TEST_CASE("The exposure between its samples is their blend", "[water_shore]") {
+    // lee() is two planes, so the blend anywhere on its grid is the planes'
+    // value there, and its slope theirs.
+    const water::ShoreExposure e = lee();
+    for (const glm::vec2 at : {glm::vec2{-150.0f, -300.0f}, glm::vec2{3.7f, 41.2f},
+                               glm::vec2{287.5f, -133.3f}, glm::vec2{450.0f, 300.0f}}) {
+        const glm::vec2 from = at - e.min_corner;
+        const water::ExposureAt open = water::exposure_at(e, at);
+        CHECK(open.trains == Approx(0.95f - (0.001f * from.x) - (0.0005f * from.y)).margin(1e-4));
+        CHECK(open.simulated == Approx(0.8f - (0.0008f * from.x) + (0.0002f * from.y)).margin(1e-4));
+        CHECK(open.trains_gradient.x == Approx(-0.001).margin(1e-5));
+        CHECK(open.trains_gradient.y == Approx(-0.0005).margin(1e-5));
+        CHECK(open.simulated_gradient.x == Approx(-0.0008).margin(1e-5));
+        CHECK(open.simulated_gradient.y == Approx(0.0002).margin(1e-5));
+    }
+    // Off its grid the sea is open.
+    CHECK(water::exposure_at(e, {-151.0f, 0.0f}).open());
+    CHECK(water::exposure_at(e, {0.0f, 301.0f}).open());
+}
+
+TEST_CASE("Deep water in a lee keeps the share that gets through", "[water_shore]") {
+    const water::ShoalingSum swell{2.0f * 3.14159265f / 60.0f, 1.0f};
+    const water::ShoalingSum sea{2.0f * 3.14159265f / 30.0f, 0.8f};
+    water::ExposureAt open;
+    open.trains = 0.4f;
+    open.simulated = 0.7f;
+    // Too deep to shoal, and with no depth at all: sheltered, not grown, not
+    // broken.
+    for (const auto& still : {std::optional<water::StillDepth>{water::StillDepth{200.0f, {}}},
+                              std::optional<water::StillDepth>{}}) {
+        const auto effect = water::shore_effect(still, open, swell, sea);
+        REQUIRE(effect.has_value());
+        CHECK(effect->gerstner == Approx(0.4f));
+        CHECK(effect->simulated == Approx(0.7f));
+        CHECK(effect->breaking == 0.0f);
+    }
+    // And wholly open deep water is left alone.
+    CHECK_FALSE(water::shore_effect(std::nullopt, {}, swell, sea).has_value());
+}
+
+TEST_CASE("The shore factor's gradient follows the lee as well as the bed", "[water_shore]") {
+    // Depth and both shares each a plane across the point; the factor taken
+    // a little to either side along x and along z, from the planes, against
+    // the gradient the shore states.
+    const water::ShoalingSum swell{2.0f * 3.14159265f / 60.0f, 1.0f};
+    const water::ShoalingSum sea{2.0f * 3.14159265f / 30.0f, 0.8f};
+    const glm::vec2 depth_slope{0.02f, -0.05f};
+    const glm::vec2 g_share_slope{-0.003f, 0.001f};
+    const glm::vec2 s_share_slope{0.002f, -0.004f};
+
+    for (const float depth : {20.0f, 5.0f, 2.5f, 0.8f}) {
+        const auto at = [&](glm::vec2 offset) {
+            water::ExposureAt open;
+            open.trains = 0.6f + glm::dot(g_share_slope, offset);
+            open.simulated = 0.5f + glm::dot(s_share_slope, offset);
+            open.trains_gradient = g_share_slope;
+            open.simulated_gradient = s_share_slope;
+            return *water::shore_effect(
+                water::StillDepth{depth + glm::dot(depth_slope, offset), depth_slope}, open,
+                swell, sea);
+        };
+        const water::ShoreEffect here = at({0.0f, 0.0f});
+        const float h = 0.01f;
+        for (const glm::vec2 axis : {glm::vec2{1.0f, 0.0f}, glm::vec2{0.0f, 1.0f}}) {
+            const water::ShoreEffect ahead = at(axis * h);
+            const water::ShoreEffect behind = at(-axis * h);
+            CHECK(glm::dot(here.gerstner_gradient, axis)
+                  == Approx((ahead.gerstner - behind.gerstner) / (2.0f * h)).margin(2e-4));
+            CHECK(glm::dot(here.simulated_gradient, axis)
+                  == Approx((ahead.simulated - behind.simulated) / (2.0f * h)).margin(2e-4));
+        }
+    }
 }

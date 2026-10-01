@@ -553,13 +553,16 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
 
 std::optional<ShoreEffect> shore_at(const FjWaterData& water, glm::vec2 world_xz) {
     if (!water.shore.has_value()) return std::nullopt;
-    const std::optional<StillDepth> depth = still_depth(*water.shore, world_xz);
-    if (!depth.has_value()) return std::nullopt;
+    const ShoreBed& bed = *water.shore;
+    const std::optional<StillDepth> depth = still_depth(bed, world_xz);
+    const ExposureAt exposure =
+        bed.exposure != nullptr ? exposure_at(*bed.exposure, world_xz) : ExposureAt{};
+    if (!depth.has_value() && exposure.open()) return std::nullopt;
     const ShoalingSum trains =
         water.packed_trains.has_value() ? water.packed_trains->shoaling : ShoalingSum{};
     const ShoalingSum simulated =
         water.simulated.has_value() ? water.simulated->shoaling : ShoalingSum{};
-    return shore_effect(*depth, trains, simulated);
+    return shore_effect(depth, exposure, trains, simulated);
 }
 
 glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {

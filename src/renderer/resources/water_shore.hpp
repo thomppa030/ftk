@@ -112,14 +112,29 @@ struct ShoalingSum {
     float amplitude{0.0f};   // metres
 };
 
+/// How open one point is to each sum of the sea — its amplitude share from a
+/// ShoreExposure — and how that changes across the point.
+struct ExposureAt {
+    float trains{1.0f};
+    float simulated{1.0f};
+    glm::vec2 trains_gradient{0.0f};
+    glm::vec2 simulated_gradient{0.0f};
+
+    [[nodiscard]] bool open() const { return trains >= 1.0f && simulated >= 1.0f; }
+};
+
+/// The exposure at world `world_xz`, read bilinearly between its samples;
+/// wholly open off its grid.
+[[nodiscard]] ExposureAt exposure_at(const ShoreExposure& exposure, glm::vec2 world_xz);
+
 /// What the ground does to the sea at one point: a factor on each sum, how
 /// that factor changes across the point, and how hard the water is breaking.
 ///
-/// Both sums of the sea — the Gerstner trains and the simulated sea — grow by
-/// their own dominant wave's coefficient, and breaking then holds them to what
-/// the depth can carry. Breaking is a limit on how tall the water is, so it
-/// takes the two together: their shoaled heights add as variances, and one
-/// ratio scales both.
+/// Both sums of the sea — the Gerstner trains and the simulated sea — arrive
+/// with the share the land in front of them lets through, grow by their own
+/// dominant wave's coefficient, and breaking then holds them to what the depth
+/// can carry. Breaking is a limit on how tall the water is, so it takes the
+/// two together: their heights add as variances, and one ratio scales both.
 struct ShoreEffect {
     float gerstner{1.0f};
     glm::vec2 gerstner_gradient{0.0f};
@@ -132,10 +147,13 @@ struct ShoreEffect {
 };
 
 /// The shore's effect on a sea made of `gerstner` and `simulated` over water
-/// `still` deep, or nothing where it has none: where every sum present is in
-/// deep water, and on a flat sea. Nothing means the sea is left exactly as
-/// it is, not scaled by 1.
-[[nodiscard]] std::optional<ShoreEffect> shore_effect(const StillDepth& still,
+/// `still` deep and `exposure` open, or nothing where it has none: where every
+/// sum present is in deep water and wholly open to the sea, and on a flat sea.
+/// Nothing means the sea is left exactly as it is, not scaled by 1. With no
+/// depth — off the terrain, where a lee can still reach — the water counts as
+/// deep: sheltered, not shoaled.
+[[nodiscard]] std::optional<ShoreEffect> shore_effect(const std::optional<StillDepth>& still,
+                                                      const ExposureAt& exposure,
                                                       ShoalingSum gerstner,
                                                       ShoalingSum simulated);
 

@@ -51,6 +51,11 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
             shore.simulated = {sum.k, sum.amplitude};
         }
         shore.present = 1;
+        if (bed.exposure != nullptr) {
+            shore.exposure_min_corner = bed.exposure->min_corner;
+            shore.exposure_size = bed.exposure->size;
+            shore.exposure_samples = bed.exposure->samples;
+        }
     }
     return field;
 }

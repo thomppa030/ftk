@@ -61,19 +61,26 @@ Shoaling shoaling_at(float mu) {
     return s;
 }
 
-std::optional<ShoreEffect> shore_effect(const StillDepth& still, ShoalingSum gerstner,
+std::optional<ShoreEffect> shore_effect(const std::optional<StillDepth>& still,
+                                        const ExposureAt& exposure, ShoalingSum gerstner,
                                         ShoalingSum simulated) {
     // A sum with no height has nothing to shoal, and no say in where the
-    // shallows begin.
+    // shallows begin. One present is left alone where it arrives whole and
+    // the water is too deep for it to feel the bed.
     const bool has_gerstner = gerstner.amplitude > 0.0f && gerstner.k > 0.0f;
     const bool has_simulated = simulated.amplitude > 0.0f && simulated.k > 0.0f;
-    const float d = still.depth;
-    const bool gerstner_deep = !has_gerstner || gerstner.k * d >= SHOALING_DEEP_MU;
-    const bool simulated_deep = !has_simulated || simulated.k * d >= SHOALING_DEEP_MU;
-    if (gerstner_deep && simulated_deep) return std::nullopt;
+    const auto untouched = [&](bool has, ShoalingSum sum, float share) {
+        if (!has) return true;
+        if (share < 1.0f) return false;
+        return !still.has_value() || sum.k * still->depth >= SHOALING_DEEP_MU;
+    };
+    if (untouched(has_gerstner, gerstner, exposure.trains)
+        && untouched(has_simulated, simulated, exposure.simulated)) {
+        return std::nullopt;
+    }
 
     ShoreEffect e;
-    if (d <= 0.0f) {
+    if (still.has_value() && still->depth <= 0.0f) {
         // The bed stands above the water: no sea here to shape.
         e.gerstner = 0.0f;
         e.simulated = 0.0f;
@@ -81,38 +88,97 @@ std::optional<ShoreEffect> shore_effect(const StillDepth& still, ShoalingSum ger
         return e;
     }
 
-    const Shoaling g = has_gerstner ? shoaling_at(gerstner.k * d) : Shoaling{};
-    const Shoaling s = has_simulated ? shoaling_at(simulated.k * d) : Shoaling{};
+    // Unknown depth is deep water: it neither shoals nor breaks.
+    const float d = still.has_value() ? still->depth : 0.0f;
+    const glm::vec2 depth_slope = still.has_value() ? still->gradient : glm::vec2(0.0f);
+    const Shoaling g = has_gerstner && still.has_value() ? shoaling_at(gerstner.k * d) : Shoaling{};
+    const Shoaling s =
+        has_simulated && still.has_value() ? shoaling_at(simulated.k * d) : Shoaling{};
+    const float g_share = has_gerstner ? exposure.trains : 1.0f;
+    const float s_share = has_simulated ? exposure.simulated : 1.0f;
+    const glm::vec2 g_share_slope = has_gerstner ? exposure.trains_gradient : glm::vec2(0.0f);
+    const glm::vec2 s_share_slope = has_simulated ? exposure.simulated_gradient : glm::vec2(0.0f);
 
-    // Each sum's height as it has shoaled, and how that changes with depth.
-    const float g_height = has_gerstner ? g.coefficient * gerstner.amplitude : 0.0f;
-    const float s_height = has_simulated ? s.coefficient * simulated.amplitude : 0.0f;
-    const float g_rate = has_gerstner ? g.slope * gerstner.k * gerstner.amplitude : 0.0f;
-    const float s_rate = has_simulated ? s.slope * simulated.k * simulated.amplitude : 0.0f;
+    // Each sum before breaking, as a factor on its amplitude and how that
+    // changes across the point: what gets through, grown by shoaling.
+    const float g_grown = g.coefficient * g_share;
+    const float s_grown = s.coefficient * s_share;
+    const glm::vec2 g_grown_slope =
+        (g.slope * gerstner.k * g_share * depth_slope) + (g.coefficient * g_share_slope);
+    const glm::vec2 s_grown_slope =
+        (s.slope * simulated.k * s_share * depth_slope) + (s.coefficient * s_share_slope);
 
     // The water's height is the two together, as variances add; breaking
     // holds that to what the depth can carry, and whatever share it keeps,
     // both sums keep.
-    const float height = std::sqrt((g_height * g_height) + (s_height * s_height));
-    const float height_rate = ((g_height * g_rate) + (s_height * s_rate)) / height;
-    const float carried = 0.5f * BREAKER_INDEX * d;
     float kept = 1.0f;
-    float kept_rate = 0.0f;
-    if (height > carried) {
-        kept = carried / height;
-        kept_rate = ((0.5f * BREAKER_INDEX) - (kept * height_rate)) / height;
+    glm::vec2 kept_slope{0.0f};
+    if (still.has_value()) {
+        const float g_height = has_gerstner ? g_grown * gerstner.amplitude : 0.0f;
+        const float s_height = has_simulated ? s_grown * simulated.amplitude : 0.0f;
+        const float height = std::sqrt((g_height * g_height) + (s_height * s_height));
+        const float carried = 0.5f * BREAKER_INDEX * d;
+        if (height > carried) {
+            const glm::vec2 g_height_slope =
+                has_gerstner ? g_grown_slope * gerstner.amplitude : glm::vec2(0.0f);
+            const glm::vec2 s_height_slope =
+                has_simulated ? s_grown_slope * simulated.amplitude : glm::vec2(0.0f);
+            const glm::vec2 height_slope =
+                ((g_height * g_height_slope) + (s_height * s_height_slope)) / height;
+            kept = carried / height;
+            kept_slope = ((0.5f * BREAKER_INDEX * depth_slope) - (kept * height_slope)) / height;
+        }
     }
 
-    // factor = Ks · kept, and its change with depth is carried across the
-    // point by the depth's own slope.
-    e.gerstner = g.coefficient * kept;
-    e.gerstner_gradient =
-        ((g.slope * gerstner.k * kept) + (g.coefficient * kept_rate)) * still.gradient;
-    e.simulated = s.coefficient * kept;
-    e.simulated_gradient =
-        ((s.slope * simulated.k * kept) + (s.coefficient * kept_rate)) * still.gradient;
+    e.gerstner = g_grown * kept;
+    e.gerstner_gradient = (g_grown_slope * kept) + (g_grown * kept_slope);
+    e.simulated = s_grown * kept;
+    e.simulated_gradient = (s_grown_slope * kept) + (s_grown * kept_slope);
     e.breaking = 1.0f - kept;
     return e;
+}
+
+ExposureAt exposure_at(const ShoreExposure& exposure, glm::vec2 world_xz) {
+    ExposureAt out;
+    const std::uint32_t n = exposure.samples;
+    if (n < 2 || exposure.size <= 0.0f
+        || exposure.shares.size() < 2 * static_cast<std::size_t>(n) * n) {
+        return out;
+    }
+    const glm::vec2 field = world_xz - exposure.min_corner;
+    if (field.x < 0.0f || field.y < 0.0f || field.x > exposure.size || field.y > exposure.size) {
+        return out;
+    }
+
+    // As still_depth() reads the bed: the cell's four samples, blended.
+    const auto quads = static_cast<float>(n - 1);
+    const float per_metre = quads / exposure.size;
+    const float fx = std::min(field.x * per_metre, quads);
+    const float fz = std::min(field.y * per_metre, quads);
+    const auto x0 = std::min(static_cast<std::uint32_t>(fx), n - 2);
+    const auto z0 = std::min(static_cast<std::uint32_t>(fz), n - 2);
+    const float tx = fx - static_cast<float>(x0);
+    const float tz = fz - static_cast<float>(z0);
+
+    const auto at = [&](std::uint32_t x, std::uint32_t z, std::uint32_t channel) {
+        return static_cast<float>(
+                   exposure.shares[(2 * ((static_cast<std::size_t>(z) * n) + x)) + channel])
+             / 65535.0f;
+    };
+    const auto blend = [&](std::uint32_t channel, float& value, glm::vec2& slope) {
+        const float v00 = at(x0, z0, channel);
+        const float v10 = at(x0 + 1, z0, channel);
+        const float v01 = at(x0, z0 + 1, channel);
+        const float v11 = at(x0 + 1, z0 + 1, channel);
+        const float top = v00 + ((v10 - v00) * tx);
+        const float bottom = v01 + ((v11 - v01) * tx);
+        value = top + ((bottom - top) * tz);
+        slope = glm::vec2(((v10 - v00) * (1.0f - tz)) + ((v11 - v01) * tz), bottom - top)
+              * per_metre;
+    };
+    blend(0, out.trains, out.trains_gradient);
+    blend(1, out.simulated, out.simulated_gradient);
+    return out;
 }
 
 std::optional<StillDepth> still_depth(const ShoreBed& bed, glm::vec2 world_xz) {
