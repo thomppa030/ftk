@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/kit/node_graph.hpp"
+#include "ftk/ui/kit/node_graph.hpp"
 
 #include <glm/glm.hpp>
 #include <imgui.h>

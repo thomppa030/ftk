@@ -12,7 +12,7 @@
 #include "renderer/resources/vertex.hpp"
 #include "animation/fjskel.hpp"
 #include "animation/fjanim.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "ui/game_ui/fjfont.hpp"
 #include "ui/game_ui/font_atlas_build.hpp"
 

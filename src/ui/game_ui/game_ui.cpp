@@ -8,8 +8,8 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "core/base_path.hpp"
 #include "core/input.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 #include "core/project.hpp"
 
 #include <algorithm>

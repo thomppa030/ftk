@@ -1,9 +1,9 @@
 #pragma once
 
-#include "core/result.hpp"
-#include "gpu/binding.hpp"
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <array>

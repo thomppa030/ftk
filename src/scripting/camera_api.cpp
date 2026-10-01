@@ -1,5 +1,5 @@
 #include "fjell/api.h"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scripting/script_call.hpp"
 #include "scripting/script_globals.hpp"
 #include "scene/camera_node.hpp"

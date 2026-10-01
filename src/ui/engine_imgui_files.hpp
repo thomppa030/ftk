@@ -1,8 +1,8 @@
 #pragma once
 
 #include "core/engine_dir.hpp"
-#include "core/log.hpp"
-#include "ui/imgui_layer.hpp"
+#include "ftk/app/imgui_layer.hpp"
+#include "ftk/base/log.hpp"
 
 namespace fjell {
 

@@ -1,9 +1,9 @@
 #include "ui/timeline_widget.hpp"
 
-#include "ui/kit/button.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/panel.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/panel.hpp"
 
 #include <imgui.h>
 

@@ -1,7 +1,7 @@
 #include "renderer/resources/texture.hpp"
-#include "gpu/device.hpp"
-#include "gpu/upload.hpp"
-#include "core/log.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/upload.hpp"
+#include "ftk/base/log.hpp"
 
 #include <stb_image.h>
 

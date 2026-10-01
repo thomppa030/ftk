@@ -1,10 +1,10 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "core/project.hpp"
+#include "ftk/base/delegate.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #endif
 
 #include <filesystem>

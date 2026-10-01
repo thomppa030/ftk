@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/result.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/vertex.hpp"

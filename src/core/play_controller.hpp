@@ -1,9 +1,9 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "core/fixed_step_stats.hpp"
 #include "core/fixed_timestep.hpp"
 #include "core/step_input_latch.hpp"
+#include "ftk/base/delegate.hpp"
 
 #include <glm/glm.hpp>
 #include <imgui.h>

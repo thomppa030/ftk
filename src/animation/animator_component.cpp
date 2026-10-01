@@ -1,8 +1,8 @@
 #include "animation/animator_component.hpp"
 #include "scene/node.hpp"
 #include "scripting/script_call.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 

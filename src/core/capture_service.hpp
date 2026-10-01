@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gpu/readback.hpp"
+#include "ftk/gpu/readback.hpp"
 
 #include <cstdint>
 #include <filesystem>

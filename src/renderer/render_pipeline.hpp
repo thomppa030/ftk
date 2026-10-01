@@ -1,8 +1,8 @@
 #pragma once
 
-#include "renderer/frame_graph.hpp"
-#include "renderer/pass_builder.hpp"
-#include "renderer/resource_registry.hpp"
+#include "ftk/framegraph/frame_graph.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/framegraph/resource_registry.hpp"
 
 #include <cstdint>
 #include <string>

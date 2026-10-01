@@ -1,12 +1,12 @@
 #include "ui/inspectors/model_fields.hpp"
 #include "scripting/script_call.hpp"
 
+#include "ftk/ui/kit/list_editor.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "scripting/reflected_types.hpp"
 #include "ui/game_ui/ui_value.hpp"
 #include "ui/inspectors/script_fields.hpp"
-#include "ui/kit/list_editor.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
 
 #include <glm/glm.hpp>
 #include <imgui.h>

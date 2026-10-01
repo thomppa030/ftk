@@ -4,10 +4,10 @@
 
 #include "scene/node_serializer.hpp"
 
-#include "core/log.hpp"
-#include "core/math/color_space.hpp"
 #include "environment/material_track.hpp"
 #include "environment/weather_asset.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/math/color_space.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 

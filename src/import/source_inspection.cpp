@@ -1,6 +1,6 @@
 #include "import/source_inspection.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "import/import_job.hpp"
 
 #include <nlohmann/json.hpp>

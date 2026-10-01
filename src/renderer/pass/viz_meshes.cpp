@@ -1,6 +1,6 @@
 #include "renderer/pass/viz_meshes.hpp"
 
-#include "gpu/render_encoder.hpp"
+#include "ftk/gpu/render_encoder.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/render_queue.hpp"

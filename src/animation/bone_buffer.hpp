@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>

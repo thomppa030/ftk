@@ -1,4 +1,4 @@
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/component.hpp"

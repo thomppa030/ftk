@@ -1,4 +1,4 @@
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -2,8 +2,8 @@
 
 #include "environment/color_gradient.hpp"
 
-#include "core/math/curve.hpp"
 #include "core/named_value.hpp"
+#include "ftk/math/curve.hpp"
 
 #include <glm/glm.hpp>
 #include <nlohmann/json_fwd.hpp>

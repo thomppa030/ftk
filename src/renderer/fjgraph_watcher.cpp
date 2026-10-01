@@ -1,7 +1,7 @@
 #ifndef NDEBUG
 
 #include "renderer/fjgraph_watcher.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 namespace fjell {
 

@@ -18,7 +18,7 @@
 // }
 // An omitted charset is ASCII plus Latin-1.
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 
 #include <cstdint>
 #include <filesystem>

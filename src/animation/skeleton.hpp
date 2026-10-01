@@ -2,7 +2,7 @@
 
 #include "animation/fjskel.hpp"
 #include "physics/collision_shape.hpp"
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 
 #include <ozz/animation/runtime/skeleton.h>
 

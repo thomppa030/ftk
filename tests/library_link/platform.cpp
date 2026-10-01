@@ -2,10 +2,10 @@
 // only if everything in the library finds what it needs in the library and
 // its own dependencies. Running it calls into each part once.
 
-#include "core/log.hpp"
-#include "platform/file_watcher.hpp"
-#include "platform/platform.hpp"
-#include "platform/shared_library.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/platform/file_watcher.hpp"
+#include "ftk/platform/platform.hpp"
+#include "ftk/platform/shared_library.hpp"
 
 #include <filesystem>
 

@@ -1,8 +1,8 @@
 #include "core/project.hpp"
 #include "core/asset_database.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "platform/platform.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>

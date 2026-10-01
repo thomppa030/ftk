@@ -1,5 +1,5 @@
 #include "animation/anim_notify_registry.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 namespace fjell {
 

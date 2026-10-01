@@ -1,6 +1,14 @@
 #include "ui/ui_preview_data.hpp"
 
 #include "core/base_path.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/inset_group.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
+#include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/theme.hpp"
 #include "scene/component_meta.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
@@ -11,15 +19,7 @@
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "ui/inspectors/model_fields.hpp"
 #include "ui/inspectors/script_fields.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/inset_group.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
-#include "ui/kit/text_field.hpp"
 #include "ui/node_slot.hpp"
-#include "ui/theme.hpp"
 
 #include <algorithm>
 #include <filesystem>

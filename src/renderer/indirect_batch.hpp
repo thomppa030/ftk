@@ -3,9 +3,9 @@
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/render_encoder.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/render_encoder.hpp"
 
 #include <array>
 #include <cstdint>

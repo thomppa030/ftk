@@ -1,8 +1,8 @@
 #pragma once
 
 #include "core/input_action.hpp"
-#include "core/result.hpp"
-#include "platform/file_watcher.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/resources/resource_pool.hpp"

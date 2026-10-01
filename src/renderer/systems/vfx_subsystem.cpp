@@ -1,6 +1,6 @@
 #include "renderer/systems/vfx_subsystem.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/systems/vfx_asset.hpp"

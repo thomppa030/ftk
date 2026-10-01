@@ -1,7 +1,7 @@
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/list_editor.hpp"
+#include "ftk/ui/theme.hpp"
 #include "imgui_harness.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/list_editor.hpp"
-#include "ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

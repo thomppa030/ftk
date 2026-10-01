@@ -1,10 +1,10 @@
 #pragma once
 
-#include "gpu/format.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/format.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>

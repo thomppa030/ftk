@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/delegate.hpp"
-#include "ui/kit/tree.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/ui/kit/tree.hpp"
 
 #include <cstdint>
 #include <string>

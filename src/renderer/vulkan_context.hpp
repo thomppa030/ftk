@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/frame.hpp"
-#include "gpu/swapchain.hpp"
+#include "ftk/gpu/frame.hpp"
+#include "ftk/gpu/swapchain.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_registry.hpp"

@@ -1,6 +1,6 @@
 #include "core/asset_remap.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

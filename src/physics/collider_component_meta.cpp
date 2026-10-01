@@ -1,6 +1,6 @@
 #include "scene/component_registry.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "physics/physics_types.hpp"
 #include "physics/collider_surface.hpp"
 #include "renderer/components/mesh_component.hpp"

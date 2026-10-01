@@ -6,7 +6,7 @@
 #include "ui/state_graph.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "scene/scene.hpp"
 
 #include <imgui.h>

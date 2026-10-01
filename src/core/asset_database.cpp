@@ -1,6 +1,6 @@
 #include "core/asset_database.hpp"
 #include "core/asset_identity.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

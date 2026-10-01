@@ -1,6 +1,6 @@
 #include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_serializer.hpp"
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

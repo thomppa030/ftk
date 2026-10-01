@@ -1,8 +1,8 @@
 #include "renderer/resources/terrain_asset.hpp"
 
-#include "core/log.hpp"
-#include "gpu/device.hpp"
-#include "gpu/upload.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/upload.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/fjterrain_io.hpp"
 

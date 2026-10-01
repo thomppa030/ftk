@@ -1,6 +1,6 @@
-#include "gpu/owned.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -1,9 +1,9 @@
 #include "core/game_builder.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "core/project.hpp"
-#include "platform/platform.hpp"
-#include "platform/shared_library.hpp"
+#include "ftk/platform/platform.hpp"
+#include "ftk/platform/shared_library.hpp"
 
 #include <nlohmann/json.hpp>
 

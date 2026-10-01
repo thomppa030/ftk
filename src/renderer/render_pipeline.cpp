@@ -13,13 +13,13 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/systems/render_subsystem.hpp"
-#include "renderer/transient_image_pool.hpp"
+#include "ftk/framegraph/transient_image_pool.hpp"
 #include "scene/scene.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/base/thread_pool.hpp"
 
-#include "gpu/device.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <algorithm>
 #include <queue>

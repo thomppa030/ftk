@@ -1,9 +1,9 @@
 #include "renderer/pass/ddgi_pass.hpp"
-#include "gpu/device.hpp"
-#include "gpu/upload.hpp"
-#include "core/profiler.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/upload.hpp"
+#include "ftk/base/profiler.hpp"
 #include "renderer/accel_structure.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -12,7 +12,7 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "environment/environment_state.hpp"
 #include "scene/scene.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <glm/gtc/random.hpp>
 #include <glm/gtc/matrix_transform.hpp>

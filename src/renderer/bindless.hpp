@@ -1,12 +1,12 @@
 #pragma once
 
-#include "core/handle.hpp"
-#include "core/result.hpp"
-#include "gpu/binding.hpp"
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/base/handle.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 

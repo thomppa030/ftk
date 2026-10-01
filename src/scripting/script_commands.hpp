@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/command.hpp"
+#include "ftk/app/command.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"

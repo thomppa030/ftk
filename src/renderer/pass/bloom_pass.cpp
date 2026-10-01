@@ -10,12 +10,12 @@
 
 #include "renderer/pass/bloom_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/device.hpp"
-#include "gpu/render_encoder.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/render_encoder.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 
 #include <algorithm>

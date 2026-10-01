@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/binding.hpp"
-#include "gpu/owned.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/owned.hpp"
 #include "ui/engine_editor_context.hpp"
 #include "ui/hierarchy_panel.hpp"
 #include "ui/net_panel.hpp"
@@ -9,7 +9,7 @@
 #include "ui/brush.hpp"
 #include "ui/terrain_sculpt.hpp"
 #include "ui/viewport_manager.hpp"
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>

@@ -4,7 +4,7 @@
 #include "core/fixed_timestep.hpp"
 #include "core/frame_context.hpp"
 #include "core/input.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "physics/physics_subsystem.hpp"
 #include "physics/physics_types.hpp"
 #include "physics/physics_world.hpp"

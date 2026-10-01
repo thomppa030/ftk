@@ -1,6 +1,6 @@
 #include "environment/weather_asset.hpp"
 
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <nlohmann/json.hpp>
 

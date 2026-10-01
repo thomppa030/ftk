@@ -2,7 +2,7 @@
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "scene/node.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "core/project_manager.hpp"

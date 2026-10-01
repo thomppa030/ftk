@@ -1,7 +1,7 @@
 #include "animation/bone_buffer.hpp"
 
-#include "core/log.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <algorithm>
 #include <cstring>

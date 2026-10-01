@@ -1,9 +1,9 @@
 #include "renderer/accel_structure.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/components/terrain_component.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/model.hpp"
@@ -11,8 +11,8 @@
 #include "renderer/systems/particle_system.hpp"
 #include "scene/scene.hpp"
 
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 

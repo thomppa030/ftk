@@ -2,9 +2,9 @@
 // that answers textures' shapes from a table and keeps every batch the graph
 // would record, beside markers for the passes as they run.
 
-#include "core/log.hpp"
-#include "renderer/frame_graph.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/framegraph/frame_graph.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <spdlog/sinks/callback_sink.h>

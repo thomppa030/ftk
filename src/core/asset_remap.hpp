@@ -12,7 +12,7 @@
 // referencing file at once.
 
 #include "core/asset_id.hpp"
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 
 #include <filesystem>
 #include <unordered_map>

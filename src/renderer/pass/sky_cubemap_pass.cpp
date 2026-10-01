@@ -1,20 +1,20 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
 
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
 #include "core/project.hpp"
 #include "environment/environment_state.hpp"
-#include "gpu/device.hpp"
-#include "gpu/shader.hpp"
-#include "gpu/upload.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/framegraph/resource_registry.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/shader.hpp"
+#include "ftk/gpu/upload.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass/sky_pass.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/resource_registry.hpp"
 
 #include <stb_image.h>
 

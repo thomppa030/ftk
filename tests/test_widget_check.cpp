@@ -1,5 +1,5 @@
 #include "ui/game_ui/widget_check.hpp"
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>

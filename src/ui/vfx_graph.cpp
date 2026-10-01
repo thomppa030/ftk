@@ -1,11 +1,11 @@
 #include "ui/vfx_graph.hpp"
 
-#include "core/string_utils.hpp"
+#include "ftk/base/string_utils.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/theme.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/menu.hpp"
-#include "ui/theme.hpp"
 
 #include <algorithm>
 #include <unordered_set>

@@ -2,7 +2,7 @@
 
 #include "net/packet_codec.hpp"
 #include "net/enet_transport.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
 #include "scene/preset_asset.hpp"

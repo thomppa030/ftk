@@ -1,8 +1,8 @@
 #include "renderer/bindless.hpp"
 #include "renderer/resources/texture.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <algorithm>
 #include <cstring>

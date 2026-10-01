@@ -1,5 +1,5 @@
 #include "renderer/render_settings.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/ddgi_pass.hpp"

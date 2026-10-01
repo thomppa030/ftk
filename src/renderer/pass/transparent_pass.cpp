@@ -1,10 +1,10 @@
 #include "renderer/pass/transparent_pass.hpp"
 
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/lit_surface_reads.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/mega_buffer.hpp"

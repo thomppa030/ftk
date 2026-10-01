@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/editor_context.hpp"
+#include "ftk/app/editor_context.hpp"
 #include "ui/stats_panel.hpp"
 #include "renderer/viewport_source.hpp"
 

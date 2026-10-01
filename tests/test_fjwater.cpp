@@ -1,7 +1,7 @@
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_gpu.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "renderer/resources/water_derivation.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 #include "renderer/resources/water_surface.hpp"

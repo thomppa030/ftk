@@ -1,7 +1,7 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
 #include "core/asset_identity.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/resource_manager.hpp"
 

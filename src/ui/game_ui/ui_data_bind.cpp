@@ -1,7 +1,7 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_context.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <algorithm>
 #include <optional>

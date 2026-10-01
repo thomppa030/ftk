@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 #include "scene/component_type.hpp"
 #include "scripting/script_call.hpp"
 

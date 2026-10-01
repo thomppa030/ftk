@@ -1,7 +1,7 @@
 #include "core/input_action_map.hpp"
 #include "core/input.hpp"
 #include "core/input_context_io.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <cmath>
 

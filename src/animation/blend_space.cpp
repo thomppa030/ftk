@@ -1,5 +1,5 @@
 #include "animation/blend_space.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

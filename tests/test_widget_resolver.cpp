@@ -2,7 +2,7 @@
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_context.hpp"
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include "ui_length_printer.hpp"
 

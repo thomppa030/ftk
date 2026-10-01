@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
 #include "renderer/pass/depth_variants.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/render_pass.hpp"

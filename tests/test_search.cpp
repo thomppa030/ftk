@@ -1,5 +1,5 @@
+#include "ftk/ui/kit/search.hpp"
 #include "imgui_harness.hpp"
-#include "ui/kit/search.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>

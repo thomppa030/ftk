@@ -1,14 +1,14 @@
 #include "ui/texture_preview.hpp"
 
-#include "core/log.hpp"
-#include "ui/icon_cache.hpp"
-#include "ui/imgui_layer.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/panel.hpp"
-#include "ui/kit/viewport_toolbar.hpp"
-#include "ui/theme.hpp"
+#include "ftk/app/icon_cache.hpp"
+#include "ftk/app/imgui_layer.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <stb_image.h>
 

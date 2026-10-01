@@ -3,7 +3,7 @@
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/widget_resolver.hpp"
 #include "ui/game_ui/ui_context.hpp"
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -1,5 +1,5 @@
 #include "renderer/systems/vfx_emitter.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <array>

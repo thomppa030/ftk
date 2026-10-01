@@ -2,7 +2,7 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_style.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <algorithm>
 #include <cmath>

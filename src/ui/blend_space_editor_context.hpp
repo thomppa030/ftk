@@ -1,9 +1,9 @@
 #pragma once
 
 #include "animation/blend_space.hpp"
+#include "ftk/ui/kit/canvas.hpp"
 #include "scene/scene.hpp"
 #include "ui/engine_editor_context.hpp"
-#include "ui/kit/canvas.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <glm/glm.hpp>

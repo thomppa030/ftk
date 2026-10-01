@@ -1,8 +1,8 @@
 #include "ui/inspectors/collision_shape_fields.hpp"
 
-#include "ui/kit/field.hpp"
-#include "ui/kit/menu.hpp"
-#include "ui/kit/row.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/kit/row.hpp"
 
 #include <imgui.h>
 

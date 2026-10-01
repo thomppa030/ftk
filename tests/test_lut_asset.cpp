@@ -1,4 +1,4 @@
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 #include "renderer/resources/lut_asset.hpp"
 
 #include <catch2/catch_approx.hpp>

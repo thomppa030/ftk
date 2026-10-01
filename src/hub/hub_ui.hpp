@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/file_browser.hpp"
+#include "ftk/app/file_browser.hpp"
 #include "hub/recent_projects.hpp"
 
 #include <string>

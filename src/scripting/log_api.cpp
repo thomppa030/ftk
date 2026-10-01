@@ -1,5 +1,5 @@
 #include "fjell/api.h"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 extern "C" FJELL_SDK_EXPORT void fjell_log_info(const char* msg) {
     FJELL_CORE_INFO("[script] {}", msg);

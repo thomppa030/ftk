@@ -1,8 +1,8 @@
 #pragma once
 
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/row.hpp"
 #include "ui/brush.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/row.hpp"
 
 namespace fjell {
 

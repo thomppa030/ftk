@@ -1,20 +1,20 @@
 #pragma once
 
-#include "core/delegate.hpp"
-#include "core/result.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/base/result.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/fjell/registry.hpp"
 #include "scripting/script_call.hpp"
 #include "scripting/fjell/world.hpp"
 #include "scripting/timer_manager.hpp"
-#include "platform/shared_library.hpp"
+#include "ftk/platform/shared_library.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "scripting/reflected_types.hpp"
 #include "scene/component_type.hpp"
 #include "scene/script_host.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #endif
 
 #include <glm/glm.hpp>

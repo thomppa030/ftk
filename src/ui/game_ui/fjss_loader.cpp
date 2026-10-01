@@ -1,5 +1,5 @@
 #include "ui/game_ui/fjss_loader.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <filesystem>

@@ -1,9 +1,9 @@
 #include "physics/physics_subsystem.hpp"
 
 #include "core/frame_context.hpp"
-#include "core/profiler.hpp"
-#include "core/thread_pool.hpp"
 #include "environment/environment_subsystem.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/components/water_component.hpp"

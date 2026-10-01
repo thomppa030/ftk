@@ -1,12 +1,12 @@
 #include "ui/shader_error_callout.hpp"
 
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "platform/platform.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/platform/platform.hpp"
+#include "ftk/shader/shader_diagnostic.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/shader_diagnostic.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/icons.hpp"
 
 #include <imgui.h>
 

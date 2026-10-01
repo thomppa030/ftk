@@ -1,7 +1,7 @@
 #include "renderer/resources/mega_buffer.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/device.hpp"
-#include "core/log.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/base/log.hpp"
 
 #include <stdexcept>
 

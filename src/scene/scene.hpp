@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/node.hpp"

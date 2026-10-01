@@ -1,6 +1,6 @@
 #include "renderer/resources/material_asset.hpp"
-#include "core/log.hpp"
-#include "core/math/color_space.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <nlohmann/json.hpp>
 

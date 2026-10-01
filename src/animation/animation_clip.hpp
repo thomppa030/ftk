@@ -2,7 +2,7 @@
 
 #include "animation/anim_notify.hpp"
 #include "animation/fjanim.hpp"
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 
 #include <ozz/animation/runtime/animation.h>
 

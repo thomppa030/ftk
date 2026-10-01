@@ -41,7 +41,7 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/widget_check.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <spdlog/sinks/base_sink.h>
 

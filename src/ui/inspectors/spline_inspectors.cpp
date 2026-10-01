@@ -1,19 +1,19 @@
 #include "ui/inspectors/spline_inspectors.hpp"
 
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/list_editor.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
+#include "ftk/ui/theme.hpp"
 #include "renderer/components/instanced_mesh_component.hpp"
 #include "renderer/components/spline_component.hpp"
 #include "renderer/components/spline_mesh_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/asset_rows.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/choice.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/list_editor.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
-#include "ui/theme.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>

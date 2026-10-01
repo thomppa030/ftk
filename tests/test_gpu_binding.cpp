@@ -1,4 +1,4 @@
-#include "gpu/binding.hpp"
+#include "ftk/gpu/binding.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

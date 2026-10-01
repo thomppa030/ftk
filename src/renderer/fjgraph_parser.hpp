@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 #include "renderer/fjgraph_asset.hpp"
 
 #include <string>

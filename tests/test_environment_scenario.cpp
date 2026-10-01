@@ -1,5 +1,5 @@
 #include "environment/environment_scenario.hpp"
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

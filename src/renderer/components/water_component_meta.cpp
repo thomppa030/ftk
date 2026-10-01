@@ -1,5 +1,5 @@
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/components/water_component.hpp"
 #include "renderer/resources/fjwater_io.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "core/subsystem.hpp"
+#include "ftk/base/delegate.hpp"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_models.hpp"

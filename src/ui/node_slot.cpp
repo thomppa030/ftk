@@ -1,15 +1,15 @@
 #include "ui/node_slot.hpp"
 
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/edit_record.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/grouped_picker.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/slot.hpp"
+#include "ftk/ui/theme.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/edit_record.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/grouped_picker.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/slot.hpp"
 #include "ui/node_visuals.hpp"
-#include "ui/theme.hpp"
 
 #include <imgui.h>
 

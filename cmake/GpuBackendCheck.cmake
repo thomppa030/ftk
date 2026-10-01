@@ -1,9 +1,10 @@
-# Keeps the graphics API inside its backend. Everything outside src/gpu/vulkan/
-# speaks the GPU interface (src/gpu/): a Vulkan header, a Vk/Vma type, a vk/vma
-# call or a VK_/VMA_ constant anywhere else fails the check with the file and
-# the line, and so does reaching into the backend itself, through one of its
-# headers or its `gpu::vulkan::` functions (the bridge to native handles), so
-# a second backend can be written without touching the rest.
+# Keeps the graphics API inside its backend. Everything outside
+# src/ftk/gpu/vulkan/ speaks the GPU interface (src/ftk/gpu/): a Vulkan header,
+# a Vk/Vma type, a vk/vma call or a VK_/VMA_ constant anywhere else fails the
+# check with the file and the line, and so does reaching into the backend
+# itself, through one of its headers or its `gpu::vulkan::` functions (the
+# bridge to native handles), so a second backend can be written without
+# touching the rest.
 #
 #     ftk_check_gpu_backend(<target> ROOTS <dirs>...)
 #
@@ -11,7 +12,7 @@
 # before <target> builds whenever one of them changes. Roots are relative to
 # the calling directory.
 #
-# A backend's own code is exempt by its place: src/gpu/<backend>/, and the
+# A backend's own code is exempt by its place: src/ftk/gpu/<backend>/, and the
 # tests and benchmarks of it, tests/test_<backend>_*.cpp and
 # tests/bench_<backend>_*.cpp. Nothing else is: the targets outside the
 # backend do not see Vulkan's or VMA's headers either.
@@ -21,8 +22,8 @@
 function(_ftk_scan_gpu_backend base)
     set(patterns
         # #include <vulkan/vulkan.h>, <vk_mem_alloc.h>, <imgui_impl_vulkan.h>,
-        # <backends/imgui_impl_vulkan.h>, "gpu/vulkan/native.hpp"
-        "^[ \t]*#[ \t]*include[ \t]*[<\"](vulkan/|vk_mem_alloc\\.h|(backends/)?imgui_impl_vulkan|gpu/vulkan/)"
+        # <backends/imgui_impl_vulkan.h>, "ftk/gpu/vulkan/native.hpp"
+        "^[ \t]*#[ \t]*include[ \t]*[<\"](vulkan/|vk_mem_alloc\\.h|(backends/)?imgui_impl_vulkan|ftk/gpu/vulkan/)"
         # gpu::vulkan::native_view(, vulkan::defer(
         "(^|[^A-Za-z0-9_])vulkan::"
         # VkImage, VmaAllocator, tracy::VkCtx
@@ -35,7 +36,7 @@ function(_ftk_scan_gpu_backend base)
         "(^|[^A-Za-z0-9_])(VK|VMA)_[A-Z0-9]"
     )
     list(JOIN patterns "|" pattern)
-    set(backend_path "^(src/gpu/(vulkan|metal)/|tests/(test|bench)_(vulkan|metal)_)")
+    set(backend_path "^(src/ftk/gpu/(vulkan|metal)/|tests/(test|bench)_(vulkan|metal)_)")
 
     set(glob_flags "")
     if(NOT CMAKE_SCRIPT_MODE_FILE)
@@ -83,8 +84,8 @@ function(_ftk_scan_gpu_backend base)
             "Vulkan outside the GPU backend (a Vulkan or VMA header, type, call or constant, "
             "or the backend's own headers and gpu::vulkan:: functions):\n"
             "${offenders}\n"
-            "Use the GPU interface in src/gpu/. If it lacks what you need, add it there and to "
-            "the backend in src/gpu/vulkan/.\n")
+            "Use the GPU interface in src/ftk/gpu/. If it lacks what you need, add it there and "
+            "to the backend in src/ftk/gpu/vulkan/.\n")
     endif()
 endfunction()
 

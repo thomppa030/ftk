@@ -1,16 +1,16 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "animation/animation_system.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 
-#include "gpu/device.hpp"
-#include "gpu/frame.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/frame.hpp"
 
 #include <algorithm>
 #include <array>

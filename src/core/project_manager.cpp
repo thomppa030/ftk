@@ -1,7 +1,7 @@
 #include "core/project_manager.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "platform/platform.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/platform/platform.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
 

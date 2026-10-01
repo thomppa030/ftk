@@ -6,7 +6,7 @@
 // to the pixels it makes raises FJFONT_BAKE_REVISION, or atlases already
 // baked keep the old ones.
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 #include "ui/game_ui/fjfont.hpp"
 
 #include <cstdint>

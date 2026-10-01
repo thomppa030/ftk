@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/asset_id.hpp"
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 
 #include <filesystem>
 #include <shared_mutex>

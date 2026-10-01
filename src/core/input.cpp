@@ -1,10 +1,10 @@
 #include "core/input.hpp"
 #include "fjell/api.h"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 #include "core/sdl_input_codes.hpp"
-#include "gpu/window.hpp"
+#include "ftk/gpu/window.hpp"
 
 #include <SDL3/SDL.h>
 

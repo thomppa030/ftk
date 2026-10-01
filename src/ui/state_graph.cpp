@@ -1,9 +1,9 @@
 #include "ui/state_graph.hpp"
 
 #include "animation/animation_state_machine.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/menu.hpp"
-#include "ui/theme.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <filesystem>
 #include <string>

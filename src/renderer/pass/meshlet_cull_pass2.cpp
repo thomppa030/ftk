@@ -1,9 +1,9 @@
 #include "renderer/pass/meshlet_cull_pass2.hpp"
 
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 
 namespace fjell {

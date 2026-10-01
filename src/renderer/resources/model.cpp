@@ -5,7 +5,7 @@
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/primitives.hpp"
 #include "renderer/resources/vertex.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>

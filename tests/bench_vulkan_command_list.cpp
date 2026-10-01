@@ -10,12 +10,12 @@
 // Given part of a way's name (`fjell-bench-command-list "bound by name"`), it
 // records only the ways that match, ten times as often, for a profiler.
 
-#include "core/log.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
-#include "gpu/vulkan/device_impl.hpp"
-#include "gpu/vulkan/native.hpp"
-#include "gpu/window.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/vulkan/device_impl.hpp"
+#include "ftk/gpu/vulkan/native.hpp"
+#include "ftk/gpu/window.hpp"
 
 #include <algorithm>
 #include <array>

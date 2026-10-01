@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/small_vector.hpp"
+#include "ftk/base/small_vector.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/reflected_types.hpp"
 

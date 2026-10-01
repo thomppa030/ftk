@@ -1,10 +1,10 @@
 #pragma once
 
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/uniform_types.hpp"

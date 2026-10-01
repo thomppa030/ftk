@@ -1,9 +1,9 @@
 #include "renderer/pass/depth_resolve_pass.hpp"
 
-#include "core/profiler.hpp"
-#include "gpu/render_encoder.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/render_encoder.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_builder.hpp"
 
 namespace fjell {
 

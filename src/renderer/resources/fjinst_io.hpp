@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/result.hpp"
+#include "ftk/base/result.hpp"
 #include "renderer/resources/fjinst.hpp"
 
 #include <string>

@@ -1,4 +1,4 @@
-#include "gpu/transient_memory.hpp"
+#include "ftk/gpu/transient_memory.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

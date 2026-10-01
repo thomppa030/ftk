@@ -4,7 +4,7 @@
 #include "net/net_scene.hpp"
 #include "net/prediction_state.hpp"
 #include "net/transport.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
 #include "scene/component_registry.hpp"

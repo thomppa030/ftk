@@ -4,7 +4,7 @@
 #include "net/packet_codec.hpp"
 #include "net/net_scene.hpp"
 #include "net/transport.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
 #include "scripting/script_manager.hpp"

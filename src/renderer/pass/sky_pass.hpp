@@ -1,8 +1,8 @@
 #pragma once
 
 #include "environment/environment_state.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>

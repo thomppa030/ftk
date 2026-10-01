@@ -2,7 +2,7 @@
 
 #ifndef NDEBUG
 
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 
 #include <functional>
 #include <string>

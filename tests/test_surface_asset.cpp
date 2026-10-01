@@ -1,5 +1,5 @@
+#include "ftk/platform/platform.hpp"
 #include "physics/surface_asset.hpp"
-#include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

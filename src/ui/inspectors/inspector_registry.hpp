@@ -1,9 +1,9 @@
 #pragma once
 
+#include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/theme.hpp"
 #include "scene/component_meta.hpp"
 #include "scene/component_storage.hpp"
-#include "ui/kit/edit.hpp"
-#include "ui/theme.hpp"
 
 #include <vector>
 

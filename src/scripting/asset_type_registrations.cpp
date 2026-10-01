@@ -3,7 +3,7 @@
 #include "scene/preset_asset.hpp"
 #include "core/base_path.hpp"
 #include "core/project.hpp"
-#include "ui/icon_cache.hpp"
+#include "ftk/app/icon_cache.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
 
 #include <imgui.h>

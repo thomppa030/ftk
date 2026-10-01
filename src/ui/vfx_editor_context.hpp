@@ -4,12 +4,12 @@
 #include "ui/timeline_widget.hpp"
 #include "ui/vfx_graph.hpp"
 #include "ui/viewport_manager.hpp"
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "renderer/systems/vfx_pin.hpp"
 #include "scene/scene.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #endif
 
 #include <string>

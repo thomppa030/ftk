@@ -1,7 +1,7 @@
 #include "core/engine.hpp"
-#include "core/log.hpp"
 #include "environment/environment_overrides.hpp"
-#include "ui/console.hpp"
+#include "ftk/app/console.hpp"
+#include "ftk/base/log.hpp"
 
 #include <cstdlib>
 #include <cstring>

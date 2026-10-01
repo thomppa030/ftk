@@ -1,8 +1,8 @@
 #include "renderer/pass/rt_scene_pass.hpp"
 
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/accel_structure.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/render_stats.hpp"
 #include "scene/scene.hpp"
 

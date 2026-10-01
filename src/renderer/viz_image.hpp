@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gpu/owned.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/texture.hpp"
 
 #include <glm/glm.hpp>
 

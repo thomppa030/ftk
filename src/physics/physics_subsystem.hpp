@@ -1,8 +1,8 @@
 #pragma once
 
 #include "core/frame_context.hpp"
-#include "core/profiler.hpp"
 #include "core/subsystem.hpp"
+#include "ftk/base/profiler.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/physics_world.hpp"
 

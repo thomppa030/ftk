@@ -3,11 +3,11 @@
 #include "core/project.hpp"
 #include "core/project_manager.hpp"
 #include "environment/material_track.hpp"
-#include "core/string_utils.hpp"
+#include "ftk/base/string_utils.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/panel.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/panel.hpp"
 
 #include <filesystem>
 

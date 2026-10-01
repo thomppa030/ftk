@@ -1,6 +1,6 @@
 #include "renderer/resources/fjsl_parser.hpp"
-#include "core/log.hpp"
-#include "core/math/color_space.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/math/color_space.hpp"
 #include "core/named_value.hpp"
 
 #include <algorithm>

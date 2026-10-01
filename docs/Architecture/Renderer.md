@@ -7,7 +7,7 @@ The renderer on the [GPU interface](GPU-Interface.md): frame orchestration, bind
 
 ## Planned sections
 - Layers
-  - `gpu::Device` — the GPU interface's device, with its Vulkan backend in `src/gpu/vulkan/`
+  - `gpu::Device` — the GPU interface's device, with its Vulkan backend in `src/ftk/gpu/vulkan/`
   - `GpuContext` — the device, the main swapchain and the engine's shared GPU resources
   - `VulkanContext` — frame orchestration and the views drawn each frame
   - `RenderSubsystem` — engine-side facade

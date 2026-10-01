@@ -6,7 +6,7 @@
 #include "renderer/bindless.hpp"
 
 #include "renderer/resources/texture.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <filesystem>
 #include <utility>

@@ -2,7 +2,7 @@
 #define FJELL_INPUT_HPP
 
 #include "fjell/api.h"
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "core/input_source.hpp"
 #include <glm/glm.hpp>
 

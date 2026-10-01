@@ -2,7 +2,7 @@
 
 #include "core/clock.hpp"
 #include "core/frame_context.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "core/base_path.hpp"

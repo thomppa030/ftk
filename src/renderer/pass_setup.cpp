@@ -1,7 +1,7 @@
 #include "renderer/pass_setup.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
-#include "gpu/device.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/pass_factory.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"

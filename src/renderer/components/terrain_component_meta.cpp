@@ -1,5 +1,5 @@
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/resources/material.hpp"

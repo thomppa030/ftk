@@ -4,7 +4,7 @@
 #include "ui/game_ui/font_atlas.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #endif
 
 #include <future>

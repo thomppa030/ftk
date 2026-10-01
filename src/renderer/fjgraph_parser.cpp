@@ -1,5 +1,5 @@
 #include "renderer/fjgraph_parser.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

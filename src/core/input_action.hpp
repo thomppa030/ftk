@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 
 #include <glm/glm.hpp>
 

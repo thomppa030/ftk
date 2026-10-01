@@ -1,5 +1,5 @@
+#include "ftk/ui/kit/canvas.hpp"
 #include "imgui_harness.hpp"
-#include "ui/kit/canvas.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

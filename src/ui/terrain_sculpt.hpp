@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/command.hpp"
+#include "ftk/app/command.hpp"
 #include "ui/brush.hpp"
 
 #include <glm/glm.hpp>

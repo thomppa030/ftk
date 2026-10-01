@@ -16,10 +16,10 @@
 #include "renderer/resources/texture.hpp"
 #include "scripting/fjell/component.hpp"
 #include "core/base_path.hpp"
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 #include "core/project.hpp"
 #include "environment/environment_state.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "environment/weather_asset.hpp"
 
 #include <nlohmann/json.hpp>

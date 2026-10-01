@@ -1,4 +1,4 @@
-#include "gpu/shader.hpp"
+#include "ftk/gpu/shader.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

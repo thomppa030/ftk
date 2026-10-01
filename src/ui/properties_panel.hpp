@@ -3,10 +3,10 @@
 #include "scene/transform.hpp"
 #include "core/commands.hpp"
 #include "ui/edit_tracker.hpp"
-#include "ui/kit/grouped_picker.hpp"
+#include "ftk/ui/kit/grouped_picker.hpp"
 
 #include <nlohmann/json.hpp>
-#include "ui/kit/text_field.hpp"
+#include "ftk/ui/kit/text_field.hpp"
 
 #include <cstdint>
 #include <string>

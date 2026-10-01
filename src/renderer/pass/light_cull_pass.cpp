@@ -1,10 +1,10 @@
 #include "renderer/pass/light_cull_pass.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>

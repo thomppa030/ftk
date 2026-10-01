@@ -1,5 +1,5 @@
 #include "ui/folder_colors.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

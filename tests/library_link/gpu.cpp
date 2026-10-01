@@ -9,11 +9,11 @@
 // the interface alone, as a program outside Fjell would, and counts what the
 // device refuses by the errors it logs.
 
-#include "core/log.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
-#include "gpu/frame.hpp"
-#include "gpu/window.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/frame.hpp"
+#include "ftk/gpu/window.hpp"
 
 #include <spdlog/sinks/callback_sink.h>
 

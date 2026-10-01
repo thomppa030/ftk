@@ -1,6 +1,6 @@
 #include "core/subsystem.hpp"
 
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
 
 namespace fjell {
 

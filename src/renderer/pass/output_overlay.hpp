@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/render_encoder.hpp"
-#include "gpu/sampler.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/sampler.hpp"
 
 #include <optional>
 

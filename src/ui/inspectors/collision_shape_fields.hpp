@@ -1,7 +1,7 @@
 #pragma once
 
+#include "ftk/ui/kit/edit.hpp"
 #include "physics/collision_shape.hpp"
-#include "ui/kit/edit.hpp"
 
 #include <optional>
 #include <string>

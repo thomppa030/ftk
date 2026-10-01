@@ -1,9 +1,9 @@
 #include "ui/node_visuals.hpp"
 
+#include "ftk/ui/kit/icons.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
-#include "ui/kit/icons.hpp"
 
 namespace fjell {
 

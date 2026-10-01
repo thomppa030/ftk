@@ -1,6 +1,6 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <cctype>

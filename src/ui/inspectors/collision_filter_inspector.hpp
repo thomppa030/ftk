@@ -1,7 +1,7 @@
 #pragma once
 
+#include "ftk/ui/kit/edit.hpp"
 #include "physics/collision_channel.hpp"
-#include "ui/kit/edit.hpp"
 
 namespace fjell {
 

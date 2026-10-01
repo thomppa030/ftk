@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/delegate.hpp"
-#include "ui/kit/canvas.hpp"
-#include "ui/theme.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/ui/kit/canvas.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <string>
 #include <vector>

@@ -1,12 +1,12 @@
 # GPU interface
 
 Everything in Fjell that uses the GPU goes through one set of types in
-`src/gpu/`: a device that makes things, handles for what it made, frames, and
+`src/ftk/gpu/`: a device that makes things, handles for what it made, frames, and
 command lists to record into. The graphics API behind it is a *backend*. Today
-that is Vulkan, in `src/gpu/vulkan/`; the interface is shaped so a Metal 4
+that is Vulkan, in `src/ftk/gpu/vulkan/`; the interface is shaped so a Metal 4
 backend can sit beside it without the rest of the engine noticing.
 
-The rule that keeps it that way: nothing outside `src/gpu/vulkan/` names
+The rule that keeps it that way: nothing outside `src/ftk/gpu/vulkan/` names
 Vulkan. No Vulkan or VMA header, no `Vk*` type, no `vk*` call, no `VK_*`
 constant, and no reaching into the backend's own headers.
 `cmake/GpuBackendCheck.cmake` fails the build on any of them, with the file
@@ -16,8 +16,8 @@ libraries back the check up: `ftk::gpu` links Vulkan and VMA privately, so
 code outside the backend does not see VMA's headers at all, and on Windows
 not Vulkan's either.
 
-If the interface lacks something you need, add it to `src/gpu/` and implement
-it in `src/gpu/vulkan/`. Name it by what it does for the caller, not by the
+If the interface lacks something you need, add it to `src/ftk/gpu/` and implement
+it in `src/ftk/gpu/vulkan/`. Name it by what it does for the caller, not by the
 Vulkan call behind it, and ask how Metal would do the same thing.
 
 ## Libraries
@@ -26,7 +26,7 @@ These are ftk's, the toolkit Fjell is built on:
 
 | Library | What it is |
 |---|---|
-| `ftk::gpu` | The interface, its Vulkan backend, and the SDL window (`gpu/window.hpp`) |
+| `ftk::gpu` | The interface, its Vulkan backend, and the SDL window (`ftk/gpu/window.hpp`) |
 | `ftk::gpu-imgui` | `gpu::ImGuiRenderer`: Dear ImGui drawn through the interface |
 | `ftk::framegraph` | The frame graph, which records passes into command lists and works out their barriers |
 
@@ -212,12 +212,12 @@ already wait for their frames.
 
 | Path | What it holds |
 |---|---|
-| `src/gpu/device.hpp` | `Device`, `Caps`, the shader locator |
-| `src/gpu/frame.hpp`, `command_list.hpp`, `render_encoder.hpp` | Frames and recording |
-| `src/gpu/buffer.hpp`, `texture.hpp`, `sampler.hpp`, `acceleration.hpp` | Descriptions and handles |
-| `src/gpu/pipeline.hpp`, `shader.hpp`, `binding.hpp` | Pipelines, reflection, binding by name |
-| `src/gpu/access.hpp`, `transition.hpp` | Accesses and the frame graph's transitions |
-| `src/gpu/upload.hpp`, `readback.hpp` | Moving data between CPU and GPU |
-| `src/gpu/swapchain.hpp`, `window.hpp` | Showing frames in a window |
-| `src/gpu/owned.hpp`, `release_queue.hpp` | Ownership and deferred release |
-| `src/gpu/vulkan/` | The Vulkan backend: `Foundation` (instance, GPU, queues, allocator, upload lanes), the device's pools, translation tables, barriers |
+| `src/ftk/gpu/device.hpp` | `Device`, `Caps`, the shader locator |
+| `src/ftk/gpu/frame.hpp`, `command_list.hpp`, `render_encoder.hpp` | Frames and recording |
+| `src/ftk/gpu/buffer.hpp`, `texture.hpp`, `sampler.hpp`, `acceleration.hpp` | Descriptions and handles |
+| `src/ftk/gpu/pipeline.hpp`, `shader.hpp`, `binding.hpp` | Pipelines, reflection, binding by name |
+| `src/ftk/gpu/access.hpp`, `transition.hpp` | Accesses and the frame graph's transitions |
+| `src/ftk/gpu/upload.hpp`, `readback.hpp` | Moving data between CPU and GPU |
+| `src/ftk/gpu/swapchain.hpp`, `window.hpp` | Showing frames in a window |
+| `src/ftk/gpu/owned.hpp`, `release_queue.hpp` | Ownership and deferred release |
+| `src/ftk/gpu/vulkan/` | The Vulkan backend: `Foundation` (instance, GPU, queues, allocator, upload lanes), the device's pools, translation tables, barriers |

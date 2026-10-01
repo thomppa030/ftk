@@ -3,7 +3,7 @@
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <filesystem>

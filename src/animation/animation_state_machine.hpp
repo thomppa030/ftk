@@ -1,8 +1,8 @@
 #pragma once
 
 #include "fjell/api.h"
-#include "core/delegate.hpp"
-#include "core/result.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/base/result.hpp"
 
 #include <glm/vec2.hpp>
 

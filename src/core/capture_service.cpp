@@ -1,8 +1,8 @@
 #include "core/capture_service.hpp"
 
-#include "core/log.hpp"
 #include "core/project.hpp"
-#include "gpu/swapchain.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/swapchain.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/vulkan_context.hpp"

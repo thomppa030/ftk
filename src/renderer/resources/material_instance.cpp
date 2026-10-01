@@ -1,6 +1,6 @@
 #include "renderer/resources/material_instance.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/fjsl_parser.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/math/color_space.hpp"
-#include "ui/kit/button.hpp"
+#include "ftk/math/color_space.hpp"
+#include "ftk/ui/kit/button.hpp"
 
 #include <glm/glm.hpp>
 #include <imgui.h>

@@ -3,6 +3,12 @@
 #include "core/asset_type_registry.hpp"
 #include "core/base_path.hpp"
 #include "core/project_manager.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
@@ -14,12 +20,6 @@
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/asset_rows.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/color_field.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
 
 #include <imgui.h>
 

@@ -3,8 +3,8 @@
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
 #include "environment/environment_ubo.hpp"
-#include "core/log.hpp"
-#include "gpu/window.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/window.hpp"
 
 #include "core/base_path.hpp"
 

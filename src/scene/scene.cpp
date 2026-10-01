@@ -2,8 +2,8 @@
 #include "scene/component_registry.hpp"
 #include "scene/removal_epoch.hpp"
 #include "scene/transform_blend.hpp"
-#include "core/thread_pool.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/thread_pool.hpp"
+#include "ftk/base/profiler.hpp"
 #include "scripting/fjell/component.hpp"
 
 #include <glm/gtc/quaternion.hpp>

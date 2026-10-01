@@ -1,6 +1,6 @@
 #include "environment/color_gradient.hpp"
 
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <nlohmann/json.hpp>
 

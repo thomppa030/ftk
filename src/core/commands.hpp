@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/command.hpp"
+#include "ftk/app/command.hpp"
 #include "scene/node_serializer.hpp"
 #include "scene/scene.hpp"
 

@@ -1,7 +1,7 @@
 // A preset's `.fjp` file: its nodes as the scene file writes them.
 #include "scene/preset.hpp"
 #include "scene/node_serializer.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,6 +1,6 @@
 #include "animation/skeleton.hpp"
 #include "core/asset_identity.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <ozz/animation/offline/raw_skeleton.h>
 #include <ozz/animation/offline/skeleton_builder.h>

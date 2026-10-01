@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <algorithm>
 #include <array>

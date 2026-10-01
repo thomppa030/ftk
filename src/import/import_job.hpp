@@ -1,8 +1,8 @@
 #pragma once
 
 #include "import/import_types.hpp"
-#include "core/delegate.hpp"
-#include "platform/platform.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <filesystem>
 #include <string>

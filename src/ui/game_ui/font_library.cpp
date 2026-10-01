@@ -3,8 +3,8 @@
 #if FJELL_FONT_BAKE
 #include "ui/game_ui/font_atlas_build.hpp"
 #endif
-#include "core/log.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/thread_pool.hpp"
 
 #include <algorithm>
 #include <chrono>

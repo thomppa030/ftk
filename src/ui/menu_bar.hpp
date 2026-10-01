@@ -1,8 +1,8 @@
 #pragma once
 
-#include "ui/kit/dialog.hpp"
-#include "core/delegate.hpp"
-#include "ui/file_browser.hpp"
+#include "ftk/ui/kit/dialog.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/app/file_browser.hpp"
 
 #include <cstdint>
 #include <filesystem>

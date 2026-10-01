@@ -1,9 +1,9 @@
 #pragma once
 
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/render_settings.hpp"

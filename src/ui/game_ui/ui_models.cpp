@@ -1,6 +1,6 @@
 #include "ui/game_ui/ui_models.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "ui/game_ui/ui_context.hpp"

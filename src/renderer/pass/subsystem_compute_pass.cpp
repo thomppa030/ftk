@@ -1,7 +1,7 @@
 #include "renderer/pass/subsystem_compute_pass.hpp"
 
-#include "core/profiler.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
 namespace fjell {

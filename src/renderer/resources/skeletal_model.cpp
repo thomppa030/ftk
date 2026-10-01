@@ -1,9 +1,9 @@
 #include "renderer/resources/skeletal_model.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/device.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <cstddef>
 #include <algorithm>

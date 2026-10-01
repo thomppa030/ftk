@@ -1,8 +1,8 @@
 #ifndef NDEBUG
 
 #include "renderer/shader_watcher.hpp"
-#include "platform/platform.hpp"
-#include "core/log.hpp"
+#include "ftk/platform/platform.hpp"
+#include "ftk/base/log.hpp"
 
 #include <filesystem>
 

@@ -1,6 +1,6 @@
 #include "scene/preset.hpp"
 #include "scene/scene.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <unordered_map>

@@ -1,8 +1,8 @@
 #include "renderer/pass/depth_variants.hpp"
 
-#include "core/log.hpp"
-#include "gpu/device.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/shader.hpp"
 
 namespace fjell {
 

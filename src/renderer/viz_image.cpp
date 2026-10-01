@@ -1,9 +1,9 @@
 #include "renderer/viz_image.hpp"
 
-#include "core/log.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/declare_context.hpp"
-#include "renderer/pass_builder.hpp"
 
 namespace fjell {
 

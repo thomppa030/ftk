@@ -6,7 +6,7 @@
 #include "animation/animation_clip.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "core/project_manager.hpp"
 
 #include <nlohmann/json.hpp>

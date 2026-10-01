@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/pipeline.hpp"
 
 #include <glm/glm.hpp>
 

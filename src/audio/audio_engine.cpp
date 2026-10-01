@@ -6,8 +6,8 @@
 #include "scene/scene.hpp"
 #include "scene/camera_node.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <unordered_map>
 

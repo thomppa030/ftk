@@ -1,11 +1,11 @@
 #include "renderer/pipeline_cache.hpp"
-#include "gpu/device.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/shader.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <glm/glm.hpp>
 

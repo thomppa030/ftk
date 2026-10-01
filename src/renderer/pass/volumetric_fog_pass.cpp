@@ -17,21 +17,21 @@
 
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/water_pass.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu_context.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/shader.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
-#include "renderer/transient_image_pool.hpp"
+#include "ftk/framegraph/transient_image_pool.hpp"
 #include "environment/environment_state.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <algorithm>
 #include <array>

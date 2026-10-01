@@ -2,6 +2,14 @@
 
 #include "core/asset_type_registry.hpp"
 #include "core/project_manager.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/list_editor.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/collider_surface.hpp"
 #include "physics/physics_types.hpp"
@@ -14,14 +22,6 @@
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspectors/collision_filter_inspector.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/choice.hpp"
-#include "ui/kit/feedback.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/list_editor.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
 
 #include <imgui.h>
 

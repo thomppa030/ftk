@@ -1,4 +1,4 @@
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

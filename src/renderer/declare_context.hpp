@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gpu/access.hpp"
-#include "gpu/format.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/access.hpp"
+#include "ftk/gpu/format.hpp"
 
 #include <glm/vec2.hpp>
 

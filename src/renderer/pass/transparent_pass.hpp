@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gpu/render_encoder.hpp"
+#include "ftk/gpu/render_encoder.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 namespace fjell {

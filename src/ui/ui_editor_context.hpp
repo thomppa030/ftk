@@ -5,8 +5,8 @@
 #include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/widget_check.hpp"
-#include "ui/kit/field.hpp"
-#include "core/delegate.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/base/delegate.hpp"
 
 #include <imgui.h>
 

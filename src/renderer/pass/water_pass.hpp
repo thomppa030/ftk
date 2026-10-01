@@ -1,10 +1,10 @@
 #pragma once
 
-#include "gpu/binding.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/resources/water_clipmap.hpp"
 #include "renderer/resources/water_gpu.hpp"
 #include "renderer/pass/render_pass.hpp"

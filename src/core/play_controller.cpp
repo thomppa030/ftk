@@ -7,10 +7,10 @@ extern "C" void fjell_input_clear_connections();
 #include "core/input.hpp"
 #include "core/input_action_map.hpp"
 #include "core/input_component.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "core/play_session.hpp"
 #include "core/project_manager.hpp"
-#include "gpu/window.hpp"
+#include "ftk/gpu/window.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "environment/environment_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
@@ -25,7 +25,7 @@ extern "C" void fjell_input_clear_connections();
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
-#include "ui/imgui_layer.hpp"
+#include "ftk/app/imgui_layer.hpp"
 
 
 #include <filesystem>

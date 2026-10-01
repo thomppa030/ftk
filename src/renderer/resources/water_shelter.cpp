@@ -1,6 +1,6 @@
 #include "renderer/resources/water_shelter.hpp"
 
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_spectrum.hpp"

@@ -2,7 +2,7 @@
 # that only exists there, a call MSVC lacks, or a path into /proc, /dev or
 # /tmp. MSVC has no unistd.h, and CI's Windows runner is the first place that
 # would otherwise notice — about 35 minutes after the push. Everything that
-# needs the OS goes through the platform library (src/platform/).
+# needs the OS goes through the platform library (src/ftk/platform/).
 #
 #     ftk_check_portability(<target> ROOTS <dirs>...)
 #
@@ -61,9 +61,9 @@ function(_ftk_scan_portability base)
     if(offenders)
         list(JOIN offenders "\n" offenders)
         message(FATAL_ERROR
-            "POSIX-only headers, calls or paths outside src/platform/ (MSVC cannot build these):\n"
+            "POSIX-only headers, calls or paths outside src/ftk/platform/ (MSVC cannot build these):\n"
             "${offenders}\n"
-            "Use the platform library (src/platform/platform.hpp) instead, or add a platform/ "
+            "Use the platform library (src/ftk/platform/platform.hpp) instead, or add a platform/ "
             "backend for what is missing.")
     endif()
 endfunction()

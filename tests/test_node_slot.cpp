@@ -1,7 +1,7 @@
+#include "ftk/ui/kit/grouped_picker.hpp"
 #include "imgui_harness.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
-#include "ui/kit/grouped_picker.hpp"
 #include "ui/node_slot.hpp"
 #include "ui/node_visuals.hpp"
 

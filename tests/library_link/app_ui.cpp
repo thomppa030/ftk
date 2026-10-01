@@ -3,7 +3,7 @@
 // dependencies. Running it draws a frame of the kit on ImGui with no window
 // and no renderer, the way the unit tests drive editor UI.
 
-#include "ui/kit/button.hpp"
+#include "ftk/ui/kit/button.hpp"
 
 #include <imgui.h>
 

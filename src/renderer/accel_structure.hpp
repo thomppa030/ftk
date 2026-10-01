@@ -4,10 +4,10 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/rt_instance.hpp"
 
-#include "gpu/acceleration.hpp"
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/acceleration.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
 
 #include <array>
 #include <cstdint>

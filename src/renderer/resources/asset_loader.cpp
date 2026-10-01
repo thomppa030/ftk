@@ -2,8 +2,8 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/resource_manager.hpp"
-#include "core/log.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/thread_pool.hpp"
 
 namespace fjell {
 

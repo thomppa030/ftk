@@ -1,11 +1,11 @@
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_node.hpp"
-#include "gpu/device.hpp"
-#include "gpu/render_encoder.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/render_encoder.hpp"
+#include "ftk/gpu/shader.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <algorithm>
 #include <cmath>

@@ -1,5 +1,5 @@
-#include "core/command.hpp"
-#include "core/command_history.hpp"
+#include "ftk/app/command.hpp"
+#include "ftk/app/command_history.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

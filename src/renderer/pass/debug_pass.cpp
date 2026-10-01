@@ -1,11 +1,11 @@
 #include "renderer/pass/debug_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/pass/post_pass.hpp"
-#include "renderer/pass_builder.hpp"
 
 #include <glm/glm.hpp>
 

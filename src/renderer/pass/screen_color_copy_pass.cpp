@@ -1,8 +1,8 @@
 #include "renderer/pass/screen_color_copy_pass.hpp"
 
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/pass_builder.hpp"
 
 namespace fjell {
 

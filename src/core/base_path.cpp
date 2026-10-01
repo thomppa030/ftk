@@ -1,7 +1,7 @@
 #include "core/base_path.hpp"
 #include "core/engine_dir.hpp"
 #include "core/project.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <stdexcept>
 

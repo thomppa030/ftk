@@ -1,10 +1,10 @@
 #include "ui/asset_picker.hpp"
 #include "ui/asset_thumbnail_renderer.hpp"
-#include "ui/kit/grouped_picker.hpp"
+#include "ftk/ui/kit/grouped_picker.hpp"
 #include "core/asset_type_registry.hpp"
 #include "core/base_path.hpp"
 #include "core/project.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
 
 #include <imgui.h>

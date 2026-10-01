@@ -1,9 +1,9 @@
 #include "ui/inspectors/asset_rows.hpp"
 
 #include "core/asset_type_registry.hpp"
+#include "ftk/ui/kit/row.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
 #include "ui/asset_ref_widget.hpp"
-#include "ui/kit/row.hpp"
 
 namespace fjell {
 

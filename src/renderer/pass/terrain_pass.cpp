@@ -2,12 +2,12 @@
 
 #include "renderer/pass/shadow_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/binding.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/shader.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/gpu_context.hpp"

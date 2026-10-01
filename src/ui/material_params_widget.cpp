@@ -1,17 +1,17 @@
 #include "ui/material_params_widget.hpp"
 
-#include "core/string_utils.hpp"
+#include "ftk/base/string_utils.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/resources/material_gi_params.hpp"
 #include "renderer/uniform_types.hpp"
-#include "ui/kit/choice.hpp"
-#include "ui/kit/color_field.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
 
 #include <imgui.h>
 

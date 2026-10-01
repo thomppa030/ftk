@@ -1,6 +1,6 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/material_gi_params.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/bindless.hpp"
 #include "scene/preset_asset.hpp"
 #include "core/asset_type_registry.hpp"
@@ -20,7 +20,7 @@
 #include "audio/audio_asset.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "core/project.hpp"
 
 #include <algorithm>

@@ -1,4 +1,4 @@
-#include "gpu/command_list.hpp"
+#include "ftk/gpu/command_list.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -2,11 +2,11 @@
 
 #include "environment/environment_state.hpp"
 #include "environment/environment_ubo.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gpu/owned.hpp"
-#include "gpu/readback.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/readback.hpp"
+#include "ftk/gpu/texture.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/viewport_source.hpp"
 #include "scene/scene.hpp"

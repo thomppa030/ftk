@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"

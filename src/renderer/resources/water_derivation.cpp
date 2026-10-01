@@ -1,6 +1,6 @@
 #include "renderer/resources/water_derivation.hpp"
 
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "renderer/resources/water_surface.hpp"
 
 #include <bit>

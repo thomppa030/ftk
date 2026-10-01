@@ -2,17 +2,17 @@
 
 #include "renderer/systems/particle_budget.hpp"
 
-#include "gpu/buffer.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
-#include "gpu/sampler.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/sampler.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
+#include "ftk/platform/file_watcher.hpp"
 #endif
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/systems/vfx_module.hpp"

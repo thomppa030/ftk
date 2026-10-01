@@ -1,12 +1,12 @@
 #include "renderer/pass/cloud_shadow_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
 #include "environment/environment_state.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu_context.hpp"
-#include "renderer/pass_builder.hpp"
 
 namespace fjell {
 

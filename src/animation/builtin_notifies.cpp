@@ -1,6 +1,6 @@
 #include "animation/anim_notify.hpp"
 #include "animation/anim_notify_registry.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/node.hpp"
 
 #include <cstdint>

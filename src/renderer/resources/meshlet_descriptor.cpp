@@ -1,8 +1,8 @@
 #include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
-#include "core/log.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <algorithm>
 #include <string>

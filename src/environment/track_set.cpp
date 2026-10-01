@@ -1,6 +1,6 @@
 #include "environment/track_set.hpp"
 
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <nlohmann/json.hpp>
 

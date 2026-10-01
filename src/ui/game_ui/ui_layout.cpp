@@ -1,5 +1,5 @@
 #include "ui/game_ui/ui_layout.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
 
 #include <yoga/Yoga.h>
 

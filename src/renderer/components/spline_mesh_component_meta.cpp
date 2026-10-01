@@ -1,5 +1,5 @@
 #include "renderer/components/spline_mesh_component.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/instance_provider.hpp"
 #include "renderer/render_queue.hpp"

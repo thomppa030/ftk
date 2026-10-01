@@ -1,10 +1,10 @@
 #pragma once
 
-#include "gpu/format.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/format.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/shader/shader_compiler.hpp"
 #include "renderer/resources/fjsl_loader.hpp"
-#include "renderer/shader_compiler.hpp"
 
 #include <cstdint>
 #include <memory>

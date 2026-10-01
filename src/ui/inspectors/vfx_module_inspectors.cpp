@@ -1,16 +1,16 @@
 #include "ui/inspectors/vfx_module_inspectors.hpp"
 
-#include "core/string_utils.hpp"
+#include "ftk/base/string_utils.hpp"
 #include "renderer/systems/vfx_module.hpp"
 #include "ui/asset_ref_widget.hpp"
-#include "ui/kit/curve_editor.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/kit/choice.hpp"
-#include "ui/kit/color_field.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
+#include "ftk/ui/kit/curve_editor.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 
 #include <glm/glm.hpp>
 #include <imgui.h>

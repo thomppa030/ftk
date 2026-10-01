@@ -1,10 +1,10 @@
 #pragma once
 
-#include "gpu/binding.hpp"
-#include "gpu/buffer.hpp"
-#include "gpu/format.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/pipeline.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/buffer.hpp"
+#include "ftk/gpu/format.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "ui/game_ui/text_shaper.hpp"

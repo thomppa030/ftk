@@ -1,6 +1,6 @@
 #include "scene/component_storage.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
 

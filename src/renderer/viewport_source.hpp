@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/math/color_space.hpp"
-#include "gpu/binding.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/math/color_space.hpp"
 
 #include <glm/glm.hpp>
 

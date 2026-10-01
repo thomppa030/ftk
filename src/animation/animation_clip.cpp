@@ -2,7 +2,7 @@
 #include "core/asset_identity.hpp"
 #include "animation/anim_notify_registry.hpp"
 #include "scripting/field_serialization.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <ozz/animation/offline/animation_builder.h>
 #include <ozz/animation/offline/raw_animation.h>

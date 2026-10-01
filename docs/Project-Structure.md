@@ -16,19 +16,26 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `play_controller` | Play mode lifecycle: state machine, subsystem start/stop order, transition delegates |
 | `play_session` / `play_snapshot` | State alive only while playing, and the editor scene captured for restore |
 | `game_builder` | Builds standalone game packages |
-| `log` | spdlog setup and console sink |
 | `base_path` | Resolves paths relative to the executable |
-| `thread_pool` | Worker thread pool for parallel operations |
-| `command` | Base class for undoable commands |
-| `command_history` | Undo/redo stack |
 | `commands` | Concrete command implementations (transform, rename, add/remove, reparent, lights) |
 
-### `src/gpu/` — GPU interface
+### `src/ftk/` — ftk, the toolkit
 
-The one way the engine reaches the GPU: the device, frames, command lists,
-pipelines, binding, uploads, readbacks, swapchains and the window. Its Vulkan
-backend is `src/gpu/vulkan/`, and nothing else names Vulkan. See
-[GPU interface](Architecture/GPU-Interface.md).
+What the engine is built on and other GUI programs can use: libraries declared
+in `src/libraries.cmake`, each linked as `ftk::<name>`, that know nothing of
+the engine.
+
+| Directory | Library | What it holds |
+|---|---|---|
+| `ftk/base/` | `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
+| `ftk/math/` | `ftk::math` | Colour space conversions and keyed curves |
+| `ftk/platform/` | `ftk::platform` | Paths, processes, file watching and shared libraries, one backend per OS |
+| `ftk/gpu/` | `ftk::gpu`, `ftk::gpu-imgui` | The GPU interface, the SDL window and Dear ImGui drawn through it; its Vulkan backend is `ftk/gpu/vulkan/`, and nothing else names Vulkan. See [GPU interface](Architecture/GPU-Interface.md) |
+| `ftk/framegraph/` | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
+| `ftk/shader/` | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, and glslc's errors read back |
+| `ftk/image/` | `ftk::image` | Image loading, saving and resizing (stb) |
+| `ftk/ui/` | `ftk::app-ui` | The editor theme, the icons and the kit of widgets (`ftk/ui/kit/`) |
+| `ftk/app/` | `ftk::app` | The ImGui layer, standalone windows, undo and its history panel, the console, the file browser, the icon cache and the `EditorContext` base |
 
 ### `src/renderer/` — Renderer
 
@@ -39,7 +46,6 @@ backend is `src/gpu/vulkan/`, and nothing else names Vulkan. See
 | `vulkan_context` | Top-level rendering orchestrator — owns all passes, runs the frame |
 | `pipeline_cache` | Per-shader pipeline variants — compiles `.fjsl` at runtime |
 | `offscreen_pass` | Off-screen render target for viewports |
-| `frame_graph` | Frame graph for pass ordering and resource transitions |
 
 **Resources:**
 
@@ -61,9 +67,7 @@ backend is `src/gpu/vulkan/`, and nothing else names Vulkan. See
 | `draw_data_descriptor` | Per-draw data descriptor layout |
 | `fjsl_parser` | Parse `.fjsl` shaders, extract metadata, generate GLSL from spatial template |
 | `fjsl_loader` | Read a `.fjsl` through the project and the engine, compose the functions it uses, generate its fragment |
-| `shader_compiler` | GLSL to SPIR-V through `glslc`, kept in `shaders/generated/.fjcache` by content |
 | `pipeline_cache` | Per-shader VkPipeline cache (opaque + transparent + mesh shader per `.fjsl`) |
-| `stb_image` | stb_image include wrapper |
 
 **Rendering pipeline:**
 
@@ -143,17 +147,11 @@ All panels use Dear ImGui. Each is a self-contained class.
 
 | File | What it does |
 |---|---|
-| `imgui_layer` | ImGui initialization and per-frame rendering |
-| `theme` | Editor color theme (amber/dark) |
 | `viewport_manager` | Multiple viewports, each with its own viz source |
 | `hierarchy_panel` | Scene tree — add, delete, drag-to-reparent |
 | `properties_panel` | Object inspector — transform, physics, lights, material params, components |
 | `stats_panel` | FPS, draw calls, GPU info |
-| `history_panel` | Undo/redo history list |
 | `content_browser` | File browser with icon thumbnails (overlay panel) |
-| `icon_cache` | Loads and caches PNG icon textures |
-| `console` | Log output panel |
-| `file_browser` | File open/save dialogs |
 
 ## Shaders — `shaders/`
 

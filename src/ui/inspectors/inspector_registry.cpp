@@ -3,7 +3,7 @@
 #include "animation/animator_component.hpp"
 #include "audio/audio_component.hpp"
 #include "core/input_component.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "physics/buoyancy.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/components/arrow_component.hpp"

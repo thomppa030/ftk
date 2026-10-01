@@ -3,11 +3,11 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "ui/kit/field.hpp"
-#include "ui/kit/icons.hpp"
-#include "ui/kit/panel.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
+#include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 
 #include <imgui.h>
 

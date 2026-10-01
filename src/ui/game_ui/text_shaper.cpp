@@ -1,6 +1,6 @@
 #include "ui/game_ui/text_shaper.hpp"
 #include "ui/game_ui/font_atlas.hpp"
-#include "core/utf8.hpp"
+#include "ftk/base/utf8.hpp"
 
 #include <algorithm>
 #include <cmath>

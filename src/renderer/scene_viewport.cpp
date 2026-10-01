@@ -1,6 +1,6 @@
 #include "renderer/scene_viewport.hpp"
 #include "renderer/bindless.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 namespace fjell {
 

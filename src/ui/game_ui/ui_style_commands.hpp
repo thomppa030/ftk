@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/command.hpp"
+#include "ftk/app/command.hpp"
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_node.hpp"

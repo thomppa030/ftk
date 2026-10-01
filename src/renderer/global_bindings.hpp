@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gpu/binding.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/shader.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/shader.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <array>

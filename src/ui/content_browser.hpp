@@ -1,9 +1,9 @@
 #pragma once
 
-#include "ui/kit/dialog.hpp"
-#include "ui/kit/tree.hpp"
+#include "ftk/ui/kit/dialog.hpp"
+#include "ftk/ui/kit/tree.hpp"
 
-#include "core/delegate.hpp"
+#include "ftk/base/delegate.hpp"
 #include "ui/folder_colors.hpp"
 #include "ui/texture_preview.hpp"
 

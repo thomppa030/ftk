@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/command.hpp"
-#include "core/command_history.hpp"
+#include "ftk/app/command.hpp"
+#include "ftk/app/command_history.hpp"
 #include "scene/scene.hpp"
 
 #include <cstdint>

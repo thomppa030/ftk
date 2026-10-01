@@ -1,6 +1,6 @@
 #include "core/asset_identity.hpp"
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 
 #include <nlohmann/json.hpp>

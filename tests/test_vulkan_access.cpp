@@ -1,5 +1,5 @@
-#include "gpu/vulkan/access.hpp"
-#include "gpu/transition.hpp"
+#include "ftk/gpu/vulkan/access.hpp"
+#include "ftk/gpu/transition.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -5,7 +5,7 @@
 #include "renderer/systems/vfx_module.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 #include "scene/node.hpp"
 
 #include <nlohmann/json.hpp>

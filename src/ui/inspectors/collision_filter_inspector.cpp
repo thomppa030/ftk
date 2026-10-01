@@ -1,8 +1,8 @@
 #include "ui/inspectors/collision_filter_inspector.hpp"
 
-#include "ui/kit/choice.hpp"
-#include "ui/kit/row.hpp"
-#include "ui/kit/section.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 
 #include <imgui.h>
 

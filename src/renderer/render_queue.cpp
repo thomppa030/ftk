@@ -1,5 +1,5 @@
 #include "renderer/render_queue.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/profiler.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/render_stats.hpp"
 

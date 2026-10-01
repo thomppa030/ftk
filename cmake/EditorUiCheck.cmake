@@ -1,5 +1,6 @@
 # Refuses editor UI that styles itself by hand. Colours come from named tokens
-# in ftk's src/ui/theme.hpp and widgets from the kit in src/ui/kit/;
+# in ftk's theme (src/ftk/ui/theme.hpp) and widgets from its kit
+# (src/ftk/ui/kit/);
 # everywhere else a colour literal, a style push with a literal, or a font
 # picked by index fails the check with the file and line.
 #
@@ -25,7 +26,7 @@
 # Scans `roots` under `base`, skipping what `allowlist` names, and fails with
 # every offender. Also run on its own by the build step (script mode below).
 function(_ftk_scan_editor_ui base allowlist)
-    get_filename_component(ftk_src "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
+    get_filename_component(src_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
     set(patterns
         # IM_COL32(40, 42, 46, 255)
         "IM_COL32[ \t]*\\([ \t]*[0-9]"
@@ -79,18 +80,18 @@ function(_ftk_scan_editor_ui base allowlist)
         file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
         foreach(source IN LISTS sources)
             file(RELATIVE_PATH rel "${base}" "${source}")
-            file(RELATIVE_PATH in_ftk "${ftk_src}" "${source}")
-            if(in_ftk MATCHES "^\\.\\./")
-                set(in_ftk "")
+            file(RELATIVE_PATH in_src "${src_root}" "${source}")
+            if(in_src MATCHES "^\\.\\./")
+                set(in_src "")
             endif()
             # The theme defines the tokens, icons_lc.hpp the glyphs, and the
             # kit is the one place that turns them into widgets.
-            if(in_ftk STREQUAL "ui/theme.hpp" OR in_ftk STREQUAL "ui/icons_lc.hpp"
-               OR in_ftk MATCHES "^ui/kit/")
+            if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/icons_lc.hpp"
+               OR in_src MATCHES "^ftk/ui/kit/")
                 continue()
             endif()
-            if(in_ftk MATCHES "_meta\\.cpp$" OR in_ftk STREQUAL "scene/component_meta.hpp")
-                file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"](imgui|ui/)")
+            if(in_src MATCHES "_meta\\.cpp$" OR in_src STREQUAL "scene/component_meta.hpp")
+                file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"](imgui|ui/|ftk/(ui|app)/)")
                 foreach(inc IN LISTS includes)
                     if(NOT inc MATCHES "ui/game_ui/")
                         string(STRIP "${inc}" inc)
@@ -140,8 +141,8 @@ function(_ftk_scan_editor_ui base allowlist)
             "Editor UI styled by hand (a colour literal, a literal style push, a font by index, "
             "or an icon glyph by name):\n"
             "${offenders}\n"
-            "Use a colour token from ftk's src/ui/theme.hpp, an icon from ui::icon, or a "
-            "piece of the kit in src/ui/kit/. "
+            "Use a colour token from ftk's theme (src/ftk/ui/theme.hpp), an icon from ui::icon, "
+            "or a piece of its kit in src/ftk/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
     endif()
     if(editor_in_runtime)

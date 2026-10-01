@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/delegate.hpp"
 #include "environment/track_set.hpp"
-#include "ui/kit/canvas.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/ui/kit/canvas.hpp"
 
 #include <functional>
 #include <string>

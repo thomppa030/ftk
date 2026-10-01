@@ -1,7 +1,7 @@
 #ifndef NDEBUG
 
 #include "ui/game_ui/ui_watcher.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 namespace fjell {
 

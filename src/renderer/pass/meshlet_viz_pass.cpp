@@ -1,10 +1,10 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
-#include "gpu/device.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/viewport_source.hpp"
 

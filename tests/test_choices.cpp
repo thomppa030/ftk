@@ -1,6 +1,6 @@
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/color_field.hpp"
 #include "imgui_harness.hpp"
-#include "ui/kit/choice.hpp"
-#include "ui/kit/color_field.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

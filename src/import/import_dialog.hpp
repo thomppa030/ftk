@@ -3,8 +3,8 @@
 #include "import/import_types.hpp"
 #include "import/import_job.hpp"
 #include "import/source_inspection.hpp"
-#include "core/delegate.hpp"
-#include "ui/standalone_window.hpp"
+#include "ftk/base/delegate.hpp"
+#include "ftk/app/standalone_window.hpp"
 
 
 #include <filesystem>

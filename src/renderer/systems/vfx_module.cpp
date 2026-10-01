@@ -1,5 +1,5 @@
 #include "renderer/systems/vfx_module.hpp"
-#include "core/math/color_space.hpp"
+#include "ftk/math/color_space.hpp"
 #include "renderer/resources/asset_shader_type.hpp"
 
 #include <nlohmann/json.hpp>

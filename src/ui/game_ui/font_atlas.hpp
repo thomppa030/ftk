@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/result.hpp"
-#include "gpu/sampler.hpp"
-#include "gpu/texture.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/gpu/sampler.hpp"
+#include "ftk/gpu/texture.hpp"
 
 #include <cstdint>
 #include <memory>

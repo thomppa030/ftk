@@ -1,6 +1,6 @@
 #include "ui/asset_thumbnail_renderer.hpp"
 
-#include "core/thread_pool.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "environment/environment_resolver.hpp"
 #include "ui/game_ui/font_sample.hpp"
 #include "ui/game_ui/font_library.hpp"
@@ -9,14 +9,14 @@
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "core/base_path.hpp"
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
 #include "core/project.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
-#include "gpu/device.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/post_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -35,8 +35,8 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
-#include "ui/icon_cache.hpp"
-#include "ui/imgui_layer.hpp"
+#include "ftk/app/icon_cache.hpp"
+#include "ftk/app/imgui_layer.hpp"
 
 #include <stb_image.h>
 #include <stb_image_resize2.h>

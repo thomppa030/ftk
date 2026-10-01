@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gpu/binding.hpp"
-#include "gpu/owned.hpp"
+#include "ftk/gpu/binding.hpp"
+#include "ftk/gpu/owned.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/viewport_source.hpp"

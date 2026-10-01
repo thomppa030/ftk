@@ -1,6 +1,6 @@
 #include "renderer/resources/meshlet.hpp"
 #include "renderer/resources/vertex.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <meshoptimizer.h>
 

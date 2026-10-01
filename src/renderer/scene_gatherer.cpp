@@ -12,8 +12,8 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "animation/animation_system.hpp"
-#include "core/profiler.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/base/thread_pool.hpp"
 #include "scene/scene.hpp"
 
 #include <algorithm>

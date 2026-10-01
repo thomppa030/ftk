@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/kit/edit.hpp"
+#include "ftk/ui/kit/edit.hpp"
 
 namespace fjell {
 

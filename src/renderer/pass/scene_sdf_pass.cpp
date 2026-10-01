@@ -1,15 +1,15 @@
 #include "renderer/pass/scene_sdf_pass.hpp"
 
-#include "core/log.hpp"
-#include "core/profiler.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/profiler.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/gpu_context.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 
-#include "gpu/command_list.hpp"
-#include "gpu/device.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/device.hpp"
 
 #include <algorithm>
 #include <cmath>

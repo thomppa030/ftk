@@ -1,9 +1,9 @@
 #include "renderer/pass/output_overlay.hpp"
 
-#include "gpu/device.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
+#include "ftk/gpu/device.hpp"
 #include "renderer/pass/post_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
 
 namespace fjell {

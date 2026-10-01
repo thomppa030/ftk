@@ -1,7 +1,7 @@
 // The log for the whole test run, set up once before any test: warnings and
 // errors only, so a passing run stays quiet and a failing one still says why.
 
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <catch2/reporters/catch_reporter_event_listener.hpp>
 #include <catch2/reporters/catch_reporter_registrars.hpp>

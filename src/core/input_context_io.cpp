@@ -1,6 +1,6 @@
 #include "core/input_context_io.hpp"
 #include "core/input_source.hpp"
-#include "core/log.hpp"
+#include "ftk/base/log.hpp"
 
 #include <nlohmann/json.hpp>
 

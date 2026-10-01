@@ -1,13 +1,13 @@
 #pragma once
 
-#include "core/result.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/pipeline.hpp"
-#include "renderer/frame_graph.hpp"
+#include "ftk/base/result.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/pipeline.hpp"
+#include "ftk/framegraph/frame_graph.hpp"
 #include "renderer/declare_context.hpp"
-#include "renderer/pass_builder.hpp"
+#include "ftk/framegraph/pass_builder.hpp"
 #include "renderer/render_pipeline.hpp"
-#include "renderer/resource_registry.hpp"
+#include "ftk/framegraph/resource_registry.hpp"
 
 #include <array>
 #include <functional>

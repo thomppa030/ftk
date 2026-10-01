@@ -1,6 +1,6 @@
 #include "ui/terrain_sculpt.hpp"
 
-#include "core/command_history.hpp"
+#include "ftk/app/command_history.hpp"
 #include "physics/physics_subsystem.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 

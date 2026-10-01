@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
-#include "gpu/format.hpp"
+#include "ftk/gpu/format.hpp"
 
 
 namespace fjell {

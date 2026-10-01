@@ -1,6 +1,6 @@
 #pragma once
 
-#include "platform/platform.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <filesystem>
 
