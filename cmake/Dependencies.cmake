@@ -53,8 +53,9 @@ FetchContent_Declare(
 FetchContent_Declare(
     stb
     GIT_REPOSITORY https://github.com/nothings/stb.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
+    GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20  # master, 2026-08-01
+    # stb has no releases, so the pin is a commit, which a shallow clone
+    # cannot check out once master moves on.
 )
 
 FetchContent_Declare(
