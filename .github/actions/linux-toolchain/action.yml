@@ -1,0 +1,33 @@
+name: Linux toolchain
+description: Ninja, the headers SDL builds its video and input drivers from, the Vulkan SDK and CMake.
+
+runs:
+  using: composite
+  steps:
+    # SDL builds its X11 and Wayland video drivers from these headers and
+    # loads the libraries at run time; the Wayland one generates protocol
+    # sources with wayland-scanner. udev finds gamepads as they are plugged
+    # in, D-Bus and IBus serve the desktop and text input.
+    - name: Install build tools and windowing headers
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build \
+          libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+          libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
+          libwayland-dev libdecor-0-dev libdbus-1-dev libibus-1.0-dev libudev-dev
+
+    - name: Install the Vulkan SDK
+      shell: bash
+      run: |
+        wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+          | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+        sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
+          https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+        sudo apt-get update
+        sudo apt-get install -y vulkan-sdk
+
+    # The runner images ship a CMake older than this project's minimum.
+    - uses: lukka/get-cmake@v4.4.0
+      with:
+        cmakeVersion: "4.4.0"
