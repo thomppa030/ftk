@@ -135,17 +135,22 @@ All panels use Dear ImGui. Each is a self-contained class.
 | `stats_panel` | FPS, draw calls, GPU info |
 | `content_browser` | File browser with icon thumbnails (overlay panel) |
 
-## ftk — `ftk/`
+## ftk
 
-The toolkit the engine is built on and other GUI programs can use, a CMake
-project of its own that Fjell adds as a subdirectory. It knows nothing of the
-engine. `ftk/src/ftk/` holds its libraries, declared in
-`ftk/src/libraries.cmake` and each linked as `ftk::<name>`; `ftk/cmake/` its
-CMake functions and checks; `ftk/tests/` its tests (`ftk-tests`, a link check
-per library); `ftk/shaders/` the ImGui layer's fragment stage and the colour
-space include; `ftk/fonts/` the theme's fonts and their licences.
+The toolkit the engine is built on and other GUI programs can use, in a
+repository of its own (`github.com/thomppa030/ftk`). It knows nothing of the
+engine. Fjell fetches it at the commit `cmake/Dependencies.cmake` names, into
+`build/_deps/ftk-src/`; to work on both at once, configure with
+`-DFETCHCONTENT_SOURCE_DIR_FTK=<path to a checkout>` and the build uses that
+checkout as it is.
 
-| Directory (in `ftk/src/`) | Library | What it holds |
+In ftk, `src/ftk/` holds its libraries, declared in `src/libraries.cmake` and
+each linked as `ftk::<name>`; `cmake/` its CMake functions and checks;
+`tests/` its tests (`ftk-tests`, a link check per library), which ftk's own CI
+builds and runs; `shaders/` the ImGui layer's fragment stage and the colour
+space include; `fonts/` the theme's fonts and their licences.
+
+| Directory (in ftk's `src/`) | Library | What it holds |
 |---|---|---|
 | `ftk/base/` | `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
 | `ftk/math/` | `ftk::math` | Colour space conversions and keyed curves |

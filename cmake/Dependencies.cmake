@@ -1,8 +1,21 @@
-# What only the engine, its tools and tests need, fetched when Fjell builds
-# its engine (FJELL_BUILD_ENGINE). ftk's dependencies are in
-# ftk/cmake/Dependencies.cmake, added first.
+# Fjell's dependencies, fetched at configure: ftk first, which brings its own
+# (SDL, GLM, spdlog, Dear ImGui and the rest), then what only the engine, its
+# tools and tests need.
 
 include(FetchContent)
+
+# ftk, the toolkit the engine is built on, at the commit Fjell builds with. To
+# work on both at once, point the build at a checkout instead:
+#     cmake -B build -DFETCHCONTENT_SOURCE_DIR_FTK=/path/to/ftk
+# A Fjell commit that needs a newer ftk moves the hash, once that ftk commit
+# is pushed. Cloned in full: a shallow clone cannot check out a commit once
+# main has moved past it.
+FetchContent_Declare(
+    ftk
+    GIT_REPOSITORY https://github.com/thomppa030/ftk.git
+    GIT_TAG        1036fd9b816c6d2353f6bbed251bc9e7a5063cdb  # v0.1.0
+)
+FetchContent_MakeAvailable(ftk)
 
 # fastgltf needs simdjson and, left alone, pulls the single-header build with a
 # bare file(DOWNLOAD) whose result it never checks — a failed fetch writes an

@@ -282,7 +282,8 @@ target_include_directories(fjell-tests PRIVATE ${FTK_SHADER_INCLUDE_DIR})
 target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts"
     FTK_FONTS_DIR="${FTK_FONTS_DIR}"
-    FJELL_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    FJELL_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    FTK_SOURCE_DIR="${ftk_SOURCE_DIR}")
 ftk_target_defaults(fjell-tests)
 ftk_delay_load_vulkan(fjell-tests)
 # Keeps only the shared libraries something references. The backend the

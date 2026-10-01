@@ -1,5 +1,5 @@
 # Files written before the editor UI kit that still style themselves by hand.
-# ftk/cmake/EditorUiCheck.cmake skips these; everything else must use the
+# ftk's editor UI check skips these; everything else must use the
 # theme's tokens, the engine's icons (src/ui/icons.hpp) and the kit. When a
 # file is migrated, delete its line here: the check fails while a listed file
 # has nothing left to allow, so the list only shrinks. The one time files are

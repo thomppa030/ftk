@@ -23,7 +23,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-linux-${{ hashFiles('ftk/cmake/Dependencies.cmake', 'cmake/EngineDependencies.cmake') }}
+          key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
 
       - name: Configure
         run: cmake --preset debug
@@ -38,15 +38,6 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
-
-      # ftk's libraries on their own, as another program's build gets them:
-      # they have to configure and build without the engine and its
-      # dependencies. Reuses the sources the main build fetched.
-      - name: Configure the libraries alone
-        run: cmake --preset libraries
-
-      - name: Build the libraries alone
-        run: cmake --build --preset libraries
 
   # The unit tests under AddressSanitizer and UndefinedBehaviorSanitizer: a
   # read of freed memory or undefined behaviour fails the run here, where the
@@ -66,7 +57,7 @@ jobs:
           path: |
             build/_deps
             build-asan/_deps
-          key: deps-linux-asan-${{ hashFiles('ftk/cmake/Dependencies.cmake', 'cmake/EngineDependencies.cmake') }}
+          key: deps-linux-asan-${{ hashFiles('cmake/Dependencies.cmake') }}
 
       # The asan preset builds from the imgui checkout the debug configure
       # fetches.
@@ -76,7 +67,7 @@ jobs:
           cmake --preset asan
 
       - name: Build the tests
-        run: cmake --build --preset asan --target fjell-tests ftk-tests fjimport -- -k 0
+        run: cmake --build --preset asan --target fjell-tests fjimport -- -k 0
 
       - name: Bake engine fonts
         run: ./build-asan/tools/fjimport/fjimport engine_assets/fonts/Inter.fjfont
@@ -84,10 +75,6 @@ jobs:
       - name: Test
         working-directory: build-asan/tests
         run: ./fjell-tests
-
-      - name: Test ftk
-        working-directory: build-asan/ftk/tests
-        run: ./ftk-tests
 
   windows:
     name: Windows (Ninja, MSVC)
@@ -116,7 +103,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-windows-${{ hashFiles('ftk/cmake/Dependencies.cmake', 'cmake/EngineDependencies.cmake') }}
+          key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
 
       - name: Configure
         run: cmake --preset debug
@@ -131,12 +118,3 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
-
-      # ftk's libraries on their own, as another program's build gets them:
-      # they have to configure and build without the engine and its
-      # dependencies. Reuses the sources the main build fetched.
-      - name: Configure the libraries alone
-        run: cmake --preset libraries
-
-      - name: Build the libraries alone
-        run: cmake --build --preset libraries
