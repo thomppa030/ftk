@@ -62,23 +62,24 @@ its amplitude.
 `coastal.fjwater` in the test project: a 40 m dominant wave at 5.1 s and a
 significant amplitude of 2.12 m.
 
-| depth | amplitude |
-|---|---|
-| 40 m | 2.12 m |
-| 10 m | 1.98 m |
-| 6 m | 1.94 m |
-| 4 m | 1.56 m, breaking |
-| 2 m | 0.78 m |
-| 1 m | 0.39 m |
-| 0 m | 0 |
+| depth | wavelength | amplitude |
+|---|---|---|
+| 40 m | 40.2 m | 2.12 m |
+| 10 m | 37.5 m | 1.98 m |
+| 6 m | 32.9 m | 1.94 m |
+| 4 m | 28.5 m | 1.56 m, breaking |
+| 2 m | 21.3 m | 0.78 m |
+| 1 m | 15.5 m | 0.39 m |
+| 0 m | — | 0 |
 
 The surf starts where the shoaled height meets 0.39 of the depth, about 5 m
 here: 250 m out on a 1:50 beach, 50 m on 1:10.
 
 What it does not do:
 
-- **The waves keep their deep-water length and heading.** Depth scales how
-  tall they are, not how long; they do not bunch up or turn to face the beach.
+- **The waves keep their heading.** They shorten and slow over the shallows
+  (see [Over the shallows](#over-the-shallows)) but do not yet turn to face
+  the beach.
 - **No lines of surf from a wind sea.** A simulated sea is short-crested and
   comes in as a shrinking chop. Lines of surf belong to a long swell: compose
   a Gerstner swell on top.
@@ -86,6 +87,39 @@ What it does not do:
   height taken away, and as foam where a material draws it.
 - **Chop shoals with its sum's dominant wave**, not by its own length. It is
   held down by breaking where that would show.
+
+## Over the shallows
+
+A wave keeps its frequency as it runs into shallow water, so as it slows it
+shortens: a 40 m wave is 33 m long in 6 m of water and 16 m in one. The sea's
+closed form cannot take that as a wavenumber that changes with depth — the
+wavelength drawn would then be `k + s·dk/ds`, with `s` the distance from the
+world origin, wrong by more the further out — so the change comes from where
+the sea is **read**. Over the shallows each sum of the sea at a point `p` is
+its deep-water self at `p + offset`: the deep sea at a point it has not
+reached yet, which is its lag. Read that way its crests are closer together
+and slower, and its frequency is untouched.
+
+The offsets are a **warp**, baked beside the shelter. For each sum's dominant
+wave a sweep in the direction it travels carries the lag: over water of depth
+d it falls behind by `k(d) / k_deep − 1` metres a metre, `k(d)` from the
+dispersion relation (held to 8 times shorter, a 40 m wave's 5 m in 10 cm of
+water: shallower than that it has broken to nothing). Land carries the lag on
+unchanged. The lag spreads sideways as the shelter's lee does, so where rows
+that crossed different shallows meet the crests join rather than step — and
+rows carrying more lag bend the crests a little toward the shallows on their
+own. Past the terrain it fades out across the margin.
+
+On a grid of 4 m, half the shelter's, in full floats: a running sum is smooth,
+and a lag of hundreds of metres has to come back to the centimetre or short
+chop would bend. Under 3 ms a bake for a 1 km terrain, on a worker, with the
+shelter.
+
+Both halves read each sum at its warped point, carry its slopes and fold terms
+through the warp's Jacobian, read the simulated sea's textures warped at a mip
+for the squeeze, and read the swash's arriving sea at the warped waterline.
+A shortened wave keeps its sideways pinch in metres, so crests grow peakier
+toward the break, as shoaling waves do.
 
 ## Shelter
 
@@ -190,9 +224,10 @@ waterline, fading to 0 seaward. The sheet's thinness over the sand is
 
 ## Evaluated twice
 
-Like the waves, the shore is a pair that must agree. The bake runs once, on
-the CPU (`water_shelter.cpp`), and its grid reaches the GPU as the
-`shore_exposure` texture; both halves read it the same way:
+Like the waves, the shore is a pair that must agree. The bakes run once, on
+the CPU (`water_shelter.cpp`), and their grids reach the GPU as the
+`shore_exposure` and `shore_warp` textures; both halves read them the same
+way:
 
 - `shaders/include/fjell_water_shore.glsl` — what is drawn
 - `src/renderer/resources/water_shore.cpp` — what physics floats on
