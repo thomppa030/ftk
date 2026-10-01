@@ -2,66 +2,45 @@
 
 #include "ftk/ui/kit/icons.hpp"
 
-#include <array>
+#include <functional>
+#include <map>
+#include <string>
 
 namespace ftk::ui {
 
 namespace {
 
-struct Entry {
-    std::string_view extension;
-    AssetKind kind;
-};
-
 using C = theme::Category;
 
-constexpr AssetKind MESH{"mesh", icon::mesh, C::Rendering};
-constexpr AssetKind SHADER{"shader", icon::shader, C::Rendering};
 constexpr AssetKind TEXTURE{"texture", icon::texture, C::Rendering};
 constexpr AssetKind HDRI{"HDRI", icon::texture, C::Environment};
-constexpr AssetKind BLEND{"blend space", icon::blend_space, C::Animation};
-constexpr AssetKind AUDIO{"audio clip", icon::audio, C::Audio};
-constexpr AssetKind UI_LAYOUT{"UI layout", icon::ui_layout, C::Ui};
 constexpr AssetKind FONT{"font", icon::font, C::Ui};
-constexpr AssetKind INPUT{"input", icon::input, C::Logic};
-
-constexpr std::array ENTRIES{
-    Entry{".fjmesh", MESH}, Entry{".glb", MESH}, Entry{".gltf", MESH}, Entry{".fbx", MESH},
-    Entry{".fjskel", {"skeleton", icon::skeleton, C::Animation}},
-    Entry{".fjmat", {"material", icon::material, C::Rendering}},
-    Entry{".fjlut", {"colour grade", icon::colour, C::Rendering}},
-    Entry{".cube", {"colour grade table", icon::colour, C::Rendering}},
-    Entry{".fjsl", SHADER},
-    Entry{".png", TEXTURE}, Entry{".jpg", TEXTURE}, Entry{".jpeg", TEXTURE},
-    Entry{".hdr", HDRI}, Entry{".exr", HDRI},
-    Entry{".fjanim", {"animation", icon::animation, C::Animation}},
-    Entry{".fjanimset", {"animation set", icon::animation, C::Animation}},
-    Entry{".fjblend1D", BLEND}, Entry{".fjblend2D", BLEND},
-    Entry{".fjaudio", AUDIO}, Entry{".ogg", AUDIO}, Entry{".wav", AUDIO}, Entry{".mp3", AUDIO},
-    Entry{".fjvfx", {"effect", icon::vfx, C::Vfx}},
-    Entry{".fjui", UI_LAYOUT}, Entry{".fjss", {"style sheet", icon::ui_layout, C::Ui}},
-    Entry{".fjwidget", {"widget", icon::ui_layout, C::Ui}},
-    Entry{".fjfont", FONT}, Entry{".ttf", FONT}, Entry{".otf", FONT},
-    Entry{".fjsurface", {"surface", icon::surface, C::Physics}},
-    Entry{".fjday", {"day profile", icon::day_profile, C::Environment}},
-    Entry{".fjweather", {"weather", icon::weather, C::Environment}},
-    Entry{".fjclimate", {"climate", icon::climate, C::Environment}},
-    Entry{".fjwater", {"water", icon::water, C::Environment}},
-    Entry{".fjterrain", {"terrain", icon::surface, C::Environment}},
-    Entry{".fjell", {"scene", icon::scene, C::Structure}},
-    Entry{".fjp", {"preset", icon::preset, C::Structure}},
-    Entry{".fjinput", INPUT}, Entry{".fjaction", INPUT},
-};
-
+constexpr AssetKind AUDIO{"audio clip", icon::audio, C::Audio};
 constexpr AssetKind UNKNOWN{"file", icon::file, C::Structure};
+
+// Every kind by extension: the general file types, then what programs
+// registered. A map, so what asset_kind() hands out stays where it is when
+// more are added.
+std::map<std::string, AssetKind, std::less<>>& kinds() {
+    static std::map<std::string, AssetKind, std::less<>> all{
+        {".png", TEXTURE}, {".jpg", TEXTURE}, {".jpeg", TEXTURE},
+        {".hdr", HDRI}, {".exr", HDRI},
+        {".ttf", FONT}, {".otf", FONT},
+        {".ogg", AUDIO}, {".wav", AUDIO}, {".mp3", AUDIO},
+    };
+    return all;
+}
 
 } // namespace
 
 const AssetKind& asset_kind(std::string_view extension) {
-    for (const auto& e : ENTRIES) {
-        if (e.extension == extension) return e.kind;
-    }
-    return UNKNOWN;
+    const auto& all = kinds();
+    const auto found = all.find(extension);
+    return found != all.end() ? found->second : UNKNOWN;
+}
+
+void register_asset_kind(std::string_view extension, const AssetKind& kind) {
+    kinds().insert_or_assign(std::string(extension), kind);
 }
 
 } // namespace ftk::ui
