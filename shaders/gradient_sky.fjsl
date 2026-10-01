@@ -4,24 +4,83 @@ shader_type sky;
 // zenith_color and horizon_color tracks animate the colours, the sun warms
 // the horizon around it, the moon and stars come out at night. Set on a
 // WorldEnvironmentNode via the Sky Shader inspector field.
+//
+// The sun, the moon, the galaxy and the stars are drawn by functions in
+// shaders/include/sky/, each taking its look as one struct. This file holds
+// the dials and fills the structs from them; what each dial does is told on
+// the struct's field.
+
+#include "sky/painted_sun.glsl"
+#include "sky/painted_moon.glsl"
+#include "sky/painted_milky_way.glsl"
+#include "sky/painted_stars.glsl"
 
 uniform vec3 zenith_color : hint_color = vec3(0.349, 0.584, 0.767);
 uniform vec3 horizon_color : hint_color = vec3(0.978, 0.827, 0.626);
 uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
-// The disc itself is its own file, so a sky that wants a different one swaps
-// the path rather than the code, and the three sun dials keep the names a
-// scene already has values under: sun_size, sun_halo_size, sun_halo.
-use sun = "shaders/lib/sun_painted.fjsl"(view_dir: VIEW_DIR, sun_dir: SUN_DIR, sun_color: SUN_COLOR, time: TIME, air_gain: fjell_air_mass_gain(VIEW_DIR, 0.25), horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
-// The moon likewise. Its size dial is the function's own, and named so the
-// moon_size a scene already has authored still lands on it.
-use moon = "shaders/lib/moon_painted.fjsl"(view_dir: VIEW_DIR, moon_dir: MOON_DIR, sun_dir: SUN_DIR, moon_color: MOON_COLOR, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
-// The night sky, as two functions: the galaxy's band, and the stars, which
-// crowd into it and so are told where it is. The galaxy is wired first —
-// a use reads only what is declared above it.
-use galaxy = "shaders/lib/milky_way_painted.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
-use stars = "shaders/lib/stars_painted.fjsl"(view_dir: VIEW_DIR, intensity: STARS, axis: CELESTIAL_AXIS, angle: CELESTIAL_ANGLE, crowding: galaxy.band, horizon_fade: fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS));
 uniform float sun_warmth : hint_range(0.0, 2.0, 0.05) = 0.6;
 uniform float sun_warmth_size : hint_range(1.0, 60.0, 0.5) = 18.0;
+
+// ── Sun ─────────────────────────────────────────────────────────────────────
+group "Sun";
+uniform float sun_size : hint_range(0.1, 8.0, 0.01) = 1.8;
+uniform float sun_halo_size : hint_range(0.0, 45.0, 0.1) = 8.0;
+uniform float sun_halo : hint_range(0.0, 4.0, 0.05) = 1.0;
+uniform float sun_halo_core : hint_range(0.1, 6.0, 0.05) = 1.5;
+uniform float sun_halo_spread : hint_range(0.0, 1.0, 0.01) = 0.45;
+uniform float sun_halo_stretch : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+group "Painted sun";
+uniform float sun_stylize : hint_range(0.0, 1.0, 0.01) = 1.0;
+uniform float sun_form_scale : hint_range(0.5, 4.0, 0.01) = 1.2;
+uniform float sun_tear : hint_range(0.0, 0.5, 0.01) = 0.06;
+uniform float sun_corona : hint_range(0.0, 1.5, 0.01) = 0.22;
+uniform float sun_core : hint_range(0.0, 0.95, 0.01) = 0.62;
+uniform float sun_hot : hint_range(0.0, 1.0, 0.01) = 0.0;
+uniform float sun_boil : hint_range(0.0, 0.5, 0.005) = 0.06;
+uniform vec3 sun_rim_color : hint_color = vec3(1.00, 0.42, 0.10);
+uniform vec3 sun_body_color : hint_color = vec3(1.30, 0.85, 0.35);
+uniform vec3 sun_hot_color : hint_color = vec3(1.50, 1.35, 1.05);
+
+// ── Moon ────────────────────────────────────────────────────────────────────
+group "Moon";
+uniform float moon_size : hint_range(0.1, 8.0, 0.01) = 0.5;
+uniform float moon_halo : hint_range(0.0, 4.0, 0.05) = 0.3;
+uniform float moon_halo_size : hint_range(0.0, 30.0, 0.1) = 4.0;
+
+group "Painted moon";
+uniform float moon_stylize : hint_range(0.0, 1.0, 0.01) = 1.0;
+uniform float moon_form_scale : hint_range(0.3, 4.0, 0.01) = 1.0;
+uniform float moon_maria : hint_range(0.0, 1.0, 0.01) = 0.75;
+uniform float moon_pattern : hint_range(0.0, 50.0, 0.1) = 31.7;
+uniform float moon_terminator_tear : hint_range(0.0, 0.5, 0.01) = 0.12;
+uniform vec3 moon_highland_color : hint_color = vec3(1.00, 1.00, 0.96);
+uniform vec3 moon_maria_color : hint_color = vec3(0.55, 0.60, 0.70);
+uniform vec3 moon_night_color : hint_color = vec3(0.035, 0.045, 0.07);
+
+// ── Galaxy ──────────────────────────────────────────────────────────────────
+group "Galaxy shape";
+uniform float galaxy_arm_width : hint_range(0.02, 0.6, 0.01) = 0.2;
+uniform float galaxy_bulge_width : hint_range(0.05, 0.9, 0.01) = 0.42;
+uniform float galaxy_centre_turn : hint_range(0.0, 360.0, 1.0) = 0.0;
+uniform float galaxy_form_scale : hint_range(0.5, 8.0, 0.01) = 2.6;
+uniform float galaxy_pattern : hint_range(0.0, 50.0, 0.1) = 11.0;
+uniform float galaxy_dust : hint_range(0.0, 1.0, 0.01) = 0.8;
+
+group "Galaxy light";
+uniform float galaxy_brightness : hint_range(0.0, 4.0, 0.01) = 1.0;
+uniform vec3 galaxy_haze_color : hint_color = vec3(0.16, 0.18, 0.25);
+uniform vec3 galaxy_body_color : hint_color = vec3(0.26, 0.28, 0.35);
+uniform vec3 galaxy_core_color : hint_color = vec3(0.40, 0.37, 0.34);
+uniform vec3 galaxy_dust_color : hint_color = vec3(0.09, 0.10, 0.15);
+
+// ── Stars ───────────────────────────────────────────────────────────────────
+group "Stars";
+uniform float stars_brightness : hint_range(0.0, 4.0, 0.01) = 1.0;
+uniform float stars_hero_share : hint_range(0.0, 1.0, 0.01) = 1.0;
+uniform float stars_hero_size : hint_range(0.0, 1.0, 0.01) = 0.9;
+uniform float stars_glint : hint_range(0.0, 1.0, 0.01) = 1.0;
+uniform float stars_saturation : hint_range(0.0, 1.0, 0.01) = 0.8;
 
 // ── Cloud shape ─────────────────────────────────────────────────────────────
 group "Cloud shape";
@@ -91,6 +150,69 @@ group "Cloud scale";
 uniform float cloud_size : hint_range(100.0, 4000.0, 10.0) = 600.0;
 uniform float cloud_height : hint_range(300.0, 8000.0, 50.0) = 2200.0;
 
+PaintedSun sun_look() {
+    PaintedSun look;
+    look.size = sun_size;
+    look.halo_size = sun_halo_size;
+    look.halo = sun_halo;
+    look.halo_core = sun_halo_core;
+    look.halo_spread = sun_halo_spread;
+    look.halo_stretch = sun_halo_stretch;
+    look.stylize = sun_stylize;
+    look.form_scale = sun_form_scale;
+    look.tear = sun_tear;
+    look.corona = sun_corona;
+    look.core = sun_core;
+    look.hot = sun_hot;
+    look.boil = sun_boil;
+    look.rim_color = sun_rim_color;
+    look.body_color = sun_body_color;
+    look.hot_color = sun_hot_color;
+    return look;
+}
+
+PaintedMoon moon_look() {
+    PaintedMoon look;
+    look.size = moon_size;
+    look.halo = moon_halo;
+    look.halo_size = moon_halo_size;
+    look.stylize = moon_stylize;
+    look.form_scale = moon_form_scale;
+    look.maria = moon_maria;
+    look.pattern = moon_pattern;
+    look.terminator_tear = moon_terminator_tear;
+    look.highland_color = moon_highland_color;
+    look.maria_color = moon_maria_color;
+    look.night_color = moon_night_color;
+    return look;
+}
+
+PaintedMilkyWay galaxy_look() {
+    PaintedMilkyWay look;
+    look.arm_width = galaxy_arm_width;
+    look.bulge_width = galaxy_bulge_width;
+    look.centre_turn = galaxy_centre_turn;
+    look.form_scale = galaxy_form_scale;
+    look.pattern = galaxy_pattern;
+    look.dust = galaxy_dust;
+    look.brightness = galaxy_brightness;
+    look.haze_color = galaxy_haze_color;
+    look.body_color = galaxy_body_color;
+    look.core_color = galaxy_core_color;
+    look.dust_color = galaxy_dust_color;
+    return look;
+}
+
+PaintedStars stars_look() {
+    PaintedStars look;
+    look.brightness = stars_brightness;
+    look.hero_share = stars_hero_share;
+    look.hero_size = stars_hero_size;
+    look.glint = stars_glint;
+    look.saturation = stars_saturation;
+    return look;
+}
+
 void sky() {
     // Vertical blend driven by view-up dot. Power shapes the horizon band.
     float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
@@ -107,12 +229,23 @@ void sky() {
     float toward = exp2(-to_sun * to_sun / max(sun_warmth_size * sun_warmth_size, 1e-3));
     SKY += SUN_COLOR * 0.15 * sun_warmth * low_sun * toward;
 
-    SKY += stars.color + galaxy.color;
-    SKY += moon.color;
+    // How much of a body here is above the horizon: the bodies sink past it
+    // rather than blinking out.
+    float horizon_fade = fjell_horizon_fade(VIEW_DIR, CAMERA_POS.y, FJELL_BODY_HORIZON_SOFTNESS);
+
+    // The galaxy before the stars, which crowd into its band.
+    float band;
+    vec3 galaxy = painted_milky_way(galaxy_look(), VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE,
+                                    horizon_fade, band);
+    vec3 stars = painted_stars(stars_look(), VIEW_DIR, STARS, CELESTIAL_AXIS, CELESTIAL_ANGLE, band,
+                               horizon_fade);
+    SKY += stars + galaxy;
+    SKY += painted_moon(moon_look(), VIEW_DIR, MOON_DIR, SUN_DIR, MOON_COLOR, horizon_fade);
     // The disc only, and not into the lighting cubemap: the directional light
     // already carries the sun, and adding the disc there counts it twice.
     if (!SKY_FOR_LIGHTING) {
-        SKY += sun.color;
+        SKY += painted_sun(sun_look(), VIEW_DIR, SUN_DIR, SUN_COLOR, TIME,
+                           fjell_air_mass_gain(VIEW_DIR, 0.25), horizon_fade);
     }
 
     // The weather's clouds over everything, arriving from the front, lit

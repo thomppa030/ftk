@@ -1,6 +1,6 @@
-# Mirror SHADER_SRC tree into SHADER_DST, copying every .fjsl (recursively,
-# so lib/ comes with them) and every .glsl under include/. Runs at build time
-# so additions don't require re-running cmake.
+# Mirror SHADER_SRC tree into SHADER_DST, copying every .fjsl (recursively)
+# and every .glsl under include/. Runs at build time so additions don't
+# require re-running cmake.
 
 file(MAKE_DIRECTORY "${SHADER_DST}/include")
 file(MAKE_DIRECTORY "${SHADER_DST}/generated")

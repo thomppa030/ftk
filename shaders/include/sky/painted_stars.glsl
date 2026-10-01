@@ -1,125 +1,53 @@
-// Painted stars, as a contribution to a sky. The other take on the same job
-// as `stars.fjsl`, with the same ports, so a sky picks one by the path its
-// `use` names.
+#ifndef FJELL_PAINTED_STARS_GLSL
+#define FJELL_PAINTED_STARS_GLSL
+
+// Painted stars, for a sky to draw.
 //
-// What made the field it replaces dull was not the stars, it was that they
+// What made the field these replace dull was not the stars, it was that they
 // were all the same star: one round soft dot at slightly different sizes, so
 // the sky read as an even scatter however it was distributed. A drawn night
 // sky has a cast. A few dozen stars are characters — four-pointed glints, a
 // white-hot core inside a body with real colour — a larger number are small
-// hard diamonds, and everything else is dust kept
-// quiet so the first two have something to stand in front of.
+// hard diamonds, and everything else is dust kept quiet so the first two have
+// something to stand in front of.
 //
-// They hold still. A painted sky does not flicker, and `stars.fjsl` is the
-// one that twinkles — which is why this takes no clock, and a sky swapping
-// between the two wires `time` for that one only.
+// They hold still. A painted sky does not flicker, which is why this takes no
+// clock.
 //
 // One shape does all three: a superellipse whose exponent runs from 2, a
 // circle, through 1, a diamond, to a half, which is the four-pointed star. So
 // there is no seam between the classes, only a star getting more pointed as it
 // gets more important.
-shader_function;
 
-in vec3 view_dir;
-// How far the night has come out, the sky's STARS. Zero draws nothing.
-in float intensity;
-// The rotation that carried the sun from noon to now. Undone on the view
-// direction, so the stars are fixed to the celestial sphere and wheel with it.
-in vec3 axis;
-in float angle;
-// How far inside a galaxy's band this direction is, 0 to 1. Stars crowd into
-// it. Wire a galaxy's `band` here; 0.0 is a sky with no galaxy in it.
-in float crowding;
-// How much of this direction is above the horizon — see
-// `fjell_horizon_fade()`. Stars do not meet the ground: the air thickens
-// toward it until they are gone, and this finishes them off at the edge.
-in float horizon_fade;
+#include "sky/sky_noise.glsl"
 
-out vec3 color;
-
-group "Stars";
-// Over all of them.
-uniform float brightness : hint_range(0.0, 4.0, 0.01) = 1.0;
-// How many of the stars are the large ones. 1 is a few dozen across the
-// visible sky, which is about what a sky can hold before none of them is
-// special any more — and as many as can be chosen by a star's own roll alone.
-uniform float hero_share : hint_range(0.0, 1.0, 0.01) = 1.0;
-// How large those are. 1 is as far as a star can reach and still be found
-// whole from every pixel it covers.
-uniform float hero_size : hint_range(0.0, 1.0, 0.01) = 0.9;
-// How pointed a bright star is: 0 keeps every star round, 1 draws the
-// brightest as four-pointed glints and the middle ones as diamonds.
-uniform float glint : hint_range(0.0, 1.0, 0.01) = 1.0;
-// How much colour the stars carry. 0 is the near-white of the blackbody
-// locus, which is true and which the eye barely sees; 1 is a painter's
-// orange and blue.
-uniform float saturation : hint_range(0.0, 1.0, 0.01) = 0.8;
+// How the stars are drawn. A sky declares these as its uniforms and fills one
+// in.
+struct PaintedStars {
+    // Over all of them.
+    float brightness;
+    // How many of the stars are the large ones. 1 is a few dozen across the
+    // visible sky, which is about what a sky can hold before none of them is
+    // special any more — and as many as can be chosen by a star's own roll
+    // alone.
+    float hero_share;
+    // How large those are. 1 is as far as a star can reach and still be found
+    // whole from every pixel it covers.
+    float hero_size;
+    // How pointed a bright star is: 0 keeps every star round, 1 draws the
+    // brightest as four-pointed glints and the middle ones as diamonds.
+    float glint;
+    // How much colour the stars carry. 0 is the near-white of the blackbody
+    // locus, which is true and which the eye barely sees; 1 is a painter's
+    // orange and blue.
+    float saturation;
+};
 
 float star_hash(vec3 p) {
     p = fract(p * vec3(443.897, 441.423, 437.195));
     p += dot(p, p.yzx + 19.19);
     return fract((p.x + p.y) * p.z);
 }
-
-// Rodrigues rotation of `v` about unit `axis` by `angle`.
-vec3 rotate_about(vec3 v, vec3 axis, float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
-}
-
-// One lattice corner's share of the noise below: its gradient, hashed from
-// where it is, against the offset to it.
-float corner(vec3 i, vec3 f, vec3 o) {
-    return dot(normalize(fract(sin(vec3(
-                   dot(i + o, vec3(127.1, 311.7, 74.7)),
-                   dot(i + o, vec3(269.5, 183.3, 246.1)),
-                   dot(i + o, vec3(113.5, 271.9, 124.6)))) * 43758.5453) * 2.0 - 1.0),
-               f - o);
-}
-
-// Gradient noise on a quintic fade. Spelled here rather than taken from the
-// sky's includes: a function composed into someone else's program cannot
-// assume what that program has in scope.
-//
-// Quintic and not smoothstep because smoothstep's second derivative is not
-// zero at a cell boundary, so the slope jumps there, and spread across a
-// sky-wide gradient that draws faint straight-edged facets. Gradients and not
-// values because interpolated values leave the extrema pinned to the lattice,
-// which reads as a grid however smooth the fade.
-float sky_noise(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = p - i;
-    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-
-    float d000 = corner(i, f, vec3(0, 0, 0));
-    float d100 = corner(i, f, vec3(1, 0, 0));
-    float d010 = corner(i, f, vec3(0, 1, 0));
-    float d110 = corner(i, f, vec3(1, 1, 0));
-    float d001 = corner(i, f, vec3(0, 0, 1));
-    float d101 = corner(i, f, vec3(1, 0, 1));
-    float d011 = corner(i, f, vec3(0, 1, 1));
-    float d111 = corner(i, f, vec3(1, 1, 1));
-
-    float y0 = mix(mix(d000, d100, u.x), mix(d010, d110, u.x), u.y);
-    float y1 = mix(mix(d001, d101, u.x), mix(d011, d111, u.x), u.y);
-    return mix(y0, y1, u.z);
-}
-
-// Octaves of the above. Returns roughly [-1, 1].
-float sky_fbm(vec3 p, int octaves) {
-    float sum = 0.0;
-    float amplitude = 1.0;
-    float total = 0.0;
-    for (int i = 0; i < octaves; ++i) {
-        sum += sky_noise(p) * amplitude;
-        total += amplitude;
-        p *= 2.02;   // not exactly 2, so octaves do not share lattice planes
-        amplitude *= 0.5;
-    }
-    return sum / max(total, 1e-6);
-}
-
 
 // The colour of a star of a given temperature, coolest to hottest. The plain
 // ends are the blackbody locus over the range stars occupy; the saturated
@@ -131,11 +59,22 @@ vec3 star_color(float t, float vivid) {
     return t < 0.5 ? mix(cool, mid, t * 2.0) : mix(mid, hot, (t - 0.5) * 2.0);
 }
 
-void main() {
-    color = vec3(0.0);
-    if (intensity <= 0.0) return;
+// The stars seen along `view_dir`.
+//
+// `intensity` is how far the night has come out, the sky's STARS; zero draws
+// nothing. `axis` and `angle` are the rotation that carried the sun from noon
+// to now, undone on the view direction so the stars are fixed to the
+// celestial sphere and wheel with it. `crowding` is how far inside a galaxy's
+// band this direction is, 0 to 1, and the stars crowd into it: pass the
+// `band` from `painted_milky_way()`, or 0.0 for a sky with no galaxy in it.
+// `horizon_fade` is how much of this direction is above the horizon
+// (`fjell_horizon_fade()`). Stars do not meet the ground: the air thickens
+// toward it until they are gone, and this finishes them off at the edge.
+vec3 painted_stars(PaintedStars look, vec3 view_dir, float intensity, vec3 axis, float angle,
+                   float crowding, float horizon_fade) {
+    if (intensity <= 0.0) return vec3(0.0);
 
-    vec3 dir = rotate_about(view_dir, axis, -angle);
+    vec3 dir = sky_rotate_about(view_dir, axis, -angle);
     const float CELLS = 60.0;
     vec3 base = floor(dir * CELLS);
     vec3 sum = vec3(0.0);
@@ -145,7 +84,7 @@ void main() {
     // the strongest crowd of all. Interpolated noise, so a crowd thins into a
     // void gradually rather than changing count across a cell boundary.
     float clump = sky_fbm(dir * 2.4 + 137.0, 3) * 0.5 + 0.5;
-    // A little over what `stars.fjsl` rolls, because stars that cannot be
+    // A little over the share that should show, because stars that cannot be
     // drawn whole are turned away below and the sky should not thin for it.
     float density = (0.022 + 0.030 * clump + 0.055 * crowding * crowding) * 1.15;
 
@@ -164,9 +103,9 @@ void main() {
                 // roll and nothing else. The density above is this *pixel's*,
                 // and a star's size must not depend on which of its pixels is
                 // asking, or its outline bends across a crowd's edge.
-                float share = 0.012 * hero_share;
+                float share = 0.012 * look.hero_share;
                 float hero = smoothstep(1.0 - share, 1.0 - share * 0.13, h)
-                           * step(1e-4, hero_share);
+                           * step(1e-4, look.hero_share);
 
                 // Jittered across the whole cell and a little past it, so
                 // neighbours can crowd or leave a gap and no lattice shows.
@@ -207,12 +146,12 @@ void main() {
 
                 // The superellipse: exponent 2 is a circle, 1 a diamond, a
                 // half the four-pointed star. Importance sharpens it.
-                float pointed = max(hero, smoothstep(0.15, 0.7, magnitude) * 0.6) * glint;
+                float pointed = max(hero, smoothstep(0.15, 0.7, magnitude) * 0.6) * look.glint;
                 float exponent = mix(2.0, 0.5, pointed);
                 float shape = pow(pow(across.x, exponent) + pow(across.y, exponent),
                                   1.0 / exponent);
 
-                float reach = min(0.0085 * hero_size * hero * hero, room - 0.0030);
+                float reach = min(0.0085 * look.hero_size * hero * hero, room - 0.0030);
                 float radius = 0.0010 + 0.0020 * magnitude + reach;
 
                 // Small stars keep a soft edge, because a hard one two pixels
@@ -230,8 +169,8 @@ void main() {
                 // to the ends of the range so the eye finds distinct warm and
                 // cool among them, while the faint majority stays near white.
                 float temp = star_hash(cell + 4.0);
-                float spread = (0.35 + 0.65 * magnitude) * mix(1.0, 1.3, saturation);
-                vec3 tint = star_color(clamp(0.5 + (temp - 0.5) * spread, 0.0, 1.0), saturation);
+                float spread = (0.35 + 0.65 * magnitude) * mix(1.0, 1.3, look.saturation);
+                vec3 tint = star_color(clamp(0.5 + (temp - 0.5) * spread, 0.0, 1.0), look.saturation);
 
                 // A star arrives from nothing: the density that admits one is
                 // this pixel's, so a star drawn at full strength the moment it
@@ -247,5 +186,7 @@ void main() {
         }
     }
 
-    color = sum * brightness * intensity * 3.0 * horizon_fade;
+    return sum * look.brightness * intensity * 3.0 * horizon_fade;
 }
+
+#endif

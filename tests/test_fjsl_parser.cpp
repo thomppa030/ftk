@@ -2475,12 +2475,12 @@ TEST_CASE("One use feeds another through its arguments", "[fjsl][compose][glslc]
     REQUIRE(status == 0);
 }
 
-// The engine's own skies, with whatever they compose out of shaders/lib/. A
-// sky is compiled twice — once as the fragment shader that draws it and once
-// as the compute shader that fills the lighting cubemap — and a function that
-// is fine in one can be illegal in the other: a screen-space derivative, for
-// one, has no meaning in compute.
-TEST_CASE("Every shipped sky composes and compiles both ways", "[fjsl][compose][glslc]") {
+// The engine's own skies, with the sky/ includes they draw their bodies with.
+// A sky is compiled twice — once as the fragment shader that draws it and
+// once as the compute shader that fills the lighting cubemap — and a function
+// that is fine in one can be illegal in the other: a screen-space derivative,
+// for one, has no meaning in compute.
+TEST_CASE("Every shipped sky compiles both ways", "[fjsl][glslc]") {
     if (run("glslc --version").first != 0) SKIP("glslc not available");
     auto shader_dir = find_shader_dir();
     REQUIRE_FALSE(shader_dir.empty());
@@ -2502,19 +2502,8 @@ TEST_CASE("Every shipped sky composes and compiles both ways", "[fjsl][compose][
         meta.source_text = source;
         REQUIRE_FALSE(meta.has_errors());
 
-        // A `use` names its file from the engine root, as "shaders/lib/x.fjsl".
-        auto comp = resolve_composition(
-            meta, "shaders/" + entry.path().filename().string(),
-            [&](const std::string& path) -> std::optional<std::string> {
-                auto text = read_text(shader_dir.parent_path() / path);
-                if (text.empty()) return std::nullopt;
-                return text;
-            });
-        for (const auto& d : comp.diagnostics) INFO(d.file << ": " << d.message);
-        REQUIRE_FALSE(comp.has_errors());
-
         auto frag = out_dir / (name + ".frag");
-        std::ofstream(frag) << generate_fragment_shader(meta, tmpl, &comp);
+        std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
 
         const std::string includes = "-I " + quoted(shader_dir / "include") + " ";
         auto [drawn, drawn_output] = run("glslc --target-env=vulkan1.3 " + includes
