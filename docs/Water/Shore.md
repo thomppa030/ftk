@@ -1,10 +1,10 @@
 # Shore
 
 A sea knows the ground under it. Over a terrain, its waves grow as the water
-shallows, break once the depth can no longer carry them, and are gone on dry
-land; behind land that stands between the water and the open sea, they are
-calmer. Physics floats bodies on the same sea, so a boat in the surf or in a
-cove rides the waves that are drawn there.
+shallows, break once the depth can no longer carry them, and run on up the
+sand as swash; behind land that stands between the water and the open sea,
+they are calmer. Physics floats bodies on the same sea, so a boat in the surf
+or in a cove rides the waves that are drawn there.
 
 ## Where the ground comes from
 
@@ -138,6 +138,42 @@ What it does not do:
   shorter, younger sea over its few hundred metres; one spectrum is drawn for
   the world, so that difference cannot be drawn.
 
+## Swash
+
+Breaking holds the waves to what the depth can carry, which is nothing at the
+still waterline, so the waves alone would leave the water's edge standing
+still. A beach does not: each broken wave runs on up the sand as a sheet and
+drains back, and across the surf the mean level stands a little raised
+(setup). Both are a **vertical lift** of the water level near the waterline.
+Where the water's edge lands is the terrain's: a lift of R moves it R / slope
+up the beach.
+
+**What drives it.** Each point near the waterline reads the sea where its line
+down the beach meets the still waterline — the sea's own height there, before
+the shore scaled it, as a share of its significant amplitude. That share
+swings the level of every point up and behind that spot, so the edge runs up
+with the breakers that are drawn arriving there, in their sets, and needs no
+arrival time worked out for it.
+
+**How high.** From the sea's significant height after shelter H0, its
+wavelength L0 and the beach slope β, after Stockdon et al. (2006):
+
+- setup `0.35 β sqrt(H0 L0)`, all of it at and above the waterline, falling to
+  nothing at the depth the sea breaks in;
+- the level swings half of `sqrt(H0 L0 (0.563 β² + 0.004))` either side of
+  it, all of it at and above the waterline, falling to nothing in water twice
+  as deep as the swing.
+
+β is held to 0.15 (`SWASH_STEEPEST_BEACH`): steeper ground is a rock face that
+takes spray, not setup. On `coastal` with a 1:10 beach the edge moves a few
+metres either way; on a gentler beach it travels further.
+
+Sand higher than the swash can reach keeps the water under it, and nothing is
+worked out there. The swash is vertical only, like a wake, so it changes no
+fold measure; normals take its slope, which across a point is the lift's
+change with depth plus the arriving sea's slope along the shore — every point
+down one line of the beach reads the same spot.
+
 ## Foam in the surf
 
 `BREAKING` in a water `fragment()` is the share of its height the sea has lost
@@ -147,6 +183,10 @@ surf to 1 at the waterline. It is what a surf zone foams on.
 `CREST` cannot do it. It is the pinch of the surface, and breaking takes height
 off faster than the shallows sharpen the waves, so crest foam peaks at the
 break point and fades toward the beach while real surf is whitest there.
+
+`SWASH` is how much of the swash a point carries: 1 at and above the still
+waterline, fading to 0 seaward. The sheet's thinness over the sand is
+`WATER_DEPTH_VERTICAL`, so a foamy run-up front is the two together.
 
 ## Evaluated twice
 

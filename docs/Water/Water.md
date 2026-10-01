@@ -257,6 +257,10 @@ two together are the whole path.
 ground under it: 0 in water deep enough to carry it, 1 at the waterline. What
 a surf zone foams on; see [Shore](Shore.md).
 
+`SWASH` is how much of the run-up and backwash on a beach a point carries: 1
+at and above the still waterline, fading to 0 seaward. With
+`WATER_DEPTH_VERTICAL` it draws a foamy run-up front.
+
 ### Meeting solid things
 
 `SDF_DISTANCE` is how far the surface is from solid geometry, in metres, read
