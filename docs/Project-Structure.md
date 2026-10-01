@@ -143,7 +143,7 @@ engine. `ftk/src/ftk/` holds its libraries, declared in
 `ftk/src/libraries.cmake` and each linked as `ftk::<name>`; `ftk/cmake/` its
 CMake functions and checks; `ftk/tests/` its tests (`ftk-tests`, a link check
 per library); `ftk/shaders/` the ImGui layer's fragment stage and the colour
-space include; `ftk/fonts/` the theme's fonts.
+space include; `ftk/fonts/` the theme's fonts and their licences.
 
 | Directory (in `ftk/src/`) | Library | What it holds |
 |---|---|---|
