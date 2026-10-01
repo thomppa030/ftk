@@ -2,8 +2,9 @@
 
 A sea knows the ground under it. Over a terrain, its waves grow as the water
 shallows, break once the depth can no longer carry them, and are gone on dry
-land. Physics floats bodies on the same shallowed sea, so a boat in the surf
-rides the waves that are drawn there.
+land; behind land that stands between the water and the open sea, they are
+calmer. Physics floats bodies on the same sea, so a boat in the surf or in a
+cove rides the waves that are drawn there.
 
 ## Where the ground comes from
 
@@ -16,8 +17,10 @@ The heights are the terrain's own: the CPU array physics collides with, shared
 with the water rather than copied, and on the GPU the terrain's height texture.
 Sculpting reaches the water at once.
 
-Off the terrain there is no ground to speak of, and the sea there is the open
-sea. A water with no terrain under it is open water everywhere.
+Off the terrain there is no ground to speak of: the water there is deep, and
+the open sea unless the lee of the terrain's land reaches it (see
+[Shelter](#shelter)). A water with no terrain under it is open water
+everywhere.
 
 ## What depth does to a wave
 
@@ -84,6 +87,57 @@ What it does not do:
 - **Chop shoals with its sum's dominant wave**, not by its own length. It is
   held down by breaking where that would show.
 
+## Shelter
+
+Depth cannot calm a fjord: its water is deep right up to the walls. What
+calms it is land between it and the open sea the waves come from. A terrain's
+water is baked an **exposure** — how much of each sum of the sea reaches each
+point past the land — and both halves scale each sum by it before shoaling and
+breaking.
+
+**The bake.** A grid over the terrain and a quarter of its size again on every
+side, at 2 m where the terrain is small enough (at most 1024 samples a side).
+A sample is land when any of the terrain's heights under it stands above the
+water at rest, so a spit narrower than a cell still blocks; stakes, piers and
+other meshes do not shelter, the water runs under them. Then, for each way a
+sum arrives, a sweep down the grid in the direction its waves travel: open sea
+at the upwind edge, nothing past land, and a lee that fills back in with
+distance as waves bend around the end of the land that cast it, its edge
+widening as the square root of wavelength times distance. The directions are
+summed by how much of the sum arrives each way, and what is kept is the
+amplitude share. Past the terrain it fades back to the open sea across the
+margin, so a lee near the edge does not end in a line.
+
+**Which ways a sum arrives.** Each Gerstner train one way, weighted by its
+energy. The simulated sea across its whole spread, weighted by its own
+spreading function: a storm sea arrives over a wide fan, so a cove turned
+from the mean wind still takes waves from the side, and turns rough when the
+storm swings round.
+
+**Half the lee is kept** (`SHELTER_STRENGTH`, 0.5). Baked whole, a cove the
+land turns from the sea keeps a fifth of the open sea's height or less and
+reads as dead water; the test terrain's lagoon did. Kept at half, every lee is
+clearly calmer than the open sea and the water in it alive. The bake itself is
+physical, and its tests check it at full strength — the lee behind a
+breakwater's end against the diffusion of a step.
+
+**When it changes.** The land is marked again when the terrain is edited or
+the water or terrain moves, on the calling thread, since that is where the
+heights are edited. The exposure is baked on a worker, one at a time, when the
+land or the sea's ways have changed — the sea's heading in degrees, its
+wavelength in five-percent steps — and the last one is handed out meanwhile. A
+body of water copied into play keeps the exposure it had until its own is
+baked. As with a newly drawn sea, two machines adopt a new exposure a few
+steps apart.
+
+What it does not do:
+
+- **Shallows do not shelter.** A reef that breaks the waves passing over it
+  calms the water behind it; only land above the water counts here.
+- **The sea in a lee is the open sea made smaller.** A cove's own wind raises a
+  shorter, younger sea over its few hundred metres; one spectrum is drawn for
+  the world, so that difference cannot be drawn.
+
 ## Foam in the surf
 
 `BREAKING` in a water `fragment()` is the share of its height the sea has lost
@@ -96,7 +150,9 @@ break point and fades toward the beach while real surf is whitest there.
 
 ## Evaluated twice
 
-Like the waves, the shore is a pair that must agree:
+Like the waves, the shore is a pair that must agree. The bake runs once, on
+the CPU (`water_shelter.cpp`), and its grid reaches the GPU as the
+`shore_exposure` texture; both halves read it the same way:
 
 - `shaders/include/fjell_water_shore.glsl` — what is drawn
 - `src/renderer/resources/water_shore.cpp` — what physics floats on
