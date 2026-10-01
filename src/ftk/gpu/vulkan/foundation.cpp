@@ -60,9 +60,9 @@ static void destroy_debug_utils_messenger(
     }
 }
 
-Foundation::Foundation(const Window& window) {
+Foundation::Foundation(const Window& window, const std::string& program) {
     FTK_GFX_INFO("Initializing Vulkan device");
-    create_instance();
+    create_instance(program);
     setup_debug_messenger();
     // The GPU is chosen by whether it can show the window, asked through a
     // surface made for the choice; each swapchain makes the one it presents
@@ -93,7 +93,7 @@ Foundation::~Foundation() {
         vkDestroyInstance(instance_, nullptr);
 }
 
-void Foundation::create_instance() {
+void Foundation::create_instance(const std::string& program) {
     if constexpr (enable_validation_) {
         if (!check_validation_layer_support()) {
             throw std::runtime_error("Validation layers requested but not available");
@@ -102,9 +102,9 @@ void Foundation::create_instance() {
 
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName = "Fjell";
+    app_info.pApplicationName = program.c_str();
     app_info.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
-    app_info.pEngineName = "Fjell";
+    app_info.pEngineName = "ftk";
     app_info.engineVersion = VK_MAKE_VERSION(0, 1, 0);
     app_info.apiVersion = VK_API_VERSION_1_3;
 
@@ -183,8 +183,9 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
     gpu_name_ = props.deviceName;
     FTK_GFX_INFO("GPU: {}", gpu_name_);
 
-    // VK_EXT_mesh_shader is required. Fjell renders exclusively through the
-    // mesh-shader path; the vertex-shader fallback was retired.
+    // Mesh shaders, when the GPU has them. A program that cannot run without
+    // them says so in DeviceDesc::required, which the device checks once
+    // everything is up.
     device_extensions_.assign(required_device_extensions_.begin(),
                               required_device_extensions_.end());
 
@@ -200,42 +201,38 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
             break;
         }
     }
-    if (!mesh_ext_present) {
-        throw std::runtime_error(
-            "GPU does not support VK_EXT_mesh_shader (required). "
-            "Fjell requires a GPU with mesh shader support "
-            "(NVIDIA Turing+, AMD RDNA2+, or Intel Arc).");
-    }
 
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{};
     mesh_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
-
-    VkPhysicalDeviceFeatures2 features2{};
-    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2.pNext = &mesh_features;
-    vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
-
-    if (!mesh_features.taskShader || !mesh_features.meshShader) {
-        throw std::runtime_error(
-            "GPU advertises VK_EXT_mesh_shader but does not enable taskShader/meshShader features.");
+    if (mesh_ext_present) {
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &mesh_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
     }
 
-    mesh_shader_supported_ = true;
-    device_extensions_.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    // A GPU can name the extension and still leave a stage off; it counts as
+    // having none.
+    if (mesh_features.taskShader && mesh_features.meshShader) {
+        mesh_shader_supported_ = true;
+        device_extensions_.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
 
-    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{};
-    mesh_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
-    VkPhysicalDeviceProperties2 props2{};
-    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    props2.pNext = &mesh_props;
-    vkGetPhysicalDeviceProperties2(physical_device_, &props2);
+        VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{};
+        mesh_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+        VkPhysicalDeviceProperties2 props2{};
+        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        props2.pNext = &mesh_props;
+        vkGetPhysicalDeviceProperties2(physical_device_, &props2);
 
-    mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
-    mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
-    FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
-                   mesh_props.maxMeshWorkGroupSize[0],
-                   mesh_shader_max_output_vertices_,
-                   mesh_shader_max_output_primitives_);
+        mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
+        mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
+        FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
+                     mesh_props.maxMeshWorkGroupSize[0],
+                     mesh_shader_max_output_vertices_,
+                     mesh_shader_max_output_primitives_);
+    } else {
+        FTK_GFX_INFO("No mesh shaders on this GPU");
+    }
 
     // VK_EXT_device_fault: on VK_ERROR_DEVICE_LOST, lets us query the faulting
     // address/vendor info to pin which GPU op lost the device. Optional.

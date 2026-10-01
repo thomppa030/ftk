@@ -197,7 +197,9 @@ struct Device::Impl {
         std::string name;
     };
 
-    explicit Impl(Window& window);
+    /// Brings the device up for a GPU that can show `window`, for the
+    /// program `desc` names.
+    Impl(Window& window, const DeviceDesc& desc);
     ~Impl();
 
     /// Writes the pipeline cache to its file and destroys it; nothing
