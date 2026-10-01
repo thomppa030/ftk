@@ -75,8 +75,8 @@ TEST_CASE("A page entry reports a click", "[ui][kit]") {
     int picked = -1;
     h.set_ui([&] {
         if (auto list = ui::PageList("##pages")) {
-            if (ui::page_entry(ui::icon::rendering, "Rendering", picked == 0)) picked = 0;
-            if (ui::page_entry(ui::icon::world_environment, "Environment", picked == 1)) picked = 1;
+            if (ui::page_entry(ui::icon::folder, "Rendering", picked == 0)) picked = 0;
+            if (ui::page_entry(ui::icon::file, "Environment", picked == 1)) picked = 1;
             h.mark("environment");
         }
     });

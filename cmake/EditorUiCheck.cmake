@@ -4,12 +4,19 @@
 # everywhere else a colour literal, a style push with a literal, or a font
 # picked by index fails the check with the file and line.
 #
-#     ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])
+#     ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>]
+#                         [ICONS <files>...])
 #
 # checks every .cpp, .hpp and .h under the roots at configure, and again
 # before <target> builds whenever one of them changes, so a plain build
-# reports a new offender. Roots and the allowlist are relative to the calling
-# directory, and reports name files relative to it too.
+# reports a new offender. Roots, the allowlist and the icon files are
+# relative to the calling directory, and reports name files relative to it
+# too.
+#
+# Icons are named by meaning, and which glyph means what is the program's
+# own decision: ICONS names the files where it spells them (the kit names
+# only those its own widgets use). Glyphs are refused everywhere else; the
+# icon files are held to the rest of the check like any other.
 #
 # The allowlist names files written before the kit, skipped until they are
 # migrated. It only shrinks: a listed file that no longer has a hit fails
@@ -23,9 +30,10 @@
 # the editor lives in src/ui/inspectors. The game UI (ui/game_ui/) is runtime
 # and may be included.
 
-# Scans `roots` under `base`, skipping what `allowlist` names, and fails with
+# Scans `roots` under `base`, skipping what `allowlist` names and letting the
+# files `icons` lists (comma-separated, absolute) spell glyphs, and fails with
 # every offender. Also run on its own by the build step (script mode below).
-function(_ftk_scan_editor_ui base allowlist)
+function(_ftk_scan_editor_ui base allowlist icons)
     get_filename_component(src_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
     set(patterns
         # IM_COL32(40, 42, 46, 255)
@@ -50,10 +58,12 @@ function(_ftk_scan_editor_ui base allowlist)
         # without the bracket: CMake list splitting treats an unbalanced
         # bracket as grouping and would merge this with the next pattern.
         "Fonts->Fonts"
-        # ICON_LC_PLUS instead of ui::icon::add: icons are named by meaning
-        "ICON_LC_[A-Z]"
     )
-    list(JOIN patterns "|" pattern)
+    list(JOIN patterns "|" literal_pattern)
+    # ICON_LC_PLUS instead of icon::add: icons are named by meaning, in the
+    # program's icon files.
+    set(pattern "${literal_pattern}|ICON_LC_[A-Z]")
+    string(REPLACE "," ";" icon_files "${icons}")
 
     set(allowed "")
     if(allowlist AND EXISTS "${allowlist}")
@@ -99,7 +109,11 @@ function(_ftk_scan_editor_ui base allowlist)
                     endif()
                 endforeach()
             endif()
-            file(STRINGS "${source}" hits REGEX "${pattern}")
+            if(source IN_LIST icon_files)
+                file(STRINGS "${source}" hits REGEX "${literal_pattern}")
+            else()
+                file(STRINGS "${source}" hits REGEX "${pattern}")
+            endif()
             set(file_hit FALSE)
             foreach(hit IN LISTS hits)
                 string(STRIP "${hit}" hit)
@@ -141,8 +155,8 @@ function(_ftk_scan_editor_ui base allowlist)
             "Editor UI styled by hand (a colour literal, a literal style push, a font by index, "
             "or an icon glyph by name):\n"
             "${offenders}\n"
-            "Use a colour token from ftk's theme (src/ftk/ui/theme.hpp), an icon from ui::icon, "
-            "or a piece of its kit in src/ftk/ui/kit/. "
+            "Use a colour token from ftk's theme (src/ftk/ui/theme.hpp), an icon from the "
+            "program's icon file, or a piece of ftk's kit in src/ftk/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
     endif()
     if(editor_in_runtime)
@@ -165,17 +179,25 @@ function(_ftk_scan_editor_ui base allowlist)
 endfunction()
 
 function(ftk_check_editor_ui target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ALLOWLIST" "ROOTS")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "ALLOWLIST" "ROOTS;ICONS")
     if(NOT arg_ROOTS OR arg_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])")
+        message(FATAL_ERROR
+            "ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>] [ICONS <files>...])")
     endif()
     set(base "${CMAKE_CURRENT_SOURCE_DIR}")
     set(allowlist "")
     if(arg_ALLOWLIST)
         cmake_path(ABSOLUTE_PATH arg_ALLOWLIST BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE allowlist)
     endif()
+    set(icon_files "")
+    foreach(icon_file IN LISTS arg_ICONS)
+        cmake_path(ABSOLUTE_PATH icon_file BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE path)
+        list(APPEND icon_files "${path}")
+    endforeach()
+    # Commas, not semicolons: a list would split into separate arguments.
+    list(JOIN icon_files "," icons)
 
-    _ftk_scan_editor_ui("${base}" "${allowlist}" ${arg_ROOTS})
+    _ftk_scan_editor_ui("${base}" "${allowlist}" "${icons}" ${arg_ROOTS})
 
     set(globs "")
     foreach(root IN LISTS arg_ROOTS)
@@ -190,7 +212,7 @@ function(ftk_check_editor_ui target)
     add_custom_command(
         OUTPUT "${stamp}"
         COMMAND "${CMAKE_COMMAND}" "-DFTK_EDITOR_UI_BASE=${base}" "-DFTK_EDITOR_UI_ROOTS=${roots}"
-                "-DFTK_EDITOR_UI_ALLOWLIST=${allowlist}" -P "${script}"
+                "-DFTK_EDITOR_UI_ALLOWLIST=${allowlist}" "-DFTK_EDITOR_UI_ICONS=${icons}" -P "${script}"
         COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
         DEPENDS ${sources} "${script}" ${allowlist}
         COMMENT "Checking ${target}'s editor UI against the theme and kit"
@@ -202,12 +224,14 @@ endfunction()
 # Script mode, used by the build step, or by hand over Fjell's own tree:
 #   cmake -DFTK_EDITOR_UI_ROOTS=src -P cmake/EditorUiCheck.cmake
 # Add -DFTK_EDITOR_UI_LIST=ON to print every file with a hit instead. By
-# hand, roots are relative to Fjell's checkout and its allowlist applies.
+# hand, roots are relative to Fjell's checkout and its allowlist and icon
+# file apply.
 if(CMAKE_SCRIPT_MODE_FILE AND FTK_EDITOR_UI_ROOTS)
     if(NOT DEFINED FTK_EDITOR_UI_BASE)
         get_filename_component(FTK_EDITOR_UI_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
         set(FTK_EDITOR_UI_ALLOWLIST "${CMAKE_CURRENT_LIST_DIR}/editor_ui_allowlist.txt")
+        set(FTK_EDITOR_UI_ICONS "${FTK_EDITOR_UI_BASE}/src/ui/icons.hpp")
     endif()
     string(REPLACE "," ";" roots "${FTK_EDITOR_UI_ROOTS}")
-    _ftk_scan_editor_ui("${FTK_EDITOR_UI_BASE}" "${FTK_EDITOR_UI_ALLOWLIST}" ${roots})
+    _ftk_scan_editor_ui("${FTK_EDITOR_UI_BASE}" "${FTK_EDITOR_UI_ALLOWLIST}" "${FTK_EDITOR_UI_ICONS}" ${roots})
 endif()

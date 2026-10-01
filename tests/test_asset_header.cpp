@@ -23,7 +23,7 @@ void click_at(ImGuiHarness& h, ImVec2 p) {
 
 TEST_CASE("The asset header's Save, after the name, answers only while there are unsaved changes", "[ui][kit]") {
     ImGuiHarness h;
-    ui::AssetHeaderSpec spec{.icon = ui::icon::material, .name = "crate_wood.fjmat", .folder = "Props / Crates",
+    ui::AssetHeaderSpec spec{.icon = ui::icon::file, .name = "crate_wood.fjmat", .folder = "Props / Crates",
                              .unsaved = false, .saves = "crate_wood.fjmat"};
     ui::SaveAction last = ui::SaveAction::None;
     h.set_ui([&] {

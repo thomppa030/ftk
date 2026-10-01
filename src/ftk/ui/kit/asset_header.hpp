@@ -14,7 +14,7 @@
 //     if (auto header = ui::AssetHeaderBar(spec)) {
 //         header.begin_actions();
 //         ImGui::SameLine();
-//         if (ui::action(ui::icon::shader, "wood_pbr.fjsl", ui::ButtonKind::Ghost)) open_shader();
+//         if (ui::action(ui::icon::file, "wood_pbr.fjsl", ui::ButtonKind::Ghost)) open_shader();
 //         switch (header.finish()) { ... }
 //     }
 

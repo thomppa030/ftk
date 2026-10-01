@@ -6,9 +6,9 @@
 // which mode on the left, how the editor is running on the right.
 //
 //     if (auto bar = ui::StatusBar()) {
-//         if (ui::status_button(ui::icon::content_browser, "Content", "Ctrl Space", open)) toggle();
+//         if (ui::status_button(ui::icon::folder, "Content", "Ctrl Space", open)) toggle();
 //         ui::status_rule();
-//         ui::status_item(ui::icon::scene, "harbour", scene.is_dirty());
+//         ui::status_item(ui::icon::file, "harbour", scene.is_dirty());
 //         bar.right();
 //         ui::status_item(nullptr, "6.94 ms");
 //     }

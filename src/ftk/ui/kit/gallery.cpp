@@ -110,7 +110,7 @@ void swatch(const char* name, const ImVec4& colour) {
 }
 
 void tokens() {
-    if (section_foldable("Tokens", icon::more)) {
+    if (section_foldable("Tokens", ICON_LC_MORE_HORIZONTAL)) {
         subheading("Surfaces");
         swatch("surface_sunken", theme::surface_sunken());
         swatch("surface_base", theme::surface_base());
@@ -157,7 +157,7 @@ void tokens() {
 }
 
 void headings() {
-    if (section_foldable("Headings", icon::more)) {
+    if (section_foldable("Headings", ICON_LC_MORE_HORIZONTAL)) {
         section("Section", icon::search);
         ImGui::TextUnformatted("A part of the panel, with a rule and its own icon.");
         subheading("Sub-heading");
@@ -171,7 +171,7 @@ void headings() {
 } // namespace
 
 void KitGallery::buttons() {
-    if (section_foldable("Buttons", icon::more)) {
+    if (section_foldable("Buttons", ICON_LC_MORE_HORIZONTAL)) {
         const std::pair<const char*, ButtonKind> kinds[] = {
             {"Secondary", ButtonKind::Secondary}, {"Primary", ButtonKind::Primary},
             {"Ghost", ButtonKind::Ghost}, {"Danger", ButtonKind::Danger},
@@ -192,9 +192,9 @@ void KitGallery::buttons() {
         subheading("Icon buttons");
         icon_button("add", icon::add, "Add");
         ImGui::SameLine();
-        icon_button("browse", icon::browse, "Browse");
+        icon_button("browse", ICON_LC_FOLDER_OPEN, "Browse");
         ImGui::SameLine();
-        icon_button("use_selected", icon::use_selected, "Use selected");
+        icon_button("use_selected", ICON_LC_CROSSHAIR, "Use selected");
         ImGui::SameLine();
         icon_button("clear", icon::clear, "Clear");
         ImGui::SameLine();
@@ -210,7 +210,7 @@ void KitGallery::buttons() {
 }
 
 void KitGallery::rows() {
-    if (section_foldable("Rows", icon::more)) {
+    if (section_foldable("Rows", ICON_LC_MORE_HORIZONTAL)) {
         char width[64];
         std::snprintf(width, sizeof(width), "Label column at this width: %.0f px",
                       theme::label_column(ImGui::GetContentRegionAvail().x));
@@ -229,7 +229,7 @@ void KitGallery::rows() {
 }
 
 void KitGallery::fields() {
-    if (section_foldable("Fields", icon::more)) {
+    if (section_foldable("Fields", ICON_LC_MORE_HORIZONTAL)) {
         Edit edit;
         subheading("Units");
         if (auto t = PropertyTable("##gallery_units")) {
@@ -296,7 +296,7 @@ Edit KitGallery::choices() {
 }
 
 void KitGallery::blocks() {
-    if (section_foldable("Component blocks", icon::more)) {
+    if (section_foldable("Component blocks", ICON_LC_MORE_HORIZONTAL)) {
         const std::pair<const char*, theme::Category> samples[] = {
             {"Mesh", theme::Category::Rendering},
             {"Collider", theme::Category::Physics},
@@ -311,7 +311,7 @@ void KitGallery::blocks() {
                 }
                 // A mesh's material values, set apart in their box.
                 if (category == theme::Category::Rendering) {
-                    if (auto box = InsetGroup("##material", "Material", icon::material,
+                    if (auto box = InsetGroup("##material", "Material", ICON_LC_CIRCLE_DOT,
                                               theme::category(theme::Category::Rendering))) {
                         if (auto t = PropertyTable("##material_rows")) {
                             row("Roughness", [&] { slider("##roughness", slope_, 0.0f, 90.0f); });
@@ -325,7 +325,7 @@ void KitGallery::blocks() {
                     if (category == theme::Category::Physics) {
                         row("Size", [&] { vec3("##size", scale_); });
                         row("", [&] {
-                            if (action(icon::use_selected, "Fit to mesh")) removed_ = "Fit to mesh";
+                            if (action(ICON_LC_CROSSHAIR, "Fit to mesh")) removed_ = "Fit to mesh";
                             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
                             if (action(icon::remove, "Clear points", ButtonKind::GhostDanger)) {
                                 removed_ = "Clear points";
@@ -346,7 +346,7 @@ void KitGallery::blocks() {
 }
 
 void KitGallery::lists() {
-    if (section_foldable("Lists", icon::more)) {
+    if (section_foldable("Lists", ICON_LC_MORE_HORIZONTAL)) {
         Edit edit;
         subheading("Points");
         edit |= list_editor("##points", points_, "Add point", "No points. The collider's corners are used",
@@ -368,7 +368,7 @@ void KitGallery::lists() {
 }
 
 void KitGallery::graphs() {
-    if (!section_foldable("Node graphs", icon::node_graph)) return;
+    if (!section_foldable("Node graphs", ICON_LC_WORKFLOW)) return;
     // What both samples do with what the user did: move a node, add a link,
     // remove the selected link or a pin's. Their nodes stay.
     const auto apply = [this](NodeGraph& graph, const NodeGraphEvents& events, std::vector<glm::vec2>& places,
@@ -466,14 +466,14 @@ void KitGallery::tree_sample() {
     // Sheet 6's harbour, depth first: a row's descendants follow it.
     static const Row rows[] = {
         {0, icon::folder, C::Structure, {}},
-        {1, icon::directional_light, C::Light, {}},
-        {1, icon::camera, C::Camera, {}},
+        {1, ICON_LC_SUN, C::Light, {}},
+        {1, ICON_LC_CAMERA, C::Camera, {}},
         {1, icon::folder, C::Structure, {}},
-        {2, icon::mesh, std::nullopt, {C::Rendering, C::Physics, C::Audio, C::Logic}},
-        {2, icon::mesh, std::nullopt, {C::Rendering, C::Physics}},
-        {2, icon::mesh, std::nullopt, {C::Rendering, C::Animation}},
-        {3, icon::mesh, std::nullopt, {C::Rendering, C::Physics}},
-        {1, icon::volumetric_fog, C::Environment, {}},
+        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics, C::Audio, C::Logic}},
+        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics}},
+        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Animation}},
+        {3, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics}},
+        {1, ICON_LC_CLOUD, C::Environment, {}},
     };
     constexpr std::size_t count = std::size(rows);
 
@@ -517,12 +517,12 @@ void KitGallery::tree_sample() {
 }
 
 void KitGallery::feedback() {
-    if (section_foldable("Feedback", icon::more)) {
+    if (section_foldable("Feedback", ICON_LC_MORE_HORIZONTAL)) {
         subheading("Menu");
         if (button("Open menu")) ImGui::OpenPopup("##gallery_menu");
         if (ImGui::BeginPopup("##gallery_menu")) {
-            menu_item({.icon = icon::rename, .label = "Rename", .shortcut = "F2"});
-            menu_item({.icon = icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"});
+            menu_item({.icon = ICON_LC_PENCIL, .label = "Rename", .shortcut = "F2"});
+            menu_item({.icon = ICON_LC_COPY, .label = "Duplicate", .shortcut = "Ctrl D"});
             menu_item({.label = "Copy path"});
             menu_item({.icon = icon::add, .label = "Create material", .enabled = false,
                        .disabled_reason = "Needs a terrain asset first"});
@@ -532,7 +532,7 @@ void KitGallery::feedback() {
         }
         subheading("Empty state");
         if (ImGui::BeginChild("##empty", {0.0f, 180.0f}, ImGuiChildFlags_Borders)) {
-            if (empty_state(icon::nothing_selected, "Nothing selected",
+            if (empty_state(ICON_LC_MOUSE_POINTER_CLICK, "Nothing selected",
                             "Pick an object in the viewport or the hierarchy to edit it here",
                             "Select all")) {
                 ++empty_clicks_;
