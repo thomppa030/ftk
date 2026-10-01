@@ -15,10 +15,9 @@
 //
 //     #define FJELL_WATER_BED(texel) texelFetch(bed_heights, texel, 0).r
 //     #define FJELL_WATER_EXPOSURE(texel) texelFetch(shore_exposure, texel, 0).rg
-//     #define FJELL_WATER_WARP(texel) texelFetch(shore_warp, texel, 0)
 //
-// — the terrain's normalized height at an integer sample, the exposure's two
-// amplitude shares at one, and the warp's two offsets. Fetched and blended here rather than filtered
+// — the terrain's normalized height at an integer sample, and the exposure's
+// two amplitude shares at one. Fetched and blended here rather than filtered
 // by the sampler, so the blend is the CPU's.
 #ifndef FJELL_WATER_WAVES_GLSL
 #error "include fjell_water_waves.glsl before fjell_water_shore.glsl"
@@ -31,9 +30,6 @@
 #endif
 #ifndef FJELL_WATER_EXPOSURE
 #error "define FJELL_WATER_EXPOSURE to the exposure's sample fetch before including fjell_water_shore.glsl"
-#endif
-#ifndef FJELL_WATER_WARP
-#error "define FJELL_WATER_WARP to the warp's sample fetch before including fjell_water_shore.glsl"
 #endif
 
 // Mirror SHOALING_DEEP_MU, SHOALING_SHALLOWEST_MU and BREAKER_INDEX.
@@ -214,87 +210,6 @@ FjellWaterExposure fjell_water_exposure_at(vec2 world_xz) {
     result.simulated = value.y;
     result.trains_gradient = vec2(slope_x.x, slope_z.x);
     result.simulated_gradient = vec2(slope_x.y, slope_z.y);
-    return result;
-}
-
-// Matches SeaWarp: where one sum is read at a point, and d(p + offset)/dp,
-// whose columns are how the read point moves along world x and along z.
-struct FjellSeaWarp {
-    vec2 offset;
-    mat2 jacobian;
-};
-
-// Matches WarpAt.
-struct FjellWaterWarp {
-    FjellSeaWarp trains;
-    FjellSeaWarp simulated;
-};
-
-// Matches warp_at().
-FjellWaterWarp fjell_water_warp_at(vec2 world_xz) {
-    FjellWaterWarp result;
-    result.trains.offset = vec2(0.0f);
-    result.trains.jacobian = mat2(1.0f);
-    result.simulated.offset = vec2(0.0f);
-    result.simulated.jacobian = mat2(1.0f);
-
-    uint samples = FJELL_WATER_FIELD.shore.warp_samples;
-    float size = FJELL_WATER_FIELD.shore.warp_size;
-    if (samples < 2u || size <= 0.0f) return result;
-    vec2 field = world_xz - FJELL_WATER_FIELD.shore.warp_min_corner;
-    if (field.x < 0.0f || field.y < 0.0f || field.x > size || field.y > size) return result;
-
-    float quads = float(samples - 1u);
-    float per_metre = quads / size;
-    float fx = min(field.x * per_metre, quads);
-    float fz = min(field.y * per_metre, quads);
-    uint x0 = min(uint(fx), samples - 2u);
-    uint z0 = min(uint(fz), samples - 2u);
-    float tx = fx - float(x0);
-    float tz = fz - float(z0);
-
-    vec4 v00 = FJELL_WATER_WARP(ivec2(x0, z0));
-    vec4 v10 = FJELL_WATER_WARP(ivec2(x0 + 1u, z0));
-    vec4 v01 = FJELL_WATER_WARP(ivec2(x0, z0 + 1u));
-    vec4 v11 = FJELL_WATER_WARP(ivec2(x0 + 1u, z0 + 1u));
-
-    vec4 top = v00 + ((v10 - v00) * tx);
-    vec4 bottom = v01 + ((v11 - v01) * tx);
-    vec4 value = top + ((bottom - top) * tz);
-    vec4 along_x = (((v10 - v00) * (1.0f - tz)) + ((v11 - v01) * tz)) * per_metre;
-    vec4 along_z = (bottom - top) * per_metre;
-
-    result.trains.offset = vec2(value.x, value.y);
-    result.trains.jacobian = mat2(vec2(1.0f + along_x.x, along_x.y), vec2(along_z.x, 1.0f + along_z.y));
-    result.simulated.offset = vec2(value.z, value.w);
-    result.simulated.jacobian =
-        mat2(vec2(1.0f + along_x.z, along_x.w), vec2(along_z.z, 1.0f + along_z.w));
-    return result;
-}
-
-// A sum's tangents in the coordinates it was read in, carried to the world's
-// through where the warp reads it. Matches through().
-FjellWaterTangents fjell_water_warp_tangents(FjellWaterTangents read, mat2 warp) {
-    vec3 d_dx = read.binormal - vec3(1.0f, 0.0f, 0.0f);
-    vec3 d_dz = read.tangent - vec3(0.0f, 0.0f, 1.0f);
-    FjellWaterTangents result;
-    result.binormal = vec3(1.0f, 0.0f, 0.0f) + (d_dx * warp[0].x) + (d_dz * warp[0].y);
-    result.tangent = vec3(0.0f, 0.0f, 1.0f) + (d_dx * warp[1].x) + (d_dz * warp[1].y);
-    return result;
-}
-
-// The same for the fold terms.
-FjellWaterJacobian fjell_water_warp_jacobian(FjellWaterJacobian read, mat2 warp) {
-    // How (x displacement, z displacement) change along the read x and z.
-    vec2 d_dx = vec2(read.xx - 1.0f, read.zx);
-    vec2 d_dz = vec2(read.xz, read.zz - 1.0f);
-    vec2 along_x = (d_dx * warp[0].x) + (d_dz * warp[0].y);
-    vec2 along_z = (d_dx * warp[1].x) + (d_dz * warp[1].y);
-    FjellWaterJacobian result;
-    result.xx = 1.0f + along_x.x;
-    result.zx = along_x.y;
-    result.xz = along_z.x;
-    result.zz = 1.0f + along_z.y;
     return result;
 }
 

@@ -161,7 +161,6 @@ add_executable(fjell
     renderer/resources/water_spectrum.cpp
     renderer/resources/water_surface.cpp
     renderer/resources/water_shelter.cpp
-    renderer/resources/water_refraction.cpp
     renderer/resources/water_shore.cpp
     renderer/resources/water_wake.cpp
     renderer/resources/terrain_asset.cpp

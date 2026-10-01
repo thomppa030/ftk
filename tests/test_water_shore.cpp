@@ -24,11 +24,9 @@ struct FjellWaterField;
 FjellWaterField& shim_water_field();
 float shim_bed(ivec2 texel);
 vec2 shim_exposure(ivec2 texel);
-vec4 shim_warp(ivec2 texel);
 #define FJELL_WATER_FIELD shim_water_field()
 #define FJELL_WATER_BED(texel) shim_bed(texel)
 #define FJELL_WATER_EXPOSURE(texel) shim_exposure(texel)
-#define FJELL_WATER_WARP(texel) shim_warp(texel)
 #include "../shaders/include/fjell_water_waves.glsl"
 #include "../shaders/include/fjell_water_shore.glsl"
 
@@ -52,19 +50,6 @@ float shim_bed(ivec2 texel) {
 std::vector<std::uint16_t>& shim_exposure_shares() {
     static std::vector<std::uint16_t> shares;
     return shares;
-}
-
-// The warp's offsets, as its texture holds them.
-std::vector<float>& shim_warp_offsets() {
-    static std::vector<float> offsets;
-    return offsets;
-}
-
-vec4 shim_warp(ivec2 texel) {
-    const auto samples = static_cast<int>(shim_water_field().shore.warp_samples);
-    const auto i = static_cast<std::size_t>(4 * ((texel.y * samples) + texel.x));
-    const std::vector<float>& o = shim_warp_offsets();
-    return {o[i], o[i + 1], o[i + 2], o[i + 3]};
 }
 
 vec2 shim_exposure(ivec2 texel) {
@@ -324,29 +309,6 @@ water::ShoreExposure lee() {
     return e;
 }
 
-// A warp over the same ground: offsets that are planes in world position, so
-// the read points stretch and turn as the shallows would have them, and a
-// finite difference across them sees no kink.
-water::ShoreWarp lag() {
-    water::ShoreWarp w;
-    w.samples = 61;
-    w.min_corner = {-150.0f, -300.0f};
-    w.size = 600.0f;
-    w.offsets.resize(4u * 61u * 61u);
-    for (std::uint32_t z = 0; z < 61; ++z) {
-        for (std::uint32_t x = 0; x < 61; ++x) {
-            const float wx = 10.0f * static_cast<float>(x);
-            const float wz = 10.0f * static_cast<float>(z);
-            float* o = &w.offsets[4 * ((static_cast<std::size_t>(z) * 61) + x)];
-            o[0] = 0.15f * wx;
-            o[1] = 0.02f * wz;
-            o[2] = 0.05f * wz;
-            o[3] = (0.1f * wx) + (0.03f * wz);
-        }
-    }
-    return w;
-}
-
 // A beach: a bed rising 1 in 30 toward +x, 10 m under the water at x = 0 and
 // breaking the surface at x = 300. A plane, so the bed has one slope
 // everywhere and the surface over it has no kinks for a finite difference to
@@ -361,7 +323,6 @@ water::ShoreBed beach() {
     bed.terrain = data;
     bed.min_corner = {-100.0f, -256.0f};
     bed.exposure = std::make_shared<const water::ShoreExposure>(lee());
-    bed.warp = std::make_shared<const water::ShoreWarp>(lag());
     return bed;
 }
 
@@ -537,8 +498,6 @@ void give_the_shader(const FjWaterData& water) {
     shore_shim::shim_exposure_shares() =
         water.shore->exposure != nullptr ? water.shore->exposure->shares
                                          : std::vector<std::uint16_t>{};
-    shore_shim::shim_warp_offsets() =
-        water.shore->warp != nullptr ? water.shore->warp->offsets : std::vector<float>{};
 }
 
 // The sea on the beach with its Gerstner trains alone: the simulated sea
@@ -585,21 +544,16 @@ TEST_CASE("Shader and CPU agree on the sea over the shore", "[water_shore]") {
         for (const float time : {0.0f, 3.1f, 8.4f}) {
             const glm::vec2 rest{x, 9.0f};
             const shore_shim::FjellShoreEffect shore = shore_shim::fjell_water_shore(rest);
-            const shore_shim::FjellWaterWarp warp = shore_shim::fjell_water_warp_at(rest);
-            const vec2 trains_at = rest + warp.trains.offset;
-            const vec3 trains = shore_shim::fjell_water_displace(trains_at, time);
+            const vec3 trains = shore_shim::fjell_water_displace(rest, time);
 
             // The swash, as the mesh stage adds it: the trains arriving at
             // the plan's waterline, their height and their slope there.
             const shore_shim::FjellSwashPlan plan = shore_shim::fjell_water_swash_plan(rest);
             shore_shim::FjellSwash swash{};
             if (plan.applies) {
-                const shore_shim::FjellWaterWarp there_warp =
-                    shore_shim::fjell_water_warp_at(plan.waterline);
-                const vec2 there_at = plan.waterline + there_warp.trains.offset;
-                const vec3 arriving = shore_shim::fjell_water_displace(there_at, time);
-                const shore_shim::FjellWaterTangents there = shore_shim::fjell_water_warp_tangents(
-                    shore_shim::fjell_water_tangents(there_at, time), there_warp.trains.jacobian);
+                const vec3 arriving = shore_shim::fjell_water_displace(plan.waterline, time);
+                const shore_shim::FjellWaterTangents there =
+                    shore_shim::fjell_water_tangents(plan.waterline, time);
                 swash = shore_shim::fjell_water_swash_from(
                     plan, plan.swing > 0.0f ? arriving.y : 0.0f,
                     plan.swing > 0.0f ? vec2(there.binormal.y, there.tangent.y) : vec2(0.0f),
@@ -613,9 +567,8 @@ TEST_CASE("Shader and CPU agree on the sea over the shore", "[water_shore]") {
             CHECK(shaded.z == Approx(displaced.z).margin(1e-4));
 
             shore_shim::FjellWaterTangents tangents = shore_shim::fjell_water_shore_tangents(
-                shore_shim::fjell_water_warp_tangents(shore_shim::fjell_water_tangents(trains_at, time),
-                                                      warp.trains.jacobian),
-                trains, shore.gerstner, shore.gerstner_gradient);
+                shore_shim::fjell_water_tangents(rest, time), trains, shore.gerstner,
+                shore.gerstner_gradient);
             tangents.binormal.y += swash.gradient.x;
             tangents.tangent.y += swash.gradient.y;
             const vec3 normal = shore_shim::fjell_water_normal_from(tangents);
@@ -626,9 +579,8 @@ TEST_CASE("Shader and CPU agree on the sea over the shore", "[water_shore]") {
 
             const float fold = shore_shim::fjell_water_determinant(
                 shore_shim::fjell_water_shore_jacobian(
-                    shore_shim::fjell_water_warp_jacobian(
-                        shore_shim::fjell_water_jacobian_terms(trains_at, time), warp.trains.jacobian),
-                    trains, shore.gerstner, shore.gerstner_gradient));
+                    shore_shim::fjell_water_jacobian_terms(rest, time), trains, shore.gerstner,
+                    shore.gerstner_gradient));
             CHECK(fold == Approx(water::horizontal_jacobian(water, rest, time)).margin(1e-4));
         }
     }
@@ -656,9 +608,6 @@ TEST_CASE("The GPU shore matches the shader's struct", "[water_shore]") {
     REQUIRE(offsetof(GpuWaterShore, exposure_size) == offsetof(FjellWaterShore, exposure_size));
     REQUIRE(offsetof(GpuWaterShore, exposure_samples)
             == offsetof(FjellWaterShore, exposure_samples));
-    REQUIRE(offsetof(GpuWaterShore, warp_min_corner) == offsetof(FjellWaterShore, warp_min_corner));
-    REQUIRE(offsetof(GpuWaterShore, warp_size) == offsetof(FjellWaterShore, warp_size));
-    REQUIRE(offsetof(GpuWaterShore, warp_samples) == offsetof(FjellWaterShore, warp_samples));
 }
 
 TEST_CASE("The exposure between its samples is their blend", "[water_shore]") {
@@ -762,24 +711,4 @@ TEST_CASE("Shader and CPU agree on the swash", "[water_shore]") {
         }
     }
     CHECK(active > 20);
-}
-
-TEST_CASE("Shader and CPU agree on where the warp reads the sea", "[water_shore]") {
-    const FjWaterData water = sea_on_the_beach();
-    give_the_shader(water);
-    for (const glm::vec2 at : {glm::vec2{-149.0f, 0.0f}, glm::vec2{12.5f, -80.3f},
-                               glm::vec2{299.0f, 210.0f}, glm::vec2{460.0f, 0.0f}}) {
-        const water::WarpAt cpu = water::warp_at(*water.shore->warp, at);
-        const shore_shim::FjellWaterWarp gpu = shore_shim::fjell_water_warp_at(at);
-        CHECK(gpu.trains.offset.x == Approx(cpu.trains.offset.x).margin(1e-4));
-        CHECK(gpu.trains.offset.y == Approx(cpu.trains.offset.y).margin(1e-4));
-        CHECK(gpu.simulated.offset.y == Approx(cpu.simulated.offset.y).margin(1e-4));
-        for (int c = 0; c < 2; ++c) {
-            for (int r = 0; r < 2; ++r) {
-                CHECK(gpu.trains.jacobian[c][r] == Approx(cpu.trains.jacobian[c][r]).margin(1e-5));
-                CHECK(gpu.simulated.jacobian[c][r]
-                      == Approx(cpu.simulated.jacobian[c][r]).margin(1e-5));
-            }
-        }
-    }
 }

@@ -200,49 +200,6 @@ Swash swash_from(const SwashPlan& plan, float sea_height, glm::vec2 sea_slope, f
     return out;
 }
 
-WarpAt warp_at(const ShoreWarp& warp, glm::vec2 world_xz) {
-    WarpAt out;
-    const std::uint32_t n = warp.samples;
-    if (n < 2 || warp.size <= 0.0f || warp.offsets.size() < 4 * static_cast<std::size_t>(n) * n) {
-        return out;
-    }
-    const glm::vec2 field = world_xz - warp.min_corner;
-    if (field.x < 0.0f || field.y < 0.0f || field.x > warp.size || field.y > warp.size) {
-        return out;
-    }
-
-    // As still_depth() reads the bed: the cell's four samples, blended.
-    const auto quads = static_cast<float>(n - 1);
-    const float per_metre = quads / warp.size;
-    const float fx = std::min(field.x * per_metre, quads);
-    const float fz = std::min(field.y * per_metre, quads);
-    const auto x0 = std::min(static_cast<std::uint32_t>(fx), n - 2);
-    const auto z0 = std::min(static_cast<std::uint32_t>(fz), n - 2);
-    const float tx = fx - static_cast<float>(x0);
-    const float tz = fz - static_cast<float>(z0);
-
-    const auto at = [&](std::uint32_t x, std::uint32_t z, std::uint32_t pair) {
-        const float* sample = &warp.offsets[4 * ((static_cast<std::size_t>(z) * n) + x)];
-        return glm::vec2(sample[2 * pair], sample[(2 * pair) + 1]);
-    };
-    const auto blend = [&](std::uint32_t pair, SeaWarp& sea) {
-        const glm::vec2 v00 = at(x0, z0, pair);
-        const glm::vec2 v10 = at(x0 + 1, z0, pair);
-        const glm::vec2 v01 = at(x0, z0 + 1, pair);
-        const glm::vec2 v11 = at(x0 + 1, z0 + 1, pair);
-        const glm::vec2 top = v00 + ((v10 - v00) * tx);
-        const glm::vec2 bottom = v01 + ((v11 - v01) * tx);
-        sea.offset = top + ((bottom - top) * tz);
-        const glm::vec2 along_x = (((v10 - v00) * (1.0f - tz)) + ((v11 - v01) * tz)) * per_metre;
-        const glm::vec2 along_z = (bottom - top) * per_metre;
-        // Columns: how the read point moves along world x, and along z.
-        sea.jacobian = glm::mat2(glm::vec2(1.0f, 0.0f) + along_x, glm::vec2(0.0f, 1.0f) + along_z);
-    };
-    blend(0, out.trains);
-    blend(1, out.simulated);
-    return out;
-}
-
 ExposureAt exposure_at(const ShoreExposure& exposure, glm::vec2 world_xz) {
     ExposureAt out;
     const std::uint32_t n = exposure.samples;

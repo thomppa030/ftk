@@ -33,26 +33,6 @@ struct ShoreExposure {
     std::vector<std::uint16_t> shares;
 };
 
-/// Where each sum of the sea is read near a terrain: the sum at a point `p`
-/// is its deep-water self at `p + offset`. Waves that slow in shallow water
-/// fall behind the deep sea they came from, and reading the deep sea at a
-/// point it has not yet reached is that lag: crests closer together and
-/// slower over the shallows, and frequency, which water conserves, untouched.
-/// Baked from the terrain by `bake_warp()` (water_shelter.hpp) and read
-/// bilinearly between its samples.
-///
-/// On a coarser grid than the exposure, since a running sum is smooth, over
-/// the same ground; it fades back to no offset across the same margin.
-struct ShoreWarp {
-    std::uint32_t samples{0};      // per side
-    glm::vec2 min_corner{0.0f};    // world XZ of sample (0, 0)
-    float size{0.0f};              // metres from the first sample to the last
-    /// Per sample, row-major as `[z * samples + x]`: the Gerstner trains'
-    /// offset (x, z) and the simulated sea's (x, z), in metres. The shader's
-    /// texture holds these same floats.
-    std::vector<float> offsets;
-};
-
 /// The ground under a body of water, as the wave field reads it: a terrain's
 /// heights, where that terrain stands and where the water stands at rest.
 ///
@@ -77,32 +57,7 @@ struct ShoreBed {
     std::uint32_t generation{0};
     /// How open the water is to the sea, or nothing: fully open everywhere.
     std::shared_ptr<const ShoreExposure> exposure;
-    /// Where each sum of the sea is read, or nothing: at the point itself.
-    std::shared_ptr<const ShoreWarp> warp;
 };
-
-/// Where one sum of the sea is read at a point, and how that moves across
-/// it: `jacobian` is d(p + offset)/dp, the identity where nothing is warped.
-struct SeaWarp {
-    glm::vec2 offset{0.0f};
-    glm::mat2 jacobian{1.0f};
-
-    [[nodiscard]] bool identity() const {
-        return offset == glm::vec2(0.0f) && jacobian == glm::mat2(1.0f);
-    }
-};
-
-/// Both sums' warps at one point.
-struct WarpAt {
-    SeaWarp trains;
-    SeaWarp simulated;
-
-    [[nodiscard]] bool identity() const { return trains.identity() && simulated.identity(); }
-};
-
-/// The warp at world `world_xz`, read bilinearly between its samples; none off
-/// its grid.
-[[nodiscard]] WarpAt warp_at(const ShoreWarp& warp, glm::vec2 world_xz);
 
 /// How deep the still water is at a point, and how that changes across it.
 struct StillDepth {

@@ -42,33 +42,6 @@ namespace {
 // with no material falling back to whatever the game happens to call water.
 constexpr const char* FALLBACK_WATER_SHADER = "shaders/water_default.fjsl";
 
-// A baked shore grid on the GPU: made and uploaded from `grid` the first time
-// it is asked for and again when a new bake replaces it, read where the
-// surface is placed (the mesh stages and the waterline). Unset if it could
-// not be made.
-template <typename Slot, typename Grid>
-gpu::Texture shore_texture(gpu::Device& device, Slot& uploaded,
-                           const std::shared_ptr<const Grid>& grid, gpu::Format format,
-                           std::span<const std::byte> bytes, std::string_view name) {
-    if (uploaded.from == grid && uploaded.texture) return uploaded.texture.get();
-    auto made = device.create(gpu::TextureDesc{
-        .format = format,
-        .width = grid->samples,
-        .height = grid->samples,
-        .use = gpu::TextureUse::sampled,
-        .name = name,
-    });
-    if (!made) {
-        FJELL_GFX_ERROR("WaterPass: could not make the {} texture: {}", name, made.error());
-        uploaded = {};
-        return {};
-    }
-    device.upload().to_texture(*made, {}, bytes,
-                               {.after = gpu::Access::sampled_mesh | gpu::Access::sampled_compute});
-    uploaded = {grid, std::move(*made)};
-    return uploaded.texture.get();
-}
-
 } // namespace
 
 Result<> WaterPass::create(const PassResources& resources) {
@@ -129,14 +102,6 @@ Result<> WaterPass::create(const PassResources& resources) {
                                 .initial = gpu::Clear{1.0f, 1.0f, 0.0f, 0.0f},
                                 .name = "water_no_exposure",
                             }));
-    FJELL_TRY(no_warp_, device_->create(gpu::TextureDesc{
-                            .format = gpu::Format::rgba32_float,
-                            .width = 1,
-                            .height = 1,
-                            .use = gpu::TextureUse::sampled,
-                            .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
-                            .name = "water_no_warp",
-                        }));
     return {};
 }
 
@@ -147,11 +112,9 @@ void WaterPass::destroy() {
     no_medium_.reset();
     no_bed_.reset();
     no_exposure_.reset();
-    no_warp_.reset();
     fields_.clear();
     grounds_.clear();
     exposures_.clear();
-    warps_.clear();
 }
 
 void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
@@ -431,18 +394,8 @@ void WaterPass::gather_fields(const FrameContext& ctx) {
             }
         }
         if (field.shore.exposure_samples != 0) {
-            const auto& exposure = wc->effective_water.shore->exposure;
-            ground.exposure = shore_texture(*device_, exposures_[wc], exposure,
-                                            gpu::Format::rg16_unorm,
-                                            std::as_bytes(std::span(exposure->shares)),
-                                            "water_exposure");
+            ground.exposure = exposure_texture(wc, wc->effective_water.shore->exposure);
             if (!ground.exposure.valid()) field.shore.exposure_samples = 0;
-        }
-        if (field.shore.warp_samples != 0) {
-            const auto& warp = wc->effective_water.shore->warp;
-            ground.warp = shore_texture(*device_, warps_[wc], warp, gpu::Format::rgba32_float,
-                                        std::as_bytes(std::span(warp->offsets)), "water_warp");
-            if (!ground.warp.valid()) field.shore.warp_samples = 0;
         }
         grounds_[wc] = ground;
 
@@ -458,15 +411,11 @@ void WaterPass::gather_fields(const FrameContext& ctx) {
         fields_[wc] = field;
     }
 
-    // A body of water that has gone, or no longer has a grid, lets its
+    // A body of water that has gone, or no longer has an exposure, lets its
     // texture go.
     std::erase_if(exposures_, [&](const auto& entry) {
         const auto ground = grounds_.find(entry.first);
         return ground == grounds_.end() || !ground->second.exposure.valid();
-    });
-    std::erase_if(warps_, [&](const auto& entry) {
-        const auto ground = grounds_.find(entry.first);
-        return ground == grounds_.end() || !ground->second.warp.valid();
     });
 }
 
@@ -542,6 +491,30 @@ WaterPass::Ground WaterPass::ground_of(const WaterComponent* water) const {
     return ground != grounds_.end() ? ground->second : Ground{};
 }
 
+gpu::Texture WaterPass::exposure_texture(const WaterComponent* water,
+                                         const std::shared_ptr<const water::ShoreExposure>& exposure) {
+    ExposureTexture& uploaded = exposures_[water];
+    if (uploaded.from == exposure && uploaded.texture) return uploaded.texture.get();
+
+    auto made = device_->create(gpu::TextureDesc{
+        .format = gpu::Format::rg16_unorm,
+        .width = exposure->samples,
+        .height = exposure->samples,
+        .use = gpu::TextureUse::sampled,
+        .name = "water_exposure",
+    });
+    if (!made) {
+        FJELL_GFX_ERROR("WaterPass: could not make an exposure texture: {}", made.error());
+        uploaded = {};
+        return {};
+    }
+    // Read where the surface is placed: the mesh stages and the waterline.
+    device_->upload().to_texture(*made, {}, std::as_bytes(std::span(exposure->shares)),
+                                 {.after = gpu::Access::sampled_mesh | gpu::Access::sampled_compute});
+    uploaded = {exposure, std::move(*made)};
+    return uploaded.texture.get();
+}
+
 std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange field,
                                                  gpu::BufferRange clipmap, gpu::BufferRange wakes,
                                                  gpu::Texture medium, Ground ground) const {
@@ -554,7 +527,6 @@ std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange 
         {"bed_heights", gpu::sampled(ground.bed.valid() ? ground.bed : no_bed_.get(), sampler)},
         {"shore_exposure",
          gpu::sampled(ground.exposure.valid() ? ground.exposure : no_exposure_.get(), sampler)},
-        {"shore_warp", gpu::sampled(ground.warp.valid() ? ground.warp : no_warp_.get(), sampler)},
     };
     if (use == WaterSet::line) return entries;
     entries.push_back({"clip", gpu::uniform(clipmap)});

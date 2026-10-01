@@ -8,7 +8,6 @@
 #include <future>
 #include <memory>
 #include <optional>
-#include <utility>
 #include <vector>
 
 namespace fjell {
@@ -39,27 +38,15 @@ struct ShelterSource {
     bool operator==(const ShelterSource&) const = default;
 };
 
-/// A sum's dominant wave, which its warp follows: the way it travels and its
-/// deep-water wavenumber. No wavenumber, no warp.
-struct WarpSource {
-    glm::vec2 travel{1.0f, 0.0f};
-    float k{0.0f};
-
-    bool operator==(const WarpSource&) const = default;
-};
-
-/// Every way each sum of the sea arrives, and each sum's dominant wave.
+/// Every way each sum of the sea arrives.
 struct ShelterSources {
     std::vector<ShelterSource> trains;
     std::vector<ShelterSource> simulated;
-    WarpSource trains_dominant;
-    WarpSource simulated_dominant;
 
     bool operator==(const ShelterSources&) const = default;
 };
 
-/// The ways the sums of a field the world runs on arrive, and their dominant
-/// waves: the strongest train, and the simulated sea's peak running downwind.
+/// The ways the sums of a field the world runs on arrive.
 ///
 /// The trains each arrive one way, weighted by their energy (amplitude
 /// squared). The simulated sea arrives across its whole spread: several
@@ -83,11 +70,6 @@ struct ShelterLand {
     float margin{0.0f};
     /// Per sample, row-major: 1 where the ground stands above the water.
     std::vector<std::uint8_t> land;
-    /// The warp's own grid over the same ground, a sample for every two of
-    /// these, and the still-water depth at each of its samples: no more than
-    /// nothing on land, and deep off the terrain.
-    std::uint32_t warp_samples{0};
-    std::vector<float> warp_depths;
 };
 
 /// Samples a side, at most: a grid of 2 m over a terrain of up to about 1.3
@@ -126,31 +108,8 @@ inline constexpr float SHELTER_STRENGTH = 0.5f;
 [[nodiscard]] ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sources,
                                           float strength = SHELTER_STRENGTH);
 
-/// The most a wave shortens over the shallows, as k / k_deep: a 40 m wave's
-/// 5 m in 10 cm of water. Shallower than that the wave has broken to nothing
-/// and its crests would only crowd closer than the water's mesh can draw.
-inline constexpr float MAX_SHORTENING = 8.0f;
-
-/// Where each sum is read over `land`'s ground: the lag its dominant wave
-/// picks up over the shallows, as an offset along the way it travels.
-///
-/// A sweep in the direction the wave travels carries the lag: over water of
-/// depth d it falls behind the deep sea by `k(d) / k_deep - 1` metres a metre,
-/// `k(d)` from the dispersion relation, so in the sea's own coordinates the
-/// wave there is that much shorter. Land carries the lag on unchanged. The lag
-/// spreads sideways as the shelter's lee does, so where a lee and the open sea
-/// meet the crests join rather than step, and past the terrain it fades out
-/// across the margin.
-[[nodiscard]] ShoreWarp bake_warp(const ShelterLand& land, const ShelterSources& sources);
-
-/// What the shore bakes for a body of water.
-struct ShoreBakes {
-    std::shared_ptr<const ShoreExposure> exposure;
-    std::shared_ptr<const ShoreWarp> warp;
-};
-
-/// Keeps one body of water's exposure and warp current as the land and the
-/// sea change. The shelter's counterpart to SeaDerivation, and like it needs no
+/// Keeps one body of water's exposure current as the land and the sea
+/// change. The shelter's counterpart to SeaDerivation, and like it needs no
 /// renderer.
 ///
 /// Marking the land is done here, on the calling thread, and again only when
@@ -169,13 +128,14 @@ public:
     ShoreDerivation(const ShoreDerivation&) = delete;
     ShoreDerivation& operator=(const ShoreDerivation&) = delete;
 
-    /// The exposure and warp to run on this step for `bed` under `water`'s
-    /// sea, or nothing until they have been baked. `previous` is what the
-    /// field last had, handed out meanwhile if it was baked on the same grid —
-    /// as when a body of water has just been copied into play. With no
-    /// `workers` the bake is done here and now.
-    [[nodiscard]] ShoreBakes derive(const ShoreBed& bed, const FjWaterData& water,
-                                    ThreadPool* workers, ShoreBakes previous = {});
+    /// The exposure to run on this step for `bed` under `water`'s sea, or
+    /// nothing until one has been baked. `previous` is what the field last
+    /// had, handed out meanwhile if it was baked on the same grid — as when a
+    /// body of water has just been copied into play. With no `workers` the
+    /// bake is done here and now.
+    [[nodiscard]] std::shared_ptr<const ShoreExposure> derive(
+        const ShoreBed& bed, const FjWaterData& water, ThreadPool* workers,
+        std::shared_ptr<const ShoreExposure> previous = nullptr);
 
 private:
     struct LandKey {
@@ -193,7 +153,7 @@ private:
     };
     struct Baking {
         Baked from;
-        std::future<std::pair<ShoreExposure, ShoreWarp>> bakes;
+        std::future<ShoreExposure> exposure;
     };
 
     /// Take the worker's exposure if it has finished one.
@@ -201,8 +161,8 @@ private:
 
     std::optional<LandKey> land_key_;
     std::shared_ptr<const ShelterLand> land_;
-    ShoreBakes bakes_;
-    Baked baked_from_;
+    std::shared_ptr<const ShoreExposure> exposure_;
+    Baked exposure_from_;
     std::optional<Baking> baking_;
 };
 

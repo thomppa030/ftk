@@ -202,64 +202,21 @@ struct HorizontalJacobian {
     return m;
 }
 
-// How one sum of the sea's displacement changes along x and along z.
-struct SumSlopes {
-    glm::vec3 d_dx{0.0f};
-    glm::vec3 d_dz{0.0f};
-};
-
-// The Gerstner trains' slopes at a rest position, in the coordinates they
-// are read in: the partial derivatives of their displacement.
-[[nodiscard]] SumSlopes gerstner_slopes(const PackedTrains& t, glm::vec2 at, float time) {
-    simd::f32x8 bx = _mm256_setzero_ps(), by = _mm256_setzero_ps(), bz = _mm256_setzero_ps();
-    simd::f32x8 tx = _mm256_setzero_ps(), ty = _mm256_setzero_ps(), tz = _mm256_setzero_ps();
-    for (std::size_t i = 0; i < t.k.size(); i += 8) {
-        const TrainAngles a = train_angles(t, i, at, time);
-        const simd::f32x8 dx = _mm256_loadu_ps(&t.dir_x[i]);
-        const simd::f32x8 dz = _mm256_loadu_ps(&t.dir_z[i]);
-        const simd::f32x8 wa = _mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i]));
-        const simd::f32x8 qwas = _mm256_mul_ps(_mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), wa), a.sin);
-        const simd::f32x8 wac = _mm256_mul_ps(wa, a.cos);
-        bx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dx), qwas, bx);
-        by = _mm256_fmadd_ps(dx, wac, by);
-        bz = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, bz);
-        tx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, tx);
-        ty = _mm256_fmadd_ps(dz, wac, ty);
-        tz = _mm256_fnmadd_ps(_mm256_mul_ps(dz, dz), qwas, tz);
-    }
-    return {{sum8(bx), sum8(by), sum8(bz)}, {sum8(tx), sum8(ty), sum8(tz)}};
-}
-
-// The simulated sea's strongest waves' slopes at a rest position; none where
-// the field carries none.
-[[nodiscard]] SumSlopes simulated_slopes(const FjWaterData& water, glm::vec2 at, float time) {
-    if (!water.simulated.has_value()) return {};
-    const SpectralDerivatives d =
-        spectral_derivatives(water.simulated->packed, water.simulated->choppiness, at, time);
-    return {{d.xx, d.dh_dx, d.xz}, {d.xz, d.dh_dz, d.zz}};
-}
-
-// The simulated sea's strongest waves' displacement at a rest position.
-[[nodiscard]] glm::vec3 simulated_displacement(const FjWaterData& water, glm::vec2 at,
+// The simulated sea's strongest waves where the field carries them, and
+// where they move a rest position; nothing where it does not.
+[[nodiscard]] glm::vec3 simulated_displacement(const FjWaterData& water, glm::vec2 world_xz,
                                                float time) {
     if (!water.simulated.has_value()) return glm::vec3(0.0f);
-    return spectral_displacement(water.simulated->packed, water.simulated->choppiness, at, time);
+    return spectral_displacement(water.simulated->packed, water.simulated->choppiness, world_xz,
+                                 time);
 }
 
-// Slopes a sum has in the coordinates it is read in, carried to the world's
-// through where the warp reads it: along world x the read point moves by the
-// warp's first column, along z by its second.
-[[nodiscard]] SumSlopes through(const SumSlopes& read, const glm::mat2& warp) {
-    return {(read.d_dx * warp[0].x) + (read.d_dz * warp[0].y),
-            (read.d_dx * warp[1].x) + (read.d_dz * warp[1].y)};
-}
-
-// A sum scaled by a factor that changes across the ground: the factor times
-// the sum's own slope, plus what it moves the point by times the factor's.
-[[nodiscard]] SumSlopes scaled(const SumSlopes& slopes, glm::vec3 moved, float factor,
-                               glm::vec2 factor_slope) {
-    return {(slopes.d_dx * factor) + (moved * factor_slope.x),
-            (slopes.d_dz * factor) + (moved * factor_slope.y)};
+// How a sum of the sea, scaled by a factor that changes across the ground,
+// changes along x or z: the factor times the sum's own change that way, plus
+// what the sum moves the point by times the factor's change that way.
+[[nodiscard]] glm::vec3 scaled_derivative(glm::vec3 derivative, float factor,
+                                          glm::vec3 displacement, float factor_slope) {
+    return (derivative * factor) + (displacement * factor_slope);
 }
 
 // The sums of the sea as the shore reads them.
@@ -270,44 +227,40 @@ struct SumSlopes {
     return water.simulated.has_value() ? water.simulated->shoaling : ShoalingSum{};
 }
 
-// Where the shore reads each sum at a point; nowhere but the point itself
-// without a warp.
-[[nodiscard]] WarpAt warp_of(const FjWaterData& water, glm::vec2 world_xz) {
-    if (!water.shore.has_value() || water.shore->warp == nullptr) return {};
-    return warp_at(*water.shore->warp, world_xz);
-}
-
-// The point a sum is read at.
-[[nodiscard]] glm::vec2 read_at(glm::vec2 world_xz, const SeaWarp& warp) {
-    return warp.identity() ? world_xz : world_xz + warp.offset;
-}
-
-// The sea at a point as it arrives, before any shore scales it but read
-// where the warp reads it: where it moves the point and how fast.
+// The sea at a point as it arrives, before any shore scales it: where it
+// moves the point and how fast.
 [[nodiscard]] SurfaceMotion arriving_motion(const FjWaterData& water, glm::vec2 world_xz,
                                             float time) {
-    const WarpAt warp = warp_of(water, world_xz);
-    SurfaceMotion m = gerstner_motion(trains_of(water), read_at(world_xz, warp.trains), time);
+    SurfaceMotion m = gerstner_motion(trains_of(water), world_xz, time);
     if (water.simulated.has_value()) {
-        const SpectralMotion s =
-            spectral_motion(water.simulated->packed, water.simulated->choppiness,
-                            read_at(world_xz, warp.simulated), time);
+        const SpectralMotion s = spectral_motion(water.simulated->packed,
+                                                 water.simulated->choppiness, world_xz, time);
         m.displacement += s.displacement;
         m.velocity += s.velocity;
     }
     return m;
 }
 
-// How steeply the arriving sea's surface rises along world x and z at a rest
+// How steeply the arriving sea's surface rises along x and along z at a rest
 // position, before any shore scales it.
 [[nodiscard]] glm::vec2 arriving_slope(const FjWaterData& water, glm::vec2 world_xz, float time) {
-    const WarpAt warp = warp_of(water, world_xz);
-    const SumSlopes g = through(
-        gerstner_slopes(trains_of(water), read_at(world_xz, warp.trains), time),
-        warp.trains.jacobian);
-    const SumSlopes s = through(simulated_slopes(water, read_at(world_xz, warp.simulated), time),
-                                warp.simulated.jacobian);
-    return {g.d_dx.y + s.d_dx.y, g.d_dz.y + s.d_dz.y};
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 along_x = _mm256_setzero_ps(), along_z = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        // d(A sin)/d(rest) = k A cos dir.
+        const simd::f32x8 wac = _mm256_mul_ps(
+            _mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i])), a.cos);
+        along_x = _mm256_fmadd_ps(_mm256_loadu_ps(&t.dir_x[i]), wac, along_x);
+        along_z = _mm256_fmadd_ps(_mm256_loadu_ps(&t.dir_z[i]), wac, along_z);
+    }
+    glm::vec2 slope{sum8(along_x), sum8(along_z)};
+    if (water.simulated.has_value()) {
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
+        slope += glm::vec2(d.dh_dx, d.dh_dz);
+    }
+    return slope;
 }
 
 // The swash at a point, from the sea arriving at its waterline; with
@@ -331,35 +284,13 @@ struct SumSlopes {
     return swash_from(*plan, height, slope, rate);
 }
 
-// Both sums' slopes at a point the shore touches: each read where the warp
-// reads it, carried through the warp, and scaled by its factor.
-[[nodiscard]] SumSlopes shore_slopes(const FjWaterData& water, glm::vec2 world_xz, float time,
-                                     const ShoreEffect& effect, const WarpAt& warp) {
-    const PackedTrains& t = trains_of(water);
-    const glm::vec2 trains_at = read_at(world_xz, warp.trains);
-    const SumSlopes g = scaled(
-        through(gerstner_slopes(t, trains_at, time), warp.trains.jacobian),
-        effect.gerstner_gradient == glm::vec2(0.0f)
-            ? glm::vec3(0.0f)
-            : gerstner_motion(t, trains_at, time).displacement,
-        effect.gerstner, effect.gerstner_gradient);
-    if (!water.simulated.has_value()) return g;
-    const glm::vec2 simulated_at = read_at(world_xz, warp.simulated);
-    const SumSlopes s = scaled(
-        through(simulated_slopes(water, simulated_at, time), warp.simulated.jacobian),
-        simulated_displacement(water, simulated_at, time), effect.simulated,
-        effect.simulated_gradient);
-    return {g.d_dx + s.d_dx, g.d_dz + s.d_dz};
-}
-
 // Everything the CPU sums: the Gerstner contributors, and the simulated sea's
-// strongest waves where the field has been given them, each scaled and read
-// as the shore says where there is one.
+// strongest waves where the field has been given them, each scaled by the
+// shore where there is one.
 [[nodiscard]] HorizontalJacobian jacobian_terms(const FjWaterData& water, glm::vec2 world_xz,
                                                 float time) {
     const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
-    const WarpAt warp = warp_of(water, world_xz);
-    if (!shore.has_value() && warp.identity()) {
+    if (!shore.has_value()) {
         HorizontalJacobian j = gerstner_jacobian_terms(water, world_xz, time);
         if (water.simulated.has_value()) {
             const SpectralDerivatives d = spectral_derivatives(
@@ -372,14 +303,27 @@ struct SumSlopes {
         return j;
     }
 
-    // x's displacement along z is not z's along x once a factor slopes or a
-    // warp turns: both kept.
-    const SumSlopes slopes = shore_slopes(water, world_xz, time, shore.value_or(ShoreEffect{}), warp);
+    // Each sum's own change across the point, scaled, plus what it moves the
+    // point by times how its factor changes: x's displacement along z is not
+    // z's along x once the factor slopes.
+    const HorizontalJacobian g = gerstner_jacobian_sums(water, world_xz, time);
+    const glm::vec3 g_moved = gerstner_motion(trains_of(water), world_xz, time).displacement;
+    const glm::vec2 g_slope = shore->gerstner_gradient;
     HorizontalJacobian j;
-    j.xx += slopes.d_dx.x;
-    j.zz += slopes.d_dz.z;
-    j.xz += slopes.d_dz.x;
-    j.zx += slopes.d_dx.z;
+    j.xx += (g.xx * shore->gerstner) + (g_moved.x * g_slope.x);
+    j.zz += (g.zz * shore->gerstner) + (g_moved.z * g_slope.y);
+    j.xz += (g.xz * shore->gerstner) + (g_moved.x * g_slope.y);
+    j.zx += (g.zx * shore->gerstner) + (g_moved.z * g_slope.x);
+    if (water.simulated.has_value()) {
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
+        const glm::vec3 s_moved = simulated_displacement(water, world_xz, time);
+        const glm::vec2 s_slope = shore->simulated_gradient;
+        j.xx += (d.xx * shore->simulated) + (s_moved.x * s_slope.x);
+        j.zz += (d.zz * shore->simulated) + (s_moved.z * s_slope.y);
+        j.xz += (d.xz * shore->simulated) + (s_moved.x * s_slope.y);
+        j.zx += (d.xz * shore->simulated) + (s_moved.z * s_slope.x);
+    }
     return j;
 }
 
@@ -645,10 +589,7 @@ FjWaterData derive_effective(const FjWaterData& authored, glm::vec2 wind_xz,
 
 SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float time,
                              std::uint32_t exclude_node) {
-    // Each sum read where the shore's warp reads it: over the shallows, the
-    // deep sea at a point it has not reached yet, which is its lag.
-    const WarpAt warp = warp_of(water, world_xz);
-    SurfaceMotion m = gerstner_motion(trains_of(water), read_at(world_xz, warp.trains), time);
+    SurfaceMotion m = gerstner_motion(trains_of(water), world_xz, time);
     // The shore scales each sum by its own factor, which does not change in
     // time: the velocity scales with the displacement.
     const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
@@ -658,7 +599,7 @@ SurfaceMotion surface_motion(const FjWaterData& water, glm::vec2 world_xz, float
     }
     if (water.simulated.has_value()) {
         SpectralMotion s = spectral_motion(water.simulated->packed, water.simulated->choppiness,
-                                           read_at(world_xz, warp.simulated), time);
+                                           world_xz, time);
         if (shore.has_value()) {
             s.displacement *= shore->simulated;
             s.velocity *= shore->simulated;
@@ -696,30 +637,59 @@ glm::vec3 displace(const FjWaterData& water, glm::vec2 world_xz, float time) {
 
 glm::vec3 normal_at(const FjWaterData& water, glm::vec2 world_xz, float time) {
     // Partial derivatives of the displaced surface with respect to the rest
-    // position. The normal is the cross product of the two tangents.
+    // position. The normal is the cross product of the two tangents; writing
+    // the sums out avoids building both tangents separately.
+    const PackedTrains& t = trains_of(water);
+    simd::f32x8 bx = _mm256_setzero_ps(), by = _mm256_setzero_ps(), bz = _mm256_setzero_ps();
+    simd::f32x8 tx = _mm256_setzero_ps(), ty = _mm256_setzero_ps(), tz = _mm256_setzero_ps();
+    for (std::size_t i = 0; i < t.k.size(); i += 8) {
+        const TrainAngles a = train_angles(t, i, world_xz, time);
+        const simd::f32x8 dx = _mm256_loadu_ps(&t.dir_x[i]);
+        const simd::f32x8 dz = _mm256_loadu_ps(&t.dir_z[i]);
+        const simd::f32x8 wa = _mm256_mul_ps(_mm256_loadu_ps(&t.k[i]), _mm256_loadu_ps(&t.amplitude[i]));
+        const simd::f32x8 qwas = _mm256_mul_ps(_mm256_mul_ps(_mm256_loadu_ps(&t.q[i]), wa), a.sin);
+        const simd::f32x8 wac = _mm256_mul_ps(wa, a.cos);
+        bx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dx), qwas, bx);
+        by = _mm256_fmadd_ps(dx, wac, by);
+        bz = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, bz);
+        tx = _mm256_fnmadd_ps(_mm256_mul_ps(dx, dz), qwas, tx);
+        ty = _mm256_fmadd_ps(dz, wac, ty);
+        tz = _mm256_fnmadd_ps(_mm256_mul_ps(dz, dz), qwas, tz);
+    }
     glm::vec3 binormal;   // d/dx
     glm::vec3 tangent;    // d/dz
     const std::optional<ShoreEffect> shore = shore_at(water, world_xz);
-    const WarpAt warp = warp_of(water, world_xz);
-    if (!shore.has_value() && warp.identity()) {
-        const SumSlopes g = gerstner_slopes(trains_of(water), world_xz, time);
-        binormal = {1.0f + g.d_dx.x, g.d_dx.y, g.d_dx.z};
-        tangent = {g.d_dz.x, g.d_dz.y, 1.0f + g.d_dz.z};
-        if (water.simulated.has_value()) {
-            // Tangents add across contributors where normals do not, so the
-            // simulated waves go in before the cross product, as in the shader.
-            const SumSlopes s = simulated_slopes(water, world_xz, time);
-            binormal += s.d_dx;
-            tangent += s.d_dz;
-        }
+    if (!shore.has_value()) {
+        binormal = {1.0f + sum8(bx), sum8(by), sum8(bz)};
+        tangent = {sum8(tx), sum8(ty), 1.0f + sum8(tz)};
     } else {
-        // Each sum read where the warp reads it and scaled by a factor that
-        // changes across the ground: it changes across the point by the
-        // warp's turn and the factor's slope as well as its own.
-        const SumSlopes slopes =
-            shore_slopes(water, world_xz, time, shore.value_or(ShoreEffect{}), warp);
-        binormal = glm::vec3(1.0f, 0.0f, 0.0f) + slopes.d_dx;
-        tangent = glm::vec3(0.0f, 0.0f, 1.0f) + slopes.d_dz;
+        // Scaled by a factor that changes across the ground, the trains
+        // change across it by the factor's slope as well as their own.
+        const glm::vec3 moved = gerstner_motion(t, world_xz, time).displacement;
+        binormal = glm::vec3(1.0f, 0.0f, 0.0f)
+                 + scaled_derivative({sum8(bx), sum8(by), sum8(bz)}, shore->gerstner, moved,
+                                     shore->gerstner_gradient.x);
+        tangent = glm::vec3(0.0f, 0.0f, 1.0f)
+                + scaled_derivative({sum8(tx), sum8(ty), sum8(tz)}, shore->gerstner, moved,
+                                    shore->gerstner_gradient.y);
+    }
+    if (water.simulated.has_value()) {
+        // Tangents add across contributors where normals do not, so the
+        // simulated waves go in before the cross product, as in the shader.
+        const SpectralDerivatives d = spectral_derivatives(
+            water.simulated->packed, water.simulated->choppiness, world_xz, time);
+        const glm::vec3 d_dx(d.xx, d.dh_dx, d.xz);
+        const glm::vec3 d_dz(d.xz, d.dh_dz, d.zz);
+        if (!shore.has_value()) {
+            binormal += d_dx;
+            tangent += d_dz;
+        } else {
+            const glm::vec3 moved = simulated_displacement(water, world_xz, time);
+            binormal += scaled_derivative(d_dx, shore->simulated, moved,
+                                          shore->simulated_gradient.x);
+            tangent += scaled_derivative(d_dz, shore->simulated, moved,
+                                         shore->simulated_gradient.y);
+        }
     }
     if (const std::optional<Swash> swash = swash_at(water, world_xz, time, true)) {
         binormal.y += swash->gradient.x;
