@@ -18,6 +18,7 @@
 #include "animation/animator_component.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/inspectors/script_fields.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/tree.hpp"
 #include "ui/state_graph.hpp"
@@ -600,7 +601,7 @@ void AnimationEditorContext::draw_bone_tree() {
             .depth = depth,
             .has_children = !children[idx].empty(),
             .icon = icon::skeleton,
-            .category = ftk::theme::Category::Animation,
+            .hue = category_hue(Category::Animation),
             .selection = idx == selected_bone_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
         });
         if (row.clicked) selected_bone_ = idx;
@@ -628,7 +629,7 @@ void AnimationEditorContext::draw_clip_list() {
                 .id = id.c_str(),
                 .name = available_clip_names_[static_cast<size_t>(i)],
                 .icon = icon::animation,
-                .category = ftk::theme::Category::Animation,
+                .hue = category_hue(Category::Animation),
                 .selection = i == selected_clip_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
             });
             if (row.clicked) load_clip(i);

@@ -7,6 +7,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -447,7 +448,7 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
         dl->AddRectFilled({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, to_screen_colour(now), 3.0f);
         dl->AddRect({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, colour(ftk::theme::border()), 3.0f);
     } else {
-        dl->AddText({cursor, cy - line * 0.5f}, colour(ftk::theme::category(ftk::theme::Category::Environment)),
+        dl->AddText({cursor, cy - line * 0.5f}, colour(category_colour(Category::Environment)),
                     icon::curve);
     }
     cursor += 14.0f + ftk::theme::GAP_M;
@@ -531,7 +532,7 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     }
 
     // The curve, one sample every two pixels.
-    const ImU32 line = colour(ftk::theme::category(ftk::theme::Category::Environment));
+    const ImU32 line = colour(category_colour(Category::Environment));
     const int samples = std::max(8, static_cast<int>(lanes.width / 2.0f));
     ImVec2 prev{};
     for (int s = 0; s <= samples; ++s) {

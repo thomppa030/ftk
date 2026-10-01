@@ -43,9 +43,9 @@ struct Item {
     /// Searched along with the label, for text a row does not show. An
     /// asset's folder, say, so "materials/" finds everything under it.
     std::string search_text{};
-    /// A dot in the category's colour at the head of the row, for a group
-    /// that mixes categories ("Recently added").
-    std::optional<theme::Category> category{};
+    /// A dot in its hue at the head of the row, for a group that mixes
+    /// kinds ("Recently added").
+    std::optional<theme::Hue> hue{};
     /// A dim word at the row's right end ("added").
     std::string detail{};
     /// A disabled item is shown dimmed and can't be picked;
@@ -61,8 +61,8 @@ struct Group {
     /// Whether the header starts open. Only read the first time a picker
     /// draws the group; the user's own collapsing wins after that.
     bool open{true};
-    /// A group of one kind of thing shows its category's dot on the header.
-    std::optional<theme::Category> category{};
+    /// A group of one kind of thing shows its hue's dot on the header.
+    std::optional<theme::Hue> hue{};
 };
 
 /// How one picker differs from the default.

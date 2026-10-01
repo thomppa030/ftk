@@ -106,8 +106,8 @@ struct NodeDesc {
     NodeAnchor anchor{NodeAnchor::TopLeft};
     float width{NODE_WIDTH};
     std::string title;
-    /// A category colour, mixed 30 % into the header.
-    ImVec4 hue{theme::category(theme::Category::Logic)};
+    /// The node's hue, mixed 30 % into the header.
+    ImVec4 hue{theme::hue(theme::Hue::slate)};
     /// Switched off: the title dims.
     bool dimmed{false};
     /// Shown under the rows (a module's texture); none when null.

@@ -75,49 +75,31 @@ inline ImVec4 danger()     { return hex(0xAB413E); }  // destructive fill
 inline ImVec4 danger_hov() { return hex(0xC34F4B); }
 inline ImVec4 text_on_danger() { return hex(0xFFFFFF); }
 
-/// What kind of thing something is, by domain rather than file type: a
-/// mesh, its material and its texture are all Rendering, and the icon tells
-/// them apart. The same colour marks it in the hierarchy, the content
-/// browser, component bars, node graphs and tags.
-enum class Category {
-    Rendering, Light, Camera, Environment, Physics, Animation,
-    Audio, Vfx, Ui, Logic, Structure,
+/// The palette a program tells kinds of things apart by: eleven hues, each
+/// given to one kind (Fjell gives one to each domain, rendering, physics and
+/// the rest). The same hue marks a thing wherever it shows: a tree row's icon
+/// or dots, a component block's bar, a tab's edge, a canvas node's header, a
+/// tag.
+enum class Hue {
+    blue, ochre, teal, cyan, coral, pink,
+    orange, periwinkle, lilac, slate, grey,
 };
 
-inline ImVec4 category(Category c) {
-    switch (c) {
-        case Category::Rendering:   return hex(0x7DB1DD);
-        case Category::Light:       return hex(0xC3BA75);
-        case Category::Camera:      return hex(0x6FBDA5);
-        case Category::Environment: return hex(0x64BBC4);
-        case Category::Physics:     return hex(0xDC9690);
-        case Category::Animation:   return hex(0xD295B7);
-        case Category::Audio:       return hex(0xD59D77);
-        case Category::Vfx:         return hex(0xA0A5E0);
-        case Category::Ui:          return hex(0xBD9CD2);
-        case Category::Logic:       return hex(0xA5ABB8);
-        case Category::Structure:   return hex(0x8F929A);
+inline ImVec4 hue(Hue h) {
+    switch (h) {
+        case Hue::blue:       return hex(0x7DB1DD);
+        case Hue::ochre:      return hex(0xC3BA75);
+        case Hue::teal:       return hex(0x6FBDA5);
+        case Hue::cyan:       return hex(0x64BBC4);
+        case Hue::coral:      return hex(0xDC9690);
+        case Hue::pink:       return hex(0xD295B7);
+        case Hue::orange:     return hex(0xD59D77);
+        case Hue::periwinkle: return hex(0xA0A5E0);
+        case Hue::lilac:      return hex(0xBD9CD2);
+        case Hue::slate:      return hex(0xA5ABB8);
+        case Hue::grey:       return hex(0x8F929A);
     }
     return hex(0x8F929A);
-}
-
-// What a category is called where it names a group (the Add Component
-// picker, the gallery).
-inline const char* category_name(Category c) {
-    switch (c) {
-        case Category::Rendering:   return "Rendering";
-        case Category::Light:       return "Light";
-        case Category::Camera:      return "Camera";
-        case Category::Environment: return "Environment";
-        case Category::Physics:     return "Physics";
-        case Category::Animation:   return "Animation";
-        case Category::Audio:       return "Audio";
-        case Category::Vfx:         return "VFX";
-        case Category::Ui:          return "UI";
-        case Category::Logic:       return "Logic";
-        case Category::Structure:   return "Structure";
-    }
-    return "Structure";
 }
 
 // Vector components, in the viewport gizmo's axis colours muted to the
@@ -176,8 +158,8 @@ inline constexpr float TREE_INDENT = 16.0f;
 /// Height of the status bar along the bottom of the editor.
 inline constexpr float STATUS_BAR = 24.0f;
 
-/// Height of the category bar over a component block.
-inline constexpr float CATEGORY_BAR = 3.0f;
+/// Height of the bar in its hue over a component block.
+inline constexpr float HUE_BAR = 3.0f;
 
 /// Text size of the editor's body text, which its metrics are drawn for.
 inline constexpr float BODY_TEXT = 14.0f;

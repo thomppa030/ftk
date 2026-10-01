@@ -20,6 +20,7 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -131,8 +132,8 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
         // components on one node may both have an "Add" or "Clear".
         ImGui::PushID(meta->json_key.c_str());
         bool remove = false;
-        const auto category = inspector ? inspector->category : ftk::theme::Category::Structure;
-        if (ftk::ui::component_block(meta->display_name.c_str(), category, remove)) {
+        const auto category = inspector ? inspector->category : Category::Structure;
+        if (ftk::ui::component_block(meta->display_name.c_str(), category_hue(category), remove)) {
             // The fields in one group, so the block knows whether
             // one of them is being edited or under the mouse.
             const std::string scope = std::to_string(node.id) + "/" + meta->json_key;
@@ -183,7 +184,7 @@ void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
     for (auto& entry : node.scripts) {
         ImGui::PushID(entry.type_name.c_str());
         bool removed = false;
-        if (ftk::ui::component_block(entry.type_name.c_str(), ftk::theme::Category::Logic, removed)) {
+        if (ftk::ui::component_block(entry.type_name.c_str(), category_hue(Category::Logic), removed)) {
             draw_script(node, entry, ictx);
         }
         if (removed) remove = entry.type_name;
@@ -238,7 +239,7 @@ std::vector<ftk::ui::grouped_picker::Group> PropertiesPanel::addable_groups(cons
     const std::string owner = node.name.empty() ? std::string("This node") : node.name;
 
     // Everything that can be added, by value, with the category it goes under.
-    std::vector<std::pair<Item, ftk::theme::Category>> all;
+    std::vector<std::pair<Item, Category>> all;
     const auto& inspectors = component_inspectors();
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
         const auto* inspector = inspectors.find(id);
@@ -248,7 +249,7 @@ std::vector<ftk::ui::grouped_picker::Group> PropertiesPanel::addable_groups(cons
             item.detail = "added";
             item.disabled_reason = owner + " already has a " + meta.display_name;
         }
-        all.emplace_back(std::move(item), inspector ? inspector->category : ftk::theme::Category::Structure);
+        all.emplace_back(std::move(item), inspector ? inspector->category : Category::Structure);
     });
     if (scripts_ != nullptr && scripts_->is_loaded()) {
         for (const auto& type : scripts_->script_types()) {
@@ -261,7 +262,7 @@ std::vector<ftk::ui::grouped_picker::Group> PropertiesPanel::addable_groups(cons
                 item.detail = "added";
                 item.disabled_reason = owner + " already has " + type.name;
             }
-            all.emplace_back(std::move(item), ftk::theme::Category::Logic);
+            all.emplace_back(std::move(item), Category::Logic);
         }
     }
     std::ranges::sort(all, [](const auto& a, const auto& b) { return a.first.label < b.first.label; });
@@ -273,14 +274,14 @@ std::vector<ftk::ui::grouped_picker::Group> PropertiesPanel::addable_groups(cons
         auto it = std::ranges::find_if(all, [&](const auto& e) { return e.first.value == value; });
         if (it == all.end()) continue;
         Item item = it->first;
-        item.category = it->second;
+        item.hue = category_hue(it->second);
         recent.items.push_back(std::move(item));
     }
     if (!recent.items.empty()) groups.push_back(std::move(recent));
 
-    for (int c = 0; c <= static_cast<int>(ftk::theme::Category::Structure); ++c) {
-        const auto category = static_cast<ftk::theme::Category>(c);
-        Group group{.label = ftk::theme::category_name(category), .category = category};
+    for (int c = 0; c <= static_cast<int>(Category::Structure); ++c) {
+        const auto category = static_cast<Category>(c);
+        Group group{.label = category_name(category), .hue = category_hue(category)};
         for (const auto& [item, item_category] : all) {
             if (item_category == category) group.items.push_back(item);
         }
@@ -391,7 +392,7 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
     // The material's values are its own, shared by every node using it, so
     // they are set apart from the component's in a box of their own.
     auto box = ftk::ui::InsetGroup("##material_values", "Material", icon::material,
-                              ftk::theme::category(ftk::theme::Category::Rendering));
+                              category_colour(Category::Rendering));
     if (!box) return;
     // Its values stay editable: they are the last version that compiled.
     shader_error_callout(*pipeline_cache_, pid, project_mgr_ != nullptr ? project_mgr_->active() : nullptr);

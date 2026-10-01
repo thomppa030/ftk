@@ -1,6 +1,7 @@
 #include "ui/vfx_graph.hpp"
 
 #include "ftk/base/string_utils.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/theme.hpp"
@@ -26,20 +27,20 @@ constexpr const char* STAGE_NAMES[] = {"Spawn", "Update", "Render"};
 // Each stage its own hue, so the three read apart at a glance (sheet 30).
 ImVec4 stage_colour(int stage) {
     switch (stage) {
-        case 0: return ftk::theme::category(ftk::theme::Category::Environment);
-        case 1: return ftk::theme::category(ftk::theme::Category::Vfx);
-        case 2: return ftk::theme::category(ftk::theme::Category::Rendering);
-        default: return ftk::theme::category(ftk::theme::Category::Logic);
+        case 0: return category_colour(Category::Environment);
+        case 1: return category_colour(Category::Vfx);
+        case 2: return category_colour(Category::Rendering);
+        default: return category_colour(Category::Logic);
     }
 }
 
 ImVec4 pin_colour(PinDataType type) {
     switch (type) {
-        case PinDataType::float_type: return ftk::theme::category(ftk::theme::Category::Rendering);
-        case PinDataType::vec3_type: return ftk::theme::category(ftk::theme::Category::Environment);
-        case PinDataType::vec4_type: return ftk::theme::category(ftk::theme::Category::Ui);
-        case PinDataType::uint_type: return ftk::theme::category(ftk::theme::Category::Light);
-        case PinDataType::enum_type: return ftk::theme::category(ftk::theme::Category::Logic);
+        case PinDataType::float_type: return category_colour(Category::Rendering);
+        case PinDataType::vec3_type: return category_colour(Category::Environment);
+        case PinDataType::vec4_type: return category_colour(Category::Ui);
+        case PinDataType::uint_type: return category_colour(Category::Light);
+        case PinDataType::enum_type: return category_colour(Category::Logic);
     }
     return ftk::theme::text_secondary();
 }

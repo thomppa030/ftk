@@ -1,5 +1,6 @@
 #include "ui/node_visuals.hpp"
 
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "scene/camera_node.hpp"
@@ -8,7 +9,7 @@
 namespace fjell {
 
 NodeVisuals node_visuals(const Node& node) {
-    using C = ftk::theme::Category;
+    using C = Category;
     if (dynamic_cast<const DirectionalLightNode*>(&node)) return {icon::directional_light, C::Light};
     if (dynamic_cast<const PointLightNode*>(&node)) return {icon::point_light, C::Light};
     if (dynamic_cast<const SpotLightNode*>(&node)) return {icon::spot_light, C::Light};

@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/grouped_picker.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/slot.hpp"
 #include "ftk/ui/theme.hpp"
@@ -60,7 +61,7 @@ ftk::ui::SlotFace describe(const NodeSlotConfig& config, uint32_t node, const No
         const NodeVisuals visuals = node_visuals(*held);
         face.glyph = visuals.icon;
         face.glyph_colour = visuals.tint       ? *visuals.tint
-                            : visuals.category ? ftk::theme::category(*visuals.category)
+                            : visuals.category ? category_colour(*visuals.category)
                                                : ftk::theme::text_secondary();
         text = held->name;
         face.text_colour = ftk::theme::text();

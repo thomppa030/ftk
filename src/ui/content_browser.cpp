@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/asset_tile.hpp"
@@ -406,7 +407,7 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir, 
                                    .depth = depth,
                                    .has_children = !subdirs.empty(),
                                    .icon = icon::folder,
-                                   .category = ftk::theme::Category::Structure,
+                                   .hue = category_hue(Category::Structure),
                                    .tint = tint,
                                    .selection = dir == current_dir_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
                                    .starts_open = dir == root_});
@@ -433,7 +434,7 @@ void ContentBrowser::draw_file_grid() {
     // Back up a folder, for non-root
     if (current_dir_ != root_) {
         const auto up = ftk::ui::asset_tile({.id = "##up", .name = "..", .icon = icon::folder,
-                                        .category = ftk::theme::Category::Structure});
+                                        .hue = category_hue(Category::Structure)});
         if (up.double_clicked) navigate_to(current_dir_.parent_path());
         if (columns > 1) ImGui::SameLine(0, gap);
     }
@@ -477,7 +478,7 @@ void ContentBrowser::draw_file_grid() {
             .name = entry.name,
             .picture = picture,
             .icon = entry.type == FileType::folder ? icon::folder : kind.icon,
-            .category = entry.type == FileType::folder ? ftk::theme::Category::Structure : kind.category,
+            .hue = entry.type == FileType::folder ? category_hue(Category::Structure) : kind.hue,
             .tint = tint,
             .selected = i == selected_index_,
             .query = search_,

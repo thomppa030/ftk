@@ -35,6 +35,7 @@
 #include "physics/physics_world.hpp"
 #include "ftk/app/console.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/status_bar.hpp"
 #include "ftk/ui/kit/tabs.hpp"
@@ -2690,7 +2691,7 @@ void Engine::draw_unsaved_dialogs() {
             if (!ctx->has_unsaved_changes()) continue;
             const std::filesystem::path path = ctx.get() == scene_context_ ? current_scene_path_ : ctx->asset_path();
             const auto& kind = ftk::ui::asset_kind(path.extension().string());
-            quit_items_.push_back({.icon = kind.icon, .icon_colour = ftk::theme::category(kind.category),
+            quit_items_.push_back({.icon = kind.icon, .icon_colour = ftk::theme::hue(kind.hue),
                                    .name = path.filename().string(), .detail = {}, .save = true});
             const std::string files = ctx->saved_files();
             if (ctx.get() != scene_context_ && files != quit_items_.back().name) {

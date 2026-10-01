@@ -37,10 +37,10 @@ TabStripResult tab_strip(const char* id, const TabStripSpec& spec) {
     ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, theme::surface_hover());
     ImGui::PushStyleColor(ImGuiCol_TabSelected, theme::surface_base());
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, theme::category(spec.category));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, theme::hue(spec.hue));
     ImGui::PushStyleColor(ImGuiCol_TabDimmed, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, theme::surface_base());
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, theme::category(spec.category));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, theme::hue(spec.hue));
     const bool bar = ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_NoTooltip |
                                                       ImGuiTabBarFlags_DrawSelectedOverline);
     if (bar) {

@@ -133,7 +133,7 @@ TEST_CASE("A component block folds from its header and asks to be removed from i
     int removals = 0;
     h.set_ui([&] {
         remove = false;
-        open = ui::component_block("Collider", ftk::theme::Category::Physics, remove);
+        open = ui::component_block("Collider", ftk::theme::Hue::coral, remove);
         h.mark("trash");  // the last item is the trash icon
         if (remove) ++removals;
     });
@@ -225,19 +225,19 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
 }
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
-    using ftk::theme::Category;
-    CHECK(ui::asset_kind(".png").category == Category::Rendering);
+    using ftk::theme::Hue;
+    CHECK(ui::asset_kind(".png").hue == Hue::blue);
     CHECK(std::string(ui::asset_kind(".png").noun) == "texture");
-    CHECK(ui::asset_kind(".ttf").category == Category::Ui);
-    CHECK(ui::asset_kind(".wav").category == Category::Audio);
+    CHECK(ui::asset_kind(".ttf").hue == Hue::lilac);
+    CHECK(ui::asset_kind(".wav").hue == Hue::orange);
     CHECK(std::string(ui::asset_kind(".xyz").noun) == "file");
 }
 
 TEST_CASE("A program's own file types show as it registered them", "[ui][kit]") {
-    using ftk::theme::Category;
-    ui::register_asset_kind(".kittest", {"kit test", ui::icon::file, Category::Logic});
+    using ftk::theme::Hue;
+    ui::register_asset_kind(".kittest", {"kit test", ui::icon::file, Hue::slate});
     CHECK(std::string(ui::asset_kind(".kittest").noun) == "kit test");
-    CHECK(ui::asset_kind(".kittest").category == Category::Logic);
+    CHECK(ui::asset_kind(".kittest").hue == Hue::slate);
 }
 
 TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
@@ -422,7 +422,7 @@ TEST_CASE("A block with a switch turns off without folding or removing", "[ui][k
     bool open = false;
     ImVec2 header_max{};
     h.set_ui([&] {
-        open = ui::component_block("Gravity", ftk::theme::Category::Vfx, removed, enabled);
+        open = ui::component_block("Gravity", ftk::theme::Hue::periwinkle, removed, enabled);
         header_max = ImGui::GetItemRectMax();  // the trash icon, last in the header
     });
     h.step(2);

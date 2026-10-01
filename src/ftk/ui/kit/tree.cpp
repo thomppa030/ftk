@@ -148,21 +148,21 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     float x = twisty_x + twisty() + PART_GAP;
     if (spec.icon != nullptr) {
         const ImVec4 tint = spec.tint ? *spec.tint
-                          : spec.category ? theme::category(*spec.category)
+                          : spec.hue ? theme::hue(*spec.hue)
                                           : theme::text_secondary();
         dl->AddText({x, text_y}, ImGui::GetColorU32(tint), spec.icon);
         x += ImGui::CalcTextSize(spec.icon).x + PART_GAP;
     }
 
-    // The dots at the right end, one per category.
+    // The dots at the right end, one per hue.
     const float dots_w = spec.dots.empty()
         ? 0.0f
         : DOTS_LEAD + static_cast<float>(spec.dots.size()) * DOT
               + static_cast<float>(spec.dots.size() - 1) * DOT_GAP;
     float dot_x = max.x - ROW_PAD - dots_w + DOTS_LEAD;
-    for (theme::Category category : spec.dots) {
+    for (theme::Hue hue : spec.dots) {
         dl->AddCircleFilled({dot_x + DOT * 0.5f, (min.y + max.y) * 0.5f}, DOT * 0.5f,
-                            ImGui::GetColorU32(theme::category(category)));
+                            ImGui::GetColorU32(theme::hue(hue)));
         dot_x += DOT + DOT_GAP;
     }
 
@@ -229,10 +229,10 @@ void draw_drop(DropPlace place, int depth) {
     dl->AddCircle({x, y}, RING * 0.5f - 1.0f, accent, 0, INSERT_LINE);
 }
 
-void drag_preview(const char* icon, std::optional<theme::Category> category, std::string_view text,
+void drag_preview(const char* icon, std::optional<theme::Hue> hue, std::string_view text,
                   std::string_view refusal) {
     if (icon != nullptr) {
-        ImGui::PushStyleColor(ImGuiCol_Text, category ? theme::category(*category) : theme::text_secondary());
+        ImGui::PushStyleColor(ImGuiCol_Text, hue ? theme::hue(*hue) : theme::text_secondary());
         ImGui::TextUnformatted(icon);
         ImGui::PopStyleColor();
         ImGui::SameLine(0.0f, PART_GAP);

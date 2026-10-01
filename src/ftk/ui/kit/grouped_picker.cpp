@@ -12,7 +12,7 @@ namespace ftk::ui::grouped_picker {
 namespace {
 
 constexpr float PREVIEW_SIZE = 32.0F;
-// The column a row's category dot sits in, and the dot.
+// The column a row's dot sits in, and the dot.
 constexpr float DOT_COLUMN = 16.0F;
 constexpr float DOT_DIAMETER = 7.0F;
 
@@ -39,7 +39,7 @@ bool matches_search(const Item& item, std::string_view needle) {
         || ui::matches(item.search_text, needle);
 }
 
-/// A short word in a coloured pill, for a row's category.
+/// A short word in a coloured pill, for a row's kind.
 void draw_tag(const std::string& text, ImU32 color) {
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
     const ImVec2 pad{6.0F, 2.0F};
@@ -54,7 +54,7 @@ void draw_tag(const std::string& text, ImU32 color) {
     ImGui::Dummy({p1.x - p0.x, p1.y - p0.y});
 }
 
-/// Draw one row: category dot, preview or tag, then the label over its
+/// Draw one row: dot, preview or tag, then the label over its
 /// sublabel, and the detail word at the right end. Returns true when it was
 /// clicked.
 bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_view query) {
@@ -79,10 +79,10 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
 
     ImGui::BeginGroup();
     if (dot_column) {
-        if (item.category) {
+        if (item.hue) {
             ImGui::GetWindowDrawList()->AddCircleFilled(
                 {row_min.x + DOT_COLUMN * 0.5F, row_min.y + row_height * 0.5F}, DOT_DIAMETER * 0.5F,
-                ImGui::ColorConvertFloat4ToU32(theme::category(*item.category)));
+                ImGui::ColorConvertFloat4ToU32(theme::hue(*item.hue)));
         }
         ImGui::Dummy({DOT_COLUMN, row_height});
         ImGui::SameLine();
@@ -181,7 +181,7 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
 
     const bool dot_column = std::ranges::any_of(groups, [](const Group& g) {
-        return std::ranges::any_of(g.items, [](const Item& i) { return i.category.has_value(); });
+        return std::ranges::any_of(g.items, [](const Item& i) { return i.hue.has_value(); });
     });
 
     if (ImGui::BeginChild("##list", {0.0F, 0.0F})) {
@@ -201,8 +201,8 @@ bool draw(const char* widget_id, std::span<const Group> groups,
             ImGui::PushID(group.label.c_str());
             bool body_open = true;
             if (!config.hide_group_headers) {
-                body_open = group.category
-                    ? ui::subheading_foldable(group.label.c_str(), *group.category, group.open)
+                body_open = group.hue
+                    ? ui::subheading_foldable(group.label.c_str(), *group.hue, group.open)
                     : ui::subheading_foldable(group.label.c_str(), group.open);
             }
             if (!body_open) {

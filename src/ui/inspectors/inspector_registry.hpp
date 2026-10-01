@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/edit.hpp"
 #include "ftk/ui/theme.hpp"
+#include "ui/categories.hpp"
 #include "scene/component_meta.hpp"
 #include "scene/component_storage.hpp"
 
@@ -19,7 +20,7 @@ struct Node3D;
 struct ComponentInspector {
     /// The component's domain: the colour of its bar, and its group when
     /// adding a component.
-    ftk::theme::Category category{ftk::theme::Category::Structure};
+    Category category{Category::Structure};
     /// Draws the component's fields into its block.
     ftk::ui::Edit (*draw)(Node3D& node, void* component, const InspectorContext& ctx){nullptr};
 };

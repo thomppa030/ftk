@@ -12,7 +12,7 @@
 
 // Trees: the hierarchy, the bone tree, the UI element tree. Each row is 24
 // px with a chevron when it has children, a guide line per level, the
-// node's icon tinted by its category, its name, and a dot per category of
+// node's icon tinted in its hue, its name, and a dot per hue of
 // what is composed onto it. The owner walks its own tree and decides what
 // is selected; the row draws and reports.
 //
@@ -61,14 +61,14 @@ struct TreeRowSpec {
     std::string_view name{};
     int depth{0};
     bool has_children{false};
-    /// The node's icon from ui::icon, and the category it is tinted in; a
+    /// The node's icon from ui::icon, and the hue it is tinted in; a
     /// plain node (an empty, a mesh) is in the secondary text colour.
     const char* icon{nullptr};
-    std::optional<theme::Category> category{};
-    /// Colours the icon in place of the category's (a preset).
+    std::optional<theme::Hue> hue{};
+    /// Colours the icon in place of its hue (a preset).
     std::optional<ImVec4> tint{};
-    /// One dot per category composed onto the node, in this order.
-    std::span<const theme::Category> dots{};
+    /// One dot per hue composed onto the node, in this order.
+    std::span<const theme::Hue> dots{};
     RowSelection selection{RowSelection::None};
     /// The search being shown: the match in the name is amber. A row kept
     /// only because something under it matches is `dimmed`.
@@ -126,7 +126,7 @@ void draw_drop(DropPlace place, int depth);
 
 /// What is being dragged, under the cursor: the row's icon and name, or a
 /// count for several. `refusal` says why the target can't take them.
-void drag_preview(const char* icon, std::optional<theme::Category> category, std::string_view text,
+void drag_preview(const char* icon, std::optional<theme::Hue> hue, std::string_view text,
                   std::string_view refusal = {});
 
 } // namespace ftk::ui

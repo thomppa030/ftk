@@ -10,7 +10,7 @@
 // A curve over time 0..1 on a canvas (sheet 8): its keys as handles, the
 // selected key's tangents to drag, the curve in its track's colour.
 //
-//     edit |= ui::curve_editor("##alpha", module.curve_a, {.category = theme::Category::Vfx});
+//     edit |= ui::curve_editor("##alpha", module.curve_a, {.hue = theme::Hue::periwinkle});
 //
 // Double-click or the right-click menu adds a key, Del removes the
 // selected one, the wheel zooms, a middle or Alt drag pans, F frames the
@@ -25,7 +25,7 @@ struct CurveOptions {
     float v_min{0.0f};
     float v_max{1.0f};
     /// The kind of thing the curve drives, which colours it.
-    theme::Category category{theme::Category::Vfx};
+    theme::Hue hue{theme::Hue::periwinkle};
 };
 
 /// Draws the editor. `changed` on every frame the curve moves, `committed`

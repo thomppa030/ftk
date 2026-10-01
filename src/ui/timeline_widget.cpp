@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 
@@ -216,7 +217,7 @@ void TimelineWidget::draw_canvas() {
     const float stop_x = view_.to_screen_x(duration_);
     if (stop_x < end.x) dl->AddRectFilled({stop_x, body_top}, end, colour(ftk::theme::surface_base()));
 
-    const ImVec4 fill = mix(ftk::theme::surface_raised(), ftk::theme::category(category_), 0.3f);
+    const ImVec4 fill = mix(ftk::theme::surface_raised(), category_colour(category_), 0.3f);
     for (int i = 0; i < static_cast<int>(lanes_.size()); ++i) {
         const auto& lane = lanes_[static_cast<size_t>(i)];
         ImVec2 lo;

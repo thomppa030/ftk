@@ -8,7 +8,7 @@
 
 // Several of one thing shown one at a time inside a panel, a VFX effect's
 // emitters (sheet 25): a tab each along the panel's top, the selected one
-// in front with an edge in its category colour, then a last tab that adds
+// in front with an edge in its hue, then a last tab that adds
 // one. Hovering a tab shows its ×; a double-click asks to rename it.
 
 namespace ftk::ui {
@@ -16,7 +16,7 @@ namespace ftk::ui {
 struct TabStripSpec {
     std::span<const std::string> names;
     int selected{0};
-    theme::Category category{theme::Category::Structure};
+    theme::Hue hue{theme::Hue::grey};
     /// The last tab's words, "Add emitter".
     const char* add_label{"Add"};
     /// What × removes, for its tooltip: "Remove emitter".

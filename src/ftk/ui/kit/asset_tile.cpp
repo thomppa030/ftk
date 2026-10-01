@@ -114,7 +114,7 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
         }
         if (spec.icon != nullptr) {
             const ImVec4 colour = spec.tint ? *spec.tint
-                                : spec.category ? theme::category(*spec.category)
+                                : spec.hue ? theme::hue(*spec.hue)
                                                 : theme::text_secondary();
             ImFont* font = ImGui::GetFont();
             const ImVec2 icon = font->CalcTextSizeA(ICON, FLT_MAX, 0.0f, spec.icon);

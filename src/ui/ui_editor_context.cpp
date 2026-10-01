@@ -15,6 +15,7 @@
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
@@ -572,7 +573,7 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
     // or text.
     std::string label;
     const char* icon = icon::ui_element;
-    std::optional<ftk::theme::Category> category;
+    std::optional<Category> category;
     if (node->type == UiNodeType::text) {
         label = "\"" + node->text_content + "\"";
         icon = icon::ui_text;
@@ -580,11 +581,11 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
         label = "<" + node->widget_tag + "/>";
         if (!node->id.empty()) label += " #" + node->id;
         icon = icon::ui_widget;
-        category = ftk::theme::Category::Ui;
+        category = Category::Ui;
     } else if (node->foreach_item_index >= 0) {
         label = "<" + node->tag + "> [" + std::to_string(node->foreach_item_index) + "]";
         icon = icon::ui_repeat;
-        category = ftk::theme::Category::Ui;
+        category = Category::Ui;
     } else {
         label = "<" + (node->tag.empty() ? "root" : node->tag) + ">";
         if (!node->id.empty()) label += " #" + node->id;
@@ -602,7 +603,7 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
         .depth = depth,
         .has_children = node->type != UiNodeType::text && !node->children.empty(),
         .icon = icon,
-        .category = category,
+        .hue = category_hue(category),
         .selection = node == selected_node_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
         // Not drawn right now: an if="" that is false, or display: none.
         .dimmed = node->hidden_by_if || node->style.display == UiDisplay::none,

@@ -30,6 +30,7 @@
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/menu.hpp"
@@ -97,7 +98,7 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
         canonical_sky_shader_path(env.sky_shader, project));
     auto sky_box = [] {
         return ftk::ui::InsetGroup("##sky_values", "Sky shader", icon::shader,
-                              ftk::theme::category(ftk::theme::Category::Environment));
+                              category_colour(Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
     if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {
@@ -195,7 +196,7 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
     auto node_box = [icon] {
         return ftk::ui::InsetGroup("##node_values", "This node", icon,
-                              ftk::theme::category(ftk::theme::Category::Environment));
+                              category_colour(Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
     if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {

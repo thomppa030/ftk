@@ -25,7 +25,7 @@ inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
 
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon
-    ImVec4 icon_colour{};       ///< its category colour
+    ImVec4 icon_colour{};       ///< its hue
     std::string name{};         ///< the file name, "crate_wood.fjmat"
     std::string folder{};       ///< where it lives, "Props / Crates"
     bool unsaved{false};

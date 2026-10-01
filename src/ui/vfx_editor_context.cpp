@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -59,7 +60,7 @@ void VfxEditorContext::init() {
     viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
     timeline_.set_title("Timeline");
-    timeline_.set_category(ftk::theme::Category::Vfx);
+    timeline_.set_category(Category::Vfx);
     timeline_.set_looping(true);
     timeline_.set_duration(5.0f);
     timeline_.set_playing(true);
@@ -338,7 +339,7 @@ void VfxEditorContext::draw_graph() {
     for (const auto& em : effect_->emitters) names.push_back(em.name);
     const auto tabs = ftk::ui::tab_strip("##emitters", {.names = names,
                                                    .selected = std::max(selected_emitter_, 0),
-                                                   .category = ftk::theme::Category::Vfx,
+                                                   .hue = category_hue(Category::Vfx),
                                                    .add_label = "Add emitter",
                                                    .remove_label = "Remove emitter"});
     if (tabs.selected) {
@@ -538,7 +539,7 @@ void VfxEditorContext::draw_module_stack() {
             ImGui::PushID(stack);
             ImGui::PushID(static_cast<int>(i));
             bool removed = false;
-            if (ftk::ui::component_block(module.name(), ftk::theme::Category::Vfx, removed, module.enabled)) {
+            if (ftk::ui::component_block(module.name(), category_hue(Category::Vfx), removed, module.enabled)) {
                 ftk::ui::FadedBody faded(!module.enabled);
                 if (draw_vfx_module_fields(module, ictx).committed) resolve_module_assets(module);
             }

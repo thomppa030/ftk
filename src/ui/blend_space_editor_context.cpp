@@ -10,6 +10,7 @@
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
@@ -279,9 +280,9 @@ void BlendSpaceEditorContext::draw_canvas_2d(ImVec2 origin, ImVec2 size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // The triangles the blend is read from, in the animation colour.
-    ImVec4 fill = ftk::theme::category(ftk::theme::Category::Animation);
+    ImVec4 fill = category_colour(Category::Animation);
     fill.w = 0.10f;
-    ImVec4 edge = ftk::theme::category(ftk::theme::Category::Animation);
+    ImVec4 edge = category_colour(Category::Animation);
     edge.w = 0.45f;
     for (const auto& tri : bs.triangles()) {
         const ImVec2 a = to_screen(bs.points()[tri.a].position);
@@ -509,11 +510,11 @@ void BlendSpaceEditorContext::draw_clips_panel() {
         for (std::size_t i = 0; i < available_clip_names_.size(); ++i) {
             const std::string id = std::to_string(i);
             (void)ftk::ui::tree_row({.id = id.c_str(), .name = available_clip_names_[i], .icon = icon::animation,
-                                .category = ftk::theme::Category::Animation});
+                                .hue = category_hue(Category::Animation)});
             if (ImGui::BeginDragDropSource()) {
                 const auto& path = available_clip_paths_[i];
                 ImGui::SetDragDropPayload("ASSET_PATH", path.c_str(), path.size() + 1);
-                ftk::ui::drag_preview(icon::animation, ftk::theme::Category::Animation, available_clip_names_[i]);
+                ftk::ui::drag_preview(icon::animation, category_hue(Category::Animation), available_clip_names_[i]);
                 ImGui::EndDragDropSource();
             }
         }

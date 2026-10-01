@@ -1,4 +1,5 @@
 #include "ui/scene_editor_context.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
@@ -355,7 +356,7 @@ void SceneEditorContext::draw(float dt) {
                                         {.icon = icon::camera,
                                          .line = name,
                                          .ink = ftk::theme::text(),
-                                         .icon_ink = ftk::theme::category(ftk::theme::Category::Camera)});
+                                         .icon_ink = category_colour(Category::Camera)});
                     }
                 }
                 ImGui::End();

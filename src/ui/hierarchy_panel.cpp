@@ -9,6 +9,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -40,16 +41,17 @@ constexpr float MIN_SEARCH_WIDTH = 60.0f;
 
 // A dot per category composed onto the node, first come first: its
 // components' categories, then Logic for scripts.
-std::vector<ftk::theme::Category> node_dots(const Node& obj) {
-    std::vector<ftk::theme::Category> dots;
-    auto add = [&](ftk::theme::Category category) {
-        if (std::ranges::find(dots, category) == dots.end()) dots.push_back(category);
+std::vector<ftk::theme::Hue> node_dots(const Node& obj) {
+    std::vector<ftk::theme::Hue> dots;
+    auto add = [&](Category category) {
+        const ftk::theme::Hue hue = category_hue(category);
+        if (std::ranges::find(dots, hue) == dots.end()) dots.push_back(hue);
     };
     const auto& inspectors = component_inspectors();
     obj.components.for_each([&](ComponentTypeId id, const void*) {
         if (const auto* inspector = inspectors.find(id)) add(inspector->category);
     });
-    if (!obj.scripts.empty()) add(ftk::theme::Category::Logic);
+    if (!obj.scripts.empty()) add(Category::Logic);
     return dots;
 }
 
@@ -341,7 +343,7 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
     const bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
     const NodeVisuals visuals = node_visuals(obj);
-    const std::vector<ftk::theme::Category> dots = node_dots(obj);
+    const std::vector<ftk::theme::Hue> dots = node_dots(obj);
     const ftk::ui::RowSelection selection = obj.id == *selected_id_  ? ftk::ui::RowSelection::Primary
                                      : selection_.contains(obj.id) ? ftk::ui::RowSelection::Secondary
                                                                    : ftk::ui::RowSelection::None;
@@ -352,7 +354,7 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         .depth = depth,
         .has_children = has_children,
         .icon = visuals.icon,
-        .category = visuals.category,
+        .hue = category_hue(visuals.category),
         .tint = visuals.tint,
         .dots = dots,
         .selection = selection,
@@ -418,7 +420,7 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         const std::vector<uint32_t> ids = dragged_ids(obj.id);
         ImGui::SetDragDropPayload(NODES_PAYLOAD, ids.data(), ids.size() * sizeof(uint32_t));
         const std::string what = ids.size() > 1 ? std::to_string(ids.size()) + " objects" : obj.name;
-        ftk::ui::drag_preview(visuals.icon, visuals.category, what, refusal_shown_);
+        ftk::ui::drag_preview(visuals.icon, category_hue(visuals.category), what, refusal_shown_);
         ImGui::EndDragDropSource();
     }
 

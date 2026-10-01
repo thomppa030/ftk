@@ -3,6 +3,7 @@
 #include "ftk/base/delegate.hpp"
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/theme.hpp"
+#include "ui/categories.hpp"
 
 #include <string>
 #include <vector>
@@ -50,7 +51,7 @@ public:
 
     // Lanes, drawn in the colour of what they are.
     void set_lanes(const std::vector<TimelineLane>& lanes) { lanes_ = lanes; }
-    void set_category(ftk::theme::Category category) { category_ = category; }
+    void set_category(Category category) { category_ = category; }
     [[nodiscard]] const std::vector<TimelineLane>& lanes() const { return lanes_; }
 
     // Window title (for docking)
@@ -89,7 +90,7 @@ private:
     std::vector<TimelineMarker> markers_;
     int selected_marker_{-1};
     std::vector<TimelineLane> lanes_;
-    ftk::theme::Category category_{ftk::theme::Category::Animation};
+    Category category_{Category::Animation};
 
     ftk::ui::CanvasView view_{{.zoom = ftk::ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
                           .min_span = 0.05f}};

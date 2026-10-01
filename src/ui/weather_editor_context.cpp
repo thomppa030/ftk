@@ -11,6 +11,7 @@
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/field.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -311,7 +312,7 @@ void WeatherEditorContext::draw_properties() {
         }
         if (!l.flash.keyframes.empty()) {
             edit |= ftk::ui::curve_editor("##flash", l.flash,
-                                     {.size = {-1.0f, 110.0f}, .category = ftk::theme::Category::Environment});
+                                     {.size = {-1.0f, 110.0f}, .hue = category_hue(Category::Environment)});
         }
         if (deps_.environment != nullptr && is_playing_here()) {
             if (ftk::ui::action(icon::play, "Strike now")) deps_.environment->strike_lightning();

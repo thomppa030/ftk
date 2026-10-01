@@ -1,6 +1,7 @@
 #include "ui/state_graph.hpp"
 
 #include "animation/animation_state_machine.hpp"
+#include "ui/categories.hpp"
 #include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/theme.hpp"
@@ -69,7 +70,7 @@ ftk::ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine
                               .anchor = ftk::ui::NodeAnchor::Centre,
                               .width = STATE_W,
                               .title = state.name,
-                              .hue = ftk::theme::category(ftk::theme::Category::Animation),
+                              .hue = category_colour(Category::Animation),
                               .connect = ftk::ui::NodeConnect::Edge,
                               .rows = {plays}});
 

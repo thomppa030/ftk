@@ -27,6 +27,7 @@
 #include "ui/inspectors/rendering_inspectors.hpp"
 #include "ui/inspectors/spline_inspectors.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
+#include "ui/categories.hpp"
 
 namespace fjell {
 
@@ -42,7 +43,7 @@ namespace {
 // One line per component. A component without an entry has no category
 // and no inspector, which is reported when the list is first built.
 InspectorRegistry build() {
-    using C = ftk::theme::Category;
+    using C = Category;
     InspectorRegistry r;
 
     r.add<MeshComponent>({.category = C::Rendering, .draw = draw_mesh});
