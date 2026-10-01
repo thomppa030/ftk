@@ -239,10 +239,8 @@ ShelterLand shelter_land(const ShoreBed& bed) {
             const std::uint32_t x1 = last_sample(cx + (0.5f * cell));
             float highest = 0.0f;
             for (std::uint32_t hz = z0; hz <= z1; ++hz) {
-                for (std::uint32_t hx = x0; hx <= x1; ++hx) {
-                    highest = std::max(highest,
-                                       terrain.heights[(static_cast<std::size_t>(hz) * heights) + hx]);
-                }
+                const float* row = &terrain.heights[static_cast<std::size_t>(hz) * heights];
+                for (std::uint32_t hx = x0; hx <= x1; ++hx) highest = std::max(highest, row[hx]);
             }
             out.land[(static_cast<std::size_t>(z) * n) + x] = is_land(highest) ? 1 : 0;
         }
@@ -250,7 +248,8 @@ ShelterLand shelter_land(const ShoreBed& bed) {
     return out;
 }
 
-ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sources) {
+ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sources,
+                            float strength) {
     ShoreExposure out;
     out.samples = land.samples;
     out.min_corner = land.min_corner;
@@ -268,8 +267,10 @@ ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sourc
     const float simulated_weight = sweep_sum(land, sources.simulated, simulated);
 
     const float cell = land.size / static_cast<float>(n - 1);
-    const auto share = [](float energy, float weight) {
-        return weight > 0.0f ? std::sqrt(std::clamp(energy / weight, 0.0f, 1.0f)) : 1.0f;
+    const auto share = [strength](float energy, float weight) {
+        const float baked =
+            weight > 0.0f ? std::sqrt(std::clamp(energy / weight, 0.0f, 1.0f)) : 1.0f;
+        return 1.0f - (strength * (1.0f - baked));
     };
     const auto stored = [](float value) {
         return static_cast<std::uint16_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 65535.0f));

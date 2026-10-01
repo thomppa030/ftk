@@ -79,6 +79,15 @@ inline constexpr std::uint32_t MAX_SHELTER_SAMPLES = 1024;
 /// Metres between the grid's samples, where the terrain is small enough.
 inline constexpr float SHELTER_SPACING = 2.0f;
 
+/// How much of the lee the land casts is kept: 1 the lee as baked, 0 none.
+///
+/// Half, by choice rather than physics. Baked whole, a cove the land turns
+/// from the sea keeps a fifth of the open sea's height or less — calmer still
+/// in reality, where a few hundred metres of water raise almost nothing of
+/// their own — and reads as dead water in a game. Half keeps every lee
+/// clearly calmer than the open sea and the water in it alive.
+inline constexpr float SHELTER_STRENGTH = 0.5f;
+
 /// Lay the grid over `bed` and mark its land: a sample is land when any of
 /// the terrain's heights within its cell stands above the water, so a spit
 /// narrower than a cell still blocks. Reads the heights, so it belongs where
@@ -93,9 +102,11 @@ inline constexpr float SHELTER_SPACING = 2.0f;
 /// behind land by spreading sideways as it goes, its edge widening as the
 /// square root of wavelength times distance, the way waves bend around the end
 /// of a breakwater. The directions are summed by weight, and what is kept is
-/// the square root of the energy share: the amplitude share. Past the
-/// terrain the share fades to 1 across the margin.
-[[nodiscard]] ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sources);
+/// the square root of the energy share: the amplitude share. That share keeps
+/// `strength` of what the land took (see SHELTER_STRENGTH), and past the
+/// terrain it fades to 1 across the margin.
+[[nodiscard]] ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sources,
+                                          float strength = SHELTER_STRENGTH);
 
 /// Keeps one body of water's exposure current as the land and the sea
 /// change. The shelter's counterpart to SeaDerivation, and like it needs no

@@ -54,7 +54,7 @@ TEST_CASE("Open sea is open everywhere", "[water_shelter]") {
     water::ShelterSources sources;
     sources.trains = {{{1.0f, 0.0f}, 1.0f, 30.0f}, {{0.0f, -1.0f}, 0.5f, 12.0f}};
     sources.simulated = {{{0.6f, 0.8f}, 1.0f, 40.0f}};
-    const water::ShoreExposure e = water::bake_exposure(land, sources);
+    const water::ShoreExposure e = water::bake_exposure(land, sources, 1.0f);
     REQUIRE(e.shares.size() == 2u * 64 * 64);
     for (const std::uint16_t share : e.shares) CHECK(share == 65535);
 }
@@ -63,7 +63,8 @@ TEST_CASE("Water behind a wall gets nothing of a sea it hides", "[water_shelter]
     // A wall across the whole grid at row 30, waves travelling +z into it,
     // short enough that their lee barely fills in from the grid's sides.
     const auto land = grid(101, 200.0f, [](std::uint32_t, std::uint32_t z) { return z == 30; });
-    const water::ShoreExposure e = water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, 1.0f}}));
+    const water::ShoreExposure e =
+        water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, 1.0f}}), 1.0f);
     CHECK(trains_share(e, 50, 10) == 1.0f);   // in front of it
     CHECK(trains_share(e, 50, 30) == 0.0f);   // on it
     CHECK(trains_share(e, 50, 80) < 0.01f);   // behind it
@@ -82,7 +83,7 @@ TEST_CASE("A breakwater's lee widens as the square root of wavelength times dist
         return z == 20 && x <= 100;
     });
     const water::ShoreExposure e =
-        water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, WAVELENGTH}}));
+        water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, WAVELENGTH}}), 1.0f);
 
     const std::uint32_t row = 120;   // 200 m behind
     const float behind = static_cast<float>(row - 20) * CELL;
@@ -104,14 +105,15 @@ TEST_CASE("Water hidden from one way the sea arrives takes the share of the othe
     // A quarter of the energy gets there: half the amplitude.
     const auto land = grid(101, 200.0f, [](std::uint32_t, std::uint32_t z) { return z == 30; });
     const water::ShoreExposure e = water::bake_exposure(
-        land, trains({{{0.0f, 1.0f}, 3.0f, 1.0f}, {{1.0f, 0.0f}, 1.0f, 1.0f}}));
+        land, trains({{{0.0f, 1.0f}, 3.0f, 1.0f}, {{1.0f, 0.0f}, 1.0f, 1.0f}}), 1.0f);
     CHECK(trains_share(e, 50, 80) == Approx(0.5).margin(0.01));
 }
 
 TEST_CASE("The exposure fades back to the open sea past the terrain", "[water_shelter]") {
     auto land = grid(101, 200.0f, [](std::uint32_t, std::uint32_t z) { return z == 30; });
     land.margin = 40.0f;
-    const water::ShoreExposure e = water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, 1.0f}}));
+    const water::ShoreExposure e =
+        water::bake_exposure(land, trains({{{0.0f, 1.0f}, 1.0f, 1.0f}}), 1.0f);
     CHECK(trains_share(e, 50, 100) == 1.0f);   // the grid's far edge: open sea past it
     CHECK(trains_share(e, 50, 60) < 0.01f);    // a margin's width in: the lee as baked
 }
@@ -242,4 +244,17 @@ TEST_CASE("The shore derivation bakes on a worker and hands out the last meanwhi
     }
     REQUIRE(baked != previous);
     CHECK(baked->shares == previous->shares);   // the same land and sea bake the same
+}
+
+TEST_CASE("The lee kept is the share of it SHELTER_STRENGTH says", "[water_shelter]") {
+    // Behind a wall the land takes all of a sea it hides; at half strength
+    // half of what it took is given back, and the open water is untouched.
+    const auto land = grid(101, 200.0f, [](std::uint32_t, std::uint32_t z) { return z == 30; });
+    water::ShelterSources sources;
+    sources.trains = {{{0.0f, 1.0f}, 1.0f, 1.0f}};
+    const water::ShoreExposure half = water::bake_exposure(land, sources, 0.5f);
+    CHECK(trains_share(half, 50, 10) == 1.0f);
+    CHECK(trains_share(half, 50, 80) == Approx(0.5).margin(0.01));
+    const water::ShoreExposure none = water::bake_exposure(land, sources, 0.0f);
+    CHECK(trains_share(none, 50, 80) == 1.0f);
 }
