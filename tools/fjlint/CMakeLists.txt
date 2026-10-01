@@ -28,13 +28,14 @@ target_include_directories(fjlint PRIVATE
 )
 
 target_link_libraries(fjlint PRIVATE
-    fjell-core
+    ftk::base
+    ftk::math
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
 )
 
-fjell_target_defaults(fjlint)
+ftk_target_defaults(fjlint)
 if(MSVC)
     target_compile_definitions(fjlint PRIVATE FJELL_ENGINE_BUILD)
 endif()

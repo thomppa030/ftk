@@ -63,7 +63,7 @@
             "name": "libraries",
             "inherits": "base",
             "displayName": "Libraries only",
-            "description": "Fjell's libraries without the engine, tools or tests, as another program's build gets them. Reuses the debug preset's fetched sources, so configure `debug` first; a foundation dependency not listed here is fetched again.",
+            "description": "ftk's libraries without the engine, tools or tests, as another program's build gets them. Reuses the debug preset's fetched sources, so configure `debug` first; a foundation dependency not listed here is fetched again.",
             "binaryDir": "${sourceDir}/build-libraries",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",

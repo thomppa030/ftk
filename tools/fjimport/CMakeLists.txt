@@ -22,8 +22,9 @@ target_include_directories(fjimport PRIVATE
 )
 
 target_link_libraries(fjimport PRIVATE
-    fjell-core
-    fjell-stb
+    ftk::base
+    ftk::image
+    ftk::math
     assimp::assimp
     meshoptimizer
     msdfgen::msdfgen-core
@@ -36,7 +37,7 @@ target_link_libraries(fjimport PRIVATE
     spdlog::spdlog
 )
 
-fjell_target_defaults(fjimport)
+ftk_target_defaults(fjimport)
 
 # Treat msdfgen headers as system headers to suppress warnings from them
 get_target_property(FJIMPORT_MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)

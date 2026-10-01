@@ -22,12 +22,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/FjellTargetDefaults.cmake)
 include(cmake/FjellLibrary.cmake)
-# Defines fjell_check_editor_ui(), for Fjell's editor and any program built
-# on its kit.
+# ftk's checks, for Fjell and any program built on ftk: editor UI from the
+# theme and the kit, Vulkan only inside the GPU backend, POSIX only inside
+# the platform library.
 include(cmake/EditorUiCheck.cmake)
+include(cmake/GpuBackendCheck.cmake)
+include(cmake/PortabilityCheck.cmake)
 
 if(FJELL_BUILD_ENGINE)
-    include(cmake/PortabilityCheck.cmake)
     # Only the tool directories that are built; tools/ also holds things like a
     # Python environment whose headers are not ours.
     file(GLOB FJELL_TOOL_CMAKE_LISTS "${CMAKE_SOURCE_DIR}/tools/*/CMakeLists.txt")
@@ -36,7 +38,6 @@ if(FJELL_BUILD_ENGINE)
         cmake_path(GET tool_cmake_list PARENT_PATH tool_dir)
         list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
     endforeach()
-    fjell_check_posix_includes(src tests ${FJELL_TOOL_DIRS})
     include(cmake/SdkNamespaceCheck.cmake)
     fjell_check_sdk_namespaces(src tests ${FJELL_TOOL_DIRS})
 
@@ -62,8 +63,8 @@ if(FJELL_BUILD_ENGINE)
 endif()
 
 include(cmake/FoundationDependencies.cmake)
-# Shader compiling, and fjell_stage_editor_data() for any program built on the
-# editor shell; glslc is only looked for once something compiles a shader.
+# Shader compiling, and ftk_stage_editor_data() for any program built on
+# ftk-app; glslc is only looked for once something compiles a shader.
 include(cmake/CompileShaders.cmake)
 include(cmake/EditorData.cmake)
 if(FJELL_BUILD_ENGINE)
@@ -73,33 +74,34 @@ endif()
 
 include(src/libraries.cmake)
 
-# Fjell's libraries include only their own files and those of the libraries
+# ftk's libraries include only their own files and those of the libraries
 # they link. Checked at configure, once src/libraries.cmake has declared them,
-# and again by fjell-library-check whenever a library's file changes.
+# and again by ftk-library-check whenever a library's file changes.
 include(cmake/LibraryBoundaryCheck.cmake)
-set(FJELL_LIBRARY_LISTS "${PROJECT_BINARY_DIR}/fjell_libraries.cmake")
-fjell_write_library_lists("${FJELL_LIBRARY_LISTS}")
-fjell_check_library_boundaries("${FJELL_LIBRARY_LISTS}")
-fjell_library_files(FJELL_LIBRARY_FILES)
-set(FJELL_LIBRARY_CHECK_STAMP "${PROJECT_BINARY_DIR}/library_check.stamp")
+set(FTK_LIBRARY_LISTS "${PROJECT_BINARY_DIR}/ftk_libraries.cmake")
+ftk_write_library_lists("${FTK_LIBRARY_LISTS}")
+ftk_check_library_boundaries("${FTK_LIBRARY_LISTS}")
+ftk_library_files(FTK_LIBRARY_FILES)
+set(FTK_LIBRARY_CHECK_STAMP "${PROJECT_BINARY_DIR}/library_check.stamp")
 add_custom_command(
-    OUTPUT "${FJELL_LIBRARY_CHECK_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFJELL_LIBRARY_LISTS=${FJELL_LIBRARY_LISTS} -P "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_LIBRARY_CHECK_STAMP}"
-    DEPENDS ${FJELL_LIBRARY_FILES}
-            "${FJELL_LIBRARY_LISTS}"
+    OUTPUT "${FTK_LIBRARY_CHECK_STAMP}"
+    COMMAND "${CMAKE_COMMAND}" -DFTK_LIBRARY_LISTS=${FTK_LIBRARY_LISTS} -P "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${FTK_LIBRARY_CHECK_STAMP}"
+    DEPENDS ${FTK_LIBRARY_FILES}
+            "${FTK_LIBRARY_LISTS}"
             "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
     COMMENT "Checking each library's includes against its links"
     VERBATIM)
-add_custom_target(fjell-library-check DEPENDS "${FJELL_LIBRARY_CHECK_STAMP}")
+add_custom_target(ftk-library-check DEPENDS "${FTK_LIBRARY_CHECK_STAMP}")
 
 if(FJELL_BUILD_ENGINE)
     add_subdirectory(src)
     # Editor UI takes colours and widgets from the theme and the kit.
-    fjell_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt)
+    ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt)
     # Vulkan stays inside the GPU backend; the rest speaks the GPU interface.
-    include(cmake/GpuBackendCheck.cmake)
-    fjell_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
+    ftk_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
+    # The OS is reached through the platform library, so Windows builds too.
+    ftk_check_portability(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
     add_subdirectory(tools)
 
     enable_testing()

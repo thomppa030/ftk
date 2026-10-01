@@ -368,15 +368,16 @@ add_dependencies(fjell fjell-fixed-tick-check)
 # into, and game modules can be handed (-rdynamic, ENABLE_EXPORTS) only what
 # is linked.
 target_link_libraries(fjell PRIVATE
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-core>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-platform>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-gpu>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-framegraph>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-shader>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-stb>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-ui-kit>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-editor-shell>"
-    fjell-imgui
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::base>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::math>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::platform>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::gpu>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::framegraph>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::shader>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::image>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::app-ui>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::app>"
+    ftk::imgui
     fastgltf::fastgltf
     glm::glm
     Jolt
@@ -406,7 +407,7 @@ set_target_properties(fjell PROPERTIES ENABLE_EXPORTS TRUE)
 # would collide with the engine's own types).
 target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
 
-fjell_target_defaults(fjell)
+ftk_target_defaults(fjell)
 if(MSVC)
     # Suppress warnings in third-party ImGuizmo source
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
@@ -512,17 +513,17 @@ target_include_directories(fjell-hub PRIVATE
 add_dependencies(fjell-hub fjell_shaders)
 
 target_link_libraries(fjell-hub PRIVATE
-    fjell-core
-    fjell-editor-shell
-    fjell-gpu
-    fjell-platform
-    fjell-ui-kit
-    fjell-imgui
+    ftk::app
+    ftk::app-ui
+    ftk::base
+    ftk::gpu
+    ftk::platform
+    ftk::imgui
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
 )
-fjell_target_defaults(fjell-hub)
+ftk_target_defaults(fjell-hub)
 
 # --- Install rules ---
 # ARCHIVE carries MSVC's import library: ENABLE_EXPORTS emits fjell.lib beside

@@ -1,4 +1,4 @@
-// Links fjell-gpu alone and whole (tests/CMakeLists.txt), so it builds only
+// Links ftk-gpu alone and whole (tests/CMakeLists.txt), so it builds only
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it opens a window, brings a device up and makes a
 // buffer, a texture with a view, a sampler, pipelines, bind groups and
@@ -41,7 +41,7 @@ int main() {
         }));
     bool ran = false;
     {
-        fjell::Window window("fjell-link-gpu", 320, 240);
+        fjell::Window window("ftk-link-gpu", 320, 240);
         auto made_device = fjell::gpu::Device::create(window);
         if (!made_device) {
             std::fprintf(stderr, "%s\n", made_device.error().c_str());

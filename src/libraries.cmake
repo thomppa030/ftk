@@ -1,58 +1,64 @@
-# Fjell's libraries, declared through fjell_library() (cmake/FjellLibrary.cmake),
+# ftk's libraries, declared through ftk_library() (cmake/FjellLibrary.cmake),
 # and the Dear ImGui targets they draw with. Included from the top-level
 # CMakeLists.txt; the engine and hub are in src/CMakeLists.txt. Paths are
 # relative to src/.
 
-# fjell-core holds what any program needs before it has a window: the log,
-# results, delegates, handles, the thread pool, the undo history, and the
-# colour and curve math the layers above share.
-fjell_library(core
+# ftk-base holds what any program needs before it has a window: the log,
+# results, delegates, handles and handle pools, the thread pool, the
+# profiler, and the string and UTF-8 helpers.
+ftk_library(base
     SOURCES
-        core/command_history.cpp
         core/log.cpp
-        core/math/curve.cpp
         core/thread_pool.cpp
     HEADERS
-        core/command.hpp
-        core/command_history.hpp
         core/delegate.hpp
         core/handle.hpp
         core/handle_pool.hpp
         core/small_vector.hpp
         core/log.hpp
-        core/math/color_space.hpp
-        core/math/curve.hpp
         core/profiler.hpp
         core/result.hpp
         core/string_utils.hpp
         core/thread_pool.hpp
         core/utf8.hpp
     LINKS
-        PUBLIC glm::glm nlohmann_json::nlohmann_json spdlog::spdlog
+        PUBLIC spdlog::spdlog
 )
 # Profiler zones compile in wherever core/profiler.hpp is included, so a
-# Tracy build passes the switch and the client on to everything linking core.
+# Tracy build passes the switch and the client on to everything linking base.
 if(FJELL_ENABLE_TRACY)
-    target_link_libraries(fjell-core PUBLIC TracyClient)
-    target_compile_definitions(fjell-core PUBLIC FJELL_ENABLE_TRACY)
+    target_link_libraries(ftk-base PUBLIC TracyClient)
+    target_compile_definitions(ftk-base PUBLIC FJELL_ENABLE_TRACY)
     get_target_property(TRACY_INCLUDE_DIRS TracyClient INTERFACE_INCLUDE_DIRECTORIES)
     if(TRACY_INCLUDE_DIRS)
-        target_include_directories(fjell-core SYSTEM PUBLIC ${TRACY_INCLUDE_DIRS})
+        target_include_directories(ftk-base SYSTEM PUBLIC ${TRACY_INCLUDE_DIRS})
     endif()
 endif()
 
-# fjell-platform is everything that talks to the operating system: one
+# ftk-math is the colour and curve math the layers above share: colour space
+# conversions, and keyed curves that read and write themselves as JSON.
+ftk_library(math
+    SOURCES
+        core/math/curve.cpp
+    HEADERS
+        core/math/color_space.hpp
+        core/math/curve.hpp
+    LINKS
+        PUBLIC glm::glm nlohmann_json::nlohmann_json
+)
+
+# ftk-platform is everything that talks to the operating system: one
 # backend per system behind platform.hpp, file_watcher.hpp and
 # shared_library.hpp. Only the backend being built is listed, so each
 # system's build checks its own backend's includes.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(FJELL_PLATFORM_SOURCES
+    set(FTK_PLATFORM_SOURCES
         platform/linux/platform_linux.cpp
         platform/linux/file_watcher_linux.cpp
         platform/linux/shared_library_linux.cpp
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(FJELL_PLATFORM_SOURCES
+    set(FTK_PLATFORM_SOURCES
         platform/windows/platform_windows.cpp
         platform/windows/file_watcher_windows.cpp
         platform/windows/shared_library_windows.cpp
@@ -61,22 +67,22 @@ else()
     message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
 
-fjell_library(platform
+ftk_library(platform
     SOURCES
-        ${FJELL_PLATFORM_SOURCES}
+        ${FTK_PLATFORM_SOURCES}
     HEADERS
         platform/file_watcher.hpp
         platform/platform.hpp
         platform/shared_library.hpp
     LINKS
-        PUBLIC fjell-core
+        PUBLIC ftk::base
         PRIVATE ${CMAKE_DL_LIBS}
 )
 
 # The Vulkan backend's code, in whichever target holds it: Vulkan and VMA for
 # that target alone, so nothing outside the backend can include them. VMA's
 # headers warn under our flags and come in as system headers.
-function(fjell_vulkan_backend target)
+function(ftk_vulkan_backend target)
     target_link_libraries(${target} PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
     get_target_property(vma_dirs GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
     if(vma_dirs)
@@ -84,11 +90,11 @@ function(fjell_vulkan_backend target)
     endif()
 endfunction()
 
-# fjell-gpu is the GPU interface and its Vulkan backend: the window, device,
+# ftk-gpu is the GPU interface and its Vulkan backend: the window, device,
 # swapchain, pipelines, bindings, command lists, uploads and readbacks. SDL,
 # Vulkan and VMA stay inside it: its headers declare SDL's window and event
 # types without including SDL, and the interface names nothing of Vulkan.
-fjell_library(gpu
+ftk_library(gpu
     SOURCES
         gpu/binding.cpp
         gpu/command_list.cpp
@@ -157,12 +163,12 @@ fjell_library(gpu
         gpu/vulkan/vk_check.hpp
         gpu/window.hpp
     LINKS
-        PUBLIC fjell-core
+        PUBLIC ftk::base glm::glm
         PRIVATE SDL3::SDL3 spirv-cross-core
 )
-fjell_vulkan_backend(fjell-gpu)
+ftk_vulkan_backend(ftk-gpu)
 # The device's own shaders, compiled into it.
-fjell_embed_shader(fjell-gpu "${FJELL_SOURCE_ROOT}/gpu/shaders/read_back.comp")
+ftk_embed_shader(ftk-gpu "${FTK_SOURCE_ROOT}/gpu/shaders/read_back.comp")
 # VMA's implementation compiles without warnings.
 if(MSVC)
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/gpu/vulkan/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
@@ -170,10 +176,10 @@ else()
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/gpu/vulkan/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
-# fjell-framegraph orders a frame's passes and places the barriers between
+# ftk-framegraph orders a frame's passes and places the barriers between
 # them, records passes of a group in parallel, and gives passes their
 # transient images and per-frame descriptor sets.
-fjell_library(framegraph
+ftk_library(framegraph
     SOURCES
         renderer/frame_graph.cpp
         renderer/pass_builder.cpp
@@ -185,13 +191,13 @@ fjell_library(framegraph
         renderer/resource_registry.hpp
         renderer/transient_image_pool.hpp
     LINKS
-        PUBLIC fjell-core fjell-gpu
+        PUBLIC ftk::base ftk::gpu glm::glm
 )
 
-# fjell-shader turns GLSL into SPIR-V through glslc, keeps what it compiled
+# ftk-shader turns GLSL into SPIR-V through glslc, keeps what it compiled
 # for the next run and reads glslc's errors back. It needs no GPU: what it
 # compiles comes back as bytes.
-fjell_library(shader
+ftk_library(shader
     SOURCES
         renderer/shader_compiler.cpp
         renderer/shader_diagnostic.cpp
@@ -199,29 +205,29 @@ fjell_library(shader
         renderer/shader_compiler.hpp
         renderer/shader_diagnostic.hpp
     LINKS
-        PUBLIC fjell-core fjell-platform
+        PUBLIC ftk::base ftk::platform
 )
 
-# fjell-stb compiles stb's image reader, writer and resizer once for
-# everything that loads, saves or scales an image, and hands on stb's
-# headers as system headers.
-fjell_library(stb
+# ftk-image loads, saves and scales images: stb's reader, writer and resizer,
+# compiled once for everything that uses them, with stb's headers handed on
+# as system headers.
+ftk_library(image
     SOURCES
         renderer/resources/stb_image.cpp
         renderer/resources/stb_image_resize.cpp
         renderer/resources/stb_image_write.cpp
 )
-target_include_directories(fjell-stb SYSTEM PUBLIC ${stb_SOURCE_DIR})
+target_include_directories(ftk-image SYSTEM PUBLIC ${stb_SOURCE_DIR})
 if(NOT MSVC)
     # stb_image_resize2.h trips -Wunused-but-set-variable under some compiler
     # and flag combinations.
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
 endif()
 
-# fjell-ui-kit is how an editor looks: the theme's tokens, the icons and
-# every widget of the kit, on ImGui's core alone, so it draws headless in
-# the unit tests and in any window a program brings.
-fjell_library(ui-kit
+# ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
+# the icons and every widget of the kit, on ImGui's core alone, so it draws
+# headless in the unit tests and in any window a program brings.
+ftk_library(app-ui
     SOURCES
         ui/kit/asset_header.cpp
         ui/kit/asset_kind.cpp
@@ -300,29 +306,30 @@ fjell_library(ui-kit
         ui/kit/viewport_toolbar.hpp
         ui/theme.hpp
     LINKS
-        PUBLIC fjell-core fjell-imgui-headless glm::glm
+        PUBLIC ftk::base ftk::math ftk::imgui-headless glm::glm
 )
 
-# fjell-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
+# ftk-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
 # with the backend's own renderer for ImGui behind it (imgui_impl_vulkan).
 # Apart from both, so neither the GPU library nor ImGui needs the other.
-fjell_library(gpu-imgui
+ftk_library(gpu-imgui
     SOURCES
         gpu/vulkan/imgui_renderer.cpp
     HEADERS
         gpu/imgui_renderer.hpp
     LINKS
-        PUBLIC fjell-core fjell-gpu fjell-imgui-headless
-        PRIVATE fjell-imgui
+        PUBLIC ftk::base ftk::gpu ftk::imgui-headless
+        PRIVATE ftk::imgui
 )
-fjell_vulkan_backend(fjell-gpu-imgui)
+ftk_vulkan_backend(ftk-gpu-imgui)
 
-# fjell-editor-shell is what an editor window needs around the kit: the
-# ImGui layer on a window of its own, the console, undo history and its
-# panel, the icon cache, the file browser, and the EditorContext a tool's
-# documents build on. Where a host keeps its files is passed in.
-fjell_library(editor-shell
+# ftk-app is what a creative app's or an editor's window needs around the
+# kit: the ImGui layer on a window of its own, the console, undo and the
+# history panel, the icon cache, the file browser, and the EditorContext a
+# tool's documents build on. Where a host keeps its files is passed in.
+ftk_library(app
     SOURCES
+        core/command_history.cpp
         ui/console.cpp
         ui/document_history.cpp
         ui/editor_context.cpp
@@ -333,6 +340,8 @@ fjell_library(editor-shell
         ui/imgui_layer.cpp
         ui/standalone_window.cpp
     HEADERS
+        core/command.hpp
+        core/command_history.hpp
         ui/console.hpp
         ui/context_registry.hpp
         ui/document_history.hpp
@@ -344,18 +353,18 @@ fjell_library(editor-shell
         ui/imgui_layer.hpp
         ui/standalone_window.hpp
     LINKS
-        PUBLIC fjell-core fjell-gpu fjell-gpu-imgui fjell-imgui fjell-ui-kit
-        PRIVATE fjell-stb SDL3::SDL3
+        PUBLIC ftk::base ftk::gpu ftk::gpu-imgui ftk::imgui ftk::app-ui
+        PRIVATE ftk::image SDL3::SDL3
 )
 
 # --- Dear ImGui ---
-# Built once for everything that draws with it. fjell-imgui-headless is the
+# Built once for everything that draws with it. ftk-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
-# run editor UI on (tests/imgui_harness.hpp); fjell-imgui adds the SDL3 and
+# run editor UI on (tests/imgui_harness.hpp); ftk-imgui adds the SDL3 and
 # Vulkan backends for a window that presents. Warnings are off: the code is
 # third-party, and the stack layout patch leaves unused parameters that only
 # surface once the optimiser runs.
-add_library(fjell-imgui-headless STATIC
+add_library(ftk-imgui-headless STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -363,16 +372,18 @@ add_library(fjell-imgui-headless STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
 )
-target_include_directories(fjell-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+target_include_directories(ftk-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+add_library(ftk::imgui-headless ALIAS ftk-imgui-headless)
 
-add_library(fjell-imgui STATIC
+add_library(ftk-imgui STATIC
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
-target_include_directories(fjell-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(fjell-imgui PUBLIC fjell-imgui-headless PRIVATE SDL3::SDL3 Vulkan::Vulkan)
+target_include_directories(ftk-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(ftk-imgui PUBLIC ftk::imgui-headless PRIVATE SDL3::SDL3 Vulkan::Vulkan)
+add_library(ftk::imgui ALIAS ftk-imgui)
 
-foreach(imgui_target fjell-imgui-headless fjell-imgui)
+foreach(imgui_target ftk-imgui-headless ftk-imgui)
     if(MSVC)
         target_compile_options(${imgui_target} PRIVATE /w)
     else()

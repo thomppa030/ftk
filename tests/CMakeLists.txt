@@ -97,14 +97,15 @@ target_include_directories(fjell-testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src/scripting
 )
 target_link_libraries(fjell-testable PUBLIC
-    fjell-core
-    fjell-editor-shell
-    fjell-framegraph
-    fjell-shader
-    fjell-stb
-    fjell-ui-kit
-    fjell-platform
-    fjell-imgui-headless
+    ftk::base
+    ftk::math
+    ftk::app
+    ftk::framegraph
+    ftk::shader
+    ftk::image
+    ftk::app-ui
+    ftk::platform
+    ftk::imgui-headless
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     glm::glm
@@ -133,7 +134,7 @@ foreach(dep msdfgen-core msdfgen-ext)
     target_include_directories(fjell-testable SYSTEM PUBLIC ${dirs})
 endforeach()
 
-fjell_target_defaults(fjell-testable)
+ftk_target_defaults(fjell-testable)
 if(MSVC)
     target_compile_definitions(fjell-testable PRIVATE FJELL_ENGINE_BUILD)
 endif()
@@ -328,7 +329,7 @@ function(fjell_delay_load_vulkan target)
     endif()
 endfunction()
 
-fjell_target_defaults(fjell-tests)
+ftk_target_defaults(fjell-tests)
 fjell_delay_load_vulkan(fjell-tests)
 # Keeps only the shared libraries something references. The backend the
 # frame graph brings in still references the Vulkan loader, so on Linux the
@@ -348,39 +349,40 @@ catch_discover_tests(fjell-tests)
 # than in the first program outside Fjell that links the library. Each also
 # runs as a test, unless it is marked NEEDS_GPU: CI runners have no GPU or
 # display, so that one is built everywhere and run by hand.
-function(fjell_library_link_check name)
+function(ftk_library_link_check name)
     cmake_parse_arguments(PARSE_ARGV 1 arg "NEEDS_GPU" "" "")
     string(REPLACE "-" "_" file ${name})
-    add_executable(fjell-link-${name} library_link/${file}.cpp)
-    target_link_libraries(fjell-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fjell-${name}>")
-    fjell_target_defaults(fjell-link-${name})
+    add_executable(ftk-link-${name} library_link/${file}.cpp)
+    target_link_libraries(ftk-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::${name}>")
+    ftk_target_defaults(ftk-link-${name})
     if(NOT arg_NEEDS_GPU)
-        add_test(NAME library_link.${name} COMMAND fjell-link-${name})
+        add_test(NAME library_link.${name} COMMAND ftk-link-${name})
     endif()
 endfunction()
 
-fjell_library_link_check(core)
-fjell_library_link_check(platform)
-fjell_library_link_check(framegraph)
-fjell_delay_load_vulkan(fjell-link-framegraph)
-fjell_library_link_check(shader)
-fjell_library_link_check(stb)
-fjell_library_link_check(ui-kit)
-fjell_library_link_check(gpu NEEDS_GPU)
+ftk_library_link_check(base)
+ftk_library_link_check(math)
+ftk_library_link_check(platform)
+ftk_library_link_check(framegraph)
+fjell_delay_load_vulkan(ftk-link-framegraph)
+ftk_library_link_check(shader)
+ftk_library_link_check(image)
+ftk_library_link_check(app-ui)
+ftk_library_link_check(gpu NEEDS_GPU)
 # The GPU link test builds pipelines from the test shaders.
-add_dependencies(fjell-link-gpu fjell-tests_shaders)
-target_compile_definitions(fjell-link-gpu PRIVATE
+add_dependencies(ftk-link-gpu fjell-tests_shaders)
+target_compile_definitions(ftk-link-gpu PRIVATE
     FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
-fjell_library_link_check(editor-shell NEEDS_GPU)
+ftk_library_link_check(app NEEDS_GPU)
 
 # --- Benchmarks ---
 # Programs that time part of the engine on a real GPU against the same work
 # done straight through Vulkan. Built everywhere, run by hand in an optimised
 # build; they print what they measured.
 add_executable(fjell-bench-command-list bench_vulkan_command_list.cpp)
-target_link_libraries(fjell-bench-command-list PRIVATE fjell-gpu)
-fjell_vulkan_backend(fjell-bench-command-list)
+target_link_libraries(fjell-bench-command-list PRIVATE ftk::gpu)
+ftk_vulkan_backend(fjell-bench-command-list)
 add_dependencies(fjell-bench-command-list fjell-tests_shaders)
 target_compile_definitions(fjell-bench-command-list PRIVATE
     FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
-fjell_target_defaults(fjell-bench-command-list)
+ftk_target_defaults(fjell-bench-command-list)

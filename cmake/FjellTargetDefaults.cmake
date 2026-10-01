@@ -1,14 +1,14 @@
 # The compile settings every first-party target shares, set on the target
-# rather than for a directory so that a project building Fjell as a
-# subdirectory gets them on Fjell's targets and can give its own the same.
+# rather than for a directory so that a project building ftk as a
+# subdirectory gets them on ftk's targets and can give its own the same.
 #
 #     add_executable(fjlint ...)
-#     fjell_target_defaults(fjlint)
+#     ftk_target_defaults(fjlint)
 #
 # Call it where the target's own compile options begin: options added after
 # it land after these on the command line.
 
-function(fjell_target_defaults target)
+function(ftk_target_defaults target)
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON

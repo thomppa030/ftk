@@ -39,7 +39,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      # Fjell's libraries on their own, as another program's build gets them:
+      # ftk's libraries on their own, as another program's build gets them:
       # they have to configure and build without the engine and its
       # dependencies. Reuses the sources the main build fetched.
       - name: Configure the libraries alone
@@ -128,7 +128,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      # Fjell's libraries on their own, as another program's build gets them:
+      # ftk's libraries on their own, as another program's build gets them:
       # they have to configure and build without the engine and its
       # dependencies. Reuses the sources the main build fetched.
       - name: Configure the libraries alone

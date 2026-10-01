@@ -5,7 +5,7 @@
 # headers or its `gpu::vulkan::` functions (the bridge to native handles), so
 # a second backend can be written without touching the rest.
 #
-#     fjell_check_gpu_backend(<target> ROOTS <dirs>...)
+#     ftk_check_gpu_backend(<target> ROOTS <dirs>...)
 #
 # checks every .cpp, .hpp and .h under the roots at configure, and again
 # before <target> builds whenever one of them changes. Roots are relative to
@@ -18,7 +18,7 @@
 
 # Scans `roots` under `base` and fails with every offender. Also run on its
 # own by the build step (script mode below).
-function(_fjell_scan_gpu_backend base)
+function(_ftk_scan_gpu_backend base)
     set(patterns
         # #include <vulkan/vulkan.h>, <vk_mem_alloc.h>, <imgui_impl_vulkan.h>,
         # <backends/imgui_impl_vulkan.h>, "gpu/vulkan/native.hpp"
@@ -69,7 +69,7 @@ function(_fjell_scan_gpu_backend base)
     endforeach()
 
     # Script mode can print the offending files alone.
-    if(FJELL_GPU_BACKEND_LIST)
+    if(FTK_GPU_BACKEND_LIST)
         list(REMOVE_DUPLICATES offending_files)
         list(SORT offending_files)
         list(JOIN offending_files "\n" out)
@@ -88,14 +88,14 @@ function(_fjell_scan_gpu_backend base)
     endif()
 endfunction()
 
-function(fjell_check_gpu_backend target)
+function(ftk_check_gpu_backend target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "ROOTS")
     if(NOT arg_ROOTS OR arg_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "fjell_check_gpu_backend(<target> ROOTS <dirs>...)")
+        message(FATAL_ERROR "ftk_check_gpu_backend(<target> ROOTS <dirs>...)")
     endif()
     set(base "${CMAKE_CURRENT_SOURCE_DIR}")
 
-    _fjell_scan_gpu_backend("${base}" ${arg_ROOTS})
+    _ftk_scan_gpu_backend("${base}" ${arg_ROOTS})
 
     set(globs "")
     foreach(root IN LISTS arg_ROOTS)
@@ -109,7 +109,7 @@ function(fjell_check_gpu_backend target)
     set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}_gpu_backend_check.stamp")
     add_custom_command(
         OUTPUT "${stamp}"
-        COMMAND "${CMAKE_COMMAND}" "-DFJELL_GPU_BACKEND_BASE=${base}" "-DFJELL_GPU_BACKEND_ROOTS=${roots}"
+        COMMAND "${CMAKE_COMMAND}" "-DFTK_GPU_BACKEND_BASE=${base}" "-DFTK_GPU_BACKEND_ROOTS=${roots}"
                 -P "${script}"
         COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
         DEPENDS ${sources} "${script}"
@@ -120,13 +120,13 @@ function(fjell_check_gpu_backend target)
 endfunction()
 
 # Script mode, used by the build step, or by hand over Fjell's own tree:
-#   cmake -DFJELL_GPU_BACKEND_ROOTS=src,tests -P cmake/GpuBackendCheck.cmake
-# Add -DFJELL_GPU_BACKEND_LIST=ON to print every file with a hit instead. By
+#   cmake -DFTK_GPU_BACKEND_ROOTS=src,tests -P cmake/GpuBackendCheck.cmake
+# Add -DFTK_GPU_BACKEND_LIST=ON to print every file with a hit instead. By
 # hand, roots are relative to Fjell's checkout.
-if(CMAKE_SCRIPT_MODE_FILE AND FJELL_GPU_BACKEND_ROOTS)
-    if(NOT DEFINED FJELL_GPU_BACKEND_BASE)
-        get_filename_component(FJELL_GPU_BACKEND_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+if(CMAKE_SCRIPT_MODE_FILE AND FTK_GPU_BACKEND_ROOTS)
+    if(NOT DEFINED FTK_GPU_BACKEND_BASE)
+        get_filename_component(FTK_GPU_BACKEND_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
     endif()
-    string(REPLACE "," ";" roots "${FJELL_GPU_BACKEND_ROOTS}")
-    _fjell_scan_gpu_backend("${FJELL_GPU_BACKEND_BASE}" ${roots})
+    string(REPLACE "," ";" roots "${FTK_GPU_BACKEND_ROOTS}")
+    _ftk_scan_gpu_backend("${FTK_GPU_BACKEND_BASE}" ${roots})
 endif()

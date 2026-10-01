@@ -1,9 +1,9 @@
 # Refuses editor UI that styles itself by hand. Colours come from named tokens
-# in Fjell's src/ui/theme.hpp and widgets from the kit in src/ui/kit/;
+# in ftk's src/ui/theme.hpp and widgets from the kit in src/ui/kit/;
 # everywhere else a colour literal, a style push with a literal, or a font
 # picked by index fails the check with the file and line.
 #
-#     fjell_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])
+#     ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])
 #
 # checks every .cpp, .hpp and .h under the roots at configure, and again
 # before <target> builds whenever one of them changes, so a plain build
@@ -15,7 +15,7 @@
 # too, so a migrated file comes off the list and cannot slide back. Without
 # one nothing is skipped.
 #
-# The theme, the icon glyphs and the kit are exempt at their place in Fjell's
+# The theme, the icon glyphs and the kit are exempt at their place in ftk's
 # tree, not by their names, so a program's own ui/kit/ gets no pass. Within
 # Fjell a component's meta (*_meta.cpp, scene/component_meta.hpp) is runtime
 # and includes neither ImGui nor the editor's UI: how a component looks in
@@ -24,8 +24,8 @@
 
 # Scans `roots` under `base`, skipping what `allowlist` names, and fails with
 # every offender. Also run on its own by the build step (script mode below).
-function(_fjell_scan_editor_ui base allowlist)
-    get_filename_component(fjell_src "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
+function(_ftk_scan_editor_ui base allowlist)
+    get_filename_component(ftk_src "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
     set(patterns
         # IM_COL32(40, 42, 46, 255)
         "IM_COL32[ \t]*\\([ \t]*[0-9]"
@@ -79,17 +79,17 @@ function(_fjell_scan_editor_ui base allowlist)
         file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
         foreach(source IN LISTS sources)
             file(RELATIVE_PATH rel "${base}" "${source}")
-            file(RELATIVE_PATH in_fjell "${fjell_src}" "${source}")
-            if(in_fjell MATCHES "^\\.\\./")
-                set(in_fjell "")
+            file(RELATIVE_PATH in_ftk "${ftk_src}" "${source}")
+            if(in_ftk MATCHES "^\\.\\./")
+                set(in_ftk "")
             endif()
             # The theme defines the tokens, icons_lc.hpp the glyphs, and the
             # kit is the one place that turns them into widgets.
-            if(in_fjell STREQUAL "ui/theme.hpp" OR in_fjell STREQUAL "ui/icons_lc.hpp"
-               OR in_fjell MATCHES "^ui/kit/")
+            if(in_ftk STREQUAL "ui/theme.hpp" OR in_ftk STREQUAL "ui/icons_lc.hpp"
+               OR in_ftk MATCHES "^ui/kit/")
                 continue()
             endif()
-            if(in_fjell MATCHES "_meta\\.cpp$" OR in_fjell STREQUAL "scene/component_meta.hpp")
+            if(in_ftk MATCHES "_meta\\.cpp$" OR in_ftk STREQUAL "scene/component_meta.hpp")
                 file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"](imgui|ui/)")
                 foreach(inc IN LISTS includes)
                     if(NOT inc MATCHES "ui/game_ui/")
@@ -118,7 +118,7 @@ function(_fjell_scan_editor_ui base allowlist)
 
     # Script mode can print the files that would need listing, to seed or
     # audit the allowlist.
-    if(FJELL_EDITOR_UI_LIST)
+    if(FTK_EDITOR_UI_LIST)
         list(REMOVE_DUPLICATES offending_files)
         list(SORT offending_files)
         list(JOIN offending_files "\n" out)
@@ -140,7 +140,7 @@ function(_fjell_scan_editor_ui base allowlist)
             "Editor UI styled by hand (a colour literal, a literal style push, a font by index, "
             "or an icon glyph by name):\n"
             "${offenders}\n"
-            "Use a colour token from Fjell's src/ui/theme.hpp, an icon from ui::icon, or a "
+            "Use a colour token from ftk's src/ui/theme.hpp, an icon from ui::icon, or a "
             "piece of the kit in src/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
     endif()
@@ -163,10 +163,10 @@ function(_fjell_scan_editor_ui base allowlist)
     endif()
 endfunction()
 
-function(fjell_check_editor_ui target)
+function(ftk_check_editor_ui target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "ALLOWLIST" "ROOTS")
     if(NOT arg_ROOTS OR arg_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "fjell_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])")
+        message(FATAL_ERROR "ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>])")
     endif()
     set(base "${CMAKE_CURRENT_SOURCE_DIR}")
     set(allowlist "")
@@ -174,7 +174,7 @@ function(fjell_check_editor_ui target)
         cmake_path(ABSOLUTE_PATH arg_ALLOWLIST BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE allowlist)
     endif()
 
-    _fjell_scan_editor_ui("${base}" "${allowlist}" ${arg_ROOTS})
+    _ftk_scan_editor_ui("${base}" "${allowlist}" ${arg_ROOTS})
 
     set(globs "")
     foreach(root IN LISTS arg_ROOTS)
@@ -188,8 +188,8 @@ function(fjell_check_editor_ui target)
     set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}_editor_ui_check.stamp")
     add_custom_command(
         OUTPUT "${stamp}"
-        COMMAND "${CMAKE_COMMAND}" "-DFJELL_EDITOR_UI_BASE=${base}" "-DFJELL_EDITOR_UI_ROOTS=${roots}"
-                "-DFJELL_EDITOR_UI_ALLOWLIST=${allowlist}" -P "${script}"
+        COMMAND "${CMAKE_COMMAND}" "-DFTK_EDITOR_UI_BASE=${base}" "-DFTK_EDITOR_UI_ROOTS=${roots}"
+                "-DFTK_EDITOR_UI_ALLOWLIST=${allowlist}" -P "${script}"
         COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
         DEPENDS ${sources} "${script}" ${allowlist}
         COMMENT "Checking ${target}'s editor UI against the theme and kit"
@@ -199,14 +199,14 @@ function(fjell_check_editor_ui target)
 endfunction()
 
 # Script mode, used by the build step, or by hand over Fjell's own tree:
-#   cmake -DFJELL_EDITOR_UI_ROOTS=src -P cmake/EditorUiCheck.cmake
-# Add -DFJELL_EDITOR_UI_LIST=ON to print every file with a hit instead. By
+#   cmake -DFTK_EDITOR_UI_ROOTS=src -P cmake/EditorUiCheck.cmake
+# Add -DFTK_EDITOR_UI_LIST=ON to print every file with a hit instead. By
 # hand, roots are relative to Fjell's checkout and its allowlist applies.
-if(CMAKE_SCRIPT_MODE_FILE AND FJELL_EDITOR_UI_ROOTS)
-    if(NOT DEFINED FJELL_EDITOR_UI_BASE)
-        get_filename_component(FJELL_EDITOR_UI_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-        set(FJELL_EDITOR_UI_ALLOWLIST "${CMAKE_CURRENT_LIST_DIR}/editor_ui_allowlist.txt")
+if(CMAKE_SCRIPT_MODE_FILE AND FTK_EDITOR_UI_ROOTS)
+    if(NOT DEFINED FTK_EDITOR_UI_BASE)
+        get_filename_component(FTK_EDITOR_UI_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+        set(FTK_EDITOR_UI_ALLOWLIST "${CMAKE_CURRENT_LIST_DIR}/editor_ui_allowlist.txt")
     endif()
-    string(REPLACE "," ";" roots "${FJELL_EDITOR_UI_ROOTS}")
-    _fjell_scan_editor_ui("${FJELL_EDITOR_UI_BASE}" "${FJELL_EDITOR_UI_ALLOWLIST}" ${roots})
+    string(REPLACE "," ";" roots "${FTK_EDITOR_UI_ROOTS}")
+    _ftk_scan_editor_ui("${FTK_EDITOR_UI_BASE}" "${FTK_EDITOR_UI_ALLOWLIST}" ${roots})
 endif()

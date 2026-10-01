@@ -1,4 +1,4 @@
-# What Fjell's libraries need, fetched whether Fjell builds its engine or is a
+# What ftk's libraries need, fetched whether Fjell builds its engine or is a
 # subproject of another program: windowing, maths, logging, JSON, stb, the
 # patched Dear ImGui, Vulkan with VMA, and Tracy when it is switched on. The
 # engine's own dependencies are in EngineDependencies.cmake. The libraries

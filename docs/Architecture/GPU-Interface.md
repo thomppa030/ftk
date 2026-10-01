@@ -12,7 +12,7 @@ constant, and no reaching into the backend's own headers.
 `cmake/GpuBackendCheck.cmake` fails the build on any of them, with the file
 and line. The backend's own tests and benchmarks are the only exception, by
 their names: `tests/test_vulkan_*.cpp` and `tests/bench_vulkan_*.cpp`. The
-libraries back the check up: `fjell-gpu` links Vulkan and VMA privately, so
+libraries back the check up: `ftk::gpu` links Vulkan and VMA privately, so
 code outside the backend does not see VMA's headers at all, and on Windows
 not Vulkan's either.
 
@@ -22,16 +22,18 @@ Vulkan call behind it, and ask how Metal would do the same thing.
 
 ## Libraries
 
+These are ftk's, the toolkit Fjell is built on:
+
 | Library | What it is |
 |---|---|
-| `fjell-gpu` | The interface, its Vulkan backend, and the SDL window (`gpu/window.hpp`) |
-| `fjell-gpu-imgui` | `gpu::ImGuiRenderer`: Dear ImGui drawn through the interface |
-| `fjell-framegraph` | The frame graph, which records passes into command lists and works out their barriers |
+| `ftk::gpu` | The interface, its Vulkan backend, and the SDL window (`gpu/window.hpp`) |
+| `ftk::gpu-imgui` | `gpu::ImGuiRenderer`: Dear ImGui drawn through the interface |
+| `ftk::framegraph` | The frame graph, which records passes into command lists and works out their barriers |
 
 The engine, the hub and the standalone editor windows link these, and so can
-a program outside Fjell. `tests/library_link/gpu.cpp` links `fjell-gpu` alone and drives
+any other program. `tests/library_link/gpu.cpp` links `ftk::gpu` alone and drives
 every part of the interface without touching the backend. It needs a GPU, so
-it is run by hand (`build/tests/fjell-link-gpu`).
+it is run by hand (`build/tests/ftk-link-gpu`).
 
 ## One backend, no virtual calls
 

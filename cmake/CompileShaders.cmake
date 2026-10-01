@@ -3,7 +3,7 @@
 # it. Prefers the glslc that ships with the located Vulkan SDK: the Windows SDK
 # installer leaves %VULKAN_SDK%\Bin off PATH, so a bare PATH search fails there
 # even with the SDK correctly installed.
-function(fjell_find_glslc)
+function(ftk_find_glslc)
     if(GLSLC)
         return()
     endif()
@@ -24,10 +24,10 @@ endfunction()
 # GLSL the GPU backend owns: what shaders write in a layout the backend
 # defines, such as the instance records a top-level acceleration structure is
 # built from. Every shader may include it.
-set(FJELL_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/gpu/vulkan/glsl")
+set(FTK_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/gpu/vulkan/glsl")
 
 function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
-    fjell_find_glslc()
+    ftk_find_glslc()
     file(GLOB_RECURSE SHADERS
         "${SHADER_DIR}/*.vert"
         "${SHADER_DIR}/*.frag"
@@ -40,7 +40,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     )
 
     # Collect include files so shaders recompile when includes change
-    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl" "${FJELL_BACKEND_GLSL_DIR}/*.glsl")
+    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl" "${FTK_BACKEND_GLSL_DIR}/*.glsl")
 
     foreach(SHADER ${SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
@@ -51,7 +51,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
             COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
             COMMAND ${GLSLC} --target-env=vulkan1.3
                     -I ${SHADER_DIR}/include
-                    -I ${FJELL_BACKEND_GLSL_DIR}
+                    -I ${FTK_BACKEND_GLSL_DIR}
                     ${SHADER} -o ${SPIRV_OUTPUT}
             DEPENDS ${SHADER} ${SHADER_INCLUDES}
             COMMENT "Compiling shader: ${SHADER_NAME}"
@@ -69,8 +69,8 @@ endfunction()
 # (glslc -mfmt=num), which TARGET's sources include as "<name>.spv.inc": for
 # a library's own shaders, which travel inside it rather than beside the
 # program that links it.
-function(fjell_embed_shader TARGET SHADER)
-    fjell_find_glslc()
+function(ftk_embed_shader TARGET SHADER)
+    ftk_find_glslc()
     get_filename_component(SHADER_NAME ${SHADER} NAME)
     set(OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/embedded_shaders/${TARGET}")
     set(OUTPUT "${OUTPUT_DIR}/${SHADER_NAME}.spv.inc")
