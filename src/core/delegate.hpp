@@ -84,9 +84,12 @@ public:
             if (!s) return;
 
             if (s->broadcast_depth > 0) {
+                // Only marked: the listener may be the one running, and its
+                // callback has to outlive its own call. The broadcast's end
+                // removes it.
                 for (auto& l : s->listeners) {
                     if (l.id == id) {
-                        l.callback = nullptr;
+                        l.live = false;
                         s->dirty = true;
                         return;
                     }
@@ -123,7 +126,7 @@ public:
                 state.broadcast_depth--;
                 if (state.broadcast_depth != 0) return;
                 if (state.dirty) {
-                    std::erase_if(state.listeners, [](const Listener& l) { return !l.callback; });
+                    std::erase_if(state.listeners, [](const Listener& l) { return !l.live; });
                     state.dirty = false;
                 }
                 // Anything bound while broadcasting joins now, after the cleanup
@@ -144,9 +147,9 @@ public:
         // freed the moment a listener binds another.
         auto count = s->listeners.size();
         for (size_t i = 0; i < count; ++i) {
-            auto& callback = s->listeners[i].callback;
-            if (!callback) continue;
-            callback(args...);
+            auto& listener = s->listeners[i];
+            if (!listener.live) continue;
+            listener.callback(args...);
         }
     }
 
@@ -154,7 +157,7 @@ public:
     void clear() {
         if (state_->broadcast_depth > 0) {
             for (auto& l : state_->listeners) {
-                l.callback = nullptr;
+                l.live = false;
             }
             state_->dirty = true;
         } else {
@@ -169,6 +172,7 @@ private:
     struct Listener {
         uint64_t id;
         std::move_only_function<void(Args...)> callback;
+        bool live{true}; ///< false once disconnected during a broadcast, until it ends
     };
 
     struct State {
