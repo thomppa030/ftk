@@ -1,3 +1,4 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/component_block.hpp"
@@ -15,7 +16,6 @@
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
-#include "imgui_harness.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>

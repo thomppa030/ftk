@@ -1,9 +1,9 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/row.hpp"
-#include "imgui_harness.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

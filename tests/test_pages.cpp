@@ -1,10 +1,10 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/pages.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/save_bar.hpp"
 #include "ftk/ui/kit/section.hpp"
-#include "imgui_harness.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
