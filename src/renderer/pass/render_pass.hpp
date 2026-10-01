@@ -4,6 +4,7 @@
 #include "gpu/command_list.hpp"
 #include "gpu/pipeline.hpp"
 #include "renderer/frame_graph.hpp"
+#include "renderer/declare_context.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/resource_registry.hpp"

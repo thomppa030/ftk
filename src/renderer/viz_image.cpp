@@ -2,6 +2,7 @@
 
 #include "core/log.hpp"
 #include "gpu/device.hpp"
+#include "renderer/declare_context.hpp"
 #include "renderer/pass_builder.hpp"
 
 namespace fjell {
