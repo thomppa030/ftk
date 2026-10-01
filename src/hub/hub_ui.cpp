@@ -1,11 +1,12 @@
 #include "hub/hub_ui.hpp"
 #include "ftk/base/log.hpp"
 #include "ftk/platform/platform.hpp"
+#include "ui/brand.hpp"
 #include "ui/engine_file_browser.hpp"
-#include "ftk/ui/kit/brand.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/pane.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -105,9 +106,9 @@ void HubUI::draw_sidebar() {
     const ImVec2 top = ImGui::GetCursorScreenPos();
     const float cx = top.x + width * 0.5f;
     constexpr float LOGO_SCALE = 84.0f / 180.0f;
-    ftk::ui::draw_logo(dl, {cx, top.y + ftk::theme::GAP_M}, LOGO_SCALE);
-    const float word_y = top.y + ftk::theme::GAP_M + ftk::ui::logo_size(LOGO_SCALE).y + ftk::theme::GAP_L;
-    ftk::ui::wordmark(dl, {cx, word_y}, 20.0f);
+    draw_logo(dl, {cx, top.y + ftk::theme::GAP_M}, LOGO_SCALE);
+    const float word_y = top.y + ftk::theme::GAP_M + logo_size(LOGO_SCALE).y + ftk::theme::GAP_L;
+    wordmark(dl, {cx, word_y}, 20.0f);
     const char* subtitle = "Game Engine";
     const ImVec2 sub = ImGui::CalcTextSize(subtitle);
     dl->AddText({cx - sub.x * 0.5f, word_y + 16.0f}, ImGui::GetColorU32(ftk::theme::text_secondary()), subtitle);
@@ -207,9 +208,9 @@ void HubUI::draw_splash(float window_w, float window_h) {
     // centred content, and a wider window leaves more room around it.
     constexpr float LOGO_SCALE = 1.6f;
     constexpr float LOGO_TOP = 80.0f;
-    ftk::ui::draw_logo(dl, {cx, LOGO_TOP}, LOGO_SCALE);
-    const float word_y = LOGO_TOP + ftk::ui::logo_size(LOGO_SCALE).y + 30.0f;
-    ftk::ui::wordmark(dl, {cx, word_y}, 24.0f);
+    draw_logo(dl, {cx, LOGO_TOP}, LOGO_SCALE);
+    const float word_y = LOGO_TOP + logo_size(LOGO_SCALE).y + 30.0f;
+    wordmark(dl, {cx, word_y}, 24.0f);
 
     ftk::ui::loading(dl, {cx, word_y + 42.0f}, "Opening " + launch_name_ + "\xe2\x80\xa6", splash_timer_);
     ImGui::End();

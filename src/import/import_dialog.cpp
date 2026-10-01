@@ -1,12 +1,12 @@
 #include "import/import_dialog.hpp"
 
 #include "ftk/base/log.hpp"
-#include "ftk/ui/kit/brand.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/pane.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"

@@ -505,6 +505,7 @@ add_executable(fjell-hub
     hub/recent_projects.cpp
     core/clock.cpp
     core/hub_settings.cpp
+    ui/brand.cpp
 )
 
 target_include_directories(fjell-hub PRIVATE
