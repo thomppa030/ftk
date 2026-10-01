@@ -55,7 +55,11 @@ struct FjellWaterShore {
     // two shares a texture of their own. No samples, no exposure: open.
     vec2  exposure_min_corner; // world XZ of its sample (0, 0)
     float exposure_size;       // metres from its first sample to its last
-    uint  exposure_samples;    // per side
+    uint  exposure_samples;    // per side    // Where each sum of the sea is read: the warp grid, its offsets a texture
+    // of their own. No samples, no warp: each sum read at the point itself.
+    vec2  warp_min_corner;     // world XZ of its sample (0, 0)
+    float warp_size;           // metres from its first sample to its last
+    uint  warp_samples;        // per side
 };
 
 // The field: every contributor the surface sums. Mirrors GpuWaterField.

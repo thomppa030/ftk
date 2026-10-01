@@ -60,6 +60,11 @@ layout(set = 2, binding = 7) uniform sampler2D bed_heights;
 // field has no exposure, and then never read.
 layout(set = 2, binding = 8) uniform sampler2D shore_exposure;
 #define FJELL_WATER_EXPOSURE(texel) texelFetch(shore_exposure, texel, 0).rg
+// And where each sum of the sea is read over the shallows: two offsets a
+// sample, the Gerstner trains' and the simulated sea's. A texel of no offset
+// when the field has no warp, and then never read.
+layout(set = 2, binding = 9) uniform sampler2D shore_warp;
+#define FJELL_WATER_WARP(texel) texelFetch(shore_warp, texel, 0)
 #include "fjell_water_shore.glsl"
 
 // The simulated sea, when the field has one (field.simulated_patch_size > 0):
@@ -131,6 +136,9 @@ struct FjellWaterVertex {
     vec2 rest;               // the flat surface this vertex stands for, seam closed
     bool on_coarse_edge;     // on an edge shared with a coarser level
     FjellShoreEffect shore;  // what the ground does to the sea here
+    FjellWaterWarp warp;     // where each sum is read here
+    vec2 trains_at;          // the point the closed-form contributors are read at
+    vec2 simulated_at;       // and the simulated sea
     vec3 trains;             // the closed-form contributors, before the shore
     // The simulated sea's displacement texel and where it was read, when the
     // field has one; zero and unread when not.
@@ -146,14 +154,16 @@ struct FjellWaterVertex {
 };
 
 // The sea's height at a rest position as it arrives, before any shore scales
-// it: the closed-form contributors and, when there is one, the simulated sea
-// read at `lod`.
+// it but read where the warp reads it: the closed-form contributors and, when
+// there is one, the simulated sea read at `lod`.
 float fjell_water_arriving_height(vec2 at, float time, float lod) {
-    float height = fjell_water_displace(at, time).y;
+    FjellWaterWarp warp = fjell_water_warp_at(at);
+    float height = fjell_water_displace(at + warp.trains.offset, time).y;
     float patch_size = water.field.simulated_patch_size;
     if (patch_size > 0.0) {
         float texels = float(textureSize(simulated_displacement, 0).x);
-        height += textureLod(simulated_displacement, at / patch_size + 0.5 / texels, lod).y;
+        vec2 uv = (at + warp.simulated.offset) / patch_size + 0.5 / texels;
+        height += textureLod(simulated_displacement, uv, lod).y;
     }
     return height;
 }
@@ -226,8 +236,14 @@ FjellWaterVertex fjell_water_vertex(uint i, float time) {
     // identity where there is no ground near enough to matter.
     v.shore = fjell_water_shore(v.rest);
 
+    // Where each sum is read: over the shallows, the deep sea at a point it
+    // has not reached yet, which is its lag. The point itself elsewhere.
+    v.warp = fjell_water_warp_at(v.rest);
+    v.trains_at = v.rest + v.warp.trains.offset;
+    v.simulated_at = v.rest + v.warp.simulated.offset;
+
     // The closed-form contributors, scaled by the shore.
-    v.trains = fjell_water_displace(v.rest, time);
+    v.trains = fjell_water_displace(v.trains_at, time);
     v.offset = v.trains * v.shore.gerstner;
 
     // The simulated contributor.
@@ -239,7 +255,7 @@ FjellWaterVertex fjell_water_vertex(uint i, float time) {
         float texels = float(textureSize(simulated_displacement, 0).x);
         // Texel (i, j) holds the patch at (i, j) * patch / texels, and
         // its centre is half a texel in.
-        v.simulated_uv = v.rest / patch_size + 0.5 / texels;
+        v.simulated_uv = v.simulated_at / patch_size + 0.5 / texels;
         // A vertex standing for more ground than a texel covers reads the
         // sea averaged over that ground, or the far levels would sample
         // one wave in many and shimmer as the camera moves.
@@ -252,7 +268,11 @@ FjellWaterVertex fjell_water_vertex(uint i, float time) {
         // mip on the shared edge puts both sides on one surface, at the
         // cost of that edge's finest detail — which the coarse level could
         // not have shown in any case.
-        float cell = v.on_coarse_edge ? 2.0 * payload.cell_size : payload.cell_size;
+        //
+        // Where the warp squeezes the sea, a cell covers more of it, and reads
+        // a coarser mip for it.
+        float squeeze = max(length(v.warp.simulated.jacobian[0]), length(v.warp.simulated.jacobian[1]));
+        float cell = (v.on_coarse_edge ? 2.0 * payload.cell_size : payload.cell_size) * squeeze;
         v.simulated_lod = log2(max(cell * texels / patch_size, 1.0));
         v.simulated = textureLod(simulated_displacement, v.simulated_uv, v.simulated_lod);
         v.offset += v.simulated.xyz * v.shore.simulated;

@@ -69,8 +69,12 @@ struct GpuWaterShore {
     glm::vec2 exposure_min_corner{0.0f};
     float exposure_size{0.0f};
     std::uint32_t exposure_samples{0};
+    /// The warp grid's placement; no samples is no warp.
+    glm::vec2 warp_min_corner{0.0f};
+    float warp_size{0.0f};
+    std::uint32_t warp_samples{0};
 };
-static_assert(sizeof(GpuWaterShore) == 80, "must match FjellWaterShore in GLSL");
+static_assert(sizeof(GpuWaterShore) == 96, "must match FjellWaterShore in GLSL");
 
 /// The wave field, as one uniform buffer. Mirrors `FjellWaterField`.
 ///
@@ -109,6 +113,8 @@ static_assert(offsetof(GpuWaterShore, trains) == 32);
 static_assert(offsetof(GpuWaterShore, present) == 48);
 static_assert(offsetof(GpuWaterShore, exposure_min_corner) == 64);
 static_assert(offsetof(GpuWaterShore, exposure_samples) == 76);
+static_assert(offsetof(GpuWaterShore, warp_min_corner) == 80);
+static_assert(offsetof(GpuWaterShore, warp_samples) == 92);
 
 /// One source and its trail as the shader reads it. Mirrors `FjellWakeSource`
 /// in shaders/include/fjell_water_wake.glsl. Nothing but vec4s, so std430 and

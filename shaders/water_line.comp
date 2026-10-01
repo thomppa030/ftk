@@ -35,6 +35,8 @@ layout(set = 2, binding = 7) uniform sampler2D bed_heights;
 #define FJELL_WATER_BED(texel) texelFetch(bed_heights, texel, 0).r
 layout(set = 2, binding = 8) uniform sampler2D shore_exposure;
 #define FJELL_WATER_EXPOSURE(texel) texelFetch(shore_exposure, texel, 0).rg
+layout(set = 2, binding = 9) uniform sampler2D shore_warp;
+#define FJELL_WATER_WARP(texel) texelFetch(shore_warp, texel, 0)
 #include "fjell_water_shore.glsl"
 
 layout(std430, set = 2, binding = 5) readonly buffer WakeBuffer {
@@ -89,10 +91,12 @@ void main() {
     // plane is wide, which is not a difference this mask can show.
     vec2 rest = near.xz;
     FjellShoreEffect shore = fjell_water_shore(rest);
-    float height = push.surface_height + fjell_water_displace(rest, ubo.time).y * shore.gerstner;
+    FjellWaterWarp warp = fjell_water_warp_at(rest);
+    float height = push.surface_height
+                 + fjell_water_displace(rest + warp.trains.offset, ubo.time).y * shore.gerstner;
     if (push.simulated_patch_size > 0.0) {
         float texels = float(textureSize(simulated_displacement, 0).x);
-        vec2 sea_uv = rest / push.simulated_patch_size + 0.5 / texels;
+        vec2 sea_uv = (rest + warp.simulated.offset) / push.simulated_patch_size + 0.5 / texels;
         height += textureLod(simulated_displacement, sea_uv, 0.0).y * shore.simulated;
     }
     if (push.wake_count > 0u) {
@@ -102,10 +106,12 @@ void main() {
     if (swash.applies) {
         float arriving = 0.0;
         if (swash.swing > 0.0f) {
-            arriving = fjell_water_displace(swash.waterline, ubo.time).y;
+            FjellWaterWarp there = fjell_water_warp_at(swash.waterline);
+            arriving = fjell_water_displace(swash.waterline + there.trains.offset, ubo.time).y;
             if (push.simulated_patch_size > 0.0) {
                 float texels = float(textureSize(simulated_displacement, 0).x);
-                vec2 at = swash.waterline / push.simulated_patch_size + 0.5 / texels;
+                vec2 at = (swash.waterline + there.simulated.offset) / push.simulated_patch_size
+                        + 0.5 / texels;
                 arriving += textureLod(simulated_displacement, at, 0.0).y;
             }
         }

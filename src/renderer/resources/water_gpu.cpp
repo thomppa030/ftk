@@ -56,6 +56,11 @@ GpuWaterField to_gpu_field(const FjWaterData& water) {
             shore.exposure_size = bed.exposure->size;
             shore.exposure_samples = bed.exposure->samples;
         }
+        if (bed.warp != nullptr) {
+            shore.warp_min_corner = bed.warp->min_corner;
+            shore.warp_size = bed.warp->size;
+            shore.warp_samples = bed.warp->samples;
+        }
     }
     return field;
 }

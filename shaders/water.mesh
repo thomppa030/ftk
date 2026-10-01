@@ -54,15 +54,18 @@ void main() {
             ? rest
             : (rest - push.world_origin) / push.world_size;
 
-        // The closed-form contributors' slopes and fold terms, carried
-        // through the shore that scaled them. The ground does not move, so
-        // the previous frame's surface is scaled by the same factor.
-        vec3 prev_offset = fjell_water_displace(rest, time - push.delta_time) * shore.gerstner;
+        // The closed-form contributors' slopes and fold terms, read where the
+        // warp reads them, carried through the warp to the world's axes and
+        // then through the shore that scaled them. Neither moves, so the
+        // previous frame's surface is read and scaled the same way.
+        vec3 prev_offset = fjell_water_displace(v.trains_at, time - push.delta_time) * shore.gerstner;
         FjellWaterTangents tangents = fjell_water_shore_tangents(
-            fjell_water_tangents(rest, time), v.trains, shore.gerstner, shore.gerstner_gradient);
+            fjell_water_warp_tangents(fjell_water_tangents(v.trains_at, time), v.warp.trains.jacobian),
+            v.trains, shore.gerstner, shore.gerstner_gradient);
         FjellWaterJacobian jacobian = fjell_water_shore_jacobian(
-            fjell_water_jacobian_terms(rest, time), v.trains, shore.gerstner,
-            shore.gerstner_gradient);
+            fjell_water_warp_jacobian(fjell_water_jacobian_terms(v.trains_at, time),
+                                      v.warp.trains.jacobian),
+            v.trains, shore.gerstner, shore.gerstner_gradient);
 
         // The simulated contributor, into the same sums. Displacements add,
         // and so do their derivatives, which is why the normal and the fold
@@ -74,15 +77,22 @@ void main() {
             vec2 slope = shore.simulated_gradient;
             prev_offset += textureLod(simulated_previous, v.simulated_uv, v.simulated_lod).xyz * factor;
 
-            // Scaled by a factor that changes across the ground, the sea
-            // changes across it by the factor's slope times what it moves the
-            // point by, as well as by the factor times its own slope.
-            tangents.binormal += (vec3(slopes.z, slopes.x, moved.w) * factor) + (moved.xyz * slope.x);
-            tangents.tangent  += (vec3(moved.w, slopes.y, slopes.w) * factor) + (moved.xyz * slope.y);
-            jacobian.xx += (slopes.z * factor) + (moved.x * slope.x);
-            jacobian.zz += (slopes.w * factor) + (moved.z * slope.y);
-            jacobian.xz += (moved.w * factor) + (moved.x * slope.y);
-            jacobian.zx += (moved.w * factor) + (moved.z * slope.x);
+            // Its slopes along the axes it was read in, carried through the
+            // warp to the world's; then, scaled by a factor that changes
+            // across the ground, it changes across it by the factor's slope
+            // times what it moves the point by as well as by the factor times
+            // its own slope.
+            mat2 warp = v.warp.simulated.jacobian;
+            vec3 read_dx = vec3(slopes.z, slopes.x, moved.w);
+            vec3 read_dz = vec3(moved.w, slopes.y, slopes.w);
+            vec3 along_x = ((read_dx * warp[0].x) + (read_dz * warp[0].y)) * factor + (moved.xyz * slope.x);
+            vec3 along_z = ((read_dx * warp[1].x) + (read_dz * warp[1].y)) * factor + (moved.xyz * slope.y);
+            tangents.binormal += along_x;
+            tangents.tangent  += along_z;
+            jacobian.xx += along_x.x;
+            jacobian.zx += along_x.z;
+            jacobian.xz += along_z.x;
+            jacobian.zz += along_z.z;
         }
 
         // The wakes, vertically only: their height was placed with the vertex,
@@ -97,18 +107,25 @@ void main() {
         }
 
         // The swash: its slope from the arriving sea's slope along the
-        // shore, and where it stood a frame ago from the sea arriving then.
+        // shore, and where it stood a frame ago from the sea arriving then,
+        // both read where the warp reads the waterline.
         if (v.swash.applies) {
             vec2 arriving_slope = vec2(0.0);
             float arriving_before = 0.0;
             if (v.swash.swing > 0.0f) {
-                FjellWaterTangents there = fjell_water_tangents(v.swash.waterline, time);
+                FjellWaterWarp there_warp = fjell_water_warp_at(v.swash.waterline);
+                vec2 trains_there = v.swash.waterline + there_warp.trains.offset;
+                FjellWaterTangents there = fjell_water_warp_tangents(
+                    fjell_water_tangents(trains_there, time), there_warp.trains.jacobian);
                 arriving_slope = vec2(there.binormal.y, there.tangent.y);
-                arriving_before = fjell_water_displace(v.swash.waterline, time - push.delta_time).y;
+                arriving_before = fjell_water_displace(trains_there, time - push.delta_time).y;
                 if (water.field.simulated_patch_size > 0.0) {
                     float texels = float(textureSize(simulated_displacement, 0).x);
-                    vec2 uv = v.swash.waterline / water.field.simulated_patch_size + 0.5 / texels;
-                    arriving_slope += textureLod(simulated_derivatives, uv, v.simulated_lod).xy;
+                    vec2 uv = (v.swash.waterline + there_warp.simulated.offset)
+                            / water.field.simulated_patch_size + 0.5 / texels;
+                    vec2 read = textureLod(simulated_derivatives, uv, v.simulated_lod).xy;
+                    mat2 warp = there_warp.simulated.jacobian;
+                    arriving_slope += vec2(dot(read, warp[0]), dot(read, warp[1]));
                     arriving_before += textureLod(simulated_previous, uv, v.simulated_lod).y;
                 }
             }
