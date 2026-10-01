@@ -1,6 +1,6 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/status_bar.hpp"
 #include "ftk/ui/theme.hpp"
-#include "imgui_harness.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>

@@ -310,6 +310,18 @@ ftk_library(app-ui
         PUBLIC ftk::base ftk::math ftk::imgui-headless glm::glm
 )
 
+# ftk-imgui-harness runs Dear ImGui with no window and no renderer, so a
+# program's tests can drive its editor UI: set the UI, feed it input, step
+# frames.
+ftk_library(imgui-harness
+    SOURCES
+        ftk/test/imgui_harness.cpp
+    HEADERS
+        ftk/test/imgui_harness.hpp
+    LINKS
+        PUBLIC ftk::app-ui ftk::imgui-headless
+)
+
 # ftk-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
 # with the backend's own renderer for ImGui behind it (imgui_impl_vulkan).
 # Apart from both, so neither the GPU library nor ImGui needs the other.

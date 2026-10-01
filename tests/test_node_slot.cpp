@@ -1,5 +1,5 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/grouped_picker.hpp"
-#include "imgui_harness.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "ui/node_slot.hpp"

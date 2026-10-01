@@ -1,6 +1,6 @@
+#include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/asset_header.hpp"
 #include "ftk/ui/kit/icons.hpp"
-#include "imgui_harness.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

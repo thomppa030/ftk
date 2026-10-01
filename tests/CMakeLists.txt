@@ -100,6 +100,7 @@ target_include_directories(fjell-testable PUBLIC
 )
 target_link_libraries(fjell-testable PUBLIC
     ftk::base
+    ftk::imgui-harness
     ftk::math
     ftk::app
     ftk::framegraph
@@ -256,7 +257,6 @@ add_executable(fjell-tests
     test_input_source.cpp
     test_sdl_input_codes.cpp
     test_folder_colors.cpp
-    imgui_harness.cpp
     test_text_field.cpp
     test_component_edit_command.cpp
     test_node_edit_command.cpp
@@ -375,6 +375,7 @@ fjell_delay_load_vulkan(ftk-link-framegraph)
 ftk_library_link_check(shader)
 ftk_library_link_check(image)
 ftk_library_link_check(app-ui)
+ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
 # The GPU link test builds pipelines from the test shaders.
 add_dependencies(ftk-link-gpu fjell-tests_shaders)
