@@ -20,7 +20,7 @@ int main() {
     std::filesystem::create_directories(root);
     std::ofstream(source) << "void main() {}\n";
 
-    const ftk::ShaderCompiler compiler({.shader_dir = root.generic_string(),
+    const ftk::ShaderCompiler compiler({.include_dirs = {(root / "include").generic_string()},
                                         .generated_dir = (root / "generated").generic_string(),
                                         .cache_dir = (root / "cache").generic_string(),
                                         .generator_version = 1});

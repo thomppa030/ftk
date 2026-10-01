@@ -9,9 +9,11 @@ namespace ftk {
 
 /// Where a ShaderCompiler reads and writes.
 struct ShaderCompilerDesc {
-    /// Holds `include/`: what the compiled GLSL #includes, and what every
-    /// cache key is hashed over.
-    std::string shader_dir;
+    /// Where `#include` looks, in order: a file is taken from the first
+    /// directory that has it, so a program's own includes can come ahead of
+    /// a library's. A directory that does not exist is passed over. Every
+    /// file under these is hashed into every cache key.
+    std::vector<std::string> include_dirs;
     /// Where generated GLSL and compiled SPIR-V are written.
     std::string generated_dir;
     /// Where compiled SPIR-V is kept between runs, by its cache key.
@@ -29,11 +31,20 @@ public:
     /// Creates the generated and cache directories.
     explicit ShaderCompiler(ShaderCompilerDesc desc);
 
-    /// Hashes `include/` again, for after an include has changed: until then a
-    /// shader that includes it finds its old SPIR-V under an unchanged key.
+    /// Hashes the include directories again, for after an include has
+    /// changed or a directory has appeared: until then a shader that includes
+    /// it finds its old SPIR-V under an unchanged key.
     void rehash_includes();
 
-    /// The text of `include/<name>`, or empty when there is no such file.
+    /// Looks for includes in `dirs` from now on, in that order, and hashes
+    /// them.
+    void set_include_dirs(std::vector<std::string> dirs);
+
+    /// Where `#include` looks, in order.
+    [[nodiscard]] const std::vector<std::string>& include_dirs() const { return include_dirs_; }
+
+    /// The text of `name` from the first include directory that has it, or
+    /// empty when none does.
     [[nodiscard]] std::string read_include(const std::string& name) const;
 
     /// Writes generated GLSL to `generated_dir/<name>` and returns its path.
@@ -69,11 +80,12 @@ public:
     [[nodiscard]] uint64_t cache_key(const Job& job) const;
 
 private:
-    std::string shader_dir_;
+    std::vector<std::string> include_dirs_;
     std::string generated_dir_;
     std::string cache_dir_;
     uint32_t generator_version_;
-    /// One hash over every file under include/, subdirectories too.
+    /// One hash over every file under the include directories, their
+    /// subdirectories too.
     ///
     /// Generated GLSL still #includes headers, so hashing the source alone
     /// would miss an edit to one of them. Asking glslc for each shader's real

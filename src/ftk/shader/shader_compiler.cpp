@@ -68,7 +68,7 @@ uint64_t key_of(uint64_t include_hash, std::string_view source, const ShaderComp
 } // namespace
 
 ShaderCompiler::ShaderCompiler(ShaderCompilerDesc desc)
-    : shader_dir_{std::move(desc.shader_dir)}
+    : include_dirs_{std::move(desc.include_dirs)}
     , generated_dir_{std::move(desc.generated_dir)}
     , cache_dir_{std::move(desc.cache_dir)}
     , generator_version_{desc.generator_version} {
@@ -85,23 +85,41 @@ void ShaderCompiler::rehash_includes() {
     //
     // Subdirectories count: include/tonemap/ holds the tone curves, and an
     // edit there has to rebuild a shader that includes them like any other.
-    const std::filesystem::path root = shader_dir_ + "/include";
-    std::vector<std::filesystem::path> includes;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
-        if (entry.is_regular_file(ec)) includes.push_back(entry.path());
-    }
-    std::sort(includes.begin(), includes.end());
+    //
+    // The directories go in the order they are searched in, so a file that
+    // hides another of its name in a later directory is in the key ahead of
+    // it. A directory that does not exist adds nothing, so a list in which
+    // only one exists hashes as that one alone would, and what is cached under
+    // that key stays good.
     uint64_t h = FNV_OFFSET;
-    for (const auto& path : includes) {
-        h = hash_bytes(path.lexically_relative(root).generic_string(), h);
-        h = hash_bytes(read_file(path.string()), h);
+    for (const auto& dir : include_dirs_) {
+        const std::filesystem::path root = dir;
+        std::error_code ec;
+        if (!std::filesystem::is_directory(root, ec)) continue;
+
+        std::vector<std::filesystem::path> includes;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
+            if (entry.is_regular_file(ec)) includes.push_back(entry.path());
+        }
+        std::sort(includes.begin(), includes.end());
+        for (const auto& path : includes) {
+            h = hash_bytes(path.lexically_relative(root).generic_string(), h);
+            h = hash_bytes(read_file(path.string()), h);
+        }
     }
     include_hash_ = h;
 }
 
+void ShaderCompiler::set_include_dirs(std::vector<std::string> dirs) {
+    include_dirs_ = std::move(dirs);
+    rehash_includes();
+}
+
 std::string ShaderCompiler::read_include(const std::string& name) const {
-    return read_text(shader_dir_ + "/include/" + name).value_or(std::string{});
+    for (const auto& dir : include_dirs_) {
+        if (auto text = read_text(dir + "/" + name)) return *text;
+    }
+    return {};
 }
 
 std::string ShaderCompiler::write_generated(const std::string& name, const std::string& source) const {
@@ -120,7 +138,6 @@ uint64_t ShaderCompiler::cache_key(const Job& job) const {
 
 std::string ShaderCompiler::compile(const Job& job) const {
     const std::string spv_path = generated_dir_ + "/" + job.output_name + ".spv";
-    const std::string include_dir = shader_dir_ + "/include";
 
     // Everything the compiled result is a function of. glslc is
     // deterministic, the same input twice gives byte-identical SPIR-V, so
@@ -150,7 +167,12 @@ std::string ShaderCompiler::compile(const Job& job) const {
     // The largest startup cost in the renderer: ~64 ms per invocation, once
     // per shader, every launch the cache does not cover.
     FTK_PROFILE_SCOPE_N("glslc");
-    std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
+    // glslc searches its -I directories in the order given, which is the
+    // order read_include() and the hash take them in.
+    std::string cmd = "glslc --target-env=vulkan1.3";
+    for (const auto& dir : include_dirs_) {
+        cmd += " -I " + dir;
+    }
     if (!job.stage.empty()) {
         cmd += " -fshader-stage=" + job.stage;
     }
