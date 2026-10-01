@@ -37,18 +37,31 @@ void ShaderWatcher::rewatch() {
     });
     FTK_GFX_INFO("Shader hot-reload watching: {}", source_dir_);
 
-    // Includes sit in their own directory and inotify does not recurse, so
-    // they need a watch of their own. What an include reaches is not written
-    // down anywhere — the templates every .fjsl is generated against live
-    // here — so any edit means rebuild everything.
-    const std::string include_dir = source_dir_ + "/include";
+    // Includes sit in their own directory, with folders of their own inside
+    // it (sky/, tonemap/), and inotify does not recurse, so each needs a
+    // watch of its own; a folder made while the engine runs is watched from
+    // the next rewatch. What an include reaches is not written down anywhere
+    // — the templates every .fjsl is generated against live here — so any
+    // edit means rebuild everything.
+    const std::filesystem::path include_dir = std::filesystem::path(source_dir_) / "include";
     if (std::filesystem::is_directory(include_dir)) {
-        watcher_.watch(include_dir, [this](const std::filesystem::path& path) {
-            if (path.extension() != ".glsl") return;
-            FTK_GFX_INFO("Shader include changed: {}", path.filename().string());
-            if (mirror(path, "include")) changes_.rebuild_everything = true;
-        });
-        FTK_GFX_INFO("Shader hot-reload watching includes: {}", include_dir);
+        auto watch_includes = [this, &include_dir](const std::filesystem::path& dir) {
+            const std::filesystem::path relative = dir.lexically_relative(include_dir);
+            const std::string subdir = relative == "."
+                ? std::string("include")
+                : (std::filesystem::path("include") / relative).generic_string();
+            watcher_.watch(dir, [this, subdir](const std::filesystem::path& path) {
+                if (path.extension() != ".glsl") return;
+                FTK_GFX_INFO("Shader include changed: {}", path.filename().string());
+                if (mirror(path, subdir)) changes_.rebuild_everything = true;
+            });
+        };
+        watch_includes(include_dir);
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(include_dir, ec)) {
+            if (entry.is_directory()) watch_includes(entry.path());
+        }
+        FTK_GFX_INFO("Shader hot-reload watching includes: {}", include_dir.string());
     }
 
     // Composable functions sit in lib/, and inotify does not recurse here
