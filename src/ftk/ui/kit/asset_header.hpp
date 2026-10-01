@@ -14,7 +14,7 @@
 //     if (auto header = ui::AssetHeaderBar(spec)) {
 //         header.begin_actions();
 //         ImGui::SameLine();
-//         if (ui::action(ui::icon::file, "wood_pbr.fjsl", ui::ButtonKind::Ghost)) open_shader();
+//         if (ui::action(ui::icon::file, "wood.frag", ui::ButtonKind::Ghost)) open_shader();
 //         switch (header.finish()) { ... }
 //     }
 
@@ -26,7 +26,7 @@ inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon
     ImVec4 icon_colour{};       ///< its hue
-    std::string name{};         ///< the file name, "crate_wood.fjmat"
+    std::string name{};         ///< the file name, "crate_wood.png"
     std::string folder{};       ///< where it lives, "Props / Crates"
     bool unsaved{false};
     std::string saves{};        ///< the files Save writes, for its tooltip

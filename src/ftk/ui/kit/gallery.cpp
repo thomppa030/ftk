@@ -39,8 +39,8 @@ namespace {
 // The files the sample slots know: what their picker offers, and what a slot
 // holding anything else reads as gone.
 constexpr std::array<std::string_view, 6> SAMPLE_ASSETS{
-    "shaders/fog.fjsl",       "shaders/toon.fjsl",      "shaders/water.fjsl",
-    "materials/brick.fjmat",  "materials/moss.fjmat",   "materials/planks.fjmat",
+    "textures/brick.png",     "textures/moss.png",      "textures/planks.png",
+    "sounds/rain.wav",        "sounds/steps.wav",       "sounds/wind.wav",
 };
 
 // A slot holding one of the sample files of this extension, picked from a
@@ -255,9 +255,9 @@ void KitGallery::fields() {
         }
         subheading("Asset slots");
         if (auto t = PropertyTable("##gallery_slots")) {
-            row("Shader", [&] { edit.changed |= sample_slot("##shader", slot_shader_, ".fjsl"); });
-            row("Material", [&] { edit.changed |= sample_slot("##material", slot_empty_, ".fjmat"); });
-            row("Surface", [&] { edit.changed |= sample_slot("##missing", slot_missing_, ".fjmat"); });
+            row("Texture", [&] { edit.changed |= sample_slot("##texture", slot_texture_, ".png"); });
+            row("Sound", [&] { edit.changed |= sample_slot("##sound", slot_empty_, ".wav"); });
+            row("Backdrop", [&] { edit.changed |= sample_slot("##missing", slot_missing_, ".png"); });
         }
         subheading("Toggles");
         if (auto t = PropertyTable("##gallery_toggles")) {
