@@ -1,0 +1,10 @@
+# Every preset's binary dir: build, build-release, build-asan, and any other
+# generator output like build-vs.
+build*/
+compile_commands.json
+
+.cache/
+.vscode/
+.idea/
+*.swp
+*~

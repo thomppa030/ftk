@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Each job builds ftk on its own, as a program fetching it gets it, and with
+# it the tests, a link check per library, and the checks ftk holds its own
+# tree to: library boundaries, editor UI, the GPU backend and portability.
+jobs:
+  linux:
+    name: Linux (Ninja, GCC)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/linux-toolchain
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake', 'tests/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake --preset debug
+
+      # Keeps going past a file that fails, so one run lists every file
+      # that does rather than only the first.
+      - name: Build
+        run: cmake --build --preset debug -- -k 0
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # The unit tests under AddressSanitizer and UndefinedBehaviorSanitizer: a
+  # read of freed memory or undefined behaviour fails the run here, where the
+  # other jobs pass whenever the freed memory still happens to hold the old
+  # value.
+  linux-asan:
+    name: Linux ASan (Ninja, GCC)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/linux-toolchain
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps
+            build-asan/_deps
+          key: deps-linux-asan-${{ hashFiles('cmake/Dependencies.cmake', 'tests/CMakeLists.txt') }}
+
+      # The asan preset builds from the imgui checkout the debug configure
+      # fetches.
+      - name: Configure
+        run: |
+          cmake --preset debug
+          cmake --preset asan
+
+      - name: Build the tests
+        run: cmake --build --preset asan --target ftk-tests -- -k 0
+
+      - name: Test
+        working-directory: build-asan/tests
+        run: ./ftk-tests
+
+  windows:
+    name: Windows (Ninja, MSVC)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # Puts cl.exe and the MSVC toolchain on PATH so the Ninja generator
+      # finds them without a Visual Studio developer prompt.
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          cache: true
+          install_runtime: false
+          # Keeps glslc, which the build compiles the shaders with.
+          stripdown: false
+
+      - uses: lukka/get-cmake@v4.4.0
+        with:
+          cmakeVersion: "4.4.0"
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake', 'tests/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake --preset debug
+
+      # Keeps going past a file that fails, so one run lists every file
+      # that does rather than only the first.
+      - name: Build
+        run: cmake --build --preset debug -- -k 0
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
