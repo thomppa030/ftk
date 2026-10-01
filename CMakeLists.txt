@@ -98,6 +98,9 @@ if(FJELL_BUILD_ENGINE)
     add_subdirectory(src)
     # Editor UI takes colours and widgets from the theme and the kit.
     ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt ICONS src/ui/icons.hpp)
+    # The runtime's component metas leave the editor out.
+    include(cmake/ComponentMetaCheck.cmake)
+    fjell_check_component_metas(fjell ROOTS src)
     # Vulkan stays inside the GPU backend; the rest speaks the GPU interface.
     ftk_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
     # The OS is reached through the platform library, so Windows builds too.

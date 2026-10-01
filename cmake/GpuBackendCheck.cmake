@@ -120,13 +120,13 @@ function(ftk_check_gpu_backend target)
     add_dependencies(${target} ${target}-gpu-backend-check)
 endfunction()
 
-# Script mode, used by the build step, or by hand over Fjell's own tree:
-#   cmake -DFTK_GPU_BACKEND_ROOTS=src,tests -P cmake/GpuBackendCheck.cmake
+# Script mode, used by the build step, or by hand from a program's checkout:
+#   cmake -DFTK_GPU_BACKEND_ROOTS=src,tests -P <ftk>/cmake/GpuBackendCheck.cmake
 # Add -DFTK_GPU_BACKEND_LIST=ON to print every file with a hit instead. By
-# hand, roots are relative to Fjell's checkout.
+# hand, roots are relative to the current directory.
 if(CMAKE_SCRIPT_MODE_FILE AND FTK_GPU_BACKEND_ROOTS)
     if(NOT DEFINED FTK_GPU_BACKEND_BASE)
-        get_filename_component(FTK_GPU_BACKEND_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+        set(FTK_GPU_BACKEND_BASE "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
     string(REPLACE "," ";" roots "${FTK_GPU_BACKEND_ROOTS}")
     _ftk_scan_gpu_backend("${FTK_GPU_BACKEND_BASE}" ${roots})
