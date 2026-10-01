@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <cstring>
 #include <initializer_list>
@@ -79,6 +81,13 @@ public:
 
     /// Whether the elements are on the heap.
     [[nodiscard]] bool spilled() const noexcept { return !heap_.empty(); }
+
+    /// The same elements in the same order, wherever each keeps them.
+    friend bool operator==(const SmallVector& a, const SmallVector& b)
+        requires std::equality_comparable<T>
+    {
+        return std::ranges::equal(std::span<const T>(a), std::span<const T>(b));
+    }
 
 private:
     // The inline places, left unset until an element is put there.
