@@ -55,18 +55,8 @@ struct BufferImport {
     bool persistent{false};
 };
 
-/// A buffer a render subsystem's compute step writes and its draws then
-/// read, with how the draws read it. A run that only draws what an earlier
-/// run wrote declares the reads and not the write.
-struct SubsystemDrawInput {
-    BufferImport buffer;
-    gpu::Access draw_access{gpu::Access::storage_buffer_read_vertex};
-    /// Whether this run's compute step writes it.
-    bool written{true};
-};
-
-/// FNV-1a over a string_view. Used to key the DeclareContext::imports
-/// catalog and PassBuilder transient names by a cheap 64-bit hash
+/// FNV-1a over a string_view. Used to key the ImportCatalog and
+/// PassBuilder transient names by a cheap 64-bit hash
 /// instead of std::string — declare() is a hot per-frame path that
 /// does hundreds of lookups, and the strings are all short and
 /// well-known so collisions among the handful of names in play are
@@ -80,10 +70,6 @@ constexpr uint64_t fg_name_hash(std::string_view s) noexcept {
     return h;
 }
 
-/// State visible during pass declaration. Intentionally smaller than
-/// FrameContext: only contains information that is legal to read when
-/// the graph is being built (no command buffer, no transient pointers).
-/// This is also the cache key for compiled-graph reuse in Phase 6.
 /// How a texture a pass exports is tracked; the fields are `ImportedImage`'s.
 struct TextureExport {
     bool persistent{false};
@@ -91,69 +77,15 @@ struct TextureExport {
     bool unwritten{false};
 };
 
-struct DeclareContext {
-    glm::uvec2 viewport_extent{0, 0};
-    gpu::Samples msaa_samples{gpu::Samples::x1};
-    uint32_t frame_index{0};
-    /// The scene the viewport renders; 0 for none.
-    uint64_t scene_id{0};
-
-    // Hardware capability flags
-    bool mesh_shader_supported{false};
-    bool ray_tracing_supported{false};
-
-    // Scene summary — drives conditional topology ("only read shadow_atlas
-    // if a directional light exists this frame"). Populated by the
-    // pipeline before any pass's declare() runs.
-    bool has_directional_light{false};
-    bool has_volumetric_fog{false};
-    bool has_world_environment{false};
-    bool skip_shadows{false};
-
-    /// Whether this run builds the bloom: bloom is on and this viewport's
-    /// graph runs its chain. Off unless the render pipeline says so, so a
-    /// reader never declares a bloom nothing writes.
-    bool bloom_enabled{false};
-    // Feature toggles resolved from engine settings
-    bool ssr_enabled{true};
-    bool gtao_enabled{true};
-    bool taa_enabled{true};
-
-    /// Whether the sea draws into this viewport this frame, and so whether
-    /// "surface_depth" is an image of its own or another name for "depth".
-    /// A pass that writes it declares that only when this is set.
-    bool water_draws{false};
-    bool auto_exposure_enabled{false};
-    /// Whether this run builds the volumetric fog's froxel volume, so a pass
-    /// may declare a read of its integrated result.
-    bool volumetric_fog_enabled{false};
-    bool ddgi_enabled{true};
-    bool ss_gi_enabled{true};
-    bool contact_shadows_enabled{true};
-
-    /// Whether this viewport shows the editor grid, and whether there are
-    /// debug lines to draw. Each overlay draws over the post pass's output
-    /// and hands it back to ImGui afterwards, so it declares that only in a
-    /// frame it draws in.
-    bool grid_shown{false};
-    bool debug_lines{false};
-
-    /// Bitmask of ViewportSource enum values: which debug visualizations
-    /// are currently showing somewhere (viewport tabs, overlays). Viz
-    /// passes check their bit in declare() and flag side-effects only
-    /// when they're actually going to produce a visible output.
-    uint32_t active_sources{0};
-
-    /// Named image catalog. Populated by the pipeline: target framebuffer
-    /// images (color/depth/normal/…/screen_color) and any persistent
-    /// images producer passes export via collect_exports(). Passes call
-    /// PassBuilder::import_named(ctx, "name") to attach an access, which
-    /// lets the graph see the cross-pass edge and emit the barrier
-    /// automatically instead of passes hand-rolling inline transitions.
-    ///
-    /// Keyed by fg_name_hash(name) — declare() is a hot per-frame path
-    /// that walked 150+ map lookups on std::string keys before; this
-    /// drops string alloc + hashing entirely.
+/// The textures and buffers a frame's passes find by name: what the program
+/// registers before any pass declares (its render targets) and what producer
+/// passes export. PassBuilder::import_named() attaches an access to one, which
+/// gives the graph the edge between the passes and the barrier on it, instead
+/// of passes transitioning by hand.
+///
+/// Keyed by fg_name_hash(name): declaring is a hot per-frame path, and hashed
+/// keys spare it a string allocation and hash per lookup.
+struct ImportCatalog {
     std::unordered_map<uint64_t, ImportedImage> imports;
 
     /// Hands the graph a texture a pass owns, under `name`, for passes to
@@ -167,17 +99,10 @@ struct DeclareContext {
                                                           .unwritten = how.unwritten});
     }
 
-    /// Named buffer catalog, filled the same way as `imports` and keyed the
-    /// same way. A buffer both a producer and its consumers declare is what
-    /// gives the graph the edge between them and the barrier on it.
+    /// Named buffers, filled the same way as `imports` and keyed the same
+    /// way. A buffer both a producer and its consumers declare is what gives
+    /// the graph the edge between them and the barrier on it.
     std::unordered_map<uint64_t, BufferImport> buffer_imports;
-
-    /// What the render subsystems' compute step (particle simulation)
-    /// writes for their own draws. The subsystems are pluggable, so the
-    /// passes that call their draw hooks cannot name these buffers; they
-    /// declare reads on the whole list, and the subsystem compute pass
-    /// declares the writes.
-    std::vector<SubsystemDrawInput> subsystem_draw_inputs;
 };
 
 /// Records a pass's imported/created resources and its accesses against
@@ -211,21 +136,20 @@ public:
     FgBuffer import(std::string_view name, gpu::Buffer buffer, bool persistent = false);
 
     /// Import an image by the name it was registered under in the
-    /// pipeline-provided DeclareContext catalog. Returns an invalid
-    /// handle and warns if the name isn't present — typo-safe without
-    /// crashing the frame.
-    FgTexture import_named(const DeclareContext& ctx, std::string_view name);
+    /// catalogue. Returns an invalid handle and warns if the name isn't
+    /// present — typo-safe without crashing the frame.
+    FgTexture import_named(const ImportCatalog& catalog, std::string_view name);
 
     /// import_named() for an image some viewports do not have by design (a
     /// preview without GTAO or TAA): an invalid handle, and nothing logged,
     /// when the name is absent.
-    FgTexture import_named_optional(const DeclareContext& ctx, std::string_view name);
+    FgTexture import_named_optional(const ImportCatalog& catalog, std::string_view name);
 
     /// Import a buffer by the name a producer exported it under. Returns an
     /// invalid handle when no pass exported it this frame, which a consumer
     /// takes as "nothing to wait for": the producer is absent from this
     /// viewport's graph, or the buffer does not exist yet.
-    FgBuffer import_named_buffer(const DeclareContext& ctx, std::string_view name);
+    FgBuffer import_named_buffer(const ImportCatalog& catalog, std::string_view name);
 
     /// Declare an externally-owned acceleration structure, tracked as a
     /// buffer is: whole, `persistent` as a buffer's.
@@ -234,7 +158,7 @@ public:
 
     /// import_named_buffer() for an acceleration structure a producer
     /// exported: an invalid handle when none was exported this frame.
-    FgAcceleration import_named_acceleration(const DeclareContext& ctx, std::string_view name);
+    FgAcceleration import_named_acceleration(const ImportCatalog& catalog, std::string_view name);
 
     // ── Access declarations ────────────────────────────────────────────
 

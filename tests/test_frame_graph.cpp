@@ -249,12 +249,12 @@ TEST_CASE("Buffers wait for writes and, to be written, for readers", "[framegrap
 TEST_CASE("A resting image starts at rest and goes back after a pass moves it", "[framegraph]") {
     GraphRun run;
     const gpu::Texture t = run.texture();
-    DeclareContext ctx;
-    ctx.imports.emplace(fg_name_hash("t"),
+    ImportCatalog catalog;
+    catalog.imports.emplace(fg_name_hash("t"),
                         ImportedImage{.view = t, .resting = Access::sampled_fragment});
     run.begin();
     run.pass("write", [&](PassBuilder& b) {
-        b.write(b.import_named(ctx, "t"), Access::storage_write_compute);
+        b.write(b.import_named(catalog, "t"), Access::storage_write_compute);
     });
     run.execute();
 
@@ -275,13 +275,13 @@ TEST_CASE("A resting image starts at rest and goes back after a pass moves it", 
 TEST_CASE("A resting image nothing has written yet starts undefined", "[framegraph]") {
     GraphRun run;
     const gpu::Texture t = run.texture();
-    DeclareContext ctx;
-    ctx.imports.emplace(fg_name_hash("t"), ImportedImage{.view = t,
+    ImportCatalog catalog;
+    catalog.imports.emplace(fg_name_hash("t"), ImportedImage{.view = t,
                                                          .resting = Access::sampled_fragment,
                                                          .unwritten = true});
     run.begin();
     run.pass("write", [&](PassBuilder& b) {
-        b.write(b.import_named(ctx, "t"), Access::storage_write_compute);
+        b.write(b.import_named(catalog, "t"), Access::storage_write_compute);
     });
     run.execute();
 

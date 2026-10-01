@@ -39,18 +39,18 @@ FgTexture PassBuilder::import(std::string_view name, const gpu::TextureView& vie
     return h;
 }
 
-FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name) {
-    if (!ctx.imports.contains(fg_name_hash(name))) {
+FgTexture PassBuilder::import_named(const ImportCatalog& catalog, std::string_view name) {
+    if (!catalog.imports.contains(fg_name_hash(name))) {
         FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
                        std::string(name));
         return FgTexture{};
     }
-    return import_named_optional(ctx, name);
+    return import_named_optional(catalog, name);
 }
 
-FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::string_view name) {
-    auto it = ctx.imports.find(fg_name_hash(name));
-    if (it == ctx.imports.end()) {
+FgTexture PassBuilder::import_named_optional(const ImportCatalog& catalog, std::string_view name) {
+    auto it = catalog.imports.find(fg_name_hash(name));
+    if (it == catalog.imports.end()) {
         return FgTexture{};
     }
     FgTexture h{next_texture_id_++};
@@ -65,9 +65,9 @@ FgTexture PassBuilder::import_named_optional(const DeclareContext& ctx, std::str
     return h;
 }
 
-FgBuffer PassBuilder::import_named_buffer(const DeclareContext& ctx, std::string_view name) {
-    auto it = ctx.buffer_imports.find(fg_name_hash(name));
-    if (it == ctx.buffer_imports.end() || !it->second.buffer.valid()) {
+FgBuffer PassBuilder::import_named_buffer(const ImportCatalog& catalog, std::string_view name) {
+    auto it = catalog.buffer_imports.find(fg_name_hash(name));
+    if (it == catalog.buffer_imports.end() || !it->second.buffer.valid()) {
         return FgBuffer{};
     }
     return import(name, it->second.buffer, it->second.persistent);
@@ -97,10 +97,10 @@ FgAcceleration PassBuilder::import(std::string_view name, gpu::AccelerationStruc
     return h;
 }
 
-FgAcceleration PassBuilder::import_named_acceleration(const DeclareContext& ctx,
+FgAcceleration PassBuilder::import_named_acceleration(const ImportCatalog& catalog,
                                                       std::string_view name) {
-    auto it = ctx.buffer_imports.find(fg_name_hash(name));
-    if (it == ctx.buffer_imports.end() || !it->second.structure.valid()) {
+    auto it = catalog.buffer_imports.find(fg_name_hash(name));
+    if (it == catalog.buffer_imports.end() || !it->second.structure.valid()) {
         return FgAcceleration{};
     }
     return import(name, it->second.structure, it->second.persistent);
