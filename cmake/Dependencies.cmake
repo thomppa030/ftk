@@ -40,8 +40,9 @@ FetchContent_Declare(
 FetchContent_Declare(
     imguizmo
     GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
+    GIT_TAG        18cef5e031d8c6973d80284c67f60549fafd78c1  # master, 2026-08-08
+    # Pinned to a commit on master, newer than its last release, so cloned in
+    # full: a shallow clone cannot check out a commit once master moves on.
     SOURCE_SUBDIR  no-cmake-here
 )
 
