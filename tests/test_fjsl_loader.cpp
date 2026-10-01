@@ -44,53 +44,29 @@ struct ShaderTree {
     }
 };
 
-const std::string SUN_FN =
-    "shader_function;\n"
-    "uniform float strength : hint_range(0.0, 1.0, 0.1) = 0.5;\n"
-    "in vec3 dir;\n"
-    "out vec3 color;\n"
-    "void main() { color = dir * strength; }\n";
-
-const std::string TEMPLATE = "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n";
-
 } // namespace
 
-TEST_CASE("A shader is found through the locator and composed", "[fjsl][loader]") {
+TEST_CASE("A shader is found through the locator", "[fjsl][loader]") {
     ShaderTree tree;
-    tree.write("lib/sun.fjsl", SUN_FN);
     tree.write("shaders/sky.fjsl",
                "shader_type sky;\n"
-               "use sun = \"lib/sun.fjsl\"(dir: VIEW_DIR);\n"
-               "void sky() {}\n");
+               "uniform float strength : hint_range(0.0, 1.0, 0.1) = 0.5;\n"
+               "void sky() { SKY = vec3(strength); }\n");
     const FjslLoader loader = tree.loader();
 
-    FjslProgram program = loader.load("shaders/sky.fjsl");
+    const FjslProgram program = loader.load("shaders/sky.fjsl");
     CHECK(program.path == "shaders/sky.fjsl");
-    REQUIRE(program.used_paths.size() == 1);
-    CHECK(program.used_paths[0] == "lib/sun.fjsl");
-
-    // The function's dial joins the program's under the name the GLSL gives
-    // it, grouped under the wiring.
-    const uint32_t own_params = program.metadata.custom_param_count;
-    (void)generate_fragment(program, TEMPLATE);
-    CHECK(program.metadata.custom_param_count == own_params + 1);
-    bool found = false;
-    for (const auto& u : program.metadata.uniforms) {
-        if (u.name == "sun_strength") {
-            found = true;
-            CHECK(u.group == "sun");
-        }
-    }
-    CHECK(found);
+    CHECK(program.metadata.shader_type == ShaderType::Sky);
+    CHECK(program.metadata.source_path == "shaders/sky.fjsl");
+    REQUIRE(program.metadata.uniforms.size() == 1);
+    CHECK(program.metadata.uniforms[0].name == "strength");
 }
 
-TEST_CASE("A program depends on its file and on the functions it composes", "[fjsl][loader]") {
+TEST_CASE("A program depends on its own file", "[fjsl][loader]") {
     FjslProgram program;
     program.path = "shaders/water.fjsl";
-    program.used_paths = {"lib/foam.fjsl"};
 
     CHECK(program.depends_on("/home/me/game/shaders/water.fjsl"));
-    CHECK(program.depends_on("/opt/fjell/lib/foam.fjsl"));
     // A file whose name only ends the same is another file.
     CHECK_FALSE(program.depends_on("/home/me/game/shaders/deep_water.fjsl"));
     CHECK_FALSE(program.depends_on("/home/me/game/shaders/toon.fjsl"));

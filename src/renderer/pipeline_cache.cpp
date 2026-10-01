@@ -67,9 +67,8 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
 
     uint32_t id = static_cast<uint32_t>(entries_.size());
     // Built to the side and moved in, rather than compiled in place through a
-    // reference into entries_. Compiling reads other files now — a composition
-    // resolves what its `use` declarations name — and anything that reached
-    // back here would grow the vector and leave that reference dangling.
+    // reference into entries_: anything compiling reached back here for would
+    // grow the vector and leave that reference dangling.
     Entry entry;
     entry.program.path = fjsl_path;
     compile_entry(entry);
@@ -86,7 +85,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     Entry next{};
 
     try {
-        // Read, parse and compose the .fjsl. A material names its shader the
+        // Read and parse the .fjsl. A material names its shader the
         // same way whether the engine or the game owns it, so the loader's
         // locator looks in the project first and falls back to the engine.
         next.program = loader_.load(entry.program.path);
@@ -120,11 +119,8 @@ void PipelineCache::compile_entry(Entry& entry) {
                                      + std::string(shader_type_name(shader_type)) + "'");
         }
 
-        // Generate the complete fragment shader. From here on the program's
-        // metadata is the whole program's, composed functions' dials
-        // included: the inspector lists them and the passes size the
-        // parameter block from it.
-        const std::string frag_source = generate_fragment(next.program, tmpl);
+        // Generate the complete fragment shader.
+        const std::string frag_source = generate_fragment_shader(next.program.metadata, tmpl);
 
         // Named after the .fjsl. A fog shader generates a compute shader, and
         // the extension says so to anyone compiling the generated file by hand.
@@ -435,9 +431,6 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
 
     std::vector<uint32_t> to_reload;
     for (uint32_t id = 0; id < entries_.size(); ++id) {
-        // The shader itself, or any shader_function inlined into it — a
-        // function's code lives in its consumers' programs, so editing one
-        // has to rebuild each of them and nothing else would notice.
         const FjslProgram& program = entries_[id].program;
         if (std::ranges::any_of(changed_paths, [&](const std::string& changed) {
                 return program.depends_on(changed);

@@ -133,9 +133,6 @@ void check_shader_text(const std::string& text, const std::string& name, Tally& 
     // fragment() is the standard PBR surface and a perfectly good shader — it
     // is the *absent* stage that is suspicious.
     if (meta.has_errors()) return;
-    // A shader_function runs main() and the parser already refuses one without
-    // it, so there is nothing left to suspect here.
-    if (meta.is_function) return;
     const bool has_stage = !meta.fragment_body.empty() || !meta.vertex_body.empty()
                         || !meta.light_body.empty() || !meta.layers_body.empty();
     if (!has_stage) {

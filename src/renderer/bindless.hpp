@@ -30,9 +30,9 @@ class Texture;
 // Layout:
 //   texture_indices[0-3]:   fixed PBR (base_color, normal, metallic_roughness, emissive)
 //   texture_indices[4-15]:  custom shader textures. Twelve rather than four
-//                           because a composed shader shares them with every
-//                           shader_function inlined into it, and four is one
-//                           texture each for a sky and three contributions.
+//                           because a shader that draws several things at once
+//                           (a sky with a texture for each body) runs out of
+//                           four.
 //   base_params[0..3]:    base colour factor (vec4) — the file's factor times
 //                         the shader's hint_albedo product; multiplies the
 //                         base colour texture on every path

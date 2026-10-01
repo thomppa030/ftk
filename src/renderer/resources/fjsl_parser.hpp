@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -19,9 +18,8 @@ struct NamedValue;
 /// bindless.hpp, its hand-written GLSL mirror in fjell_gpu_types.glsl,
 /// Material's own array and its bounds check, and this file's cap.
 ///
-/// Twelve custom rather than four: a composed shader shares them with every
-/// shader_function inlined into it, and four is one texture each for a sky and
-/// three contributions.
+/// Twelve custom rather than four: a shader that draws several things at once
+/// (a sky with a texture for each body, say) runs out of four.
 constexpr uint32_t PBR_TEXTURE_SLOTS = 4;
 constexpr uint32_t CUSTOM_TEXTURE_SLOTS = 12;
 constexpr uint32_t TOTAL_TEXTURE_SLOTS = PBR_TEXTURE_SLOTS + CUSTOM_TEXTURE_SLOTS;
@@ -58,8 +56,7 @@ enum class ShaderType : uint8_t {
 
 /// What a .fjsl declares itself to be, read the way parse_fjsl() reads it
 /// but without parsing the rest: the Type after `shader_type`, or nullopt
-/// for a `shader_function;` library, a missing declaration or a word that
-/// names no Type. For deciding which slot a shader or material can go in
+/// for a missing declaration or a word that names no Type. For deciding which slot a shader or material can go in
 /// without compiling it.
 [[nodiscard]] std::optional<ShaderType> declared_shader_type(const std::string& source);
 
@@ -180,52 +177,18 @@ struct FjslDiagnostic {
     uint32_t column{1}; ///< 1-based, in bytes
     FjslSeverity severity{FjslSeverity::warning};
     std::string message;
-    /// Which file this is about, when it is not the one being parsed. A
-    /// composition reports a used function's problems against that function,
-    /// with its own line numbers; empty means the file under the cursor.
-    std::string file;
-};
-
-/// One `in` or `out` of a shader_function: a value the caller passes in, or one
-/// the function writes for the caller to read.
-struct FjslPort {
-    std::string name;
-    UniformType type{UniformType::Float};
-    /// Byte offset of the declaration, for diagnostics about this port.
-    size_t offset{0};
-};
-
-/// One `use name = "path.fjsl"(arg: EXPR, ...)`: a function wired into this
-/// file, under a name the consumer chose.
-struct FjslUse {
-    std::string name;                 ///< the consumer's name for this wiring
-    std::string path;                 ///< as written, resolved by the caller
-    /// Arguments in source order, `in`-name to the expression filling it. Kept
-    /// as text: they are consumer-side GLSL and are substituted verbatim.
-    std::vector<std::pair<std::string, std::string>> arguments;
-    size_t offset{0};
 };
 
 // Complete metadata extracted from a .fjsl file
 struct ShaderMetadata {
-    /// True when the file declared `shader_function;` rather than a
-    /// `shader_type`: a pure function, drawn by no pass, composed into others.
-    /// `shader_type` is meaningless when this is set.
-    bool is_function{false};
     ShaderType shader_type{ShaderType::Spatial};
     RenderMode render_mode{RenderMode::Lit};
     RenderState render_state;
     std::vector<FjslUniform> uniforms;
-    /// shader_function only: what main() is passed and what it writes.
-    std::vector<FjslPort> inputs;
-    std::vector<FjslPort> outputs;
-    /// Functions this file composes, in source order.
-    std::vector<FjslUse> uses;
     FjslBody fragment_body;    // contents of fragment() { ... }; sky() for a sky, density() for fog, color() for post
     FjslBody vertex_body;      // contents of vertex() { ... } (empty = standard)
     FjslBody light_body;       // contents of light() { ... } (empty = the type's default: PBR, or the fog phase)
     FjslBody layers_body;      // terrain only: contents of layers() { ... } (empty = painted weights as-is)
-    FjslBody main_body;        // shader_function only: contents of main() { ... }
     std::string user_globals;  // top-level helpers / constants the user authored
     /// What the generated GLSL should call this file in `#line` directives.
     /// Set by the caller that knows the path; empty falls back to numeric-only
@@ -245,13 +208,6 @@ struct ShaderMetadata {
     /// on a clean parse.
     std::vector<FjslDiagnostic> diagnostics;
 
-    /// The Type this file is, or nullopt when it is a shader_function. This is
-    /// what decides which hooks it may define and which template it generates
-    /// into; read it rather than `shader_type` wherever a function is possible.
-    [[nodiscard]] std::optional<ShaderType> type() const {
-        return is_function ? std::nullopt : std::optional{shader_type};
-    }
-
     /// True when any diagnostic is an error.
     [[nodiscard]] bool has_errors() const {
         return std::any_of(diagnostics.begin(), diagnostics.end(),
@@ -264,101 +220,15 @@ struct ShaderMetadata {
 // Parse a .fjsl file and extract metadata.
 [[nodiscard]] ShaderMetadata parse_fjsl(const std::string& source);
 
-/// One file of a composition: what a `use` resolved to, parsed.
-struct FjslComposedFile {
-    std::string path;      ///< as the `use` wrote it
-    std::string use_name;  ///< the consumer's local name for it; empty for the consumer itself
-    ShaderMetadata meta;
-};
-
-/// A composition: the consumer, then every function reachable from its `use`
-/// declarations, each appearing once no matter how many files wire it.
-///
-/// Ordered so a file comes after everything it uses, which is the order the
-/// generator emits them in — a function's helpers must be declared before the
-/// code that calls them.
-struct FjslComposition {
-    std::vector<FjslComposedFile> files;  ///< dependencies first, consumer last
-    std::vector<FjslDiagnostic> diagnostics;
-
-    [[nodiscard]] bool has_errors() const {
-        return std::any_of(diagnostics.begin(), diagnostics.end(),
-                           [](const FjslDiagnostic& d) {
-                               return d.severity == FjslSeverity::error;
-                           });
-    }
-};
-
-/// Source of a `use`d file, by the path the `use` wrote. Returns nullopt when
-/// nothing is there; the resolver reports that against the declaration.
-using FjslSourceReader =
-    std::function<std::optional<std::string>(const std::string& path)>;
-
-/// Resolve a parsed file's `use` declarations, recursively, and check that the
-/// wiring is sound: every path exists and is a shader_function, every `in` is
-/// filled exactly once, no file uses itself directly or through another, and
-/// the chain is not absurdly deep.
-///
-/// `meta` is the consumer, already parsed. Diagnostics from a used file are
-/// reported against that file, with its own line numbers, so an error names
-/// where it lives rather than where it was wired.
-[[nodiscard]] FjslComposition resolve_composition(const ShaderMetadata& meta,
-                                                  const std::string& path,
-                                                  const FjslSourceReader& read);
-
 /// Write a parse's diagnostics to the log as
 /// `file:line:column: severity: message` — the compiler convention, which
 /// editors and their linter plugins parse without being configured for it.
 /// `name` is what the file should be called; empty reads as `<fjsl>`.
 void log_fjsl_diagnostics(const ShaderMetadata& meta, const std::string& name);
 
-/// The same, for a composition: each diagnostic names the file it belongs to,
-/// which for a used function is that function rather than `name`.
-void log_fjsl_diagnostics(const struct FjslComposition& composition,
-                          const std::string& name);
-
-/// How generated GLSL reaches a program's uniforms: `param(i)` is the
-/// expression reading float `i` of its parameter block, `texture(slot)` the
-/// sampler in texture slot `slot`, numbered as FjslUniform::slot numbers
-/// samplers: from PBR_TEXTURE_SLOTS, after a material's own four. Each shader
-/// type's template fixes these for the engine's materials; a host with a
-/// template of its own says where its values live.
-struct FjslUniformAccess {
-    std::function<std::string(uint32_t index)> param;
-    std::function<std::string(uint32_t slot)> texture;
-};
-
-/// The functions `composition` wires in, as GLSL for file scope, dependencies
-/// first: each composed file's helpers and constants, its uniforms as
-/// #defines read through `access`, its outputs as variables, and its main()
-/// as a function named for its use (`sun_main`), every name it declares
-/// prefixed the same way. Their uniforms take runs of the parameter block and
-/// of the texture slots after `param_base` and `texture_base`, the consumer's
-/// own counts, in file order.
-[[nodiscard]] std::string emit_composition(const FjslComposition& composition,
-                                           const FjslUniformAccess& access,
-                                           uint32_t param_base, uint32_t texture_base);
-
-/// The calls that run each function a consumer uses, in the order its `use`s
-/// are written, passing what each wired in. They go ahead of the body that
-/// reads what the functions wrote.
-[[nodiscard]] std::string emit_use_calls(const std::vector<FjslUse>& uses,
-                                         const FjslComposition& composition);
-
-/// `body` with its reads of used functions (`sun.color`) turned into the names
-/// emit_composition() declares (`sun_color`). Only a name a `use` introduced
-/// is touched, so an ordinary `v.xyz` is left alone.
-[[nodiscard]] std::string rewrite_use_references(const std::string& body,
-                                                 const std::vector<FjslUse>& uses);
-
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
-//
-// `composition`, when given, is what resolve_composition returned for this
-// file: every function it uses is emitted at file scope ahead of the user's own
-// globals, with its identifiers mangled under the name the `use` gave it.
-[[nodiscard]] std::string generate_fragment_shader(
-    const ShaderMetadata& meta, const std::string& template_source,
-    const struct FjslComposition* composition = nullptr);
+[[nodiscard]] std::string generate_fragment_shader(const ShaderMetadata& meta,
+                                                   const std::string& template_source);
 
 // Generate a .vert or .mesh GLSL file from a vertex/mesh template + FJSL metadata.
 // Used for both vertex shaders and mesh shaders — same placeholder substitution.

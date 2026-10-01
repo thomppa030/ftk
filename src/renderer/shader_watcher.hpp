@@ -48,7 +48,7 @@ private:
     bool recompile(const std::string& filename);
     /// Copy an edited engine shader to its place under `output_dir_`, in
     /// `subdir` of it ("" for the top level). The engine reads its .fjsl
-    /// files, functions and includes from the build tree's mirror of
+    /// files and includes from the build tree's mirror of
     /// shaders/, which the build keeps current and nothing else does — so
     /// without this a rebuild after an edit reads the text from before it.
     /// False, having logged why, when the copy could not be made; the change

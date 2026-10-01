@@ -64,20 +64,6 @@ void ShaderWatcher::rewatch() {
         FTK_GFX_INFO("Shader hot-reload watching includes: {}", include_dir.string());
     }
 
-    // Composable functions sit in lib/, and inotify does not recurse here
-    // either. Unlike an include, what a function reaches *is* written down:
-    // each entry records the functions it composed, so the edited path is
-    // reported like any other .fjsl and only its consumers rebuild.
-    const std::string lib_dir = source_dir_ + "/lib";
-    if (std::filesystem::is_directory(lib_dir)) {
-        watcher_.watch(lib_dir, [this](const std::filesystem::path& path) {
-            if (path.extension() != ".fjsl") return;
-            FTK_GFX_INFO("Shader function changed: {}", path.filename().string());
-            if (mirror(path, "lib")) changes_.fjsl_paths.push_back(path.string());
-        });
-        FTK_GFX_INFO("Shader hot-reload watching functions: {}", lib_dir);
-    }
-
     if (project_dir_.empty() || !std::filesystem::is_directory(project_dir_)) return;
 
     watcher_.watch(project_dir_, [this](const std::filesystem::path& path) {

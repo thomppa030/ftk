@@ -17,8 +17,7 @@ class Project;
 
 /// The ShaderType an asset is drawn as, found without compiling anything: a
 /// `.fjsl`'s own declaration, a `.fjmat`'s shader's. Nullopt for any other
-/// file, a `shader_function` library, a material whose shader is missing,
-/// or a file that cannot be read. `file` is absolute; a material's shader is
+/// file, a material whose shader is missing, or a file that cannot be read. `file` is absolute; a material's shader is
 /// looked for in the project first and then the engine, as the pipeline
 /// cache does.
 ///

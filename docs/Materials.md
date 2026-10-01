@@ -161,7 +161,7 @@ When an object uses a `.fjmat` material, the Properties panel shows a Material s
 ## Texture Slots
 
 - `texture_indices[0-3]` — fixed PBR (base_color, normal, metallic_roughness, emissive)
-- `texture_indices[4-15]` — custom shader textures, twelve shared by a shader and every `shader_function` composed into it
+- `texture_indices[4-15]` — custom shader textures, twelve per material
 
 Each is an index into the bindless table, naming a texture and the sampler it
 is read with. A `sampler2D` uniform, and `BASE_COLOR_TEX` and the other

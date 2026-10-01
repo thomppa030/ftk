@@ -131,9 +131,7 @@ public:
 private:
     struct Entry {
         /// The shader: its path from registration on, the rest as of its last
-        /// successful compile. Editing a function it composes has to rebuild
-        /// it: the function's code is inlined here, and nothing else would
-        /// notice it changed.
+        /// successful compile.
         FjslProgram program;
         std::string generated_frag_path;
         bool has_custom_vertex{false};

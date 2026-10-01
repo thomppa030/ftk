@@ -5,10 +5,9 @@
 file(MAKE_DIRECTORY "${SHADER_DST}/include")
 file(MAKE_DIRECTORY "${SHADER_DST}/generated")
 
-# Recursive because a `use` names a path, and the path it names has to exist
-# here: the engine resolves a composed function exactly the way it resolves
-# the shader that uses it. `generated/` is this directory's own output and is
-# skipped, or a generated .fjsl would be mirrored back over itself.
+# Recursive, so a shader may sit in a folder of shaders/ and a material name
+# it by that path. `generated/` is this directory's own output and is skipped,
+# or a generated .fjsl would be mirrored back over itself.
 file(GLOB_RECURSE FJSL_FILES RELATIVE "${SHADER_SRC}" "${SHADER_SRC}/*.fjsl")
 foreach(REL ${FJSL_FILES})
     if(REL MATCHES "^generated/")

@@ -35,9 +35,7 @@ struct GpuFogVolume {
 
 // 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
 //   texture_indices[0..3]  : PBR slots (base color, normal, MR, emissive)
-//   texture_indices[4..15] : custom FJSL sampler2D uniforms — a composed
-//                            shader shares these with every shader_function
-//                            inlined into it
+//   texture_indices[4..15] : custom FJSL sampler2D uniforms
 //   base_params[0..3]      : base colour factor (rgba) — the file's factor
 //                            times the shader's hint_albedo product;
 //                            multiplies the base colour texture on every path
