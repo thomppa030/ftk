@@ -14,7 +14,7 @@ void ScenarioPlayer::tick(float dt, Scene& scene, EnvironmentSubsystem& environm
         const auto& step = scenario_.steps[next_];
         ++next_;
         if (step.quit) {
-            FJELL_CORE_INFO("Scenario: quit at {:.1f}s", time_);
+            FTK_CORE_INFO("Scenario: quit at {:.1f}s", time_);
             quit_ = true;
             return;
         }

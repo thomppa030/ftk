@@ -56,9 +56,9 @@ Device device_of(InputSource s) {
 
 const char* device_icon(Device d) {
     switch (d) {
-        case Device::keyboard: return ui::icon::keyboard;
-        case Device::mouse: return ui::icon::mouse;
-        case Device::pad: return ui::icon::gamepad;
+        case Device::keyboard: return ftk::ui::icon::keyboard;
+        case Device::mouse: return ftk::ui::icon::mouse;
+        case Device::pad: return ftk::ui::icon::gamepad;
         case Device::none: return nullptr;
     }
     return nullptr;
@@ -106,11 +106,11 @@ bool is_paired_y_source(InputSource s) {
            || s == InputSource::pad_lstick_y || s == InputSource::pad_rstick_y;
 }
 
-std::vector<ui::grouped_picker::Group> build_source_groups() {
+std::vector<ftk::ui::grouped_picker::Group> build_source_groups() {
     static constexpr Device ORDER[] = {Device::keyboard, Device::mouse, Device::pad};
-    std::vector<ui::grouped_picker::Group> groups;
+    std::vector<ftk::ui::grouped_picker::Group> groups;
     for (Device device : ORDER) {
-        ui::grouped_picker::Group group;
+        ftk::ui::grouped_picker::Group group;
         group.label = device_name(device);
         // Keyboard is long enough that an open header buries the other two.
         group.open = device != Device::keyboard;
@@ -138,7 +138,7 @@ std::vector<ui::grouped_picker::Group> build_source_groups() {
 InputMappingEditorContext::InputMappingEditorContext(InputMappingEditorDeps deps)
     : deps_{deps} {}
 
-EditorContext::DockPreset InputMappingEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset InputMappingEditorContext::dock_preset() const {
     return {.preview = {"Mappings"}};
 }
 
@@ -180,14 +180,14 @@ std::string InputMappingEditorContext::document() const {
     return fjinput_abs_path_.empty() ? std::string{} : input_context_text(context_);
 }
 
-Result<> InputMappingEditorContext::write() {
-    if (fjinput_abs_path_.empty()) return make_error("no input mapping is open");
+ftk::Result<> InputMappingEditorContext::write() {
+    if (fjinput_abs_path_.empty()) return ftk::make_error("no input mapping is open");
     write_input_context(context_, fjinput_abs_path_);
-    FJELL_CORE_INFO("Input mapping saved: {}", fjinput_path_);
+    FTK_CORE_INFO("Input mapping saved: {}", fjinput_path_);
     return {};
 }
 
-Result<> InputMappingEditorContext::restore(const std::string& text) {
+ftk::Result<> InputMappingEditorContext::restore(const std::string& text) {
     context_ = input_context_from_text(text, fjinput_path_);
     return {};
 }
@@ -276,7 +276,7 @@ ActionType InputMappingEditorContext::action_type(const std::string& action) con
 void InputMappingEditorContext::draw_header_actions() {
     if (fjinput_path_.empty()) return;
     ImGui::SameLine();
-    if (ui::action(ui::icon::add, "Add action")) {
+    if (ftk::ui::action(ftk::ui::icon::add, "Add action")) {
         action_filter_.clear();
         scan_actions();
         ImGui::OpenPopup("##add_action");
@@ -285,46 +285,46 @@ void InputMappingEditorContext::draw_header_actions() {
 }
 
 void InputMappingEditorContext::draw_mappings() {
-    auto panel = ui::Panel(ui::icon::input, ctx_title("Mappings").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::input, ctx_title("Mappings").c_str());
     if (!panel) return;
     if (fjinput_path_.empty()) {
-        ui::empty_state(ui::icon::input, "No input context", "Open a .fjinput from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::input, "No input context", "Open a .fjinput from the content browser");
         return;
     }
 
     // The context itself: its name, whether it swallows what it matches,
     // and the device in use now, so bindings can be tried on a real pad.
-    if (auto strip = ui::RaisedStrip("##context")) {
+    if (auto strip = ftk::ui::RaisedStrip("##context")) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Name");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(200.0f);
-        (void)ui::text_field("##name", context_.name);
-        ImGui::SameLine(0.0f, theme::GAP_L);
-        (void)ui::checkbox("##consume", context_.consume);
+        (void)ftk::ui::text_field("##name", context_.name);
+        ImGui::SameLine(0.0f, ftk::theme::GAP_L);
+        (void)ftk::ui::checkbox("##consume", context_.consume);
         ImGui::SameLine();
         ImGui::TextUnformatted("Consume input");
         ImGui::SetItemTooltip("Inputs this context matches don't reach the contexts under it");
         if (deps_.input != nullptr) {
             const bool on_pad = deps_.input->active_device() == InputDevice::gamepad;
             const char* device = on_pad ? "Gamepad" : "Keyboard and mouse";
-            const char* icon = on_pad ? ui::icon::gamepad : ui::icon::keyboard;
-            const float w = ImGui::CalcTextSize(icon).x + ImGui::CalcTextSize(device).x + theme::GAP_M * 2.0f + 8.0f;
+            const char* icon = on_pad ? ftk::ui::icon::gamepad : ftk::ui::icon::keyboard;
+            const float w = ImGui::CalcTextSize(icon).x + ImGui::CalcTextSize(device).x + ftk::theme::GAP_M * 2.0f + 8.0f;
             ImGui::SameLine();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - w, 0.0f));
             ImGui::TextUnformatted(icon);
-            ImGui::SameLine(0.0f, theme::GAP_S);
+            ImGui::SameLine(0.0f, ftk::theme::GAP_S);
             ImGui::TextUnformatted(device);
             const auto& pad = deps_.input->pad_name();
             ImGui::SetItemTooltip("%s", on_pad ? pad.c_str() : pad.empty() ? "No gamepad connected" : pad.c_str());
-            ImGui::SameLine(0.0f, theme::GAP_S);
+            ImGui::SameLine(0.0f, ftk::theme::GAP_S);
             const ImVec2 at = ImGui::GetCursorScreenPos();
             ImGui::GetWindowDrawList()->AddCircleFilled({at.x + 4.0f, at.y + ImGui::GetFrameHeight() * 0.5f}, 3.5f,
-                                                        ImGui::GetColorU32(theme::success()));
+                                                        ImGui::GetColorU32(ftk::theme::success()));
             ImGui::Dummy({8.0f, ImGui::GetFrameHeight()});
         }
     }
-    ImGui::Dummy({0.0f, theme::GAP_S});
+    ImGui::Dummy({0.0f, ftk::theme::GAP_S});
 
     // The actions, in the order their first binding appears.
     std::vector<std::string> actions;
@@ -332,11 +332,11 @@ void InputMappingEditorContext::draw_mappings() {
         if (std::find(actions.begin(), actions.end(), binding.action) == actions.end()) actions.push_back(binding.action);
     }
     if (actions.empty()) {
-        ui::empty_state(ui::icon::input, "No actions mapped yet", "Add action in the header, or drop a .fjaction here");
+        ftk::ui::empty_state(ftk::ui::icon::input, "No actions mapped yet", "Add action in the header, or drop a .fjaction here");
     }
     for (const auto& action : actions) {
         draw_action_section(action, action_type(action));
-        ImGui::Dummy({0.0f, theme::GAP_XS});
+        ImGui::Dummy({0.0f, ftk::theme::GAP_XS});
     }
 
     accept_action_drop();
@@ -355,7 +355,7 @@ void InputMappingEditorContext::accept_action_drop() {
         if (std::filesystem::path(rel_path).extension() == ".fjaction") {
             const auto def = parse_action_file(base_path::resolve_asset(rel_path, deps_.project_mgr->active()));
             if (def.name.empty()) {
-                FJELL_CORE_WARN("Input mapping: {} has no action name", rel_path);
+                FTK_CORE_WARN("Input mapping: {} has no action name", rel_path);
             } else if (std::none_of(context_.bindings.begin(), context_.bindings.end(),
                                     [&](const InputBinding& b) { return b.action == def.name; })) {
                 InputBinding binding;
@@ -398,7 +398,7 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
 
     bool remove = false;
     const std::string id = "##action_" + action_name;
-    if (auto box = ui::InsetGroup(id.c_str(), {.text = action_name.c_str(),
+    if (auto box = ftk::ui::InsetGroup(id.c_str(), {.text = action_name.c_str(),
                                                .named = true,
                                                .remove = &remove,
                                                .remove_tooltip = "Remove the action and its bindings",
@@ -410,9 +410,9 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
             draw_binding_row(i, ++number, type);
             ImGui::PopID();
         }
-        if (number == 0) ui::hint("No bindings yet");
+        if (number == 0) ftk::ui::hint("No bindings yet");
 
-        if (ui::action(ui::icon::add, "Add binding", ui::ButtonKind::Ghost)) {
+        if (ftk::ui::action(ftk::ui::icon::add, "Add binding", ftk::ui::ButtonKind::Ghost)) {
             InputBinding b;
             b.action = action_name;
             context_.bindings.push_back(std::move(b));
@@ -420,7 +420,7 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
         // Only a 2D axis reads four keys as up, down, left and right.
         if (type == ActionType::axis2d) {
             ImGui::SameLine();
-            if (ui::action(ui::icon::keyboard, "Add four keys", ui::ButtonKind::Ghost)) {
+            if (ftk::ui::action(ftk::ui::icon::keyboard, "Add four keys", ftk::ui::ButtonKind::Ghost)) {
                 InputBinding b;
                 b.action = action_name;
                 b.up = InputSource::key_w;
@@ -446,7 +446,7 @@ void InputMappingEditorContext::draw_binding_row(int binding_idx, int number, Ac
     // A fine rule over every binding but the first.
     if (number > 1) {
         dl->AddLine({start.x, start.y - 1.0f}, {start.x + width, start.y - 1.0f},
-                    ImGui::GetColorU32(theme::surface_base()));
+                    ImGui::GetColorU32(ftk::theme::surface_base()));
     }
     // The line's height last frame, to know whether the mouse is on it.
     ImGuiStorage* storage = ImGui::GetStateStorage();
@@ -463,13 +463,13 @@ void InputMappingEditorContext::draw_binding_row(int binding_idx, int number, Ac
     // Its number, then what it listens to.
     char n[8];
     std::snprintf(n, sizeof(n), "%d", number);
-    ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
+    ImGui::PushFont(ftk::theme::mono_font(), ftk::theme::SMALL_TEXT);
     ImGui::AlignTextToFramePadding();
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
+    ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_disabled());
     ImGui::TextUnformatted(n);
     ImGui::PopStyleColor();
     ImGui::PopFont();
-    ImGui::SameLine(0.0f, theme::GAP_M);
+    ImGui::SameLine(0.0f, ftk::theme::GAP_M);
 
     float row_y = ImGui::GetCursorScreenPos().y;
     float after_x = 0.0f;
@@ -492,9 +492,9 @@ void InputMappingEditorContext::draw_binding_row(int binding_idx, int number, Ac
         after_x = ImGui::GetItemRectMax().x;
         // W measured before it is placed, to centre it.
         const std::string up = binding.up == InputSource::none ? "Not bound" : input_source_display_name(binding.up);
-        ImGui::PushFont(theme::bold_font(), 0.0f);
+        ImGui::PushFont(ftk::theme::bold_font(), 0.0f);
         const float up_w = std::max(ImGui::CalcTextSize(up.c_str()).x + 18.0f, 34.0f) +
-                           std::floor(ImGui::CalcTextSize(ui::icon::dropdown).x + 10.0f);
+                           std::floor(ImGui::CalcTextSize(ftk::ui::icon::dropdown).x + 10.0f);
         ImGui::PopFont();
         ImGui::SetCursorScreenPos({(down_min + down_max - up_w) * 0.5f, at.y});
         draw_source_button("##up", binding.up, binding_idx, RebindTarget::up, true);
@@ -505,12 +505,12 @@ void InputMappingEditorContext::draw_binding_row(int binding_idx, int number, Ac
     }
 
     // After a divider, what is done to the value, level with the first row.
-    ImGui::SetCursorScreenPos({after_x + theme::GAP_M, row_y});
+    ImGui::SetCursorScreenPos({after_x + ftk::theme::GAP_M, row_y});
     const ImVec2 divider = ImGui::GetCursorScreenPos();
     dl->AddLine({divider.x, divider.y + 4.0f}, {divider.x, divider.y + ImGui::GetFrameHeight() - 4.0f},
-                ImGui::GetColorU32(theme::surface_highest()));
+                ImGui::GetColorU32(ftk::theme::surface_highest()));
     ImGui::Dummy({1.0f, ImGui::GetFrameHeight()});
-    ImGui::SameLine(0.0f, theme::GAP_M);
+    ImGui::SameLine(0.0f, ftk::theme::GAP_M);
     draw_modifier_chips(binding_idx, type);
     ImGui::EndGroup();
     const float h = ImGui::GetItemRectMax().y - start.y + 4.0f;
@@ -521,7 +521,7 @@ void InputMappingEditorContext::draw_binding_row(int binding_idx, int number, Ac
     const float icons_y = start.y + 4.0f;
     if (hovered) {
         ImGui::SetCursorScreenPos({icons_x, icons_y});
-        if (ui::icon_button("##remove", ui::icon::remove, "Remove binding", ui::ButtonKind::GhostDanger)) {
+        if (ftk::ui::icon_button("##remove", ftk::ui::icon::remove, "Remove binding", ftk::ui::ButtonKind::GhostDanger)) {
             remove_binding_idx_ = binding_idx;
         }
     }
@@ -538,7 +538,7 @@ std::string InputMappingEditorContext::picker_id(int binding_idx, RebindTarget t
 }
 
 void InputMappingEditorContext::draw_source_picker(int binding_idx, RebindTarget target) {
-    static constexpr ui::grouped_picker::Config PICKER_CONFIG{
+    static constexpr ftk::ui::grouped_picker::Config PICKER_CONFIG{
         .search_hint = "Search sources",
         .empty_message = "No matching source.",
         .loading_message = "",
@@ -549,7 +549,7 @@ void InputMappingEditorContext::draw_source_picker(int binding_idx, RebindTarget
     // Gated on is_open(): the source list is built before the call.
     const std::string id = picker_id(binding_idx, target);
     if (std::string picked;
-        ui::grouped_picker::is_open(id.c_str()) && ui::grouped_picker::draw(id.c_str(), build_source_groups(), PICKER_CONFIG, picked)) {
+        ftk::ui::grouped_picker::is_open(id.c_str()) && ftk::ui::grouped_picker::draw(id.c_str(), build_source_groups(), PICKER_CONFIG, picked)) {
         if (const InputSource chosen = input_source_from_string(picked);
             chosen != InputSource::none && binding_idx < static_cast<int>(context_.bindings.size())) {
             set_source(binding_idx, target, chosen);
@@ -561,7 +561,7 @@ bool InputMappingEditorContext::draw_source_button(const char* id, InputSource s
                                                    RebindTarget target, bool compact) {
     const bool listening = rebinding_ && rebind_binding_idx_ == binding_idx && rebind_target_ == target;
     const std::string name = source == InputSource::none ? std::string{} : input_source_display_name(source);
-    const auto cap = ui::key_cap({.id = id,
+    const auto cap = ftk::ui::key_cap({.id = id,
                                   .device_icon = compact ? nullptr : device_icon(device_of(source)),
                                   .label = name,
                                   .listening = listening,
@@ -577,7 +577,7 @@ bool InputMappingEditorContext::draw_source_button(const char* id, InputSource s
     // too would have it take the keys typed into the list's search.
     if (cap.list) {
         rebinding_ = false;
-        ui::grouped_picker::open(picker_id(binding_idx, target).c_str());
+        ftk::ui::grouped_picker::open(picker_id(binding_idx, target).c_str());
     }
     draw_source_picker(binding_idx, target);
     return clicked;
@@ -590,34 +590,34 @@ void InputMappingEditorContext::draw_modifier_chips(int binding_idx, ActionType 
         auto& mod = binding.modifiers[mi];
         ImGui::PushID(static_cast<int>(mi));
         ImGui::AlignTextToFramePadding();
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_secondary());
         ImGui::TextUnformatted(modifier_name(mod.type));
         ImGui::PopStyleColor();
         // Negate and Swizzle take no value.
         if (mod.type == ModifierType::scale || mod.type == ModifierType::deadzone) {
-            ImGui::SameLine(0.0f, theme::GAP_S);
+            ImGui::SameLine(0.0f, ftk::theme::GAP_S);
             ImGui::SetNextItemWidth(64.0f);
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, theme::surface_inset());
-            (void)ui::drag("##value", mod.value,
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ftk::theme::surface_inset());
+            (void)ftk::ui::drag("##value", mod.value,
                            {.speed = 0.01f, .min = 0.0f, .max = 10.0f,
-                            .unit = mod.type == ModifierType::scale ? ui::Unit::Times : ui::Unit::None});
+                            .unit = mod.type == ModifierType::scale ? ftk::ui::Unit::Times : ftk::ui::Unit::None});
             ImGui::PopStyleColor();
         }
         ImGui::SameLine(0.0f, 0.0f);
-        if (ui::icon_button("##remove_mod", ui::icon::clear, "Remove modifier", ui::ButtonKind::GhostDanger)) {
+        if (ftk::ui::icon_button("##remove_mod", ftk::ui::icon::clear, "Remove modifier", ftk::ui::ButtonKind::GhostDanger)) {
             remove = mi;
         }
-        ImGui::SameLine(0.0f, theme::GAP_M);
+        ImGui::SameLine(0.0f, ftk::theme::GAP_M);
         ImGui::PopID();
     }
     if (remove) binding.modifiers.erase(binding.modifiers.begin() + static_cast<std::ptrdiff_t>(*remove));
 
-    if (ui::action(ui::icon::add, "Modifier", ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_modifier");
+    if (ftk::ui::action(ftk::ui::icon::add, "Modifier", ftk::ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_modifier");
     if (ImGui::BeginPopup("##add_modifier")) {
-        if (ui::menu_item({.label = "Scale"})) binding.modifiers.push_back({ModifierType::scale, 1.0f});
-        if (ui::menu_item({.label = "Deadzone"})) binding.modifiers.push_back({ModifierType::deadzone, 0.15f});
-        if (ui::menu_item({.label = "Negate"})) binding.modifiers.push_back({ModifierType::negate, 0.0f});
-        if (ui::menu_item({.label = "Swizzle", .enabled = type == ActionType::axis2d,
+        if (ftk::ui::menu_item({.label = "Scale"})) binding.modifiers.push_back({ModifierType::scale, 1.0f});
+        if (ftk::ui::menu_item({.label = "Deadzone"})) binding.modifiers.push_back({ModifierType::deadzone, 0.15f});
+        if (ftk::ui::menu_item({.label = "Negate"})) binding.modifiers.push_back({ModifierType::negate, 0.0f});
+        if (ftk::ui::menu_item({.label = "Swizzle", .enabled = type == ActionType::axis2d,
                            .disabled_reason = "Swaps X and Y, so only a 2D axis has it"})) {
             binding.modifiers.push_back({ModifierType::swizzle, 0.0f});
         }
@@ -630,7 +630,7 @@ void InputMappingEditorContext::draw_modifier_chips(int binding_idx, ActionType 
 void InputMappingEditorContext::draw_add_action_popup() {
     if (!ImGui::BeginPopup("##add_action")) return;
     ImGui::SetNextItemWidth(260.0f);
-    ui::search_field("##filter", action_filter_);
+    ftk::ui::search_field("##filter", action_filter_);
 
     std::vector<std::string> existing;
     for (const auto& b : context_.bindings) existing.push_back(b.action);
@@ -642,14 +642,14 @@ void InputMappingEditorContext::draw_add_action_popup() {
     for (const auto& group : groups) {
         bool heading = false;
         for (const auto& action : discovered_actions_) {
-            if (action.type != group.type || !ui::matches(action.name, action_filter_)) continue;
+            if (action.type != group.type || !ftk::ui::matches(action.name, action_filter_)) continue;
             if (!heading) {
-                ui::menu_heading(group.heading);
+                ftk::ui::menu_heading(group.heading);
                 heading = true;
             }
             any = true;
             const bool added = std::find(existing.begin(), existing.end(), action.name) != existing.end();
-            if (ui::menu_item({.label = action.name.c_str(), .enabled = !added,
+            if (ftk::ui::menu_item({.label = action.name.c_str(), .enabled = !added,
                                .disabled_reason = "Already in this context"})) {
                 InputBinding b;
                 b.action = action.name;
@@ -657,7 +657,7 @@ void InputMappingEditorContext::draw_add_action_popup() {
             }
         }
     }
-    if (!any) ui::hint("No action matches");
+    if (!any) ftk::ui::hint("No action matches");
     ImGui::EndPopup();
 }
 

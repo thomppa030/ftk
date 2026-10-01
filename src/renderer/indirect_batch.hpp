@@ -11,13 +11,14 @@
 #include <cstdint>
 #include <vector>
 
+namespace ftk::gpu {
+class Frame;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class AnimationSystem;
 struct DrawCommand;
-namespace gpu {
-class Frame;
-}
 struct MegaMeshEntry;
 class Model;
 class PipelineCache;
@@ -105,9 +106,9 @@ struct PipelineDrawRange {
 class IndirectBatch {
 public:
     /// The buffers the GPU writes are made through `gpu`.
-    explicit IndirectBatch(gpu::Device& gpu);
+    explicit IndirectBatch(ftk::gpu::Device& gpu);
 
-    void build(gpu::Frame& frame,
+    void build(ftk::gpu::Frame& frame,
                const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
                const glm::mat4& projection = glm::mat4(1.0f),
@@ -115,7 +116,6 @@ public:
                AnimationSystem* animation_system = nullptr,
                bool is_shadow_batch = false,
                const PipelineCache* pipelines = nullptr);
-
 
     /// The static draws one opaque command's node got in a build: that many
     /// indirect commands and draw data entries from `first_draw` on.
@@ -138,7 +138,7 @@ public:
 
     /// One GpuDrawData per draw: the static opaque draws, then the skinned
     /// ones, then the transparent ones.
-    [[nodiscard]] gpu::BufferRange draw_data(uint32_t frame_index) const { return draw_data_[frame_index]; }
+    [[nodiscard]] ftk::gpu::BufferRange draw_data(uint32_t frame_index) const { return draw_data_[frame_index]; }
     [[nodiscard]] uint32_t draw_data_count(uint32_t frame_index) const {
         return draw_data_counts_[frame_index];
     }
@@ -159,22 +159,22 @@ public:
 
     /// One gpu::DrawIndexedArgs per static opaque draw. The instance cull
     /// patches the instance counts of the instanced ones in place.
-    [[nodiscard]] gpu::BufferRange indirect_commands(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::BufferRange indirect_commands(uint32_t frame_index) const {
         return indirect_commands_[frame_index];
     }
     /// `count` of those from the `first`th, to draw indirect.
-    [[nodiscard]] gpu::BufferRange indirect_commands(uint32_t frame_index, uint32_t first, uint32_t count) const {
-        return slice(indirect_commands_[frame_index], first, count, sizeof(gpu::DrawIndexedArgs));
+    [[nodiscard]] ftk::gpu::BufferRange indirect_commands(uint32_t frame_index, uint32_t first, uint32_t count) const {
+        return slice(indirect_commands_[frame_index], first, count, sizeof(ftk::gpu::DrawIndexedArgs));
     }
 
     /// The mesh-shader draw commands, one gpu::DrawMeshTasksArgs per static
     /// draw: `count` of them from the `first`th.
-    [[nodiscard]] gpu::BufferRange mesh_commands(uint32_t frame_index, uint32_t first, uint32_t count) const {
-        return slice(mesh_commands_[frame_index], first, count, sizeof(gpu::DrawMeshTasksArgs));
+    [[nodiscard]] ftk::gpu::BufferRange mesh_commands(uint32_t frame_index, uint32_t first, uint32_t count) const {
+        return slice(mesh_commands_[frame_index], first, count, sizeof(ftk::gpu::DrawMeshTasksArgs));
     }
     /// The draw count of pipeline range `range`, as a draw with an indirect
     /// count reads it.
-    [[nodiscard]] gpu::BufferRange mesh_count(uint32_t frame_index, uint32_t range) const {
+    [[nodiscard]] ftk::gpu::BufferRange mesh_count(uint32_t frame_index, uint32_t range) const {
         return slice(mesh_counts_[frame_index], range, 1, sizeof(uint32_t));
     }
     /// The most task groups any of those commands asks for.
@@ -183,7 +183,7 @@ public:
     }
 
     /// Each static draw's pipeline bin: the index of its pipeline range.
-    [[nodiscard]] gpu::BufferRange pipeline_bins(uint32_t frame_index) const { return pipeline_bins_[frame_index]; }
+    [[nodiscard]] ftk::gpu::BufferRange pipeline_bins(uint32_t frame_index) const { return pipeline_bins_[frame_index]; }
 
     [[nodiscard]] const std::vector<uint32_t>& skinned_draw_indices(uint32_t frame_index) const {
         return skinned_draw_indices_[frame_index];
@@ -199,7 +199,7 @@ public:
     }
 
     /// Every instanced draw's world transforms, one after another.
-    [[nodiscard]] gpu::BufferRange instance_transforms(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::BufferRange instance_transforms(uint32_t frame_index) const {
         return instance_transforms_[frame_index];
     }
     [[nodiscard]] uint32_t instance_transform_count(uint32_t frame_index) const {
@@ -208,14 +208,14 @@ public:
 
     /// The transforms the instance cull keeps, written on the GPU, as many
     /// as there are instance transforms; empty without any.
-    [[nodiscard]] gpu::BufferRange visible_instances(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::BufferRange visible_instances(uint32_t frame_index) const {
         if (instance_transform_counts_[frame_index] == 0) return {};
         return {visible_instance_buffers_[frame_index], 0,
                 uint64_t{instance_transform_counts_[frame_index]} * sizeof(glm::mat4)};
     }
 
     /// One GpuInstancedDraw per instanced draw.
-    [[nodiscard]] gpu::BufferRange instanced_draws(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::BufferRange instanced_draws(uint32_t frame_index) const {
         return instanced_draws_[frame_index];
     }
     [[nodiscard]] uint32_t instanced_draw_count(uint32_t frame_index) const {
@@ -223,7 +223,7 @@ public:
     }
 
     /// One GpuSplineSegment per instance of a spline mesh draw.
-    [[nodiscard]] gpu::BufferRange spline_segments(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::BufferRange spline_segments(uint32_t frame_index) const {
         return spline_segments_[frame_index];
     }
     [[nodiscard]] uint32_t spline_segment_count(uint32_t frame_index) const {
@@ -232,10 +232,10 @@ public:
 
 private:
     template <typename T>
-    using PerFrame = std::array<T, MAX_FRAMES_IN_FLIGHT>;
+    using PerFrame = std::array<T, ftk::MAX_FRAMES_IN_FLIGHT>;
 
     /// `count` elements of `stride` bytes from the `first`th of `range`.
-    [[nodiscard]] static gpu::BufferRange slice(const gpu::BufferRange& range, uint32_t first, uint32_t count,
+    [[nodiscard]] static ftk::gpu::BufferRange slice(const ftk::gpu::BufferRange& range, uint32_t first, uint32_t count,
                                                 uint64_t stride) {
         return {range.buffer, range.offset + uint64_t{first} * stride, uint64_t{count} * stride};
     }
@@ -246,18 +246,18 @@ private:
     [[nodiscard]] bool ensure_visible_capacity(uint32_t frame_index, uint32_t count);
 
     /// Empties the build of `frame`'s slot: nothing to draw.
-    void clear(gpu::Frame& frame);
+    void clear(ftk::gpu::Frame& frame);
 
-    gpu::Device& gpu_;
+    ftk::gpu::Device& gpu_;
 
-    PerFrame<gpu::BufferRange> indirect_commands_;
-    PerFrame<gpu::BufferRange> draw_data_;
-    PerFrame<gpu::BufferRange> mesh_commands_;
-    PerFrame<gpu::BufferRange> mesh_counts_;
-    PerFrame<gpu::BufferRange> pipeline_bins_;
-    PerFrame<gpu::BufferRange> instance_transforms_;
-    PerFrame<gpu::BufferRange> instanced_draws_;
-    PerFrame<gpu::BufferRange> spline_segments_;
+    PerFrame<ftk::gpu::BufferRange> indirect_commands_;
+    PerFrame<ftk::gpu::BufferRange> draw_data_;
+    PerFrame<ftk::gpu::BufferRange> mesh_commands_;
+    PerFrame<ftk::gpu::BufferRange> mesh_counts_;
+    PerFrame<ftk::gpu::BufferRange> pipeline_bins_;
+    PerFrame<ftk::gpu::BufferRange> instance_transforms_;
+    PerFrame<ftk::gpu::BufferRange> instanced_draws_;
+    PerFrame<ftk::gpu::BufferRange> spline_segments_;
     PerFrame<std::vector<NodeDraws>> node_draws_;
 
     // What the last build picked LODs from: its camera, and its projection's
@@ -274,9 +274,9 @@ private:
 
     // Built on the CPU, then written into the frame's memory in one copy
     // each.
-    std::vector<gpu::DrawIndexedArgs> staged_indirect_;
+    std::vector<ftk::gpu::DrawIndexedArgs> staged_indirect_;
     std::vector<GpuDrawData> staged_draw_data_;
-    std::vector<gpu::DrawMeshTasksArgs> staged_mesh_commands_;
+    std::vector<ftk::gpu::DrawMeshTasksArgs> staged_mesh_commands_;
     std::vector<uint32_t> staged_mesh_counts_;
     std::vector<uint32_t> staged_pipeline_bins_;
 
@@ -291,7 +291,7 @@ private:
     // Packed instance transforms (world-space, concatenated for all
     // instanced draws), and the GPU-written compacted visible ones the
     // vertex path reads.
-    PerFrame<gpu::Owned<gpu::Buffer>> visible_instance_buffers_;
+    PerFrame<ftk::gpu::Owned<ftk::gpu::Buffer>> visible_instance_buffers_;
     PerFrame<uint32_t> visible_instance_capacities_{};
     PerFrame<uint32_t> instance_transform_counts_{};
     std::vector<glm::mat4> staged_instance_transforms_;

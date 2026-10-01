@@ -34,17 +34,17 @@ struct GridPushConstants {
 
 class GridPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
 
     [[nodiscard]] GridSettings& settings() { return settings_; }
     [[nodiscard]] const GridSettings& settings() const { return settings_; }
 
 private:
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
     OutputOverlay overlay_;
     GridSettings settings_;
 };

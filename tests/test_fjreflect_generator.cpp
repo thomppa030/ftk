@@ -16,7 +16,7 @@ namespace {
 
 fs::path scratch_dir(const std::string& name) {
     auto dir = fs::temp_directory_path() /
-               ("fjreflect_gen_" + std::to_string(fjell::platform::process_id()) + "_" + name);
+               ("fjreflect_gen_" + std::to_string(ftk::platform::process_id()) + "_" + name);
     fs::remove_all(dir);
     fs::create_directories(dir);
     return dir;

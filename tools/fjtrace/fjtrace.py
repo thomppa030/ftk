@@ -45,7 +45,7 @@ UNIT_NS = 100
 
 # Zones that start a frame, in order of preference. Tracy's frame marks do not
 # survive the CSV export, so frames are cut at a zone instead. input_update is
-# the first zone after FJELL_PROFILE_FRAME in the main loop. Mesh Depth is the
+# the first zone after FTK_PROFILE_FRAME in the main loop. Mesh Depth is the
 # depth prepass, the first pass drawn every frame; the instance cull that can
 # precede it is skipped on frames with nothing to cull, so it lands at the tail
 # of the previous frame. When none is present, pick_anchor() falls back to the

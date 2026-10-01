@@ -226,23 +226,23 @@ std::vector<WaterWave> generate_water_waves(const WaterWaveGenerator& settings) 
     return waves;
 }
 
-Result<FjWaterData> load_fjwater_file(const std::string& path) {
+ftk::Result<FjWaterData> load_fjwater_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjwater file: " + path);
+        return ftk::make_error("Failed to open .fjwater file: " + path);
     }
     std::stringstream text;
     text << f.rdbuf();
     return fjwater_from_text(text.str(), path);
 }
 
-Result<FjWaterData> fjwater_from_text(std::string_view text, const std::string& path) {
+ftk::Result<FjWaterData> fjwater_from_text(std::string_view text, const std::string& path) {
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
-        return make_error("Malformed .fjwater file " + path + ": " + e.what());
+        return ftk::make_error("Malformed .fjwater file " + path + ": " + e.what());
     }
 
     FjWaterData field;
@@ -261,7 +261,7 @@ Result<FjWaterData> fjwater_from_text(std::string_view text, const std::string& 
                 // Refused rather than skipped: a file this build cannot fully
                 // read is one it would quietly write back without the part it
                 // skipped.
-                return make_error("Unknown contributor kind '" + kind + "' in .fjwater file: "
+                return ftk::make_error("Unknown contributor kind '" + kind + "' in .fjwater file: "
                                   + path);
             }
         }
@@ -308,10 +308,10 @@ std::string fjwater_text(const FjWaterData& field) {
     return j.dump(4) + "\n";
 }
 
-Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
+ftk::Result<> save_fjwater_file(const std::string& path, const FjWaterData& field) {
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjwater file: " + path);
+        return ftk::make_error("Failed to write .fjwater file: " + path);
     }
     f << fjwater_text(field);
     return {};

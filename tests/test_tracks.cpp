@@ -123,7 +123,7 @@ TEST_CASE("A day profile folds into the environment and leaves the rest alone", 
     // the track lands converted and reads back as the colour it set.
     const NamedValue* fog_color = find_named(state.fog.uniforms, "color");
     REQUIRE(fog_color != nullptr);
-    REQUIRE(close(color_space::srgb_to_linear(glm::vec3(fog_color->values[0], fog_color->values[1],
+    REQUIRE(close(ftk::color_space::srgb_to_linear(glm::vec3(fog_color->values[0], fog_color->values[1],
                                                         fog_color->values[2])),
                   glm::vec3(0.2f, 0.3f, 0.4f)));
     REQUIRE(state.exposure_bias == Approx(-1.5f));
@@ -254,7 +254,7 @@ TEST_CASE("A fog track drives any uniform the material declares", "[tracks][fog]
     REQUIRE(find_named(state.fog_volumes[0].uniforms, "noise_contrast")->values[0] == Approx(0.8f));
     REQUIRE(find_named(state.fog_volumes[1].uniforms, "noise_contrast")->values[0] == Approx(0.0f));
     const NamedValue* c = find_named(state.fog_volumes[0].uniforms, "color");
-    REQUIRE(close(color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2])),
+    REQUIRE(close(ftk::color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2])),
                   glm::vec3(0.9f, 0.5f, 0.2f)));
     // A uniform nothing declares reaches nothing, and is not a sky uniform.
     REQUIRE(find_named(state.fog.uniforms, "nowhere") == nullptr);
@@ -286,7 +286,7 @@ TEST_CASE("A grouped fog track moves only its own volumes", "[tracks]") {
     };
     auto color_of = [&](size_t i) {
         const NamedValue* c = find_named(state.fog_volumes[i].uniforms, "color");
-        return color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2]));
+        return ftk::color_space::srgb_to_linear(glm::vec3(c->values[0], c->values[1], c->values[2]));
     };
     const glm::vec3 authored_color = color_of(1);
 

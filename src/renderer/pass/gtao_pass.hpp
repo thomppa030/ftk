@@ -61,29 +61,29 @@ public:
         /// Half the viewport's size. Written on the compute queue when GTAO
         /// runs there and sampled by every fragment shader on the graphics
         /// queue, so it is shared by both.
-        gpu::Owned<gpu::Texture> ao;
+        ftk::gpu::Owned<ftk::gpu::Texture> ao;
         glm::uvec2 extent{0, 0};
 
         /// No occlusion until the first trace writes it.
-        void create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h);
+        void create(ftk::gpu::Device& gpu, uint32_t half_w, uint32_t half_h);
         /// Releases the texture; the frames still reading it keep it until
         /// they are done.
         void destroy();
         /// Made again at half of `width` × `height` when that changes.
-        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
+        void resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
-    Result<> create(const PassResources& resources) final;
+    ftk::Result<> create(const PassResources& resources) final;
     void destroy() final;
     void record(const FrameContext& ctx) final;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) final;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) final;
     void collect_exports(DeclareContext& ctx) final;
 
     void resize(uint32_t width, uint32_t height);
 
     /// The placeholder AO for views without their own.
-    [[nodiscard]] gpu::Texture ao_texture() const { return default_images_.ao; }
-    [[nodiscard]] gpu::Sampler ao_sampler() const { return ao_sampler_; }
+    [[nodiscard]] ftk::gpu::Texture ao_texture() const { return default_images_.ao; }
+    [[nodiscard]] ftk::gpu::Sampler ao_sampler() const { return ao_sampler_; }
 
     void set_radius(float r) { radius_ = r; }
     void set_intensity(float i) { intensity_ = i; }
@@ -94,23 +94,23 @@ public:
     [[nodiscard]] float thickness() const { return thickness_; }
     [[nodiscard]] bool enabled() const { return enabled_; }
 
-    [[nodiscard]] gpu::ComputePipeline blur_pipeline() const { return blur_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline blur_pipeline() const { return blur_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
 
 protected:
     // Subclass hooks. AoPass::create() sets up shared state then calls
     // create_trace(); AoPass::declare/record delegate when enabled, and
     // handle the !enabled_ clear-to-white path directly.
-    virtual Result<> create_trace(const PassResources& resources) = 0;
-    virtual void declare_trace(PassBuilder& builder, const DeclareContext& ctx) = 0;
+    virtual ftk::Result<> create_trace(const PassResources& resources) = 0;
+    virtual void declare_trace(ftk::PassBuilder& builder, const DeclareContext& ctx) = 0;
     virtual void record_trace(const FrameContext& ctx, Images& images) = 0;
     virtual void destroy_trace() = 0;
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
 
 private:
-    gpu::Sampler ao_sampler_;
-    gpu::Owned<gpu::ComputePipeline> blur_pipeline_;
+    ftk::gpu::Sampler ao_sampler_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> blur_pipeline_;
 
     float radius_{1.0F};
     float intensity_{1.5F};
@@ -126,23 +126,23 @@ public:
     [[nodiscard]] PassSetup setup() const override;
 
 protected:
-    Result<> create_trace(const PassResources& resources) override;
-    void declare_trace(PassBuilder& builder, const DeclareContext& ctx) override;
+    ftk::Result<> create_trace(const PassResources& resources) override;
+    void declare_trace(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void record_trace(const FrameContext& ctx, Images& images) override;
     void destroy_trace() override;
 
 private:
-    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> trace_pipeline_;
 };
 
 // Horizontal blur dispatch. Reads ao_image, writes transient gtao_blur.
 class AoBlurHPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -152,11 +152,11 @@ private:
 // Vertical blur dispatch. Reads transient gtao_blur, writes ao_image.
 class AoBlurVPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:

@@ -97,7 +97,7 @@ private:
     bool saved_ungraded_{false};
 
     // The capture's read, and what its PNG is named after.
-    std::optional<gpu::Readback> read_;
+    std::optional<ftk::gpu::Readback> read_;
     std::string read_tag_;
     // Saved editor panel state to restore after capture.
     int saved_panel_id_{0};

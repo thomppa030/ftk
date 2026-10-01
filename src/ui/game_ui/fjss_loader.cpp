@@ -27,7 +27,7 @@ void report(Stylesheet& sheet, const std::string& source, uint32_t line, uint32_
             std::string message) {
     // Loader problems are logged the way the parser logs its own, so the
     // console and fjlint show them in the same place and format.
-    FJELL_CORE_ERROR("{}:{}:{}: error: {}", source, line, column, message);
+    FTK_CORE_ERROR("{}:{}:{}: error: {}", source, line, column, message);
     sheet.diagnostics.push_back({source, line, column, FjssSeverity::error, std::move(message)});
 }
 

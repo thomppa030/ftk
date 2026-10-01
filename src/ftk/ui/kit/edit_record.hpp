@@ -21,7 +21,7 @@
 //     ui::edit_scope({});
 //     if (auto record = ui::take_edit_record("12/rigidbody")) { ... }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct EditRecord {
     std::string label{};
@@ -58,4 +58,4 @@ void track_field(ImGuiID id, const std::string& before, const std::string& after
 
 } // namespace detail
 
-} // namespace fjell::ui
+} // namespace ftk::ui

@@ -7,11 +7,11 @@
 
 #include <cstdint>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
 
 struct MeshletRange {
     uint32_t meshlet_offset{0};  // first meshlet index in the global array
@@ -25,16 +25,16 @@ struct MeshletRange {
 class MeshletBuffer {
 public:
     /// Throws when the buffers cannot be made.
-    explicit MeshletBuffer(gpu::Device& gpu);
+    explicit MeshletBuffer(ftk::gpu::Device& gpu);
 
     /// Appends a mesh's meshlets. An empty range, which draws no meshlets,
     /// when the buffers cannot grow to hold them; the reason is logged.
     MeshletRange upload(const MeshletBuildResult& result, uint32_t mega_vertex_offset);
 
-    [[nodiscard]] gpu::Buffer meshlet_buffer() const { return meshlets_; }
-    [[nodiscard]] gpu::Buffer bounds_buffer() const { return bounds_; }
-    [[nodiscard]] gpu::Buffer vertex_index_buffer() const { return vertex_indices_; }
-    [[nodiscard]] gpu::Buffer triangle_buffer() const { return triangles_; }
+    [[nodiscard]] ftk::gpu::Buffer meshlet_buffer() const { return meshlets_; }
+    [[nodiscard]] ftk::gpu::Buffer bounds_buffer() const { return bounds_; }
+    [[nodiscard]] ftk::gpu::Buffer vertex_index_buffer() const { return vertex_indices_; }
+    [[nodiscard]] ftk::gpu::Buffer triangle_buffer() const { return triangles_; }
 
     // The bytes of each uploaded so far.
     [[nodiscard]] uint64_t meshlet_buffer_size() const { return meshlet_used_; }
@@ -45,12 +45,12 @@ public:
     [[nodiscard]] uint32_t total_meshlets() const { return meshlet_count_; }
 
 private:
-    gpu::Device& gpu_;
+    ftk::gpu::Device& gpu_;
 
-    gpu::Owned<gpu::Buffer> meshlets_;
-    gpu::Owned<gpu::Buffer> bounds_;
-    gpu::Owned<gpu::Buffer> vertex_indices_;
-    gpu::Owned<gpu::Buffer> triangles_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> meshlets_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> bounds_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> vertex_indices_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> triangles_;
 
     uint64_t meshlet_used_{0};
     uint64_t bounds_used_{0};

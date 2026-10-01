@@ -8,7 +8,7 @@ using Catch::Approx;
 using fjell::TimelineLane;
 using fjell::TimelineMarker;
 using fjell::TimelineWidget;
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 
 namespace {
 

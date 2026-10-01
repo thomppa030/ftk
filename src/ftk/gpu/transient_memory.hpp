@@ -11,7 +11,7 @@
 #include <span>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// A buffer transient memory hands out slices of, and the CPU's view of it.
 struct TransientChunk {
@@ -93,4 +93,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

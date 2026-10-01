@@ -66,53 +66,53 @@ bool draws_in(const ParticleSystem::EmitterGpu& em, const DrawView& view) {
 }
 
 // Colour over what is there by the source's alpha, the alpha summed.
-constexpr gpu::Blend ALPHA_BLEND{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
-                                 gpu::BlendFactor::one, gpu::BlendFactor::one};
+constexpr ftk::gpu::Blend ALPHA_BLEND{true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one_minus_src_alpha,
+                                 ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one};
 // Colour added by the source's alpha, the alpha summed.
-constexpr gpu::Blend ADDITIVE_BLEND{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one,
-                                    gpu::BlendFactor::one, gpu::BlendFactor::one};
+constexpr ftk::gpu::Blend ADDITIVE_BLEND{true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one,
+                                    ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one};
 // Screen offsets summed.
-constexpr gpu::Blend SUM_BLEND{true, gpu::BlendFactor::one, gpu::BlendFactor::one, gpu::BlendFactor::one,
-                               gpu::BlendFactor::one};
+constexpr ftk::gpu::Blend SUM_BLEND{true, ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one,
+                               ftk::gpu::BlendFactor::one};
 
 // What the compute steps read and write, and what each step of a
 // dispatch's sequence leaves for the next.
-constexpr gpu::Access COMPUTE = gpu::Access::storage_buffer_read_write_compute;
+constexpr ftk::gpu::Access COMPUTE = ftk::gpu::Access::storage_buffer_read_write_compute;
 
 } // namespace
 
 void ParticleSystem::create(const PassResources& resources) {
     gpu_device_ = resources.device;
     targets_ = resources;
-    gpu::Device& gpu = *gpu_device_;
+    ftk::gpu::Device& gpu = *gpu_device_;
 
     // Soft particles read the scene's depth, which means nothing between two
     // texels.
-    depth_sampler_ = gpu.sampler({.filter = gpu::Filter::nearest,
-                                  .mip_filter = gpu::Filter::nearest,
-                                  .address = gpu::Address::clamp});
+    depth_sampler_ = gpu.sampler({.filter = ftk::gpu::Filter::nearest,
+                                  .mip_filter = ftk::gpu::Filter::nearest,
+                                  .address = ftk::gpu::Address::clamp});
 
     // Each buffer is made small and reserves room for the scene budgets in
     // particle_budget.hpp, which it grows into in place: growing waits for
     // nothing, and what is bound to it is never rewritten.
     constexpr uint64_t INITIAL_PARTICLES = 512;
     constexpr uint64_t INITIAL_EMITTERS = 8;
-    auto make = [&](uint64_t per_item, uint64_t initial, uint64_t budget, gpu::BufferUses use,
+    auto make = [&](uint64_t per_item, uint64_t initial, uint64_t budget, ftk::gpu::BufferUses use,
                     std::string_view name) {
-        auto made = gpu.create(gpu::BufferDesc{
+        auto made = gpu.create(ftk::gpu::BufferDesc{
             .size = initial * per_item, .reserve = budget * per_item, .use = use, .name = name});
         if (!made) throw std::runtime_error("Particles: " + made.error());
         return std::move(*made);
     };
-    const gpu::BufferUses storage = gpu::BufferUse::storage;
-    const gpu::BufferUses drawn = gpu::BufferUse::storage | gpu::BufferUse::indirect;
+    const ftk::gpu::BufferUses storage = ftk::gpu::BufferUse::storage;
+    const ftk::gpu::BufferUses drawn = ftk::gpu::BufferUse::storage | ftk::gpu::BufferUse::indirect;
     particles_ = make(PARTICLE_STRIDE, INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage, "particle_mega");
     alive_ = make(sizeof(uint32_t), INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage, "particle_alive");
     mesh_instances_ = make(sizeof(GpuMeshInstance), INITIAL_PARTICLES, MAX_SCENE_PARTICLES, storage,
                            "particle_mesh_instances");
     counters_ = make(3 * sizeof(uint32_t), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, storage, "particle_counters");
-    indirect_ = make(sizeof(gpu::DrawArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn, "particle_indirect");
-    mesh_indirect_ = make(sizeof(gpu::DrawIndexedArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn,
+    indirect_ = make(sizeof(ftk::gpu::DrawArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn, "particle_indirect");
+    mesh_indirect_ = make(sizeof(ftk::gpu::DrawIndexedArgs), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, drawn,
                           "particle_mesh_indirect");
     mesh_instance_counts_ = make(sizeof(uint32_t), INITIAL_EMITTERS, MAX_SCENE_EMITTERS, storage,
                                  "particle_mesh_counts");
@@ -126,37 +126,37 @@ void ParticleSystem::create(const PassResources& resources) {
     if (!build_pipelines(pipelines_)) {
         throw std::runtime_error("Failed to build particle pipelines");
     }
-    FJELL_GFX_DEBUG("Particle system created");
+    FTK_GFX_DEBUG("Particle system created");
 }
 
 void ParticleSystem::recreate_pipelines() {
     Pipelines fresh;
     if (!build_pipelines(fresh)) {
-        FJELL_GFX_ERROR("Particle pipelines not reloaded; the previous ones stay in use");
+        FTK_GFX_ERROR("Particle pipelines not reloaded; the previous ones stay in use");
         return;
     }
     // Frames still in flight keep drawing with the pipelines replaced until
     // they are done.
     pipelines_ = std::move(fresh);
-    FJELL_GFX_DEBUG("Particle pipelines reloaded");
+    FTK_GFX_DEBUG("Particle pipelines reloaded");
 }
 
 bool ParticleSystem::build_pipelines(Pipelines& out) {
-    gpu::Device& gpu = *gpu_device_;
+    ftk::gpu::Device& gpu = *gpu_device_;
     bool ok = true;
 
     // Only the simulation reads the globals: the scene's SDF, to collide.
     auto compute = [&](const char* shader, bool reads_globals) {
-        auto made = gpu.create(gpu::ComputePipelineDesc{
+        auto made = gpu.create(ftk::gpu::ComputePipelineDesc{
             .shader = shader,
-            .shared = reads_globals ? std::vector<gpu::SharedLayout>{targets_.globals}
-                                    : std::vector<gpu::SharedLayout>{},
+            .shared = reads_globals ? std::vector<ftk::gpu::SharedLayout>{targets_.globals}
+                                    : std::vector<ftk::gpu::SharedLayout>{},
             .name = shader,
         });
         if (!made) {
-            FJELL_GFX_ERROR("Particles: {}", made.error());
+            FTK_GFX_ERROR("Particles: {}", made.error());
             ok = false;
-            return gpu::Owned<gpu::ComputePipeline>{};
+            return ftk::gpu::Owned<ftk::gpu::ComputePipeline>{};
         }
         return std::move(*made);
     };
@@ -177,37 +177,37 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     constexpr const char* LIT = "shaders/particle_lit.frag";
     constexpr const char* OPAQUE = "shaders/particle_opaque.frag";
     constexpr const char* OPAQUE_LIT = "shaders/particle_opaque_lit.frag";
-    constexpr auto LIST = gpu::Topology::triangles;
-    constexpr auto STRIP = gpu::Topology::triangle_strip;
-    auto draw = [&](const char* vertex, const char* fragment, gpu::Topology topology, Look look,
+    constexpr auto LIST = ftk::gpu::Topology::triangles;
+    constexpr auto STRIP = ftk::gpu::Topology::triangle_strip;
+    auto draw = [&](const char* vertex, const char* fragment, ftk::gpu::Topology topology, Look look,
                     std::string_view name) {
         const bool opaque = look == Look::opaque;
-        const gpu::Blend colour = look == Look::additive ? ADDITIVE_BLEND
+        const ftk::gpu::Blend colour = look == Look::additive ? ADDITIVE_BLEND
                                   : look == Look::alpha  ? ALPHA_BLEND
-                                                         : gpu::Blend::none;
-        const gpu::ChannelMask surface =
-            opaque ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
+                                                         : ftk::gpu::Blend::none;
+        const ftk::gpu::ChannelMask surface =
+            opaque ? ftk::gpu::ChannelMask{ftk::gpu::Channel::r | ftk::gpu::Channel::g} : ftk::gpu::ChannelMask{};
         // Mesh particles draw the mega buffer's vertices.
         const bool mesh = std::string_view{vertex} == MESH;
-        auto made = gpu.create(gpu::GraphicsPipelineDesc{
+        auto made = gpu.create(ftk::gpu::GraphicsPipelineDesc{
             .vertex = vertex,
             .fragment = fragment,
-            .vertex_layout = mesh ? Vertex::layout() : gpu::VertexLayout{},
+            .vertex_layout = mesh ? Vertex::layout() : ftk::gpu::VertexLayout{},
             .topology = topology,
-            .depth = {.test = true, .write = opaque, .compare = gpu::Compare::less_equal},
+            .depth = {.test = true, .write = opaque, .compare = ftk::gpu::Compare::less_equal},
             .color = {{targets_.scene_color_format, colour},
-                      {targets_.scene_mr_format, gpu::Blend::none, surface},
-                      {targets_.scene_normal_format, gpu::Blend::none, surface},
-                      {targets_.scene_velocity_format, gpu::Blend::none, gpu::ChannelMask{}}},
+                      {targets_.scene_mr_format, ftk::gpu::Blend::none, surface},
+                      {targets_.scene_normal_format, ftk::gpu::Blend::none, surface},
+                      {targets_.scene_velocity_format, ftk::gpu::Blend::none, ftk::gpu::ChannelMask{}}},
             .depth_format = targets_.scene_depth_format,
             .samples = targets_.samples,
             .shared = {targets_.globals, targets_.bindless},
             .name = name,
         });
         if (!made) {
-            FJELL_GFX_ERROR("Particles: {}", made.error());
+            FTK_GFX_ERROR("Particles: {}", made.error());
             ok = false;
-            return gpu::Owned<gpu::GraphicsPipeline>{};
+            return ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>{};
         }
         return std::move(*made);
     };
@@ -229,17 +229,17 @@ bool ParticleSystem::build_pipelines(Pipelines& out) {
     out.mesh_opaque_lit = draw(MESH, OPAQUE_LIT, LIST, Look::opaque, "particle_mesh_opaque_lit");
 
     // Distortion: one R16G16 target of screen offsets, summed, single-sampled.
-    auto distortion = gpu.create(gpu::GraphicsPipelineDesc{
+    auto distortion = gpu.create(ftk::gpu::GraphicsPipelineDesc{
         .vertex = BILLBOARD,
         .fragment = "shaders/particle_distortion.frag",
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
-        .color = {{targets_.scene_distortion_format, SUM_BLEND, gpu::Channel::r | gpu::Channel::g}},
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
+        .color = {{targets_.scene_distortion_format, SUM_BLEND, ftk::gpu::Channel::r | ftk::gpu::Channel::g}},
         .depth_format = targets_.scene_depth_format,
         .shared = {targets_.globals, targets_.bindless},
         .name = "particle_distortion",
     });
     if (!distortion) {
-        FJELL_GFX_ERROR("Particles: {}", distortion.error());
+        FTK_GFX_ERROR("Particles: {}", distortion.error());
         ok = false;
     } else {
         out.distortion = std::move(*distortion);
@@ -257,9 +257,9 @@ void ParticleSystem::destroy() {
 }
 
 void ParticleSystem::grow_buffers(uint32_t total_particles, uint32_t emitter_count) {
-    auto grow = [&](gpu::Buffer buffer, uint64_t size) {
+    auto grow = [&](ftk::gpu::Buffer buffer, uint64_t size) {
         if (auto grown = gpu_device_->grow(buffer, size); !grown) {
-            FJELL_GFX_ERROR("Particles: {}", grown.error());
+            FTK_GFX_ERROR("Particles: {}", grown.error());
         }
     };
     const uint64_t particles = total_particles;
@@ -268,14 +268,14 @@ void ParticleSystem::grow_buffers(uint32_t total_particles, uint32_t emitter_cou
     grow(alive_, particles * sizeof(uint32_t));
     grow(mesh_instances_, particles * sizeof(GpuMeshInstance));
     grow(counters_, emitters * 3 * sizeof(uint32_t));
-    grow(indirect_, emitters * sizeof(gpu::DrawArgs));
-    grow(mesh_indirect_, emitters * sizeof(gpu::DrawIndexedArgs));
+    grow(indirect_, emitters * sizeof(ftk::gpu::DrawArgs));
+    grow(mesh_indirect_, emitters * sizeof(ftk::gpu::DrawIndexedArgs));
     grow(mesh_instance_counts_, emitters * sizeof(uint32_t));
     grow(sub_events_, emitters * MAX_SUB_EVENTS_PER_EMITTER * SUB_EVENT_SIZE);
     grow(sub_event_counts_, emitters * sizeof(uint32_t));
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
-    FJELL_GFX_DEBUG("Particle buffers grown: {} particles, {} emitters", total_particles, emitter_count);
+    FTK_GFX_DEBUG("Particle buffers grown: {} particles, {} emitters", total_particles, emitter_count);
 }
 
 void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
@@ -285,32 +285,32 @@ void ParticleSystem::init_emitter_slots(const std::vector<uint32_t>& slots) {
     }
 }
 
-void ParticleSystem::record_pending_inits(gpu::CommandList& cmd) {
+void ParticleSystem::record_pending_inits(ftk::gpu::CommandList& cmd) {
     if (pending_inits_.empty()) return;
 
     // The dispatches of this pass and earlier frames read and write these
     // ranges; the fills come after them, and what follows sees the fills.
-    cmd.barrier(particles_, COMPUTE, gpu::Access::clear);
-    cmd.barrier(indirect_, COMPUTE, gpu::Access::clear);
-    cmd.barrier(counters_, COMPUTE, gpu::Access::copy_dst);
+    cmd.barrier(particles_, COMPUTE, ftk::gpu::Access::clear);
+    cmd.barrier(indirect_, COMPUTE, ftk::gpu::Access::clear);
+    cmd.barrier(counters_, COMPUTE, ftk::gpu::Access::copy_dst);
     for (const auto& init : pending_inits_) {
         // A zeroed particle has lifetime 0: dead until emission overwrites it.
         const uint64_t particle_size = init.max_particles * PARTICLE_STRIDE;
         if (particle_size > 0) {
-            cmd.fill(gpu::BufferRange(particles_, init.base_offset * PARTICLE_STRIDE, particle_size), 0);
+            cmd.fill(ftk::gpu::BufferRange(particles_, init.base_offset * PARTICLE_STRIDE, particle_size), 0);
         }
         if (!init.reset_counters) continue;
 
-        cmd.fill(gpu::BufferRange(indirect_, init.slot * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 0);
+        cmd.fill(ftk::gpu::BufferRange(indirect_, init.slot * sizeof(ftk::gpu::DrawArgs), sizeof(ftk::gpu::DrawArgs)), 0);
         // alive, dead, trail_head
         const std::array<uint32_t, 3> counters{0, init.max_particles, 0};
         cmd.copy(cmd.transient(counters),
-                 gpu::BufferRange(counters_, init.slot * sizeof(counters), sizeof(counters)));
+                 ftk::gpu::BufferRange(counters_, init.slot * sizeof(counters), sizeof(counters)));
     }
     pending_inits_.clear();
-    cmd.barrier(particles_, gpu::Access::clear, COMPUTE);
-    cmd.barrier(indirect_, gpu::Access::clear, COMPUTE);
-    cmd.barrier(counters_, gpu::Access::copy_dst, COMPUTE);
+    cmd.barrier(particles_, ftk::gpu::Access::clear, COMPUTE);
+    cmd.barrier(indirect_, ftk::gpu::Access::clear, COMPUTE);
+    cmd.barrier(counters_, ftk::gpu::Access::copy_dst, COMPUTE);
 }
 
 // ── RenderSubsystem overrides ──────────────────────────────────────────
@@ -391,59 +391,59 @@ void ParticleSystem::collect_exports(DeclareContext& ctx) const {
     // draw what it left.
     const auto clock = clocks_.find(ctx.scene_id);
     const bool steps = clock != clocks_.end() && clock->second.pending;
-    auto add = [&](gpu::Buffer buffer, bool persistent, gpu::Access draw_access) {
+    auto add = [&](ftk::gpu::Buffer buffer, bool persistent, ftk::gpu::Access draw_access) {
         if (!buffer.valid()) { return; }
-        ctx.subsystem_draw_inputs.push_back({BufferImport{buffer, persistent}, draw_access, steps});
+        ctx.subsystem_draw_inputs.push_back({ftk::BufferImport{buffer, persistent}, draw_access, steps});
     };
     // The particles and their counters carry into the next frame; the alive
     // lists, commands and mesh instances are rebuilt from them every frame.
-    add(particles_, true, gpu::Access::storage_buffer_read_vertex);
-    add(counters_, true, gpu::Access::storage_buffer_read_vertex);
-    add(alive_, false, gpu::Access::storage_buffer_read_vertex);
-    add(indirect_, false, gpu::Access::indirect_read);
-    add(mesh_instances_, false, gpu::Access::storage_buffer_read_vertex);
-    add(mesh_indirect_, false, gpu::Access::indirect_read);
+    add(particles_, true, ftk::gpu::Access::storage_buffer_read_vertex);
+    add(counters_, true, ftk::gpu::Access::storage_buffer_read_vertex);
+    add(alive_, false, ftk::gpu::Access::storage_buffer_read_vertex);
+    add(indirect_, false, ftk::gpu::Access::indirect_read);
+    add(mesh_instances_, false, ftk::gpu::Access::storage_buffer_read_vertex);
+    add(mesh_indirect_, false, ftk::gpu::Access::indirect_read);
     // The ray-traced GI builds its particle instances from these.
     if (particles_) {
-        ctx.buffer_imports.emplace(fg_name_hash("particle_state"), BufferImport{particles_, true});
+        ctx.buffer_imports.emplace(ftk::fg_name_hash("particle_state"), ftk::BufferImport{particles_, true});
     }
 }
 
-void ParticleSystem::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void ParticleSystem::record_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     record_render_opaque(ctx, pass);
 }
 
-void ParticleSystem::record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void ParticleSystem::record_distortion(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     record_render_distortion(ctx, pass);
 }
 
-void ParticleSystem::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void ParticleSystem::record_transparent(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     record_render(ctx, pass);
 }
 
-void ParticleSystem::use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline,
-                         const gpu::BufferRange& records) {
+void ParticleSystem::use(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass, ftk::gpu::GraphicsPipeline pipeline,
+                         const ftk::gpu::BufferRange& records) {
     pass.set_pipeline(pipeline);
     pass.bind(ctx.globals);
     pass.bind(ctx.bindless);
     // Each pairing of shaders reads its own few of these.
-    const gpu::BindEntry offered[] = {
-        {"ParticleBuffer", gpu::storage(particles_)},
-        {"AliveList", gpu::storage(alive_)},
-        {"EmitterBuffer", gpu::storage(records)},
-        {"Counters", gpu::storage(counters_)},
-        {"InstanceBuffer", gpu::storage(mesh_instances_)},
-        {"depth_tex", gpu::sampled(ctx.target->depth_texture(), depth_sampler_)},
+    const ftk::gpu::BindEntry offered[] = {
+        {"ParticleBuffer", ftk::gpu::storage(particles_)},
+        {"AliveList", ftk::gpu::storage(alive_)},
+        {"EmitterBuffer", ftk::gpu::storage(records)},
+        {"Counters", ftk::gpu::storage(counters_)},
+        {"InstanceBuffer", ftk::gpu::storage(mesh_instances_)},
+        {"depth_tex", ftk::gpu::sampled(ctx.target->depth_texture(), depth_sampler_)},
     };
-    const gpu::ShaderLayout& layout = gpu_device_->layout(pipeline);
-    SmallVector<gpu::BindEntry, std::size(offered)> read;
-    for (const gpu::BindEntry& entry : offered) {
+    const ftk::gpu::ShaderLayout& layout = gpu_device_->layout(pipeline);
+    ftk::SmallVector<ftk::gpu::BindEntry, std::size(offered)> read;
+    for (const ftk::gpu::BindEntry& entry : offered) {
         if (layout.find(entry.name) != nullptr) read.push_back(entry);
     }
-    pass.bind(std::span<const gpu::BindEntry>(read.data(), read.size()));
+    pass.bind(std::span<const ftk::gpu::BindEntry>(read.data(), read.size()));
 }
 
-void ParticleSystem::record_render_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void ParticleSystem::record_render_distortion(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (emitters_.empty() || !ctx.scene) return;
     const DrawView view = view_of(ctx);
 
@@ -458,8 +458,8 @@ void ParticleSystem::record_render_distortion(const FrameContext& ctx, gpu::Rend
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
         if (!draws_in(emitters_[i], view) || !emitters_[i].is_distortion) continue;
         pass.push(emitters_[i].distortion_strength);
-        pass.draw_indirect(gpu::BufferRange(indirect_, i * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
-                           sizeof(gpu::DrawArgs));
+        pass.draw_indirect(ftk::gpu::BufferRange(indirect_, i * sizeof(ftk::gpu::DrawArgs), sizeof(ftk::gpu::DrawArgs)), 1,
+                           sizeof(ftk::gpu::DrawArgs));
     }
 }
 
@@ -508,7 +508,7 @@ uint32_t ParticleSystem::particle_extent() const {
 }
 
 void ParticleSystem::sync_emitters(Scene& scene) {
-    FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
+    FTK_PROFILE_SCOPE_N("particle_sync_emitters");
 
     // Collect current scene emitters
     struct EmitterKey {
@@ -556,7 +556,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
 
     if (new_emitters.empty()) return;
 
-    FJELL_GFX_DEBUG("Particle sync: {} slots, {} new",
+    FTK_GFX_DEBUG("Particle sync: {} slots, {} new",
                     emitters_.size(), new_emitters.size());
 
     std::vector<uint32_t> new_slots;
@@ -572,7 +572,7 @@ void ParticleSystem::sync_emitters(Scene& scene) {
             for (const auto& gpu : emitters_) {
                 if (gpu.active) held += gpu.max_particles;
             }
-            FJELL_GFX_WARN("Particles: emitter {} of node {} asked for {} particles, "
+            FTK_GFX_WARN("Particles: emitter {} of node {} asked for {} particles, "
                            "but only {} of the scene's {} are left — it will not emit. "
                            "Lower its Max Particles, or another effect's.",
                            ne.emitter_index, ne.object_id, ne.max_particles,
@@ -705,7 +705,7 @@ static float max_velocity_magnitude(const VfxEmitter& emitter) {
 
 void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind, float dt,
                                       std::span<const SceneView> views) {
-    FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
+    FTK_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Particles: Compute");
@@ -1052,7 +1052,7 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         uint32_t module_buf_capacity = static_cast<uint32_t>(module_bytes_.size());
         uint32_t byte_offset = module_word_offset * 4;
         if (byte_offset + MODULE_BUDGET_BYTES > module_buf_capacity) {
-            FJELL_GFX_ERROR("Module buffer overflow: offset {} + {} > capacity {}",
+            FTK_GFX_ERROR("Module buffer overflow: offset {} + {} > capacity {}",
                             byte_offset, MODULE_BUDGET_BYTES, module_buf_capacity);
             // Still advance past this emitter's full window so the next
             // emitter doesn't alias it — only the module *contents* are
@@ -1082,9 +1082,9 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
         if (ec) ec->fire = false;
     }
 
-    const gpu::BufferRange emitter_records =
+    const ftk::gpu::BufferRange emitter_records =
         cmd.transient(std::span<const GpuEmitterData>(step_records_.data(), emitter_count));
-    const gpu::BufferRange modules = cmd.transient(
+    const ftk::gpu::BufferRange modules = cmd.transient(
         std::span<const std::byte>(module_bytes_.data(), static_cast<size_t>(module_word_offset) * 4));
 
     ParticleComputePush push{};
@@ -1094,18 +1094,18 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     push.total_max_particles = total_max;
 
     // Each step sees what the one before it wrote to `written`.
-    auto settle = [&](std::initializer_list<gpu::Buffer> written) {
-        for (gpu::Buffer buffer : written) cmd.barrier(buffer, COMPUTE, COMPUTE);
+    auto settle = [&](std::initializer_list<ftk::gpu::Buffer> written) {
+        for (ftk::gpu::Buffer buffer : written) cmd.barrier(buffer, COMPUTE, COMPUTE);
     };
-    const gpu::BindEntry simulation[] = {
-        {"ParticleBuffer", gpu::storage(particles_)},
-        {"Counters", gpu::storage(counters_)},
-        {"EmitterBuffer", gpu::storage(emitter_records)},
-        {"ModuleBuffer", gpu::storage(modules)},
-        {"SubEmitterEventBuf", gpu::storage(sub_events_)},
-        {"SubEmitterEventCounters", gpu::storage(sub_event_counts_)},
+    const ftk::gpu::BindEntry simulation[] = {
+        {"ParticleBuffer", ftk::gpu::storage(particles_)},
+        {"Counters", ftk::gpu::storage(counters_)},
+        {"EmitterBuffer", ftk::gpu::storage(emitter_records)},
+        {"ModuleBuffer", ftk::gpu::storage(modules)},
+        {"SubEmitterEventBuf", ftk::gpu::storage(sub_events_)},
+        {"SubEmitterEventCounters", ftk::gpu::storage(sub_event_counts_)},
     };
-    auto use_simulation = [&](gpu::ComputePipeline pipeline) {
+    auto use_simulation = [&](ftk::gpu::ComputePipeline pipeline) {
         cmd.set_pipeline(pipeline);
         cmd.bind(simulation);
         cmd.push(push);
@@ -1113,10 +1113,10 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
 
     // Sub-emitter events counted afresh. The last frame's steps are done with
     // the counts before the clear, and this frame's wait for it.
-    const gpu::BufferRange event_counts(sub_event_counts_, 0, uint64_t{emitter_count} * sizeof(uint32_t));
-    cmd.barrier(event_counts, COMPUTE, gpu::Access::clear);
+    const ftk::gpu::BufferRange event_counts(sub_event_counts_, 0, uint64_t{emitter_count} * sizeof(uint32_t));
+    cmd.barrier(event_counts, COMPUTE, ftk::gpu::Access::clear);
     cmd.fill(event_counts, 0);
-    cmd.barrier(event_counts, gpu::Access::clear, COMPUTE);
+    cmd.barrier(event_counts, ftk::gpu::Access::clear, COMPUTE);
 
     // ── Phase 1: Emit normal emitters (sub_emit_pass=0, skip children) ──
     push.sub_emit_pass = 0;
@@ -1150,9 +1150,9 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     {
         auto step = cmd.zone("Particles: Indirect");
         cmd.set_pipeline(pipelines_.indirect);
-        cmd.bind({{"Counters", gpu::storage(counters_)},
-                  {"EmitterBuffer", gpu::storage(emitter_records)},
-                  {"IndirectDraw", gpu::storage(indirect_)}});
+        cmd.bind({{"Counters", ftk::gpu::storage(counters_)},
+                  {"EmitterBuffer", ftk::gpu::storage(emitter_records)},
+                  {"IndirectDraw", ftk::gpu::storage(indirect_)}});
         cmd.push(push);
         cmd.dispatch((emitter_count + 255) / 256, 1, 1);
         settle({indirect_});
@@ -1173,13 +1173,13 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     if (max_slots > 0) {
         auto step = cmd.zone("Particles: Mesh Compact");
         cmd.set_pipeline(pipelines_.compact);
-        cmd.bind({{"ParticleBuffer", gpu::storage(particles_)},
-                  {"MeshIndirect", gpu::storage(mesh_indirect_)},
-                  {"BillboardIndirect", gpu::storage(indirect_)},
-                  {"EmitterBuffer", gpu::storage(emitter_records)},
-                  {"AliveList", gpu::storage(alive_)},
-                  {"InstanceBuffer", gpu::storage(mesh_instances_)},
-                  {"AliveCounts", gpu::storage(mesh_instance_counts_)}});
+        cmd.bind({{"ParticleBuffer", ftk::gpu::storage(particles_)},
+                  {"MeshIndirect", ftk::gpu::storage(mesh_indirect_)},
+                  {"BillboardIndirect", ftk::gpu::storage(indirect_)},
+                  {"EmitterBuffer", ftk::gpu::storage(emitter_records)},
+                  {"AliveList", ftk::gpu::storage(alive_)},
+                  {"InstanceBuffer", ftk::gpu::storage(mesh_instances_)},
+                  {"AliveCounts", ftk::gpu::storage(mesh_instance_counts_)}});
         const auto compacted = {mesh_indirect_.get(), indirect_.get(), alive_.get(), mesh_instances_.get(),
                                 mesh_instance_counts_.get()};
 
@@ -1199,8 +1199,8 @@ void ParticleSystem::dispatch_compute(const FrameContext& ctx, Scene& scene, con
     }
 }
 
-void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& pass) {
-    FJELL_PROFILE_SCOPE_N("particle_record_render");
+void ParticleSystem::record_render(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
+    FTK_PROFILE_SCOPE_N("particle_record_render");
     if (emitters_.empty() || !ctx.scene) return;
     const DrawView view = view_of(ctx);
     auto zone = ctx.commands().zone("Particles: Transparent");
@@ -1234,17 +1234,17 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
 
     // The trails read every slot's record, as its scene's last step left it.
     draw_records_.resize(emitters_.size());
-    const gpu::BufferRange records =
-        any_trail ? ctx.commands().transient(std::span<const GpuEmitterData>(draw_records_)) : gpu::BufferRange{};
+    const ftk::gpu::BufferRange records =
+        any_trail ? ctx.commands().transient(std::span<const GpuEmitterData>(draw_records_)) : ftk::gpu::BufferRange{};
 
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
     for (uint32_t idx : draw_order) {
         if (emitters_[idx].is_mesh) continue; // mesh particles drawn separately
 
         const bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
         const bool lit = emitters_[idx].is_lit;
         const bool trail = emitters_[idx].is_trail;
-        gpu::GraphicsPipeline needed{};
+        ftk::gpu::GraphicsPipeline needed{};
         if (lit) {
             if (trail) needed = additive ? pipelines_.lit_trail_additive : pipelines_.lit_trail_alpha;
             else       needed = additive ? pipelines_.lit_additive : pipelines_.lit_alpha;
@@ -1260,8 +1260,8 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
             pass.push(ParticleLitPush{emitters_[idx].lit_metallic, emitters_[idx].lit_roughness,
                                       emitters_[idx].mesh_material_id});
         }
-        pass.draw_indirect(gpu::BufferRange(indirect_, idx * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
-                           sizeof(gpu::DrawArgs));
+        pass.draw_indirect(ftk::gpu::BufferRange(indirect_, idx * sizeof(ftk::gpu::DrawArgs), sizeof(ftk::gpu::DrawArgs)), 1,
+                           sizeof(ftk::gpu::DrawArgs));
     }
 
     // ── Mesh particle rendering ──
@@ -1282,13 +1282,13 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
 
         const bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
         const bool lit = emitters_[idx].is_lit;
-        const gpu::GraphicsPipeline needed =
+        const ftk::gpu::GraphicsPipeline needed =
             lit ? (additive ? pipelines_.mesh_lit_additive : pipelines_.mesh_lit_alpha)
                 : (additive ? pipelines_.mesh_additive : pipelines_.mesh_alpha);
         if (needed != bound) {
             use(ctx, pass, needed);
             pass.set_vertex_buffer(ctx.mega_buffer->vertex_buffer());
-            pass.set_index_buffer(ctx.mega_buffer->index_buffer(), gpu::IndexType::u32);
+            pass.set_index_buffer(ctx.mega_buffer->index_buffer(), ftk::gpu::IndexType::u32);
             bound = needed;
         }
         if (lit) {
@@ -1300,13 +1300,13 @@ void ParticleSystem::record_render(const FrameContext& ctx, gpu::RenderEncoder& 
         // them: the vertex shader reads gl_InstanceIndex straight out of
         // that range, so only live particles are drawn.
         pass.draw_indexed_indirect(
-            gpu::BufferRange(mesh_indirect_, idx * sizeof(gpu::DrawIndexedArgs), sizeof(gpu::DrawIndexedArgs)),
-            1, sizeof(gpu::DrawIndexedArgs));
+            ftk::gpu::BufferRange(mesh_indirect_, idx * sizeof(ftk::gpu::DrawIndexedArgs), sizeof(ftk::gpu::DrawIndexedArgs)),
+            1, sizeof(ftk::gpu::DrawIndexedArgs));
     }
 }
 
-void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
-    FJELL_PROFILE_SCOPE_N("particle_record_render_opaque");
+void ParticleSystem::record_render_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
+    FTK_PROFILE_SCOPE_N("particle_record_render_opaque");
     if (emitters_.empty() || !ctx.scene) return;
     const DrawView view = view_of(ctx);
 
@@ -1324,20 +1324,20 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEn
         upload_primitives(*ctx.mega_buffer);
     }
 
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
         if (!draws_in(emitters_[i], view)) continue;
         if (emitters_[i].blend_mode != ParticleBlendMode::opaque) continue;
 
         const bool lit = emitters_[i].is_lit;
         const bool mesh = emitters_[i].is_mesh && ctx.mega_buffer != nullptr;
-        const gpu::GraphicsPipeline needed = mesh ? (lit ? pipelines_.mesh_opaque_lit : pipelines_.mesh_opaque)
+        const ftk::gpu::GraphicsPipeline needed = mesh ? (lit ? pipelines_.mesh_opaque_lit : pipelines_.mesh_opaque)
                                                   : (lit ? pipelines_.opaque_lit : pipelines_.opaque);
         if (needed != bound) {
             use(ctx, pass, needed);
             if (mesh) {
                 pass.set_vertex_buffer(ctx.mega_buffer->vertex_buffer());
-                pass.set_index_buffer(ctx.mega_buffer->index_buffer(), gpu::IndexType::u32);
+                pass.set_index_buffer(ctx.mega_buffer->index_buffer(), ftk::gpu::IndexType::u32);
             }
             bound = needed;
         }
@@ -1349,11 +1349,11 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx, gpu::RenderEn
             // See record_render's mesh loop: the same compacted-instance
             // draw, in the opaque pass.
             pass.draw_indexed_indirect(
-                gpu::BufferRange(mesh_indirect_, i * sizeof(gpu::DrawIndexedArgs), sizeof(gpu::DrawIndexedArgs)),
-                1, sizeof(gpu::DrawIndexedArgs));
+                ftk::gpu::BufferRange(mesh_indirect_, i * sizeof(ftk::gpu::DrawIndexedArgs), sizeof(ftk::gpu::DrawIndexedArgs)),
+                1, sizeof(ftk::gpu::DrawIndexedArgs));
         } else {
-            pass.draw_indirect(gpu::BufferRange(indirect_, i * sizeof(gpu::DrawArgs), sizeof(gpu::DrawArgs)), 1,
-                               sizeof(gpu::DrawArgs));
+            pass.draw_indirect(ftk::gpu::BufferRange(indirect_, i * sizeof(ftk::gpu::DrawArgs), sizeof(ftk::gpu::DrawArgs)), 1,
+                               sizeof(ftk::gpu::DrawArgs));
         }
     }
 }
@@ -1417,7 +1417,7 @@ void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
             ec->effect = std::make_shared<VfxEffect>(std::move(effect));
             replaced++;
         } catch (const std::exception& e) {
-            FJELL_CORE_ERROR("VFX hot-reload failed: {}", e.what());
+            FTK_CORE_ERROR("VFX hot-reload failed: {}", e.what());
             // Clear state so we don't retry every frame
             vfx_changed_ = false;
             vfx_changed_path_.clear();
@@ -1426,7 +1426,7 @@ void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
     }
 
     if (replaced > 0) {
-        FJELL_CORE_INFO("VFX hot-reloaded: {} ({} instance(s))", vfx_relative_path_, replaced);
+        FTK_CORE_INFO("VFX hot-reloaded: {} ({} instance(s))", vfx_relative_path_, replaced);
     }
 }
 #endif

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// A texel format. Only the formats the engine uses are here, each with a
 /// mapping in every backend. Formats Apple GPUs lack (24-bit depth with
@@ -126,4 +126,4 @@ enum class Samples : uint8_t {
     x8 = 8,
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -15,10 +15,13 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class Clock;
-class IconCache;
 class Input;
 class ProjectManager;
 class ContentBrowser;
@@ -35,7 +38,7 @@ struct VfxEditorDeps {
     Input* input;
     Clock* clock;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
 
     // For the asset reference widget: pick-from-browser and browse buttons.
     ContentBrowser* content_browser{nullptr};
@@ -50,8 +53,8 @@ public:
     [[nodiscard]] DockPreset dock_preset() const override;
     [[nodiscard]] std::string asset_path() const override { return fjvfx_path_; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -106,7 +109,7 @@ private:
 
     // Timeline
     TimelineWidget timeline_;
-    std::vector<Connection> timeline_connections_;
+    std::vector<ftk::Connection> timeline_connections_;
 
     // Playback
     float time_scale_{1.0f};
@@ -114,7 +117,7 @@ private:
 
     // Hot-reload
 #ifndef NDEBUG
-    platform::FileWatcher fjvfx_watcher_;
+    ftk::platform::FileWatcher fjvfx_watcher_;
     bool fjvfx_changed_{false};
     void reload_effect();
 #endif

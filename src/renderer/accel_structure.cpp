@@ -40,13 +40,13 @@ struct ParticleTlasPush {
 };
 
 // The triangles of one mesh entry, as a BLAS is built from them.
-gpu::Triangles entry_triangles(const MegaMeshEntry& entry, const MegaBuffer& mega) {
+ftk::gpu::Triangles entry_triangles(const MegaMeshEntry& entry, const MegaBuffer& mega) {
     return {
-        .vertices = gpu::BufferRange(mega.vertex_buffer(), uint64_t{entry.vertex_offset} * sizeof(Vertex),
+        .vertices = ftk::gpu::BufferRange(mega.vertex_buffer(), uint64_t{entry.vertex_offset} * sizeof(Vertex),
                                      uint64_t{entry.vertex_count} * sizeof(Vertex)),
         .vertex_stride = sizeof(Vertex),
         .vertex_count = entry.vertex_count,
-        .indices = gpu::BufferRange(mega.index_buffer(), uint64_t{entry.first_index} * sizeof(uint32_t),
+        .indices = ftk::gpu::BufferRange(mega.index_buffer(), uint64_t{entry.first_index} * sizeof(uint32_t),
                                     uint64_t{entry.index_count} * sizeof(uint32_t)),
         .triangle_count = entry.index_count / 3,
     };
@@ -69,9 +69,9 @@ bool placeable(const glm::mat4& m) {
 
 // A listed instance as an instance record's source: the transform's three
 // rows, the material as the custom index.
-gpu::AccelerationInstance record_of(const RtInstance& instance) {
+ftk::gpu::AccelerationInstance record_of(const RtInstance& instance) {
     const glm::mat4& m = instance.transform;
-    gpu::AccelerationInstance record{};
+    ftk::gpu::AccelerationInstance record{};
     for (int row = 0; row < 3; ++row) {
         for (int column = 0; column < 4; ++column) {
             record.transform[static_cast<size_t>(row * 4 + column)] = m[column][row];
@@ -85,22 +85,22 @@ gpu::AccelerationInstance record_of(const RtInstance& instance) {
 
 } // namespace
 
-AccelStructureManager::AccelStructureManager(gpu::Device& device) : device_(device) {
-    auto made = device_.create(gpu::ComputePipelineDesc{
+AccelStructureManager::AccelStructureManager(ftk::gpu::Device& device) : device_(device) {
+    auto made = device_.create(ftk::gpu::ComputePipelineDesc{
         .shader = "shaders/particle_tlas_build.comp",
         .name = "particle_tlas_build",
     });
     if (made) {
         particle_pipeline_ = std::move(*made);
     } else {
-        FJELL_GFX_ERROR("Mesh particles are left out of ray tracing: {}", made.error());
+        FTK_GFX_ERROR("Mesh particles are left out of ray tracing: {}", made.error());
     }
 }
 
-bool AccelStructureManager::declare_trace(PassBuilder& builder, const DeclareContext& ctx) {
-    const FgAcceleration tlas = builder.import_named_acceleration(ctx, TLAS_NAME);
-    builder.read(tlas, gpu::Access::acceleration_trace_compute);
-    builder.read(builder.import_named_buffer(ctx, INSTANCES_NAME), gpu::Access::storage_buffer_read_compute);
+bool AccelStructureManager::declare_trace(ftk::PassBuilder& builder, const DeclareContext& ctx) {
+    const ftk::FgAcceleration tlas = builder.import_named_acceleration(ctx, TLAS_NAME);
+    builder.read(tlas, ftk::gpu::Access::acceleration_trace_compute);
+    builder.read(builder.import_named_buffer(ctx, INSTANCES_NAME), ftk::gpu::Access::storage_buffer_read_compute);
     return tlas.valid();
 }
 
@@ -109,7 +109,7 @@ std::vector<Blas> AccelStructureManager::make_blases(std::span<const MegaMeshEnt
     std::vector<Blas> out(entries.size());
     // Every structure of the batch shares one allocation, so a model with
     // many submeshes still costs one.
-    std::vector<gpu::AccelerationStructureDesc> descs;
+    std::vector<ftk::gpu::AccelerationStructureDesc> descs;
     std::vector<size_t> made_for;
     for (size_t i = 0; i < entries.size(); ++i) {
         if (entries[i].index_count < 3) continue;
@@ -120,7 +120,7 @@ std::vector<Blas> AccelStructureManager::make_blases(std::span<const MegaMeshEnt
 
     auto made = device_.create(descs);
     if (!made) {
-        FJELL_GFX_ERROR("Ray tracing leaves a mesh out: {}", made.error());
+        FTK_GFX_ERROR("Ray tracing leaves a mesh out: {}", made.error());
         return out;
     }
     for (size_t k = 0; k < made_for.size(); ++k) {
@@ -155,7 +155,7 @@ void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEnt
         if (!geometry_changed) return;
         // Made anew rather than built over: a frame still tracing the old
         // one keeps it until it is done.
-        const gpu::AccelerationStructure old = it->second.structure;
+        const ftk::gpu::AccelerationStructure old = it->second.structure;
         std::erase_if(pending_builds_, [old](const PendingBuild& build) { return build.blas == old; });
         entry_blas_map_.erase(it);
     }
@@ -183,7 +183,7 @@ void AccelStructureManager::begin_frame(uint64_t frame_serial) {
     // a preview closed) gives its structures back, once the frames that may
     // still trace them are done.
     std::erase_if(scenes_, [&](const auto& entry) {
-        return entry.second.prepared_serial + MAX_FRAMES_IN_FLIGHT + 1 < frame_serial_;
+        return entry.second.prepared_serial + ftk::MAX_FRAMES_IN_FLIGHT + 1 < frame_serial_;
     });
 }
 
@@ -191,7 +191,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
                                           const PipelineCache* pipelines,
                                           const ParticleSystem* particles, MegaBuffer& mega,
                                           uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("rt_prepare_scene");
+    FTK_PROFILE_SCOPE_N("rt_prepare_scene");
     SceneTlas& st = scenes_[scene.id()];
     st.prepared_serial = frame_serial_;
     st.host_instances.clear();
@@ -212,7 +212,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
         if (lods.empty()) continue;
         const std::span<const Blas> blases = model_blases(dc.model);
         const bool two_sided = pipelines != nullptr
-                            && pipelines->cull(dc.pipeline_id) != gpu::Cull::back;
+                            && pipelines->cull(dc.pipeline_id) != ftk::gpu::Cull::back;
         for (uint32_t i = 0; i < blases.size(); ++i) {
             if (!blases[i].structure) continue;
             if (!dc.model->entry_uses_slot(lods[0].first_mega_entry + i, dc.material_slot)) continue;
@@ -268,7 +268,7 @@ void AccelStructureManager::prepare_scene(const Scene& scene, std::span<const Dr
     // Mesh particles: their instances are written on the GPU from the
     // simulated particles, over one BLAS per mesh shape.
     uint32_t particle_room = 0;
-    particle_state_ = particles != nullptr ? particles->particle_buffer() : gpu::Buffer{};
+    particle_state_ = particles != nullptr ? particles->particle_buffer() : ftk::gpu::Buffer{};
     if (particle_state_.valid() && particle_pipeline_) {
         for (const auto& em : particles->emitters()) {
             if (!em.active || !em.is_mesh || em.scene_id != scene.id()) continue;
@@ -303,24 +303,24 @@ bool AccelStructureManager::reserve(FrameTlas& frame, uint32_t count) {
     // is not made anew each time. The old ones stay with the frames still
     // tracing them.
     const uint32_t capacity = std::max(count, frame.capacity + frame.capacity / 2);
-    auto tlas = device_.create(gpu::AccelerationStructureDesc{
-        .instances = capacity, .use = gpu::AccelerationUse::rebuilt, .name = "tlas"});
-    auto instances = device_.create(gpu::BufferDesc{
+    auto tlas = device_.create(ftk::gpu::AccelerationStructureDesc{
+        .instances = capacity, .use = ftk::gpu::AccelerationUse::rebuilt, .name = "tlas"});
+    auto instances = device_.create(ftk::gpu::BufferDesc{
         .size = uint64_t{capacity} * device_.instance_record_size(),
-        .use = gpu::BufferUse::acceleration_input | gpu::BufferUse::storage,
-        .memory = gpu::Memory::upload,
+        .use = ftk::gpu::BufferUse::acceleration_input | ftk::gpu::BufferUse::storage,
+        .memory = ftk::gpu::Memory::upload,
         .name = "tlas instances",
     });
-    auto rt_data = device_.create(gpu::BufferDesc{
+    auto rt_data = device_.create(ftk::gpu::BufferDesc{
         .size = uint64_t{capacity} * sizeof(GpuRtInstance),
-        .use = gpu::BufferUse::storage,
-        .memory = gpu::Memory::upload,
+        .use = ftk::gpu::BufferUse::storage,
+        .memory = ftk::gpu::Memory::upload,
         .name = "rt instance data",
     });
-    auto counter = device_.create(gpu::BufferDesc{
-        .size = sizeof(uint32_t), .use = gpu::BufferUse::storage, .name = "particle instance count"});
+    auto counter = device_.create(ftk::gpu::BufferDesc{
+        .size = sizeof(uint32_t), .use = ftk::gpu::BufferUse::storage, .name = "particle instance count"});
     if (!tlas || !instances || !rt_data || !counter) {
-        FJELL_GFX_ERROR("Ray tracing has no TLAS for {} instances: {}", count,
+        FTK_GFX_ERROR("Ray tracing has no TLAS for {} instances: {}", count,
                         !tlas ? tlas.error()
                               : !instances ? instances.error()
                                            : !rt_data ? rt_data.error() : counter.error());
@@ -335,14 +335,14 @@ bool AccelStructureManager::reserve(FrameTlas& frame, uint32_t count) {
     return true;
 }
 
-uint32_t AccelStructureManager::record_build(gpu::CommandList& commands, uint64_t scene_id,
+uint32_t AccelStructureManager::record_build(ftk::gpu::CommandList& commands, uint64_t scene_id,
                                              uint32_t frame_index) {
-    using gpu::Access;
+    using ftk::gpu::Access;
 
     // Every BLAS made since the last build, whichever scene lists it, so
     // none waits on a scene's TLAS for its first build.
     if (!pending_builds_.empty()) {
-        std::vector<gpu::AccelerationStructure> built;
+        std::vector<ftk::gpu::AccelerationStructure> built;
         built.reserve(pending_builds_.size());
         for (const PendingBuild& pending : pending_builds_) {
             commands.build(pending.blas, pending.triangles);
@@ -365,9 +365,9 @@ uint32_t AccelStructureManager::record_build(gpu::CommandList& commands, uint64_
     return build_tlas(commands, st, frame);
 }
 
-uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas& scene,
+uint32_t AccelStructureManager::build_tlas(ftk::gpu::CommandList& commands, SceneTlas& scene,
                                            FrameTlas& frame) {
-    using gpu::Access;
+    using ftk::gpu::Access;
     const std::vector<RtInstance>& listed = scene.host_instances;
     const auto scene_count = static_cast<uint32_t>(listed.size());
     const uint32_t record_size = device_.instance_record_size();
@@ -375,7 +375,7 @@ uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas
     // The listed instances' records at the front, and beside each the data
     // the hit code reads by the instance's index: the two must agree in
     // count and order. Written by the CPU, seen by work submitted after.
-    std::vector<gpu::AccelerationInstance> records;
+    std::vector<ftk::gpu::AccelerationInstance> records;
     std::vector<GpuRtInstance> rt_instances;
     records.reserve(listed.size());
     rt_instances.reserve(listed.size());
@@ -397,9 +397,9 @@ uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas
     // records naming nothing, which no ray hits, and zeroed hit data.
     const uint32_t particle_room = scene.instance_count - scene_count;
     if (particle_room > 0) {
-        const gpu::BufferRange particle_records(frame.instances, uint64_t{scene_count} * record_size,
+        const ftk::gpu::BufferRange particle_records(frame.instances, uint64_t{scene_count} * record_size,
                                                 uint64_t{particle_room} * record_size);
-        const gpu::BufferRange particle_data(frame.rt_instance_data, uint64_t{scene_count} * sizeof(GpuRtInstance),
+        const ftk::gpu::BufferRange particle_data(frame.rt_instance_data, uint64_t{scene_count} * sizeof(GpuRtInstance),
                                              uint64_t{particle_room} * sizeof(GpuRtInstance));
         commands.fill(particle_records, 0);
         commands.fill(particle_data, 0);
@@ -410,10 +410,10 @@ uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas
         commands.barrier(frame.particle_counter, Access::clear, Access::storage_buffer_read_write_compute);
 
         commands.set_pipeline(particle_pipeline_);
-        commands.bind({{"ParticleBuffer", gpu::storage(particle_state_)},
-                       {"InstanceBuffer", gpu::storage(frame.instances)},
-                       {"CounterBuffer", gpu::storage(frame.particle_counter)},
-                       {"RtInstanceBuffer", gpu::storage(frame.rt_instance_data)}});
+        commands.bind({{"ParticleBuffer", ftk::gpu::storage(particle_state_)},
+                       {"InstanceBuffer", ftk::gpu::storage(frame.instances)},
+                       {"CounterBuffer", ftk::gpu::storage(frame.particle_counter)},
+                       {"RtInstanceBuffer", ftk::gpu::storage(frame.rt_instance_data)}});
         for (const ParticleEmitterInfo& pe : scene.particle_emitters) {
             commands.push(ParticleTlasPush{
                 .particle_offset = pe.base_offset,
@@ -434,7 +434,7 @@ uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas
                          Access::acceleration_build_input);
     }
 
-    commands.build(frame.tlas, gpu::BufferRange(frame.instances, 0, uint64_t{scene.instance_count} * record_size),
+    commands.build(frame.tlas, ftk::gpu::BufferRange(frame.instances, 0, uint64_t{scene.instance_count} * record_size),
                    scene.instance_count);
 
     frame.built_from = listed;
@@ -444,7 +444,7 @@ uint32_t AccelStructureManager::build_tlas(gpu::CommandList& commands, SceneTlas
     return scene.instance_count;
 }
 
-gpu::AccelerationStructure AccelStructureManager::prepared_tlas(uint64_t scene_id,
+ftk::gpu::AccelerationStructure AccelStructureManager::prepared_tlas(uint64_t scene_id,
                                                                 uint32_t frame_index) const {
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end() || it->second.prepared_serial != frame_serial_ ||
@@ -454,24 +454,24 @@ gpu::AccelerationStructure AccelStructureManager::prepared_tlas(uint64_t scene_i
     return it->second.frames[frame_index].tlas;
 }
 
-gpu::Buffer AccelStructureManager::prepared_instances(uint64_t scene_id, uint32_t frame_index) const {
+ftk::gpu::Buffer AccelStructureManager::prepared_instances(uint64_t scene_id, uint32_t frame_index) const {
     if (!prepared_tlas(scene_id, frame_index).valid()) return {};
     return scenes_.at(scene_id).frames[frame_index].rt_instance_data;
 }
 
-gpu::AccelerationStructure AccelStructureManager::tlas(uint64_t scene_id, uint32_t frame_index) const {
+ftk::gpu::AccelerationStructure AccelStructureManager::tlas(uint64_t scene_id, uint32_t frame_index) const {
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end()) return {};
     const FrameTlas& frame = it->second.frames[frame_index];
-    return frame.current_serial == frame_serial_ ? gpu::AccelerationStructure(frame.tlas)
-                                                 : gpu::AccelerationStructure{};
+    return frame.current_serial == frame_serial_ ? ftk::gpu::AccelerationStructure(frame.tlas)
+                                                 : ftk::gpu::AccelerationStructure{};
 }
 
-gpu::Buffer AccelStructureManager::instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const {
+ftk::gpu::Buffer AccelStructureManager::instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const {
     auto it = scenes_.find(scene_id);
     if (it == scenes_.end()) return {};
     const FrameTlas& frame = it->second.frames[frame_index];
-    return frame.current_serial == frame_serial_ ? gpu::Buffer(frame.rt_instance_data) : gpu::Buffer{};
+    return frame.current_serial == frame_serial_ ? ftk::gpu::Buffer(frame.rt_instance_data) : ftk::gpu::Buffer{};
 }
 
 } // namespace fjell

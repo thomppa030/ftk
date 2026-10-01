@@ -85,17 +85,17 @@ DrawCommand mesh_command(const Node& obj, const Node3D& spatial, const MeshCompo
 } // namespace
 
 void SceneGatherer::init(GpuContext& gpu) {
-    gpu::Device& device = gpu.device();
+    ftk::gpu::Device& device = gpu.device();
     indirect_batch_ = std::make_unique<IndirectBatch>(device);
 
     auto layout = DrawDataDescriptor::make_layout(device);
     if (!layout) throw std::runtime_error("Draw data: " + layout.error());
     draw_data_layout_ = *layout;
     // What a draw data binding holds while the frame has nothing for it.
-    auto empty = device.create(gpu::BufferDesc{
+    auto empty = device.create(ftk::gpu::BufferDesc{
         .size = EMPTY_DRAW_DATA_BYTES,
-        .use = gpu::BufferUse::storage,
-        .memory = gpu::Memory::upload,
+        .use = ftk::gpu::BufferUse::storage,
+        .memory = ftk::gpu::Memory::upload,
         .name = "draw_data_empty",
     });
     if (!empty) throw std::runtime_error("Draw data: " + empty.error());
@@ -115,7 +115,7 @@ void SceneGatherer::init(GpuContext& gpu) {
 }
 
 void SceneGatherer::gather(const GatherInput& input) {
-    FJELL_PROFILE_SCOPE_N("scene_gather");
+    FTK_PROFILE_SCOPE_N("scene_gather");
 
     camera_position_ = input.camera_position;
     view_matrix_ = input.view;
@@ -303,7 +303,7 @@ void SceneGatherer::gather(const GatherInput& input) {
     }
 
     // Build indirect draw commands from opaque + transparent queues (with LOD selection)
-    gpu::Frame& frame = *input.frame;
+    ftk::gpu::Frame& frame = *input.frame;
     indirect_batch_->build(frame,
                            render_queue_.commands(),
                            render_queue_.transparent_commands(),
@@ -326,25 +326,25 @@ void SceneGatherer::gather(const GatherInput& input) {
     const uint32_t slot = input.frame_index;
     IndirectBatch& batch = *indirect_batch_;
     const bool draws = batch.draw_data_count(slot) > 0;
-    draw_data_descriptor_.update(draws ? batch.draw_data(slot) : gpu::BufferRange{}, slot);
+    draw_data_descriptor_.update(draws ? batch.draw_data(slot) : ftk::gpu::BufferRange{}, slot);
 
     // Raw transforms feed the mesh shader path; compacted visible transforms
     // feed the vertex path after InstanceCullPass writes them.
     const bool instances = batch.instance_transform_count(slot) > 0;
     draw_data_descriptor_.update_instance_transforms(
-        instances ? batch.instance_transforms(slot) : gpu::BufferRange{}, slot);
+        instances ? batch.instance_transforms(slot) : ftk::gpu::BufferRange{}, slot);
     draw_data_descriptor_.update_visible_instance_transforms(batch.visible_instances(slot), slot);
 
     const bool splines = batch.spline_segment_count(slot) > 0;
-    draw_data_descriptor_.update_spline_segments(splines ? batch.spline_segments(slot) : gpu::BufferRange{},
+    draw_data_descriptor_.update_spline_segments(splines ? batch.spline_segments(slot) : ftk::gpu::BufferRange{},
                                                  slot);
 
     // Bone matrices, shared by the main pass and the shadow cascades.
-    gpu::BufferRange bones{};
+    ftk::gpu::BufferRange bones{};
     if (input.animation_system && input.animation_system->has_bones_this_frame()) {
         auto& bb = input.animation_system->bone_buffer();
         if (bb.total_bones() > 0 && bb.buffer(slot).valid()) {
-            bones = gpu::BufferRange(bb.buffer(slot), 0, bb.byte_size());
+            bones = ftk::gpu::BufferRange(bb.buffer(slot), 0, bb.byte_size());
         }
     }
     draw_data_descriptor_.update_bones(bones, slot);
@@ -353,11 +353,11 @@ void SceneGatherer::gather(const GatherInput& input) {
         IndirectBatch& cascade = *shadow_batches_[c];
         DrawDataDescriptor& data = shadow_draw_data_[c];
         data.update_bones(bones, slot);
-        data.update(cascade.draw_data_count(slot) > 0 ? cascade.draw_data(slot) : gpu::BufferRange{}, slot);
+        data.update(cascade.draw_data_count(slot) > 0 ? cascade.draw_data(slot) : ftk::gpu::BufferRange{}, slot);
         // Shadow cascades render every source instance (no InstanceCullPass
         // in the shadow frustum), so the raw transforms are theirs.
         data.update_instance_transforms(
-            cascade.instance_transform_count(slot) > 0 ? cascade.instance_transforms(slot) : gpu::BufferRange{},
+            cascade.instance_transform_count(slot) > 0 ? cascade.instance_transforms(slot) : ftk::gpu::BufferRange{},
             slot);
     }
 }
@@ -385,7 +385,7 @@ void SceneGatherer::collect_candidates(Scene& scene) {
 }
 
 void SceneGatherer::gather_rt(Scene& scene, const AABB& reach) {
-    FJELL_PROFILE_SCOPE_N("scene_gather_rt");
+    FTK_PROFILE_SCOPE_N("scene_gather_rt");
     rt_commands_.clear();
     collect_candidates(scene);
     const auto& providers = InstanceProviderRegistry::instance().providers();

@@ -10,14 +10,14 @@ namespace fjell {
 // subsystem opaques, terrain and the selection outline.
 class OpaquePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
-    void draw_outline(const FrameContext& ctx, gpu::RenderEncoder& pass);
+    void draw_outline(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
 };
 
 } // namespace fjell

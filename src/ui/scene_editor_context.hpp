@@ -19,16 +19,20 @@
 #include <memory>
 #include <string>
 
+namespace ftk {
+class IconCache;
+class ThreadPool;
+class Window;
+} // namespace ftk
+
 namespace fjell {
 
 class AssetLoader;
 class Clock;
-class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
 class ScriptSubsystem;
-class ThreadPool;
 class ContentBrowser;
 class NetManager;
 class CameraSubsystem;
@@ -36,7 +40,6 @@ class PhysicsSubsystem;
 class PlayController;
 class ScreenDebugQueue;
 class VulkanContext;
-class Window;
 struct EnvironmentState;
 class EnvironmentSubsystem;
 
@@ -49,9 +52,9 @@ struct SceneEditorDeps {
     Clock* clock;
     ScriptSubsystem* script_subsystem;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
-    ThreadPool* thread_pool;
-    Window* window;
+    ftk::IconCache* icon_cache;
+    ftk::ThreadPool* thread_pool;
+    ftk::Window* window;
     ContentBrowser* content_browser{nullptr};
     NetManager* net_manager{nullptr};
     CameraSubsystem* camera_subsystem{nullptr};
@@ -86,7 +89,7 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
     void render_previews(VulkanContext& vk, Scene* scene, float dt,
-                          const EnvironmentState& environment, ThreadPool& pool) override;
+                          const EnvironmentState& environment, ftk::ThreadPool& pool) override;
 
     // Scene mutation (called from Engine delegate bindings)
     void add_model(const std::string& path);
@@ -178,7 +181,7 @@ private:
     float play_fps_value_{0.0f};
 
     // Delegate connections (context-level bindings)
-    std::vector<Connection> connections_;
+    std::vector<ftk::Connection> connections_;
 
     // Camera preview (PIP overlay when CameraNode selected)
     std::unique_ptr<OffscreenPass> camera_preview_target_;

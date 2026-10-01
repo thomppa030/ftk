@@ -16,7 +16,7 @@
 //         ui::highlighted_text(node.name, query_);
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The search field: the search icon inside on the left, `hint` while it is
 /// empty with its shortcut ("Ctrl F") on the right, and a clear button there
@@ -46,4 +46,4 @@ void draw_highlighted(ImDrawList* draw_list, ImVec2 pos, std::string_view text,
 
 } // namespace detail
 
-} // namespace fjell::ui
+} // namespace ftk::ui

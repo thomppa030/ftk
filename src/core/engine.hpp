@@ -47,6 +47,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class EditorContext;
+} // namespace ftk
+
 namespace fjell {
 
 class AnimationEditorContext;
@@ -56,7 +60,6 @@ class AudioSubsystem;
 class EnvironmentSubsystem;
 class DebugDrawQueue;
 class ScreenDebugQueue;
-class EditorContext;
 class EngineEditorContext;
 class NetManager;
 class NetReceiveSubsystem;
@@ -96,17 +99,17 @@ public:
     }
     /// Play a timed scenario against the environment from the first frame.
     /// Its `quit` step closes the engine, which is what bounds a capture.
-    [[nodiscard]] Result<> set_scenario(const std::string& path);
+    [[nodiscard]] ftk::Result<> set_scenario(const std::string& path);
 
     /// Run the project's functional tests instead of opening the editor, one
     /// after another, then close. `filter` keeps only the scenes whose name
     /// contains it. Fails before the run when there is nothing to run or the
     /// tests could not be driven.
-    [[nodiscard]] Result<> set_run_tests(const std::string& filter);
+    [[nodiscard]] ftk::Result<> set_run_tests(const std::string& filter);
     /// Play every test once per pacing in `list` ("30,144,jitter") and fail
     /// a run whose simulation parts from the first pacing's. Call after
     /// set_run_tests().
-    [[nodiscard]] Result<> set_test_pacing(std::string_view list);
+    [[nodiscard]] ftk::Result<> set_test_pacing(std::string_view list);
 
     /// Whether every test passed. Read after run() to pick an exit code; true
     /// when no tests were run.
@@ -132,7 +135,7 @@ private:
     void save_project();
     // Saves what a context edits: the scene for the scene context, its asset
     // for the others.
-    Result<> save_context(EditorContext& ctx);
+    ftk::Result<> save_context(ftk::EditorContext& ctx);
     // The questions before unsaved work is lost: closing a tab, quitting.
     void draw_unsaved_dialogs();
     // Whether any context holds unsaved changes.
@@ -164,17 +167,17 @@ private:
     [[nodiscard]] EngineEditorContext& active_context();
     [[nodiscard]] const EngineEditorContext& active_context() const;
     void switch_context(int index);
-    void build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport);
-    void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);    // Whether a saved layout still docks every window the context has.
-    [[nodiscard]] static bool layout_names_every_window(const nlohmann::json& layout_json, const EditorContext& ctx);
-    void rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json);
+    void build_default_dockspace(ftk::EditorContext& ctx, ImGuiViewport* viewport);
+    void clone_dockspace_from_template(ftk::EditorContext& dst_ctx, ImGuiID src_dock_id);    // Whether a saved layout still docks every window the context has.
+    [[nodiscard]] static bool layout_names_every_window(const nlohmann::json& layout_json, const ftk::EditorContext& ctx);
+    void rebuild_dockspace_from_json(ftk::EditorContext& ctx, const nlohmann::json& layout_json);
 
     // Layout save/load
     void save_layout(const std::string& name);
     void load_layout(const std::string& name);
 
     // Serialize a context's dockspace tree into JSON
-    [[nodiscard]] nlohmann::json serialize_dockspace(EditorContext& ctx);
+    [[nodiscard]] nlohmann::json serialize_dockspace(ftk::EditorContext& ctx);
 
     template <typename T, typename... Args>
     T* add_subsystem(Args&&... args);
@@ -182,13 +185,13 @@ private:
     static constexpr const char* SCENE_FILE = "scene.fjell";
 
     // Core
-    Window window_;
+    ftk::Window window_;
     Input input_;
     InputActionMap input_action_map_;
     Clock clock_;
-    ThreadPool thread_pool_;
+    ftk::ThreadPool thread_pool_;
     std::unique_ptr<VulkanContext> vulkan_context_;
-    std::unique_ptr<ImGuiLayer> imgui_layer_;
+    std::unique_ptr<ftk::ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
     std::unique_ptr<AssetLoader> asset_loader_;
     Scene scene_;
@@ -221,7 +224,7 @@ private:
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices
     std::vector<Subsystem*> late_play_;      // after compute_world_matrices, play only
 
-    std::unique_ptr<IconCache> icon_cache_;
+    std::unique_ptr<ftk::IconCache> icon_cache_;
     ContentBrowser content_browser_;
     ProjectSettingsWindow settings_window_;
 
@@ -286,7 +289,7 @@ private:
     std::string current_scene_path_;
 
     // Delegate connections (UI callbacks, etc.)
-    std::vector<Connection> connections_;
+    std::vector<ftk::Connection> connections_;
 
     // Default texture handle (preloaded)
     TextureHandle default_texture_;
@@ -304,7 +307,7 @@ private:
     bool has_saved_layout_{false};
 
     // Editor contexts
-    ContextRegistry<EngineEditorContext> context_registry_;
+    ftk::ContextRegistry<EngineEditorContext> context_registry_;
     std::vector<std::unique_ptr<EngineEditorContext>> contexts_;
     int active_context_idx_{0};
     int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame
@@ -317,8 +320,8 @@ private:
     // quit_contexts_, and whether the answer has let the window close.
     bool quit_asking_{false};
     bool quit_confirmed_{false};
-    std::vector<ui::UnsavedItem> quit_items_;
-    std::vector<EditorContext*> quit_contexts_;
+    std::vector<ftk::ui::UnsavedItem> quit_items_;
+    std::vector<ftk::EditorContext*> quit_contexts_;
     SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
 
     // Per-type dockspace layout templates (context_type -> dockspace ID of last instance)
@@ -329,7 +332,7 @@ private:
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;
-    ui::KitGallery kit_gallery_;
+    ftk::ui::KitGallery kit_gallery_;
     bool show_kit_gallery_{false};
     SdfDebugPanel sdf_debug_panel_;
 
@@ -345,7 +348,7 @@ private:
     // In-engine mesh importer. The file browser only picks the source; the
     // directory the result lands in is decided by whoever opened it.
     ImportDialog import_dialog_;
-    FileBrowser import_file_browser_;
+    ftk::FileBrowser import_file_browser_;
     std::filesystem::path import_output_dir_;
     void open_import_browser(const std::filesystem::path& output_dir);
 

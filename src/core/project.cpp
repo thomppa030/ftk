@@ -36,20 +36,20 @@ Project Project::create(const std::filesystem::path& directory,
     refresh_headers(proj);
     write_scripts_cmake(proj);
 
-    FJELL_CORE_INFO("Project created: {} at {}", name, root.string());
+    FTK_CORE_INFO("Project created: {} at {}", name, root.string());
     return project;
 }
 
 std::optional<Project> Project::open(const std::filesystem::path& root) {
     auto manifest_path = root / MANIFEST_NAME;
     if (!std::filesystem::exists(manifest_path)) {
-        FJELL_CORE_WARN("No {} found in {}", MANIFEST_NAME, root.string());
+        FTK_CORE_WARN("No {} found in {}", MANIFEST_NAME, root.string());
         return std::nullopt;
     }
 
     std::ifstream file(manifest_path);
     if (!file.is_open()) {
-        FJELL_CORE_ERROR("Failed to open {}", manifest_path.string());
+        FTK_CORE_ERROR("Failed to open {}", manifest_path.string());
         return std::nullopt;
     }
 
@@ -94,7 +94,7 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
             config.environment.melting_seconds = e.value("melting_seconds", 1200.0f);
         }
 
-        FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
+        FTK_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
 
         // Projects created before the engine scaffolded one still need it.
@@ -103,25 +103,25 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         // Initialize asset database
         project.asset_db_ = std::make_unique<AssetDatabase>(root);
         if (auto r = project.asset_db_->load(); !r) {
-            FJELL_CORE_WARN("Asset database: {}", r.error());
+            FTK_CORE_WARN("Asset database: {}", r.error());
         }
         project.asset_remap_ = std::make_unique<AssetRemap>(root);
         if (auto r = project.asset_remap_->load(); !r) {
-            FJELL_CORE_WARN("Asset remap: {}", r.error());
+            FTK_CORE_WARN("Asset remap: {}", r.error());
         }
 
         project.asset_db_->rebuild();
         if (project.asset_db_->dirty()) {
             if (auto r = project.asset_db_->save(); !r) {
-                FJELL_CORE_WARN("Asset database save: {}", r.error());
+                FTK_CORE_WARN("Asset database save: {}", r.error());
             } else {
-                FJELL_CORE_INFO("Asset database: {} assets tracked", project.asset_db_->size());
+                FTK_CORE_INFO("Asset database: {} assets tracked", project.asset_db_->size());
             }
         }
 
         return project;
     } catch (const nlohmann::json::parse_error& e) {
-        FJELL_CORE_ERROR("Failed to parse {}: {}", manifest_path.string(), e.what());
+        FTK_CORE_ERROR("Failed to parse {}: {}", manifest_path.string(), e.what());
         return std::nullopt;
     }
 }
@@ -144,7 +144,7 @@ std::string Project::resolve(const AssetId& id) const {
     if (asset_remap_) {
         if (auto to = asset_remap_->resolve(id); to.valid()) {
             if (const auto* entry = asset_db_->find(to)) {
-                FJELL_CORE_DEBUG("Asset {} resolved through remap to {}",
+                FTK_CORE_DEBUG("Asset {} resolved through remap to {}",
                                  id.to_string(), to.to_string());
                 return (root_ / entry->relative_path).string();
             }
@@ -203,11 +203,11 @@ void Project::save() {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        FJELL_CORE_ERROR("Failed to save project: {}", path.string());
+        FTK_CORE_ERROR("Failed to save project: {}", path.string());
         return;
     }
     file << j.dump(2);
-    FJELL_CORE_INFO("Project saved: {}", path.string());
+    FTK_CORE_INFO("Project saved: {}", path.string());
     saved_config_ = config_;
 }
 
@@ -228,7 +228,7 @@ void Project::write_gitignore(const std::filesystem::path& root) {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        FJELL_CORE_ERROR("Failed to write {}", path.string());
+        FTK_CORE_ERROR("Failed to write {}", path.string());
         return;
     }
 
@@ -262,12 +262,12 @@ void Project::write_scripts_cmake_to(const std::filesystem::path& cmake_path,
     auto sdk_dir = sdk_include.generic_string();
     // fjell.lib is generated next to fjell.exe by ENABLE_EXPORTS.
     // Use the exe's directory to find it reliably in both dev and install layouts.
-    auto exe_dir = platform::executable_path().parent_path();
+    auto exe_dir = ftk::platform::executable_path().parent_path();
     auto lib_path = (exe_dir / "fjell.lib").generic_string();
 
     std::ofstream cmake_file(cmake_path);
     if (!cmake_file.is_open()) {
-        FJELL_CORE_ERROR("Failed to write {}", cmake_path.string());
+        FTK_CORE_ERROR("Failed to write {}", cmake_path.string());
         return;
     }
 

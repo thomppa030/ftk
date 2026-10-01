@@ -9,9 +9,11 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
-
+namespace ftk {
 class IconCache;
+} // namespace ftk
+
+namespace fjell {
 
 /// A texture on its own (sheet 33, T1), opened from the content browser:
 /// the picture as a canvas over a checkerboard, so its alpha reads (the
@@ -29,7 +31,7 @@ public:
     ~TexturePreview() = default;
 
     /// The cache that uploads the picture. Set before open().
-    void init(IconCache* icons) { icons_ = icons; }
+    void init(ftk::IconCache* icons) { icons_ = icons; }
 
     /// Shows the image at `path`, read at the next update().
     void open(std::string path);
@@ -53,7 +55,7 @@ private:
     void fit();
     void pixel_for_pixel();
 
-    IconCache* icons_{nullptr};
+    ftk::IconCache* icons_{nullptr};
     bool open_{false};
     std::string path_;
     std::string loaded_path_;
@@ -67,9 +69,9 @@ private:
 
     ChannelMask mask_{};
     ChannelMask uploaded_mask_{};
-    gpu::Owned<gpu::Texture> picture_;
+    ftk::gpu::Owned<ftk::gpu::Texture> picture_;
 
-    ui::CanvasView view_{{.zoom = ui::CanvasZoom::Uniform, .min_scale = 1.0f / 64.0f, .max_scale = 64.0f}};
+    ftk::ui::CanvasView view_{{.zoom = ftk::ui::CanvasZoom::Uniform, .min_scale = 1.0f / 64.0f, .max_scale = 64.0f}};
     bool framed_{false};
 };
 

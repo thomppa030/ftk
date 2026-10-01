@@ -20,7 +20,7 @@ struct SurfaceAsset {
     std::string name;
 };
 
-[[nodiscard]] Result<SurfaceAsset> load_surface_asset_file(const std::string& path);
-[[nodiscard]] Result<> save_surface_asset_file(const std::string& path, const SurfaceAsset& asset);
+[[nodiscard]] ftk::Result<SurfaceAsset> load_surface_asset_file(const std::string& path);
+[[nodiscard]] ftk::Result<> save_surface_asset_file(const std::string& path, const SurfaceAsset& asset);
 
 } // namespace fjell

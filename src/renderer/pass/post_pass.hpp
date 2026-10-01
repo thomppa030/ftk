@@ -40,7 +40,7 @@ class PostPass : public RenderPass {
 public:
     /// The format of what the viewport shows, which the editor overlays draw
     /// into after this pass.
-    static constexpr gpu::Format OUTPUT_FORMAT = gpu::Format::rgba8_srgb;
+    static constexpr ftk::gpu::Format OUTPUT_FORMAT = ftk::gpu::Format::rgba8_srgb;
 
     /// The bindless index a sampler with this hint reads when nothing is
     /// bound: what the engine default's row holds in its texture slots, the
@@ -54,27 +54,26 @@ public:
     void set_ungraded(bool on) { ungraded_ = on; }
     [[nodiscard]] bool ungraded() const { return ungraded_; }
 
-
     // Per-viewport output image.
     struct Images {
         /// What the viewport shows, in OUTPUT_FORMAT.
-        gpu::Owned<gpu::Texture> texture;
+        ftk::gpu::Owned<ftk::gpu::Texture> texture;
         glm::uvec2 extent{0, 0};
         /// Whether the pass has drawn into the image since it was made.
         bool written{false};
 
-        void create(gpu::Device& gpu, uint32_t width, uint32_t height);
+        void create(ftk::gpu::Device& gpu, uint32_t width, uint32_t height);
         /// Releases the output; the frames still reading it keep it until
         /// they are done.
         void destroy();
-        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
+        void resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     void set_exposure(float ev) { exposure_ = ev; }
@@ -89,15 +88,15 @@ public:
     void set_exposure_range(float min_ev, float max_ev) { min_ev_ = min_ev; max_ev_ = max_ev; }
 
     /// The sampler the viewport images are shown with.
-    [[nodiscard]] gpu::Sampler output_sampler() const { return linear_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler output_sampler() const { return linear_sampler_; }
 
 private:
     /// A post shader's two pipelines. The first layer covers the image
     /// and draws opaque, as the one draw of the common case should; every
     /// layer after it blends over what is there by the weight it writes.
     struct MaterialPipeline {
-        gpu::Owned<gpu::GraphicsPipeline> base;
-        gpu::Owned<gpu::GraphicsPipeline> over;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> base;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> over;
         uint32_t generation{0};
     };
     /// The engine default, registered once and given a material row for its
@@ -131,27 +130,27 @@ private:
     /// What the template's set 2 samples. `bloom` is unset when this
     /// viewport's graph builds no bloom.
     struct Inputs {
-        gpu::Texture color{};
-        gpu::Texture bloom{};
-        gpu::Texture depth{};
-        gpu::Texture normal{};
-        gpu::Texture velocity{};
+        ftk::gpu::Texture color{};
+        ftk::gpu::Texture bloom{};
+        ftk::gpu::Texture depth{};
+        ftk::gpu::Texture normal{};
+        ftk::gpu::Texture velocity{};
     };
     void record_into(const FrameContext& ctx, Images& imgs, const Inputs& inputs, float exposure,
                      std::span<const PostLayer> layers);
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     /// The engine's globals and bindless table, sets 0 and 1 of the template.
-    gpu::SharedLayout globals_{};
-    gpu::SharedLayout bindless_layout_{};
+    ftk::gpu::SharedLayout globals_{};
+    ftk::gpu::SharedLayout bindless_layout_{};
 
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
 
     // The colours filter; the depth, the encoded normal and the motion are
     // read texel by texel.
-    gpu::Sampler linear_sampler_;
-    gpu::Sampler nearest_sampler_;
+    ftk::gpu::Sampler linear_sampler_;
+    ftk::gpu::Sampler nearest_sampler_;
 
     std::unordered_map<uint32_t, MaterialPipeline> material_pipelines_;
     /// Entries already reported as unusable, so a broken shader is said once

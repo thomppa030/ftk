@@ -1,10 +1,10 @@
 #pragma once
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class RenderEncoder;
-} // namespace gpu
+} // namespace ftk::gpu
+
+namespace fjell {
 
 struct FrameContext;
 
@@ -12,6 +12,6 @@ struct FrameContext;
 /// pipeline set on `pass`, pushing each one's world matrix: what the mesh
 /// visualisations (UV, normals, wireframe, overdraw) draw. Skinned meshes are
 /// left out; the viz pipelines have no skinned variant.
-void draw_viz_meshes(const FrameContext& ctx, gpu::RenderEncoder& pass);
+void draw_viz_meshes(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
 
 } // namespace fjell

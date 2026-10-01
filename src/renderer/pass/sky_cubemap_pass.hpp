@@ -27,25 +27,25 @@ class SkyPass;
 /// which replaces it. Everything is generated in the frame, in this pass.
 class SkyCubemapPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
-    void register_resources(ResourceRegistry& registry) override;
+    void register_resources(ftk::ResourceRegistry& registry) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Whether an HDRI replaces the procedural cubemap.
     [[nodiscard]] bool has_hdri() const { return static_cast<bool>(hdri_cubemap_); }
 
     /// The cubemap the surfaces sample now: the HDRI's when there is one.
-    [[nodiscard]] gpu::Texture sky_texture() const {
+    [[nodiscard]] ftk::gpu::Texture sky_texture() const {
         return hdri_cubemap_ ? hdri_cubemap_.get() : cubemap_.get();
     }
     /// The sampler the surfaces read it with.
-    [[nodiscard]] gpu::Sampler sky_sampler() const { return cubemap_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler sky_sampler() const { return cubemap_sampler_; }
 
     void set_project(const class Project* p) { project_ = p; }
 
@@ -74,9 +74,9 @@ private:
 
     // Each records its work into the frame; the graph has brought what it
     // writes to storage as declare() says.
-    void generate_brdf_lut(gpu::CommandList& cmd);
+    void generate_brdf_lut(ftk::gpu::CommandList& cmd);
     /// The built-in sky (gradient or atmosphere).
-    void generate(gpu::CommandList& cmd);
+    void generate(ftk::gpu::CommandList& cmd);
     /// The active FJSL sky through its compute variant, so the sky that is
     /// drawn is the sky that lights; the built-in sky while it has none.
     void generate_fjsl(const FrameContext& ctx);
@@ -85,8 +85,8 @@ private:
     void ensure_fjsl_pipeline();
     /// Mip 0 of the procedural cubemap has been written as storage: fills
     /// the rest of the chain from it and leaves it all as a copy target.
-    void finish_cubemap(gpu::CommandList& cmd);
-    void convert_hdri(gpu::CommandList& cmd);
+    void finish_cubemap(ftk::gpu::CommandList& cmd);
+    void convert_hdri(ftk::gpu::CommandList& cmd);
 
     static constexpr uint32_t CUBEMAP_SIZE = 64;
     static constexpr uint32_t MIP_LEVELS = 7; // floor(log2(64)) + 1
@@ -94,18 +94,18 @@ private:
     static constexpr uint32_t HDRI_MIP_LEVELS = 10; // floor(log2(512)) + 1
     static constexpr uint32_t BRDF_LUT_SIZE = 512;
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     PassResources resources_{};
 
-    gpu::Owned<gpu::Texture> cubemap_;
-    gpu::Owned<gpu::Texture> brdf_lut_;
+    ftk::gpu::Owned<ftk::gpu::Texture> cubemap_;
+    ftk::gpu::Owned<ftk::gpu::Texture> brdf_lut_;
     /// Trilinear, for the cubemaps' mips; linear, for the lookup table.
-    gpu::Sampler cubemap_sampler_;
-    gpu::Sampler brdf_lut_sampler_;
-    gpu::Owned<gpu::ComputePipeline> cubemap_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> brdf_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> equirect_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> prefilter_pipeline_;
+    ftk::gpu::Sampler cubemap_sampler_;
+    ftk::gpu::Sampler brdf_lut_sampler_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> cubemap_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> brdf_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> equirect_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> prefilter_pipeline_;
     bool brdf_generated_{false};
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
@@ -126,7 +126,7 @@ private:
     // the global set, the bindless set and the faces as storage.
     SkyPass* sky_pass_{nullptr};
     bool fjsl_active_{false};
-    gpu::Owned<gpu::ComputePipeline> fjsl_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> fjsl_pipeline_;
     uint32_t fjsl_pipeline_id_{0};
     uint32_t fjsl_generation_{0};
     // What the cubemap last rendered; a change re-renders it.
@@ -138,17 +138,17 @@ private:
     };
     FjslInputs fjsl_inputs_{};
     bool fjsl_rendered_{false};
-    ResourceRegistry* registry_{nullptr};
+    ftk::ResourceRegistry* registry_{nullptr};
     const class Project* project_{nullptr};
 
     // ── HDRI environment map ──────────────────────────────────────────
     std::string loaded_hdri_path_;
     /// The prefiltered cubemap surfaces sample: roughness rises with the mip.
-    gpu::Owned<gpu::Texture> hdri_cubemap_;
+    ftk::gpu::Owned<ftk::gpu::Texture> hdri_cubemap_;
     /// Until the frame that converts them: the image as uploaded, and the
     /// same as a cube with a plain mip chain, which the prefilter samples.
-    gpu::Owned<gpu::Texture> hdri_equirect_;
-    gpu::Owned<gpu::Texture> hdri_source_;
+    ftk::gpu::Owned<ftk::gpu::Texture> hdri_equirect_;
+    ftk::gpu::Owned<ftk::gpu::Texture> hdri_source_;
     bool hdri_pending_{false};
 };
 

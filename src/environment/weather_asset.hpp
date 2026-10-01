@@ -101,7 +101,7 @@ struct WeatherAsset {
         /// tells lightning apart from a light being switched on, and that
         /// shape is authored here rather than fixed in the engine. Empty
         /// falls back to a single pulse.
-        Curve flash;
+        ftk::Curve flash;
         /// How long one strike's flash lasts, in seconds.
         float duration{0.35f};
         /// The colour it throws, linear. A cold front and a dust storm do
@@ -149,11 +149,11 @@ struct WeatherAsset {
 /// Returns nothing for a name no phase answers to, so a typo reads as a
 /// typo rather than silently becoming the approach.
 [[nodiscard]] std::optional<WeatherPhase> weather_phase_from_name(std::string_view name);
-[[nodiscard]] Result<WeatherAsset> load_weather_asset_file(const std::string& path);
+[[nodiscard]] ftk::Result<WeatherAsset> load_weather_asset_file(const std::string& path);
 
 /// A weather event read back from its text, as weather_asset_text() writes it. `path` names it in errors and gives the default name.
-[[nodiscard]] Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path);
-[[nodiscard]] Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset);
+[[nodiscard]] ftk::Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path);
+[[nodiscard]] ftk::Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset);
 
 /// The .fjweather text save_weather_asset_file() writes, without writing it.
 [[nodiscard]] std::string weather_asset_text(const WeatherAsset& asset);

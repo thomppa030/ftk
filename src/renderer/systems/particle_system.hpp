@@ -99,10 +99,9 @@ public:
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;
     void collect_exports(DeclareContext& ctx) const override;
-    void record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
-    void record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
-    void record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) override;
-
+    void record_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) override;
+    void record_distortion(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) override;
+    void record_transparent(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) override;
 
 private:
     // Internal implementations (called by the virtual overrides above)
@@ -134,14 +133,14 @@ private:
 
     void dispatch_compute(const FrameContext& ctx, Scene& scene, const glm::vec3& wind, float dt,
                           std::span<const SceneView> views);
-    void record_render(const FrameContext& ctx, gpu::RenderEncoder& pass);
-    void record_render_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass);
-    void record_render_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass);
+    void record_render(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
+    void record_render_distortion(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
+    void record_render_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
     /// Sets `pipeline` and binds what its shaders read: the globals, the
     /// bindless table, and of the particle buffers those it declares.
     /// `records` holds the emitter records, which only the trails read.
-    void use(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline pipeline,
-             const gpu::BufferRange& records = {});
+    void use(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass, ftk::gpu::GraphicsPipeline pipeline,
+             const ftk::gpu::BufferRange& records = {});
 
 public:
     // Public for DDGI RT TLAS integration (mesh particle emitters as proxy geometry)
@@ -184,7 +183,7 @@ public:
     };
     [[nodiscard]] const std::vector<EmitterGpu>& emitters() const { return emitters_; }
     /// Every emitter's simulated particles; invalid before the first.
-    [[nodiscard]] gpu::Buffer particle_buffer() const { return particles_; }
+    [[nodiscard]] ftk::gpu::Buffer particle_buffer() const { return particles_; }
 
     void set_sdf_bounds(const glm::vec3& vol_min, const glm::vec3& vol_max) {
         sdf_volume_min_ = vol_min;
@@ -211,7 +210,7 @@ private:
     /// Zero the particles and reset the counters of the given slots, at
     /// the next dispatch.
     void init_emitter_slots(const std::vector<uint32_t>& slots);
-    void record_pending_inits(gpu::CommandList& cmd);
+    void record_pending_inits(ftk::gpu::CommandList& cmd);
     /// A free slot in emitters_, appending one when none is free.
     [[nodiscard]] uint32_t allocate_slot();
     /// The first run of `count` particles no active emitter holds, or
@@ -223,32 +222,32 @@ private:
     /// simulation has to reach and how big the buffers must be.
     [[nodiscard]] uint32_t particle_extent() const;
 
-    gpu::Device* gpu_device_{nullptr};
+    ftk::gpu::Device* gpu_device_{nullptr};
 
     // Every pipeline the system draws or dispatches with, built together
     // so a shader reload that fails anywhere keeps the previous set whole.
     struct Pipelines {
-        gpu::Owned<gpu::ComputePipeline> emit;
-        gpu::Owned<gpu::ComputePipeline> sim;
-        gpu::Owned<gpu::ComputePipeline> indirect;
-        gpu::Owned<gpu::ComputePipeline> compact;   // alive-particle compaction (billboard + mesh)
-        gpu::Owned<gpu::GraphicsPipeline> additive; // billboard, unlit
-        gpu::Owned<gpu::GraphicsPipeline> alpha;
-        gpu::Owned<gpu::GraphicsPipeline> trail_additive; // ribbon strip, unlit
-        gpu::Owned<gpu::GraphicsPipeline> trail_alpha;
-        gpu::Owned<gpu::GraphicsPipeline> lit_additive; // billboard, PBR
-        gpu::Owned<gpu::GraphicsPipeline> lit_alpha;
-        gpu::Owned<gpu::GraphicsPipeline> lit_trail_additive;
-        gpu::Owned<gpu::GraphicsPipeline> lit_trail_alpha;
-        gpu::Owned<gpu::GraphicsPipeline> mesh_additive; // instanced mesh, unlit
-        gpu::Owned<gpu::GraphicsPipeline> mesh_alpha;
-        gpu::Owned<gpu::GraphicsPipeline> mesh_lit_additive;
-        gpu::Owned<gpu::GraphicsPipeline> mesh_lit_alpha;
-        gpu::Owned<gpu::GraphicsPipeline> opaque;   // depth-writing, no blend
-        gpu::Owned<gpu::GraphicsPipeline> opaque_lit;
-        gpu::Owned<gpu::GraphicsPipeline> mesh_opaque;
-        gpu::Owned<gpu::GraphicsPipeline> mesh_opaque_lit;
-        gpu::Owned<gpu::GraphicsPipeline> distortion; // screen offsets, one R16G16 target
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> emit;
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> sim;
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> indirect;
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> compact;   // alive-particle compaction (billboard + mesh)
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> additive; // billboard, unlit
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> trail_additive; // ribbon strip, unlit
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> trail_alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> lit_additive; // billboard, PBR
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> lit_alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> lit_trail_additive;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> lit_trail_alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_additive; // instanced mesh, unlit
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_lit_additive;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_lit_alpha;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> opaque;   // depth-writing, no blend
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> opaque_lit;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_opaque;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> mesh_opaque_lit;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> distortion; // screen offsets, one R16G16 target
     };
     Pipelines pipelines_;
     /// Build every pipeline from the shaders on disk into `out`. On any
@@ -258,20 +257,20 @@ private:
     // What the pipelines are made for: the scene targets, the distortion
     // target, and the shared layouts they name.
     PassResources targets_{};
-    gpu::Sampler depth_sampler_{};
+    ftk::gpu::Sampler depth_sampler_{};
 
     // The buffers the simulation keeps from frame to frame, made with room
     // to grow to the scene budgets in place: their handles never change, so
     // nothing bound to them is rewritten when they grow.
-    gpu::Owned<gpu::Buffer> particles_;
-    gpu::Owned<gpu::Buffer> counters_;       // per emitter: alive, dead, trail head
-    gpu::Owned<gpu::Buffer> indirect_;       // per emitter: the billboard or trail draw
-    gpu::Owned<gpu::Buffer> alive_;          // per emitter: dense alive indices
-    gpu::Owned<gpu::Buffer> sub_events_;     // sub-emitter events, 64 bytes each
-    gpu::Owned<gpu::Buffer> sub_event_counts_; // one per emitter
-    gpu::Owned<gpu::Buffer> mesh_instances_; // written by compaction, read by the mesh draws
-    gpu::Owned<gpu::Buffer> mesh_instance_counts_;
-    gpu::Owned<gpu::Buffer> mesh_indirect_;  // per emitter: the indexed mesh draw
+    ftk::gpu::Owned<ftk::gpu::Buffer> particles_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> counters_;       // per emitter: alive, dead, trail head
+    ftk::gpu::Owned<ftk::gpu::Buffer> indirect_;       // per emitter: the billboard or trail draw
+    ftk::gpu::Owned<ftk::gpu::Buffer> alive_;          // per emitter: dense alive indices
+    ftk::gpu::Owned<ftk::gpu::Buffer> sub_events_;     // sub-emitter events, 64 bytes each
+    ftk::gpu::Owned<ftk::gpu::Buffer> sub_event_counts_; // one per emitter
+    ftk::gpu::Owned<ftk::gpu::Buffer> mesh_instances_; // written by compaction, read by the mesh draws
+    ftk::gpu::Owned<ftk::gpu::Buffer> mesh_instance_counts_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> mesh_indirect_;  // per emitter: the indexed mesh draw
 
     /// Each emitter's module bytes as the dispatch gathers them.
     std::vector<std::byte> module_bytes_;
@@ -325,7 +324,7 @@ private:
     glm::vec3 sdf_volume_max_{10.0f};
 
 #ifndef NDEBUG
-    platform::FileWatcher vfx_watcher_;
+    ftk::platform::FileWatcher vfx_watcher_;
     const Scene* watched_scene_{nullptr};
     bool vfx_changed_{false};
     std::string vfx_changed_path_;

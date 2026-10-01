@@ -7,11 +7,11 @@ namespace fjell {
 // Dispatches record_compute() on all render subsystems (particles, sprites, tilemaps).
 class SubsystemComputePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 };
 
 } // namespace fjell

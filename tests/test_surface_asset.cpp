@@ -13,7 +13,7 @@ namespace {
 
 fs::path temp_surface(const char* name) {
     auto dir = fs::temp_directory_path() /
-               ("fjell_surface_test_" + std::to_string(platform::process_id()));
+               ("fjell_surface_test_" + std::to_string(ftk::platform::process_id()));
     fs::create_directories(dir);
     return dir / name;
 }

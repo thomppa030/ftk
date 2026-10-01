@@ -41,7 +41,7 @@ TrackMode mode_from(const std::string& name) {
 
 } // namespace
 
-float evaluate_periodic(const Curve& curve, float t) {
+float evaluate_periodic(const ftk::Curve& curve, float t) {
     const auto& keys = curve.keyframes;
     if (keys.size() < 2) return curve.evaluate(t);
     t = std::clamp(t, 0.0f, 1.0f);
@@ -122,13 +122,13 @@ namespace {
 // One component of a named value, folded in the space it is scaled in and
 // written back in the space it is held in.
 void fold_component(float& held, bool in_linear, TrackMode mode, float value, float weight) {
-    float current = in_linear ? color_space::srgb_to_linear(held) : held;
+    float current = in_linear ? ftk::color_space::srgb_to_linear(held) : held;
     if (mode == TrackMode::Multiply) {
         current *= 1.0f + (value - 1.0f) * weight;
     } else {
         current += (value - current) * weight;
     }
-    held = in_linear ? color_space::linear_to_srgb(current) : current;
+    held = in_linear ? ftk::color_space::linear_to_srgb(current) : current;
 }
 
 } // namespace
@@ -200,7 +200,7 @@ void TrackSet::from_json(const nlohmann::json& j) {
             track.kind = TrackKind::Float;
             if (entry.contains("keys") && entry["keys"].is_array()) {
                 for (const auto& k : entry["keys"]) {
-                    CurveKeyframe key;
+                    ftk::CurveKeyframe key;
                     key.time = std::clamp(k.value("t", 0.0f) / length, 0.0f, 1.0f);
                     key.value = k.value("v", 0.0f);
                     key.tangent_in = k.value("in", 0.0f) * length;
@@ -208,7 +208,7 @@ void TrackSet::from_json(const nlohmann::json& j) {
                     track.curve.keyframes.push_back(key);
                 }
                 std::stable_sort(track.curve.keyframes.begin(), track.curve.keyframes.end(),
-                                 [](const CurveKeyframe& a, const CurveKeyframe& b) {
+                                 [](const ftk::CurveKeyframe& a, const ftk::CurveKeyframe& b) {
                                      return a.time < b.time;
                                  });
             }

@@ -9,12 +9,15 @@
 #include <string_view>
 #include <vector>
 
+namespace ftk {
+class CommandHistory;
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class BindlessTextures;
-class CommandHistory;
 class ContentBrowser;
-class IconCache;
 class Material;
 class PipelineCache;
 class ProjectManager;
@@ -27,13 +30,13 @@ class TerrainSculptTool;
 
 struct InspectorContext {
     Scene* scene{nullptr};
-    CommandHistory* history{nullptr};
+    ftk::CommandHistory* history{nullptr};
     ResourceManager* resource_manager{nullptr};
     PipelineCache* pipeline_cache{nullptr};
     BindlessTextures* bindless{nullptr};
     ProjectManager* project_mgr{nullptr};
     ContentBrowser* content_browser{nullptr};
-    IconCache* icons{nullptr};
+    ftk::IconCache* icons{nullptr};
     /// The scene editor's terrain sculpting tool, so a terrain component's
     /// inspector can offer its brush. Null in any other context.
     TerrainSculptTool* sculpt{nullptr};

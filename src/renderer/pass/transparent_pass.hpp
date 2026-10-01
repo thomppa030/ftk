@@ -10,17 +10,17 @@ namespace fjell {
 // pass.
 class TransparentPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
     // Inner drawing step: binds pipelines, runs through the transparent
     // render queue. record() wraps this with the render scope plus the
     // worldspace UI + particle/subsystem transparent dispatches.
-    void record_draws(const FrameContext& ctx, gpu::RenderEncoder& pass);
+    void record_draws(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass);
 };
 
 } // namespace fjell

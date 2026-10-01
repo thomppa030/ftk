@@ -15,7 +15,7 @@ namespace {
 
 fs::path temp_inst(const char* name) {
     auto dir = fs::temp_directory_path() /
-               ("fjell_fjinst_test_" + std::to_string(platform::process_id()));
+               ("fjell_fjinst_test_" + std::to_string(ftk::platform::process_id()));
     fs::create_directories(dir);
     return dir / name;
 }

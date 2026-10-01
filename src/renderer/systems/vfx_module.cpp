@@ -34,12 +34,12 @@ static void write_vec3(uint8_t* buffer, uint32_t offset, const glm::vec3& v) {
 // expression feeding the pin — and the simulation multiplies linear light,
 // so the conversion happens here, on the way into the module buffer.
 static void write_color(uint8_t* buffer, uint32_t offset, const glm::vec3& srgb) {
-    const glm::vec3 v = color_space::srgb_to_linear(srgb);
+    const glm::vec3 v = ftk::color_space::srgb_to_linear(srgb);
     std::memcpy(buffer + offset, &v, sizeof(v));
 }
 
 static void write_color(uint8_t* buffer, uint32_t offset, const glm::vec4& srgb) {
-    const glm::vec4 v = color_space::srgb_to_linear(srgb);
+    const glm::vec4 v = ftk::color_space::srgb_to_linear(srgb);
     std::memcpy(buffer + offset, &v, sizeof(v));
 }
 
@@ -929,10 +929,10 @@ uint32_t CurveColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     float lut[kCurveLutSamples];
     // The curves are authored in sRGB and sampled there, so a bake is the
     // designer's ramp; each sample then converts like any other colour.
-    for (const Curve* channel : {&curve_r, &curve_g, &curve_b}) {
+    for (const ftk::Curve* channel : {&curve_r, &curve_g, &curve_b}) {
         channel->bake(lut, kCurveLutSamples);
         for (uint32_t i = 0; i < kCurveLutSamples; ++i) {
-            write_float(buffer, off + i * 4, color_space::srgb_to_linear(lut[i]));
+            write_float(buffer, off + i * 4, ftk::color_space::srgb_to_linear(lut[i]));
         }
         off += kCurveLutSamples * 4;
     }

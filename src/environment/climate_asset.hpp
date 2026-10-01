@@ -53,7 +53,7 @@ struct ClimateAsset {
     [[nodiscard]] int index_of(std::string_view state_name) const;
 };
 
-[[nodiscard]] Result<ClimateAsset> load_climate_asset_file(const std::string& path);
-[[nodiscard]] Result<> save_climate_asset_file(const std::string& path, const ClimateAsset& asset);
+[[nodiscard]] ftk::Result<ClimateAsset> load_climate_asset_file(const std::string& path);
+[[nodiscard]] ftk::Result<> save_climate_asset_file(const std::string& path, const ClimateAsset& asset);
 
 } // namespace fjell

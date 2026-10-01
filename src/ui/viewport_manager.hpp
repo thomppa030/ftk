@@ -48,7 +48,7 @@ struct ViewportPanel {
 class ViewportManager {
 public:
     /// Panels render with `msaa_samples`; none gets a target before this.
-    void init(gpu::Samples msaa_samples = gpu::Samples::x1);
+    void init(ftk::gpu::Samples msaa_samples = ftk::gpu::Samples::x1);
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
 
@@ -99,7 +99,7 @@ private:
                              const Input& input, float dt);
 
     bool ready_{false};
-    gpu::Samples msaa_samples_{gpu::Samples::x1};
+    ftk::gpu::Samples msaa_samples_{ftk::gpu::Samples::x1};
     std::vector<ViewportPanel> panels_;
     int next_id_{1};
     int active_id_{0};

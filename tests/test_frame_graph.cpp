@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-using namespace fjell;
+using namespace ftk;
 using gpu::Access;
 
 namespace {

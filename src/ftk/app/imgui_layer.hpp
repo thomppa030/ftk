@@ -15,7 +15,7 @@
 struct ImGuiContext;
 struct SDL_Cursor;
 
-namespace fjell {
+namespace ftk {
 
 class Window;
 namespace gpu {
@@ -89,4 +89,4 @@ private:
 [[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler);
 [[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view);
 
-} // namespace fjell
+} // namespace ftk

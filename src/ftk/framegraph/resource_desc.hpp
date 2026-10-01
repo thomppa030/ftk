@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace fjell {
+namespace ftk {
 
 /// Resolution of a TextureDesc at compile time.
 /// "viewport" and fractions are resolved from the active viewport extent.
@@ -84,4 +84,4 @@ enum class QueueType : uint8_t {
     async_compute,
 };
 
-} // namespace fjell
+} // namespace ftk

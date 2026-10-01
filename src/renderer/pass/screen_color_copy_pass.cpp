@@ -6,7 +6,7 @@
 
 namespace fjell {
 
-Result<> ScreenColorCopyPass::create(const PassResources& /*resources*/) {
+ftk::Result<> ScreenColorCopyPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -20,15 +20,15 @@ PassSetup ScreenColorCopyPass::setup() const {
     };
 }
 
-void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void ScreenColorCopyPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto src = builder.import_named(ctx, "color");
     auto dst = builder.import_named(ctx, "screen_color");
-    builder.read(src, gpu::Access::copy_src);
-    builder.write(dst, gpu::Access::copy_dst);
+    builder.read(src, ftk::gpu::Access::copy_src);
+    builder.write(dst, ftk::gpu::Access::copy_dst);
 }
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_screen_color_copy");
+    FTK_PROFILE_SCOPE_N("record_screen_color_copy");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Screen Color Copy");
     cmd.copy(ctx.target->color_texture(), ctx.target->screen_color_texture());

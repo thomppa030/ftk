@@ -4,7 +4,7 @@
 
 #include <string>
 
-using namespace fjell::gpu;
+using namespace ftk::gpu;
 
 TEST_CASE("Push data must cover what the shaders read", "[gpu][commands]") {
     ShaderLayout layout;

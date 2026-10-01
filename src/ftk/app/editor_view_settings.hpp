@@ -1,6 +1,6 @@
 #pragma once
 
-namespace fjell {
+namespace ftk {
 
 /// How this machine likes the editor's panels shown: saved with the editor
 /// layout in ImGui's ini file, never part of a project.
@@ -22,4 +22,4 @@ void register_editor_view_settings();
 /// Marks the ini to be written after a setting changed.
 void editor_view_settings_changed();
 
-} // namespace fjell
+} // namespace ftk

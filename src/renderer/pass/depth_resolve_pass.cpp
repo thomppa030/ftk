@@ -15,27 +15,27 @@ PassSetup DepthResolvePass::setup() const {
     };
 }
 
-void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    if (ctx.msaa_samples == gpu::Samples::x1) { return; }
+void DepthResolvePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
+    if (ctx.msaa_samples == ftk::gpu::Samples::x1) { return; }
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(msaa_depth, gpu::Access::depth_attachment_read);
-    builder.write(depth, gpu::Access::depth_resolve);
+    builder.read(msaa_depth, ftk::gpu::Access::depth_attachment_read);
+    builder.write(depth, ftk::gpu::Access::depth_resolve);
 }
 
 void DepthResolvePass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
-    if (target == nullptr || target->samples() == gpu::Samples::x1) { return; }
+    if (target == nullptr || target->samples() == ftk::gpu::Samples::x1) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_depth_resolve");
+    FTK_PROFILE_SCOPE_N("record_depth_resolve");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Depth Resolve");
     // Nothing is drawn: beginning and ending the scope resolves the samples.
-    auto resolve = cmd.render({.depth = gpu::DepthAttachment{
+    auto resolve = cmd.render({.depth = ftk::gpu::DepthAttachment{
                                    .view = target->msaa_depth_texture(),
-                                   .access = gpu::Access::depth_attachment_read,
+                                   .access = ftk::gpu::Access::depth_attachment_read,
                                    .resolve = target->depth_texture(),
-                                   .resolve_mode = gpu::DepthResolve::sample_zero,
+                                   .resolve_mode = ftk::gpu::DepthResolve::sample_zero,
                                }});
 }
 

@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -90,7 +90,7 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height) {
     height_ = static_cast<uint32_t>(pixel_height);
 
     open_windows().push_back(this);
-    FJELL_CORE_INFO("Window created: {}x{} ({})", width_, height_,
+    FTK_CORE_INFO("Window created: {}x{} ({})", width_, height_,
                     SDL_GetCurrentVideoDriver());
 }
 
@@ -98,7 +98,7 @@ Window::~Window() {
     std::erase(open_windows(), this);
     SDL_DestroyWindow(window_);
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
-    FJELL_CORE_DEBUG("Window destroyed");
+    FTK_CORE_DEBUG("Window destroyed");
 }
 
 void Window::poll_events() {
@@ -168,7 +168,7 @@ void Window::set_title(std::string_view title) {
 
 void Window::set_cursor_captured(bool captured) {
     if (!SDL_SetWindowRelativeMouseMode(window_, captured)) {
-        FJELL_CORE_WARN("Could not {} the cursor: {}", captured ? "capture" : "release",
+        FTK_CORE_WARN("Could not {} the cursor: {}", captured ? "capture" : "release",
                         SDL_GetError());
     }
 }
@@ -185,4 +185,4 @@ glm::uvec2 Window::framebuffer_size() const {
     return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 }
 
-} // namespace fjell
+} // namespace ftk

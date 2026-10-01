@@ -42,7 +42,7 @@ void SeaDerivation::collect(const FftContributor& wanted) {
 }
 
 FjWaterData SeaDerivation::derive(const FjWaterData& authored, glm::vec2 wind_xz,
-                                  ThreadPool* workers) {
+                                  ftk::ThreadPool* workers) {
     FjWaterData out = apply_wind(authored, wind_xz);
     const FftContributor* wanted = simulated_sea(out);
     if (wanted == nullptr || wanted->resolution < 2 || wanted->patch_size <= 0.0f) {

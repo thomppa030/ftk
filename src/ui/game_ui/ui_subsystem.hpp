@@ -160,7 +160,7 @@ private:
     std::unique_ptr<UiModelWorld> model_world_;
     std::vector<UiInstance> instances_;
     std::unordered_set<std::string> reported_;
-    Connection library_unloading_;
+    ftk::Connection library_unloading_;
     bool rebuild_after_reload_{false};
     std::vector<WorldUiRecord> world_records_;
 

@@ -18,8 +18,8 @@ struct AudioAsset {
     bool spatial{true};
 };
 
-[[nodiscard]] Result<AudioAsset> load_audio_asset_file(const std::string& path);
-[[nodiscard]] Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset);
+[[nodiscard]] ftk::Result<AudioAsset> load_audio_asset_file(const std::string& path);
+[[nodiscard]] ftk::Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset);
 void apply_audio_to_source(const AudioAsset& asset, AudioSourceComponent& source);
 
 } // namespace fjell

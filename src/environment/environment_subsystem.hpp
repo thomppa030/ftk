@@ -17,6 +17,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 struct VfxEffect;
@@ -25,7 +29,6 @@ class AudioSubsystem;
 class ScriptSubsystem;
 class VfxSubsystem;
 class ResourceManager;
-class ThreadPool;
 class Scene;
 struct DayProfileAsset;
 struct WeatherAsset;
@@ -158,7 +161,7 @@ private:
     /// while playing; outside play the frame does, so the editor's sea still
     /// answers the weather.
     void advance_water(Scene& scene, std::span<const MotionSource> sources, float dt, float time,
-                       ThreadPool* workers);
+                       ftk::ThreadPool* workers);
     /// Fire the script hooks for whatever changed since last frame.
     void dispatch_changes(const TickContext& ctx);
     void stop_beds(Beds& beds);

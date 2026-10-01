@@ -21,7 +21,7 @@ namespace fjell {
 /// A shape's fields as property rows: where it sits, with `position_help`
 /// saying relative to what, then its size by kind (half extents, radius,
 /// radius and height). A shape built from geometry says so instead.
-ui::Edit collision_shape_rows(CollisionPrimitive& shape, const char* position_help);
+ftk::ui::Edit collision_shape_rows(CollisionPrimitive& shape, const char* position_help);
 
 /// A shape picked from the Add shape menu, sized to fit or at unit size.
 struct ShapePick {

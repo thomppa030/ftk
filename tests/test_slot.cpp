@@ -5,8 +5,8 @@
 
 #include <string>
 
-using fjell::test::ImGuiHarness;
-using namespace fjell;
+using ftk::test::ImGuiHarness;
+using namespace ftk;
 
 namespace {
 

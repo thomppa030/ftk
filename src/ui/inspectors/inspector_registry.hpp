@@ -19,9 +19,9 @@ struct Node3D;
 struct ComponentInspector {
     /// The component's domain: the colour of its bar, and its group when
     /// adding a component.
-    theme::Category category{theme::Category::Structure};
+    ftk::theme::Category category{ftk::theme::Category::Structure};
     /// Draws the component's fields into its block.
-    ui::Edit (*draw)(Node3D& node, void* component, const InspectorContext& ctx){nullptr};
+    ftk::ui::Edit (*draw)(Node3D& node, void* component, const InspectorContext& ctx){nullptr};
 };
 
 class InspectorRegistry {

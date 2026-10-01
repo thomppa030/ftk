@@ -56,7 +56,7 @@
             "binaryDir": "${sourceDir}/build-tracy",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "FJELL_ENABLE_TRACY": "ON"
+                "FTK_ENABLE_TRACY": "ON"
             }
         },
         {

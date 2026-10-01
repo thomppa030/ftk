@@ -61,7 +61,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         const auto& tag = child.tag;
 
         if (resolution_stack.contains(tag)) {
-            FJELL_CORE_WARN("WidgetResolver: circular widget reference for <{}>", tag);
+            FTK_CORE_WARN("WidgetResolver: circular widget reference for <{}>", tag);
             continue;
         }
 
@@ -82,7 +82,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         } else {
             auto result = load_widget_asset(widget_path);
             if (!result) {
-                FJELL_CORE_WARN("WidgetResolver: {}", result.error());
+                FTK_CORE_WARN("WidgetResolver: {}", result.error());
                 continue;
             }
             auto [it, _] = widget_cache_.emplace(widget_path, std::move(*result));
@@ -91,7 +91,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         }
 
         if (!widget_asset->markup_root) {
-            FJELL_CORE_WARN("WidgetResolver: widget has no markup: {}", widget_path);
+            FTK_CORE_WARN("WidgetResolver: widget has no markup: {}", widget_path);
             continue;
         }
 
@@ -172,7 +172,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
                     if (prop.name == attr) { found = true; break; }
                 }
                 if (!found) {
-                    FJELL_CORE_WARN("WidgetResolver: <{}> has no prop '{}' (provided by parent)",
+                    FTK_CORE_WARN("WidgetResolver: <{}> has no prop '{}' (provided by parent)",
                                     tag, attr);
                 }
             }

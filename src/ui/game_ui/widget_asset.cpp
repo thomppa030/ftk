@@ -31,10 +31,10 @@ std::string widget_file_name(std::string_view tag) {
     return name;
 }
 
-Result<WidgetAsset> load_widget_asset(const std::string& path) {
+ftk::Result<WidgetAsset> load_widget_asset(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) {
-        return make_error("Widget asset not found: " + path);
+        return ftk::make_error("Widget asset not found: " + path);
     }
 
     std::ostringstream ss;
@@ -43,13 +43,13 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
 
     auto tree = FjuiParser::parse(source);
     if (!tree) {
-        return make_error("Failed to parse widget markup: " + path);
+        return ftk::make_error("Failed to parse widget markup: " + path);
     }
     ui_stamp_source_file(*tree, path);
 
     // The root must be a <widget> element
     if (tree->tag != "widget") {
-        return make_error("Widget file root must be <widget>, got <" + tree->tag + ">: " + path);
+        return ftk::make_error("Widget file root must be <widget>, got <" + tree->tag + ">: " + path);
     }
 
     WidgetAsset asset;
@@ -89,7 +89,7 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
             }
 
             if (prop.name.empty()) {
-                FJELL_CORE_WARN("Widget '{}': <prop> missing 'name' attribute", path);
+                FTK_CORE_WARN("Widget '{}': <prop> missing 'name' attribute", path);
                 continue;
             }
 
@@ -105,14 +105,14 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
             model.source_file = path;
             model.source_line = child->source_line;
             if (model.name.empty() || model.component.empty()) {
-                FJELL_CORE_WARN("{}:{}: <model> needs a name and a component", path, child->source_line);
+                FTK_CORE_WARN("{}:{}: <model> needs a name and a component", path, child->source_line);
                 continue;
             }
             if (auto it = child->attributes.find("from"); it != child->attributes.end()) {
                 if (it->second == "local") {
                     model.from = ModelSource::local;
                 } else if (it->second != "self") {
-                    FJELL_CORE_WARN("{}:{}: <model> from=\"{}\" is neither self nor local; reading self",
+                    FTK_CORE_WARN("{}:{}: <model> from=\"{}\" is neither self nor local; reading self",
                                     path, child->source_line, it->second);
                 }
             }
@@ -140,7 +140,7 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     auto stale_markup = std::filesystem::path(path).replace_extension(".fjui");
     if (std::filesystem::exists(stale_markup) &&
         warned_stale_markup.insert(stale_markup.string()).second) {
-        FJELL_CORE_WARN("Widget '{}': '{}' is not part of this widget, its markup comes from the .fjwidget",
+        FTK_CORE_WARN("Widget '{}': '{}' is not part of this widget, its markup comes from the .fjwidget",
                         std::filesystem::path(path).stem().string(),
                         stale_markup.filename().string());
     }
@@ -194,11 +194,11 @@ std::string widget_asset_text(const WidgetAsset& asset, const UiNode* markup) {
     return file.str();
 }
 
-Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
+ftk::Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
                            const UiNode* markup) {
     std::ofstream file(path);
     if (!file.is_open()) {
-        return make_error("Failed to save widget asset: " + path);
+        return ftk::make_error("Failed to save widget asset: " + path);
     }
     file << widget_asset_text(asset, markup);
     return {};

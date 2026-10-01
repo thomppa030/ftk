@@ -10,13 +10,13 @@
 #include <span>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 class Device;
 class Readback;
 class Upload;
 }
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 class Foundation;
 
@@ -191,4 +191,4 @@ private:
     static constexpr VkDeviceSize RING_ALIGNMENT = 16;
 };
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

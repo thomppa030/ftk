@@ -97,7 +97,7 @@ const UiSchema& schema_for(const fs::path& widget, Tally& tally) {
     auto it = tally.schemas.find(manifest);
     if (it == tally.schemas.end()) {
         auto schema = UiSchema::load(manifest);
-        if (!schema) FJELL_CORE_WARN("{}: {}", manifest, schema.error());
+        if (!schema) FTK_CORE_WARN("{}: {}", manifest, schema.error());
         it = tally.schemas.emplace(manifest, schema ? std::move(*schema) : UiSchema{}).first;
     }
     return it->second;
@@ -139,7 +139,7 @@ void check_shader_text(const std::string& text, const std::string& name, Tally& 
     const bool has_stage = !meta.fragment_body.empty() || !meta.vertex_body.empty()
                         || !meta.light_body.empty() || !meta.layers_body.empty();
     if (!has_stage) {
-        FJELL_CORE_WARN("{}: declares no fragment(), vertex(), light() or layers() stage",
+        FTK_CORE_WARN("{}: declares no fragment(), vertex(), light() or layers() stage",
                         name);
     }
 }
@@ -160,14 +160,14 @@ void check_widget(const fs::path& path, Tally& tally) {
     auto asset = load_widget_asset(path.string());
     ++tally.files;
     if (!asset) {
-        FJELL_CORE_ERROR("{}: {}", path.string(), asset.error());
+        FTK_CORE_ERROR("{}: {}", path.string(), asset.error());
         return;
     }
     if (!asset->markup_root) {
-        FJELL_CORE_WARN("{}: widget has no markup", path.string());
+        FTK_CORE_WARN("{}: widget has no markup", path.string());
     }
     for (const auto& problem : fjell::check_widget(path.string(), schema_for(path, tally)).problems) {
-        FJELL_CORE_WARN("{}:{}:{}: warning: {}", problem.file, problem.line, problem.column, problem.message);
+        FTK_CORE_WARN("{}:{}:{}: warning: {}", problem.file, problem.line, problem.column, problem.message);
     }
     if (!asset->fjss_path.empty()) {
         auto sheet_path = path.parent_path() / fs::path(asset->fjss_path).filename();
@@ -181,17 +181,17 @@ void check_font(const fs::path& path, Tally& tally) {
     ++tally.files;
     std::vector<std::string> warnings;
     auto recipe = load_font_recipe(path, &warnings);
-    for (const auto& warning : warnings) FJELL_CORE_WARN("{}", warning);
+    for (const auto& warning : warnings) FTK_CORE_WARN("{}", warning);
     if (!recipe) {
-        FJELL_CORE_ERROR("{}", recipe.error());
+        FTK_CORE_ERROR("{}", recipe.error());
         return;
     }
     auto source = font_source_path(path, *recipe);
     if (!fs::exists(source)) {
-        FJELL_CORE_ERROR("{}: source font '{}' does not exist", path.string(), recipe->source);
+        FTK_CORE_ERROR("{}: source font '{}' does not exist", path.string(), recipe->source);
     }
     if (charset_codepoints(*recipe).empty()) {
-        FJELL_CORE_ERROR("{}: the charset is empty", path.string());
+        FTK_CORE_ERROR("{}: the charset is empty", path.string());
     }
 }
 
@@ -245,9 +245,9 @@ int main(int argc, char** argv) {
     }
     // Reports are already "file:line:column: severity: message", the form
     // editors parse, so a line is the message and nothing else.
-    log::init({.level = spdlog::level::warn, .pattern = "%v"});
+    ftk::log::init({.level = spdlog::level::warn, .pattern = "%v"});
     auto logged_problems = std::make_shared<LoggedProblems>();
-    log::add_sink(logged_problems);
+    ftk::log::add_sink(logged_problems);
 
     Tally tally;
     std::string stdin_name = "<stdin>";
@@ -274,6 +274,6 @@ int main(int argc, char** argv) {
     int problems = tally.problems + logged_problems->count();
     std::printf("%d file%s checked, %d problem%s\n", tally.files, tally.files == 1 ? "" : "s",
                 problems, problems == 1 ? "" : "s");
-    log::shutdown();
+    ftk::log::shutdown();
     return problems == 0 ? 0 : 1;
 }

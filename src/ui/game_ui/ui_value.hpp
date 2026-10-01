@@ -35,7 +35,7 @@ struct UiStep {
 /// out of an entry stays safe to hold after the game changed the list: it
 /// is found where its entry is now, or reads as nothing once the entry is
 /// gone.
-using UiPath = SmallVector<UiStep, 3>;
+using UiPath = ftk::SmallVector<UiStep, 3>;
 
 /// A reflected object a scope holds, read in place: a widget's Model, or a
 /// struct inside one or inside a list's entry. It points into the game's

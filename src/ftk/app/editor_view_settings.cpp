@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -58,4 +58,4 @@ void editor_view_settings_changed() {
     ImGui::MarkIniSettingsDirty();
 }
 
-} // namespace fjell
+} // namespace ftk

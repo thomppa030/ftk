@@ -28,10 +28,10 @@ struct ShaderMetadata;
 // using reverse depth test so it only fills pixels with no geometry.
 class SkyPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
@@ -82,7 +82,7 @@ private:
     void apply_uniform_values();
 
     /// The built-in skies: gradient, HDRI and atmosphere.
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
     glm::vec3 bottom_color_{0.8f, 0.4f, 0.1f};
@@ -103,7 +103,7 @@ private:
     uint32_t fjsl_param_count_{0};
     /// The FJSL sky's fragment on the built-in sky's triangle; unset while
     /// no FJSL sky is built.
-    gpu::Owned<gpu::GraphicsPipeline> fjsl_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> fjsl_pipeline_;
     PipelineCache* fjsl_pipeline_cache_{nullptr};
     BindlessTextures* fjsl_bindless_{nullptr};
     // The environment's sky uniform values this frame, and the set the params

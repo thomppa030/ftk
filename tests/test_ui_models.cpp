@@ -435,7 +435,7 @@ TEST_CASE("A Controller reads the component its markup shows, of the declared ty
 
 TEST_CASE("A widget declares its Models and writes them back", "[ui_models]") {
     const auto path = std::filesystem::temp_directory_path() /
-                      ("fjell_models_test_" + std::to_string(platform::process_id()) + ".fjwidget");
+                      ("fjell_models_test_" + std::to_string(ftk::platform::process_id()) + ".fjwidget");
     std::ofstream(path) << "<widget>\n"
                            "    <prop name=\"title\" type=\"string\" default=\"HP\"/>\n"
                            "    <model name=\"player\" component=\"PlayerStats\" from=\"local\"/>\n"

@@ -7,9 +7,9 @@
 #include <optional>
 #include <string>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
-namespace theme = fjell::theme;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
+namespace theme = ftk::theme;
 
 namespace {
 
@@ -177,9 +177,9 @@ TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
         }
     });
     h.step(2);
-    CHECK(plain == fjell::theme::TREE_ROW);
-    CHECK(sized == fjell::theme::TREE_ROW * 2.0f);
-    CHECK(after == fjell::theme::TREE_ROW);
+    CHECK(plain == ftk::theme::TREE_ROW);
+    CHECK(sized == ftk::theme::TREE_ROW * 2.0f);
+    CHECK(after == ftk::theme::TREE_ROW);
 }
 
 TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {

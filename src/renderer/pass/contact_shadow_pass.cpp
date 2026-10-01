@@ -27,13 +27,13 @@ struct ContactShadowPush {
 
 } // namespace
 
-Result<> ContactShadowPass::create(const PassResources& resources) {
+ftk::Result<> ContactShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     // How the surfaces read the mask through the global set.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::clamp});
-    FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::clamp});
+    FTK_TRY(pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/contact_shadow.comp",
                              .shared = {resources.globals},
                              .name = "contact_shadow",
@@ -49,14 +49,14 @@ Result<> ContactShadowPass::create(const PassResources& resources) {
     // storm.
     if (auto made = make_shadow(1920, 1080); !made) return made;
 
-    FJELL_GFX_DEBUG("Contact shadow pass created");
+    FTK_GFX_DEBUG("Contact shadow pass created");
     return {};
 }
 
 void ContactShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
     // Every frame's global binding points at the mask from the very first
     // draw.
-    gpu.global_bindings().set("contact_shadow", gpu::sampled(shadow_, sampler_));
+    gpu.global_bindings().set("contact_shadow", ftk::gpu::sampled(shadow_, sampler_));
 }
 
 void ContactShadowPass::destroy() {
@@ -64,13 +64,13 @@ void ContactShadowPass::destroy() {
     shadow_.reset();
 }
 
-Result<> ContactShadowPass::make_shadow(uint32_t w, uint32_t h) {
-    FJELL_TRY(shadow_, device_->create(gpu::TextureDesc{
-                           .format = gpu::Format::r8_unorm,
+ftk::Result<> ContactShadowPass::make_shadow(uint32_t w, uint32_t h) {
+    FTK_TRY(shadow_, device_->create(ftk::gpu::TextureDesc{
+                           .format = ftk::gpu::Format::r8_unorm,
                            .width = w,
                            .height = h,
-                           .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                           .initial = gpu::Clear{1.0f},
+                           .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                           .initial = ftk::gpu::Clear{1.0f},
                            .name = "contact_shadow",
                        }));
     extent_ = {w, h};
@@ -82,7 +82,7 @@ void ContactShadowPass::ensure_size(uint32_t w, uint32_t h) {
     // One image serves every viewport, so grow to cover the largest rather
     // than thrashing between sizes as different panels ask for different ones.
     if (auto made = make_shadow(std::max(w, extent_.x), std::max(h, extent_.y)); !made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
     }
 }
 
@@ -105,33 +105,33 @@ PassSetup ContactShadowPass::setup() const {
     };
 }
 
-void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void ContactShadowPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto shadow = builder.import_named(ctx, "contact_shadow");
     if (!enabled_) {
-        builder.write(shadow, gpu::Access::clear);
+        builder.write(shadow, ftk::gpu::Access::clear);
         return;
     }
-    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
-    builder.write(shadow, gpu::Access::storage_write_compute);
+    builder.read(builder.import_named(ctx, "depth"), ftk::gpu::Access::sampled_compute);
+    builder.write(shadow, ftk::gpu::Access::storage_write_compute);
 }
 
 void ContactShadowPass::collect_exports(DeclareContext& ctx) {
     if (!shadow_) { return; }
     // The surfaces sample it in the fragment shader through the global set.
-    ctx.export_texture("contact_shadow", shadow_, {.resting = gpu::Access::sampled_fragment});
+    ctx.export_texture("contact_shadow", shadow_, {.resting = ftk::gpu::Access::sampled_fragment});
 }
 
 void ContactShadowPass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr) return;
 
-    FJELL_PROFILE_SCOPE_N("record_contact_shadow");
+    FTK_PROFILE_SCOPE_N("record_contact_shadow");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Contact Shadow");
 
     // Disabled: hold 1.0, no occlusion, for the surfaces that still sample
     // it.
     if (!enabled_) {
-        cmd.clear(shadow_, gpu::Clear{1.0f});
+        cmd.clear(shadow_, ftk::gpu::Clear{1.0f});
         ++frame_counter_;
         return;
     }
@@ -139,7 +139,7 @@ void ContactShadowPass::record(const FrameContext& ctx) {
     const auto extent = ctx.target->extent();
     cmd.set_pipeline(pipeline_);
     cmd.bind(ctx.globals);
-    cmd.bind({{"contact_out", gpu::storage(shadow_)}});
+    cmd.bind({{"contact_out", ftk::gpu::storage(shadow_)}});
     cmd.push(ContactShadowPush{
         .viewport_size = glm::uvec2(extent.x, extent.y),
         .max_distance = max_distance_,

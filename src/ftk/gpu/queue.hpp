@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// A queue work is submitted to.
 enum class Queue : uint8_t {
@@ -11,4 +11,4 @@ enum class Queue : uint8_t {
     compute,
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

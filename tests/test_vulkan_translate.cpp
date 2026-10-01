@@ -8,7 +8,7 @@
 #include <span>
 #include <vector>
 
-using namespace fjell::gpu;
+using namespace ftk::gpu;
 
 namespace {
 

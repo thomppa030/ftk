@@ -28,26 +28,26 @@ class PipelineCache {
 public:
     /// The scene's targets the pipelines draw to.
     struct Targets {
-        gpu::Format color{gpu::Format::undefined};
-        gpu::Format mr{gpu::Format::undefined};
-        gpu::Format normal{gpu::Format::undefined};
-        gpu::Format velocity{gpu::Format::undefined};
-        gpu::Format depth{gpu::Format::undefined};
-        gpu::Samples samples{gpu::Samples::x1};
+        ftk::gpu::Format color{ftk::gpu::Format::undefined};
+        ftk::gpu::Format mr{ftk::gpu::Format::undefined};
+        ftk::gpu::Format normal{ftk::gpu::Format::undefined};
+        ftk::gpu::Format velocity{ftk::gpu::Format::undefined};
+        ftk::gpu::Format depth{ftk::gpu::Format::undefined};
+        ftk::gpu::Samples samples{ftk::gpu::Samples::x1};
     };
     /// The engine's shared layouts the pipelines bind. `meshlets` is unset
     /// without mesh shaders, and no mesh pipeline is built.
     struct SharedLayouts {
-        gpu::SharedLayout globals{};
-        gpu::SharedLayout bindless{};
-        gpu::SharedLayout draw_data{};
-        gpu::SharedLayout meshlets{};
+        ftk::gpu::SharedLayout globals{};
+        ftk::gpu::SharedLayout bindless{};
+        ftk::gpu::SharedLayout draw_data{};
+        ftk::gpu::SharedLayout meshlets{};
     };
 
     /// A compile that replaces an entry's pipelines hands the old ones back
     /// to `gpu`, which destroys them once the frames drawing with them are
     /// done.
-    PipelineCache(gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts);
+    PipelineCache(ftk::gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts);
     ~PipelineCache();
 
     PipelineCache(const PipelineCache&) = delete;
@@ -63,16 +63,16 @@ public:
     void reload(uint32_t id);
 
     // Each falls back to the standard shader's while an entry has none.
-    [[nodiscard]] gpu::GraphicsPipeline transparent_pipeline(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipeline transparent_pipeline(uint32_t id) const;
     /// Unset without mesh shaders.
-    [[nodiscard]] gpu::GraphicsPipeline gpu_driven_pipeline(uint32_t id) const;
-    [[nodiscard]] gpu::GraphicsPipeline skinned_opaque_pipeline(uint32_t id) const;
-    [[nodiscard]] gpu::GraphicsPipeline skinned_transparent_pipeline(uint32_t id) const;
-    [[nodiscard]] gpu::GraphicsPipeline outline_pipeline(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipeline gpu_driven_pipeline(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipeline skinned_opaque_pipeline(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipeline skinned_transparent_pipeline(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipeline outline_pipeline(uint32_t id) const;
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
     /// The faces a material shader's surfaces are drawn with culled: back
     /// faces, unless its render state says `cull_disabled` or `cull_front`.
-    [[nodiscard]] gpu::Cull cull(uint32_t id) const;
+    [[nodiscard]] ftk::gpu::Cull cull(uint32_t id) const;
     [[nodiscard]] bool has_custom_vertex(uint32_t id) const;
     [[nodiscard]] const std::string& depth_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;
@@ -137,11 +137,11 @@ private:
         FjslProgram program;
         std::string generated_frag_path;
         bool has_custom_vertex{false};
-        gpu::Owned<gpu::GraphicsPipeline> transparent;
-        gpu::Owned<gpu::GraphicsPipeline> gpu_driven;
-        gpu::Owned<gpu::GraphicsPipeline> skinned_opaque;
-        gpu::Owned<gpu::GraphicsPipeline> skinned_transparent;
-        gpu::Owned<gpu::GraphicsPipeline> outline;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> transparent;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> gpu_driven;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_opaque;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_transparent;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> outline;
         std::string frag_spv;  // path to compiled fragment SPIR-V
         // shader_type ui only: the two UI pipeline shapes
         std::string ui_frag_spv;
@@ -175,7 +175,7 @@ private:
     /// `spv_path`; throws with the reason one cannot be built.
     void create_pipelines(Entry& entry, const std::string& spv_path);
 
-    gpu::Device& gpu_;
+    ftk::gpu::Device& gpu_;
     Targets targets_;
     SharedLayouts layouts_;
     std::vector<Entry> entries_;
@@ -194,7 +194,7 @@ private:
     std::string shadow_vertex_template_;
     std::string outline_vertex_template_;
     const Project* project_{nullptr};
-    ShaderCompiler compiler_;
+    ftk::ShaderCompiler compiler_;
     /// Finds a shader in the project first, then the engine: read through
     /// `project_` at each lookup, so set_project() is all it takes.
     FjslLoader loader_;

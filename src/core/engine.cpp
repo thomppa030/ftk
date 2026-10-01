@@ -102,7 +102,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     // Font bakes run on the pool from here on, project fonts included.
     vulkan_context_->font_library().set_thread_pool(&thread_pool_);
 
-    gpu::Device* device = &vulkan_context_->gpu_device();
+    ftk::gpu::Device* device = &vulkan_context_->gpu_device();
     import_dialog_.set_device(device);
     menu_bar_.set_device(device);
     set_up_file_browser(import_file_browser_, device);
@@ -114,7 +114,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     init_scene();
     init_content_browser();
     init_editor();
-    FJELL_CORE_INFO("Engine initialized");
+    FTK_CORE_INFO("Engine initialized");
 }
 
 void Engine::init_subsystems() {
@@ -237,17 +237,17 @@ void Engine::init_project(const std::filesystem::path& project_path,
 }
 
 void Engine::init_ui() {
-    imgui_layer_ = std::make_unique<ImGuiLayer>(window_, vulkan_context_->gpu_device(),
+    imgui_layer_ = std::make_unique<ftk::ImGuiLayer>(window_, vulkan_context_->gpu_device(),
                                                 vulkan_context_->swapchain_format(), engine_imgui_files());
 
-    vulkan_context_->set_overlay_callback([this](gpu::RenderEncoder& pass) { imgui_layer_->render(pass); });
+    vulkan_context_->set_overlay_callback([this](ftk::gpu::RenderEncoder& pass) { imgui_layer_->render(pass); });
 
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_,
                                                script_subsystem_->manager());
     play_phase_0_.push_back(ui_subsystem_);
 
     vulkan_context_->set_world_ui_callback(
-        [this](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+        [this](ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                glm::uvec2 extent, uint32_t frame_index) {
             for (const auto& rec : ui_subsystem_->world_records()) {
                 rec.game_ui->update(rec.push.viewport_width,
@@ -328,7 +328,7 @@ void Engine::init_scene() {
             vulkan_context_->release_scene_particles(scene_);
             scene_ = std::move(*result);
         } else {
-            FJELL_CORE_ERROR("{}", result.error());
+            FTK_CORE_ERROR("{}", result.error());
             create_default_scene();
         }
         vulkan_context_->sync_custom_depth_pipelines();
@@ -338,10 +338,10 @@ void Engine::init_scene() {
     load_input_actions();
 
     if (game_mode_) {
-        auto game_so = base_path::resolve(std::string("game") + platform::SHARED_LIB_EXT);
+        auto game_so = base_path::resolve(std::string("game") + ftk::platform::SHARED_LIB_EXT);
         if (std::filesystem::exists(game_so)) {
             if (auto r = script_subsystem_->manager().load(game_so); !r) {
-                FJELL_CORE_ERROR("{}", r.error());
+                FTK_CORE_ERROR("{}", r.error());
             } else {
                 script_subsystem_->manager().deserialize_all(scene_);
             }
@@ -362,9 +362,9 @@ AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
 }
 
 void Engine::init_content_browser() {
-    icon_cache_ = std::make_unique<IconCache>(vulkan_context_->gpu_device(), thread_pool_,
+    icon_cache_ = std::make_unique<ftk::IconCache>(vulkan_context_->gpu_device(), thread_pool_,
                                               base_path::resolve("engine_assets/icons"));
-    IconCache::set_instance(icon_cache_.get());
+    ftk::IconCache::set_instance(icon_cache_.get());
 
     AssetThumbnailRenderer::set_instance(&asset_thumbnails_);
     asset_picker::set_thread_pool(&thread_pool_);
@@ -403,7 +403,7 @@ void Engine::init_content_browser() {
             }
             auto preset = PresetTemplate::from_subtree(scene_, node_id);
             if (!preset) {
-                FJELL_CORE_ERROR("{}", preset.error());
+                FTK_CORE_ERROR("{}", preset.error());
                 return;
             }
             auto* node = scene_.find(node_id);
@@ -417,7 +417,7 @@ void Engine::init_content_browser() {
             }
             auto result = preset->save(path.string(), project_mgr_.active());
             if (!result) {
-                FJELL_CORE_ERROR("Failed to save preset: {}", result.error());
+                FTK_CORE_ERROR("Failed to save preset: {}", result.error());
             }
         }));
     connections_.push_back(content_browser_.on_instantiate_preset.bind(
@@ -426,7 +426,7 @@ void Engine::init_content_browser() {
             auto resolved = base_path::resolve_asset(rel_path, project);
             auto result = PresetTemplate::load(resolved, *resource_manager_, project);
             if (!result) {
-                FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
+                FTK_CORE_ERROR("Failed to load preset: {}", result.error());
                 return;
             }
             auto root_id = result->instantiate(scene_);
@@ -593,8 +593,8 @@ void Engine::init_editor() {
             ctx->open_material(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -618,8 +618,8 @@ void Engine::init_editor() {
             ctx->open_mesh(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -638,8 +638,8 @@ void Engine::init_editor() {
             ctx->open(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -659,8 +659,8 @@ void Engine::init_editor() {
             ctx->open(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -682,8 +682,8 @@ void Engine::init_editor() {
             ctx->open_water(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -701,8 +701,8 @@ void Engine::init_editor() {
             ctx->open_font(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -725,8 +725,8 @@ void Engine::init_editor() {
             ctx->open_ui(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -747,8 +747,8 @@ void Engine::init_editor() {
             ctx->open_effect(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return ctx.asset_path() == path;
         }
     });
@@ -769,7 +769,7 @@ void Engine::init_editor() {
     };
     // Each skeleton and animset has its own tab; opening one that is open
     // shows its tab, and a clip opens in the tab of the skeleton it belongs to.
-    auto anim_matches = [](const EditorContext& ctx, const std::string& path) {
+    auto anim_matches = [](const ftk::EditorContext& ctx, const std::string& path) {
         return dynamic_cast<const AnimationEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
     };
 
@@ -779,7 +779,7 @@ void Engine::init_editor() {
             static_cast<AnimationEditorContext&>(*ctx).open_skeleton(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
+        .open = [](ftk::EditorContext&, const std::string&) {},
         .matches = anim_matches
     });
 
@@ -789,10 +789,10 @@ void Engine::init_editor() {
             static_cast<AnimationEditorContext&>(*ctx).open_clip(path);
             return ctx;
         },
-        .open = [](EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext& ctx, const std::string& path) {
             static_cast<AnimationEditorContext&>(ctx).select_clip(path);
         },
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             const auto* anim = dynamic_cast<const AnimationEditorContext*>(&ctx);
             return anim != nullptr && anim->has_clip(path);
         }
@@ -804,7 +804,7 @@ void Engine::init_editor() {
             static_cast<AnimationEditorContext&>(*ctx).open_animset(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
+        .open = [](ftk::EditorContext&, const std::string&) {},
         .matches = anim_matches
     });
 
@@ -824,8 +824,8 @@ void Engine::init_editor() {
             ctx->open(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
-        .matches = [](const EditorContext& ctx, const std::string& path) {
+        .open = [](ftk::EditorContext&, const std::string&) {},
+        .matches = [](const ftk::EditorContext& ctx, const std::string& path) {
             return dynamic_cast<const BlendSpaceEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
         }
     });
@@ -841,7 +841,7 @@ void Engine::init_editor() {
         ctx->init();
         return ctx;
     };
-    auto input_matches = [](const EditorContext& ctx, const std::string& path) {
+    auto input_matches = [](const ftk::EditorContext& ctx, const std::string& path) {
         return dynamic_cast<const InputMappingEditorContext*>(&ctx) != nullptr && ctx.asset_path() == path;
     };
 
@@ -851,7 +851,7 @@ void Engine::init_editor() {
             static_cast<InputMappingEditorContext&>(*ctx).open_context(path);
             return ctx;
         },
-        .open = [](EditorContext&, const std::string&) {},
+        .open = [](ftk::EditorContext&, const std::string&) {},
         .matches = input_matches
     });
 }
@@ -892,10 +892,10 @@ Engine::~Engine() {
     asset_loader_.reset();
     resource_manager_.reset();
     content_browser_.shutdown();
-    IconCache::set_instance(nullptr);
+    ftk::IconCache::set_instance(nullptr);
     icon_cache_.reset();
     imgui_layer_.reset();
-    FJELL_CORE_INFO("Engine shut down");
+    FTK_CORE_INFO("Engine shut down");
 }
 
 void Engine::save_scene() {
@@ -908,7 +908,7 @@ void Engine::save_scene() {
     save_material_assets();
     save_terrain_assets();
     if (auto r = scene_.save(current_scene_path_, project_mgr_.active()); !r) {
-        FJELL_CORE_ERROR("{}", r.error());
+        FTK_CORE_ERROR("{}", r.error());
         return;
     }
 
@@ -1012,7 +1012,7 @@ void Engine::save_terrain_assets() {
         auto* tc = obj->components.get<TerrainComponent>();
         if (tc == nullptr || tc->terrain == nullptr || !tc->terrain->dirty()) continue;
         if (auto r = tc->terrain->save(); !r) {
-            FJELL_CORE_ERROR("terrain: {}", r.error());
+            FTK_CORE_ERROR("terrain: {}", r.error());
         }
     }
 }
@@ -1050,14 +1050,14 @@ void Engine::create_default_scene() {
                {{2.5f, 0.5f, 0.0f}},
                "Sphere", "primitive:sphere");
 
-    FJELL_CORE_INFO("Default scene created");
+    FTK_CORE_INFO("Default scene created");
 }
 
 void Engine::setup_dockspace() {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     // Reserve the bottom strip for the status bar so panels don't overlap it.
     ImVec2 host_size = viewport->WorkSize;
-    host_size.y = std::max(0.0f, host_size.y - theme::STATUS_BAR);
+    host_size.y = std::max(0.0f, host_size.y - ftk::theme::STATUS_BAR);
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(host_size);
     ImGui::SetNextWindowViewport(viewport->ID);
@@ -1072,7 +1072,7 @@ void Engine::setup_dockspace() {
         ImGuiWindowFlags_NoBackground |
         ImGuiWindowFlags_NoDocking;
 
-    (void)ui::begin_host_window("##DockHost", host_flags);
+    (void)ftk::ui::begin_host_window("##DockHost", host_flags);
 
     // Per-context dockspaces — each context gets its own
     // Only draw the active one; the others retain their layout in ImGui state
@@ -1149,7 +1149,7 @@ void Engine::setup_dockspace() {
     ImGui::End();
 }
 
-bool Engine::layout_names_every_window(const nlohmann::json& layout_json, const EditorContext& ctx) {
+bool Engine::layout_names_every_window(const nlohmann::json& layout_json, const ftk::EditorContext& ctx) {
     std::unordered_set<std::string> saved;
     std::function<void(const nlohmann::json&)> collect = [&](const nlohmann::json& node) {
         if (node.contains("windows")) {
@@ -1167,7 +1167,7 @@ bool Engine::layout_names_every_window(const nlohmann::json& layout_json, const 
     return true;
 }
 
-void Engine::rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json) {
+void Engine::rebuild_dockspace_from_json(ftk::EditorContext& ctx, const nlohmann::json& layout_json) {
     ImGuiID dst_dock_id = ctx.dockspace_id();
     ImGui::DockBuilderRemoveNode(dst_dock_id);
     ImGui::DockBuilderAddNode(dst_dock_id, ImGuiDockNodeFlags_DockSpace);
@@ -1214,7 +1214,7 @@ void Engine::rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::jso
     ImGui::DockBuilderFinish(dst_dock_id);
 }
 
-void Engine::build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport) {
+void Engine::build_default_dockspace(ftk::EditorContext& ctx, ImGuiViewport* viewport) {
     ImGuiID ctx_dock_id = ctx.dockspace_id();
     ImGui::DockBuilderRemoveNode(ctx_dock_id);
     ImGui::DockBuilderAddNode(ctx_dock_id, ImGuiDockNodeFlags_DockSpace);
@@ -1223,13 +1223,13 @@ void Engine::build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport
     ImGui::DockBuilderFinish(ctx_dock_id);
 }
 
-void Engine::clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id) {
+void Engine::clone_dockspace_from_template(ftk::EditorContext& dst_ctx, ImGuiID src_dock_id) {
     auto dst_names = dst_ctx.docked_window_names();
 
     // Build source window names — either from a live context or from template
     // placeholder names ("CtxTmpl_material/Code Editor##ctx1", etc.)
     std::vector<std::string> src_names;
-    EditorContext* src_ctx = nullptr;
+    ftk::EditorContext* src_ctx = nullptr;
     for (auto& c : contexts_) {
         if (c->dockspace_id() == src_dock_id) {
             src_ctx = c.get();
@@ -1319,17 +1319,17 @@ void Engine::clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_d
 // Hierarchy and Properties panels extracted to ui/hierarchy_panel.cpp and ui/properties_panel.cpp
 
 void Engine::draw_console() {
-    if (auto* sink = console_sink()) {
+    if (auto* sink = ftk::console_sink()) {
         sink->draw("Console");
     }
 }
 
 void Engine::load_project_scripts() {
     if (!project_mgr_.active()) return;
-    auto so_path = project_mgr_.active()->root() / (std::string("game") + platform::SHARED_LIB_EXT);
+    auto so_path = project_mgr_.active()->root() / (std::string("game") + ftk::platform::SHARED_LIB_EXT);
     if (std::filesystem::exists(so_path)) {
         if (auto r = script_subsystem_->manager().load(so_path); !r) {
-            FJELL_CORE_ERROR("{}", r.error());
+            FTK_CORE_ERROR("{}", r.error());
             return;
         }
         script_subsystem_->manager().deserialize_all(scene_);
@@ -1352,7 +1352,7 @@ void Engine::load_scene(const std::string& path) {
             script_subsystem_->manager().deserialize_all(scene_);
         }
     } else {
-        FJELL_CORE_ERROR("{}", result.error());
+        FTK_CORE_ERROR("{}", result.error());
         scene_.clear();
     }
     scene_context_->set_selected_id(0);
@@ -1368,7 +1368,6 @@ void Engine::notify_scene_replaced() {
     for (auto& subsystem : subsystems_) subsystem->notify_scene_replaced();
 }
 
-
 void Engine::load_input_actions() {
     int found = 0;
     for (const auto& obj : scene_.objects()) {
@@ -1379,12 +1378,12 @@ void Engine::load_input_actions() {
         auto dir = ic->actions_dir.empty() ? std::string("assets/input/actions") : ic->actions_dir;
         if (project_mgr_.active()) {
             auto resolved = project_mgr_.active()->resolve(dir);
-            FJELL_CORE_DEBUG("InputActionMap: loading actions from {}", resolved);
+            FTK_CORE_DEBUG("InputActionMap: loading actions from {}", resolved);
             input_action_map_.load_actions_dir(resolved);
         }
     }
     if (found == 0) {
-        FJELL_CORE_DEBUG("InputActionMap: no InputComponent found in scene");
+        FTK_CORE_DEBUG("InputActionMap: no InputComponent found in scene");
     }
 }
 
@@ -1403,7 +1402,7 @@ void Engine::bind_menu_bar() {
                 auto output = project_mgr_.active()->root() / "build";
                 auto result = GameBuilder::build(*project_mgr_.active(), output);
                 if (!result) {
-                    FJELL_CORE_ERROR("{}", result.error());
+                    FTK_CORE_ERROR("{}", result.error());
                 }
             }
         }));
@@ -1482,7 +1481,7 @@ void Engine::bind_menu_bar() {
         }));
 }
 
-nlohmann::json Engine::serialize_dockspace(EditorContext& ctx) {
+nlohmann::json Engine::serialize_dockspace(ftk::EditorContext& ctx) {
     auto* root = ImGui::DockBuilderGetNode(ctx.dockspace_id());
     if (!root) return {};
 
@@ -1579,14 +1578,14 @@ void Engine::check_project_widgets() {
     std::ranges::sort(widgets);
     const auto manifest = project->root() / "scripts" / "generated" / "manifest.json";
     for (const auto& p : widget_checks_.reload(manifest.string(), widgets)) {
-        FJELL_CORE_WARN("{}:{}:{}: warning: {}", p.file, p.line, p.column, p.message);
+        FTK_CORE_WARN("{}:{}:{}: warning: {}", p.file, p.line, p.column, p.message);
     }
 }
 
 void Engine::open_import_browser(const std::filesystem::path& output_dir) {
     import_output_dir_ = output_dir;
     import_file_browser_.set_project(project_mgr_.active() ? project_mgr_.active()->root() : std::filesystem::path{});
-    import_file_browser_.open("Import model", FileBrowser::Mode::select_file, "Import", {".glb", ".gltf", ".fbx"});
+    import_file_browser_.open("Import model", ftk::FileBrowser::Mode::select_file, "Import", {".glb", ".gltf", ".fbx"});
 }
 
 void Engine::save_layout(const std::string& name) {
@@ -1622,7 +1621,7 @@ void Engine::save_layout(const std::string& name) {
         project_mgr_.active()->config().layout = name;
         project_mgr_.active()->save();
     }
-    FJELL_CORE_INFO("Layout saved: {}", ini_path.string());
+    FTK_CORE_INFO("Layout saved: {}", ini_path.string());
 }
 
 void Engine::load_layout(const std::string& name) {
@@ -1642,7 +1641,7 @@ void Engine::load_layout(const std::string& name) {
             try {
                 saved_context_layouts_ = nlohmann::json::parse(ctx_file);
             } catch (const std::exception& e) {
-                FJELL_CORE_WARN("Failed to parse {}: {}", ctx_path.string(), e.what());
+                FTK_CORE_WARN("Failed to parse {}: {}", ctx_path.string(), e.what());
                 saved_context_layouts_ = {};
             }
         }
@@ -1654,7 +1653,7 @@ void Engine::load_layout(const std::string& name) {
 }
 
 void Engine::draw_ui() {
-    FJELL_PROFILE_SCOPE_N("draw_ui");
+    FTK_PROFILE_SCOPE_N("draw_ui");
     // Update window title with unsaved indicator
     {
         std::string title = "Fjell";
@@ -1667,7 +1666,7 @@ void Engine::draw_ui() {
     if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
         if (auto saved = save_context(active_context()); !saved) {
-            FJELL_CORE_ERROR("Couldn't save {}: {}", active_context().name(), saved.error());
+            FTK_CORE_ERROR("Couldn't save {}: {}", active_context().name(), saved.error());
         }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
@@ -1706,7 +1705,6 @@ void Engine::draw_ui() {
         // Focus viewport next frame (layout overrides focus in the same frame)
         scene_context_->request_focus_viewport();
     }
-
 
     menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_building(project_mgr_.is_building());
@@ -1755,7 +1753,7 @@ void Engine::run_fixed_steps() {
     // A frame over the limit counts for less game time than it took, and the
     // game runs slower through it. Said once as it starts, not every frame.
     if (clock_.game_delta_limited() && !game_time_limited_) {
-        FJELL_CORE_WARN("A {:.0f} ms frame counts as {:.0f} ms of game time: a frame runs at "
+        FTK_CORE_WARN("A {:.0f} ms frame counts as {:.0f} ms of game time: a frame runs at "
                         "most {} simulation steps, so the game slows down until frames catch up",
                         clock_.delta_time() * 1000.0f, clock_.game_delta_time() * 1000.0f,
                         FixedTimestep::MAX_STEPS_PER_FRAME);
@@ -1780,7 +1778,7 @@ void Engine::run_fixed_steps() {
     stats.steps = steps;
     if (steps > 0) physics_subsystem_->keep_frame_intents(scene_);
     for (int i = 0; i < steps; ++i) {
-        FJELL_PROFILE_SCOPE_N("fixed_step");
+        FTK_PROFILE_SCOPE_N("fixed_step");
         const auto step_start = StepClock::now();
         const FixedStepTime step = timestep.next_step();
         play_controller_.step_input().begin_step();
@@ -1911,45 +1909,45 @@ void Engine::set_scene_override(const std::string& scene_name) {
     if (std::filesystem::exists(path)) {
         load_scene(path);
     } else {
-        FJELL_CORE_ERROR("Scene not found: {}", path);
+        FTK_CORE_ERROR("Scene not found: {}", path);
     }
 }
 
-Result<> Engine::set_run_tests(const std::string& filter) {
+ftk::Result<> Engine::set_run_tests(const std::string& filter) {
     // Tests drive play repeatedly, and in game mode stop() closes the window
     // instead of tearing the session down — the first test would end the run
     // and every later start() would be a no-op. Refuse rather than report a
     // suite that silently stopped after one test.
     if (game_mode_) {
-        return make_error("--run-tests needs the editor build; a game build's "
+        return ftk::make_error("--run-tests needs the editor build; a game build's "
                           "stop closes the window instead of ending a test");
     }
     if (project_mgr_.active() == nullptr) {
-        return make_error("--run-tests needs a project");
+        return ftk::make_error("--run-tests needs a project");
     }
 
     auto scenes = discover_test_scenes(project_mgr_.active()->root().string(), filter);
-    if (!scenes) return make_error(scenes.error());
+    if (!scenes) return ftk::make_error(scenes.error());
     if (scenes->empty()) {
-        return make_error(filter.empty()
+        return ftk::make_error(filter.empty()
                               ? std::string("No test scenes in the project's Tests directory")
                               : "No test scene matches '" + filter + "'");
     }
 
     test_scenes_ = std::move(*scenes);
     test_phase_ = TestPhase::load;
-    FJELL_CORE_INFO("Running {} test(s)", test_scenes_.size());
+    FTK_CORE_INFO("Running {} test(s)", test_scenes_.size());
     return {};
 }
 
-Result<> Engine::set_test_pacing(std::string_view list) {
-    if (test_phase_ == TestPhase::idle) return make_error("--pacing needs --run-tests");
+ftk::Result<> Engine::set_test_pacing(std::string_view list) {
+    if (test_phase_ == TestPhase::idle) return ftk::make_error("--pacing needs --run-tests");
     auto pacings = parse_pacings(list);
-    if (!pacings) return make_error(pacings.error());
+    if (!pacings) return ftk::make_error(pacings.error());
     pacings_ = std::move(*pacings);
     std::string names;
     for (const Pacing& pacing : pacings_) names += (names.empty() ? "" : ", ") + pacing.name;
-    FJELL_CORE_INFO("Pacing every test at {}", names);
+    FTK_CORE_INFO("Pacing every test at {}", names);
     return {};
 }
 
@@ -1991,10 +1989,10 @@ namespace {
 // executable, or into the working directory when that cannot be written.
 void write_crash_report(const std::string& message) {
     const std::string text = "The game stopped: " + message + "\n";
-    for (const auto& path : {platform::executable_path().parent_path() / "crash_report.txt",
+    for (const auto& path : {ftk::platform::executable_path().parent_path() / "crash_report.txt",
                              std::filesystem::path("crash_report.txt")}) {
         if (std::ofstream out(path); out << text) {
-            FJELL_CORE_ERROR("Crash report written to {}", path.string());
+            FTK_CORE_ERROR("Crash report written to {}", path.string());
             return;
         }
     }
@@ -2005,7 +2003,7 @@ void write_crash_report(const std::string& message) {
 void Engine::stop_on_missing_reference() {
     auto report = take_missing_reference_report();
     if (!report) return;
-    FJELL_CORE_ERROR("{}", report->message);
+    FTK_CORE_ERROR("{}", report->message);
     // The halt kept the rest of the frame's scripts from running. What ends
     // the session from here (end_play, the editor's scripts made again from
     // the snapshot) is game code too, and has to run.
@@ -2040,7 +2038,7 @@ void Engine::tick_test_runner() {
         case TestPhase::load: {
             if (test_index_ >= test_scenes_.size()) {
                 tests_passed_ = all_passed(test_reports_);
-                FJELL_CORE_INFO("Test results:\n{}", format_report(test_reports_));
+                FTK_CORE_INFO("Test results:\n{}", format_report(test_reports_));
                 test_phase_ = TestPhase::done;
                 window_.request_close();
                 return;
@@ -2151,17 +2149,17 @@ void Engine::start_test_on_step() {
     test_phase_ = TestPhase::run;
 }
 
-Result<> Engine::set_scenario(const std::string& path) {
+ftk::Result<> Engine::set_scenario(const std::string& path) {
     auto scenario = load_environment_scenario(path);
-    if (!scenario) return make_error(scenario.error());
-    FJELL_CORE_INFO("Scenario {}: {} steps over {:.0f}s", path,
+    if (!scenario) return ftk::make_error(scenario.error());
+    FTK_CORE_INFO("Scenario {}: {} steps over {:.0f}s", path,
                     scenario->steps.size(), scenario->duration());
     scenario_.set_scenario(std::move(*scenario));
     return {};
 }
 
 void Engine::run() {
-    FJELL_CORE_INFO("Entering main loop");
+    FTK_CORE_INFO("Entering main loop");
 
     // After the scene is loaded and its environment bound, since binding is
     // what starts the scene's own weather — an override applied earlier
@@ -2188,7 +2186,7 @@ void Engine::run() {
         // Phase 1: Submit previous frame to GPU (non-blocking)
         vulkan_context_->submit_and_present();
 
-        FJELL_PROFILE_FRAME;
+        FTK_PROFILE_FRAME;
 
         // Phase 2: CPU work (overlaps with GPU executing the submitted frame)
         asset_loader_->poll();
@@ -2317,7 +2315,7 @@ void Engine::run() {
         // poll_build() handles the reload after the build finishes.
         if (!project_mgr_.is_building()) {
             if (auto r = script_subsystem_->manager().poll_reload(scene_); !r) {
-                FJELL_CORE_ERROR("{}", r.error());
+                FTK_CORE_ERROR("{}", r.error());
             }
         }
 #endif
@@ -2498,7 +2496,7 @@ void Engine::run() {
 
     // Submit the last recorded frame before shutting down
     vulkan_context_->submit_and_present();
-    FJELL_CORE_INFO("Exiting main loop");
+    FTK_CORE_INFO("Exiting main loop");
 }
 
 EngineEditorContext& Engine::active_context() {
@@ -2519,7 +2517,7 @@ void Engine::draw_context_tabs() {
     // reference the closing context's textures again.
     apply_pending_context_close();
 
-    auto bar = ui::ContextTabBar("##ContextBar");
+    auto bar = ftk::ui::ContextTabBar("##ContextBar");
     if (!bar) return;
 
     // Indent tabs to align with the viewport (past the left dock panels)
@@ -2635,10 +2633,10 @@ void Engine::save_project() {
     project_mgr_.active()->save();
 }
 
-Result<> Engine::save_context(EditorContext& ctx) {
+ftk::Result<> Engine::save_context(ftk::EditorContext& ctx) {
     if (&ctx != scene_context_) return ctx.save();
     save_scene();
-    if (scene_.is_dirty()) return make_error("the scene couldn't be written; the log says why");
+    if (scene_.is_dirty()) return ftk::make_error("the scene couldn't be written; the log says why");
     return {};
 }
 
@@ -2653,26 +2651,26 @@ void Engine::draw_unsaved_dialogs() {
 
     // Closing a tab with unsaved changes.
     if (close_asking_ >= 0 && close_asking_ < static_cast<int>(contexts_.size())) {
-        if (!ImGui::IsPopupOpen(CLOSE_DIALOG)) ui::open_dialog(CLOSE_DIALOG);
-        EditorContext& ctx = *contexts_[static_cast<size_t>(close_asking_)];
+        if (!ImGui::IsPopupOpen(CLOSE_DIALOG)) ftk::ui::open_dialog(CLOSE_DIALOG);
+        ftk::EditorContext& ctx = *contexts_[static_cast<size_t>(close_asking_)];
         const std::string file = std::filesystem::path(ctx.asset_path()).filename().string();
         const std::string title = "Save changes to " + file + "?";
-        switch (ui::unsaved_dialog(CLOSE_DIALOG, title.c_str(),
+        switch (ftk::ui::unsaved_dialog(CLOSE_DIALOG, title.c_str(),
                                    "Closing the tab without saving loses the changes since you last saved.")) {
-            case ui::UnsavedAnswer::Save:
+            case ftk::ui::UnsavedAnswer::Save:
                 if (auto saved = save_context(ctx); saved) {
                     pending_context_close_ = close_asking_;
                 } else {
-                    FJELL_CORE_ERROR("Couldn't save {}: {}", file, saved.error());
+                    FTK_CORE_ERROR("Couldn't save {}: {}", file, saved.error());
                 }
                 close_asking_ = -1;
                 break;
-            case ui::UnsavedAnswer::DontSave:
+            case ftk::ui::UnsavedAnswer::DontSave:
                 pending_context_close_ = close_asking_;
                 close_asking_ = -1;
                 break;
-            case ui::UnsavedAnswer::Cancel: close_asking_ = -1; break;
-            case ui::UnsavedAnswer::None: break;
+            case ftk::ui::UnsavedAnswer::Cancel: close_asking_ = -1; break;
+            case ftk::ui::UnsavedAnswer::None: break;
         }
     }
 
@@ -2684,8 +2682,8 @@ void Engine::draw_unsaved_dialogs() {
         for (const auto& ctx : contexts_) {
             if (!ctx->has_unsaved_changes()) continue;
             const std::filesystem::path path = ctx.get() == scene_context_ ? current_scene_path_ : ctx->asset_path();
-            const auto& kind = ui::asset_kind(path.extension().string());
-            quit_items_.push_back({.icon = kind.icon, .icon_colour = theme::category(kind.category),
+            const auto& kind = ftk::ui::asset_kind(path.extension().string());
+            quit_items_.push_back({.icon = kind.icon, .icon_colour = ftk::theme::category(kind.category),
                                    .name = path.filename().string(), .detail = {}, .save = true});
             const std::string files = ctx->saved_files();
             if (ctx.get() != scene_context_ && files != quit_items_.back().name) {
@@ -2693,17 +2691,17 @@ void Engine::draw_unsaved_dialogs() {
             }
             quit_contexts_.push_back(ctx.get());
         }
-        ui::open_dialog(QUIT_DIALOG);
+        ftk::ui::open_dialog(QUIT_DIALOG);
     }
     const std::string title = quit_items_.size() == 1 ? std::string("1 asset has unsaved changes")
         : std::to_string(quit_items_.size()) + " assets have unsaved changes";
-    switch (ui::unsaved_list_dialog(QUIT_DIALOG, title.c_str(), quit_items_)) {
-        case ui::UnsavedAnswer::Save: {
+    switch (ftk::ui::unsaved_list_dialog(QUIT_DIALOG, title.c_str(), quit_items_)) {
+        case ftk::ui::UnsavedAnswer::Save: {
             bool all_saved = true;
             for (std::size_t i = 0; i < quit_items_.size(); ++i) {
                 if (!quit_items_[i].save) continue;
                 if (auto saved = save_context(*quit_contexts_[i]); !saved) {
-                    FJELL_CORE_ERROR("Couldn't save {}: {}", quit_items_[i].name, saved.error());
+                    FTK_CORE_ERROR("Couldn't save {}: {}", quit_items_[i].name, saved.error());
                     all_saved = false;
                 }
             }
@@ -2715,49 +2713,49 @@ void Engine::draw_unsaved_dialogs() {
             }
             break;
         }
-        case ui::UnsavedAnswer::DontSave:
+        case ftk::ui::UnsavedAnswer::DontSave:
             quit_asking_ = false;
             quit_confirmed_ = true;
             window_.request_close();
             break;
-        case ui::UnsavedAnswer::Cancel: quit_asking_ = false; break;
-        case ui::UnsavedAnswer::None: break;
+        case ftk::ui::UnsavedAnswer::Cancel: quit_asking_ = false; break;
+        case ftk::ui::UnsavedAnswer::None: break;
     }
 }
 
 void Engine::draw_status_bar() {
-    auto bar = ui::StatusBar();
+    auto bar = ftk::ui::StatusBar();
     if (!bar) return;
 
     // Left: the way into the content browser, then what is being edited
     // and in which mode.
-    if (ui::status_button(ui::icon::content_browser, "Content", "Ctrl Space",
+    if (ftk::ui::status_button(ftk::ui::icon::content_browser, "Content", "Ctrl Space",
                           content_browser_.visible())) {
         content_browser_.toggle_visibility();
     }
-    ui::status_rule();
+    ftk::ui::status_rule();
 
     if (!current_scene_path_.empty()) {
         const std::string scene_name = std::filesystem::path(current_scene_path_).stem().string();
-        ui::status_item(ui::icon::scene, scene_name, scene_.is_dirty());
-        ui::status_rule();
+        ftk::ui::status_item(ftk::ui::icon::scene, scene_name, scene_.is_dirty());
+        ftk::ui::status_rule();
     }
 
     if (play_controller_.paused()) {
-        ui::status_pill(ui::icon::pause, "Paused", ui::StatusTone::Warning);
+        ftk::ui::status_pill(ftk::ui::icon::pause, "Paused", ftk::ui::StatusTone::Warning);
     } else if (play_controller_.playing()) {
         const float scale = play_controller_.time_scale();
         const std::string text = scale != 1.0f
             ? std::format("Playing \xc2\xb7 {:.2f} \xc3\x97", scale)
             : std::string("Playing");
-        ui::status_pill(ui::icon::play, text.c_str(), ui::StatusTone::Success);
+        ftk::ui::status_pill(ftk::ui::icon::play, text.c_str(), ftk::ui::StatusTone::Success);
     } else {
-        ui::status_pill(ui::icon::editing, "Editing", ui::StatusTone::Plain);
+        ftk::ui::status_pill(ftk::ui::icon::editing, "Editing", ftk::ui::StatusTone::Plain);
     }
 
     // Right: how the editor is running.
     bar.right();
-    ui::status_item(nullptr, std::format("{:.2f} ms", clock_.delta_time() * 1000.0f));
+    ftk::ui::status_item(nullptr, std::format("{:.2f} ms", clock_.delta_time() * 1000.0f));
 }
 
 } // namespace fjell

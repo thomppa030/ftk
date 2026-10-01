@@ -31,25 +31,25 @@ namespace {
 
 // Lighting for a 2D surface: whether it is lit, and the surface it is lit as.
 template <typename Surface>
-ui::Edit lighting(Surface& s, bool& normal_loaded, const InspectorContext& ctx) {
+ftk::ui::Edit lighting(Surface& s, bool& normal_loaded, const InspectorContext& ctx) {
     static const std::string texture_exts[] = {".png", ".jpg", ".jpeg"};
-    ui::Edit edit;
-    ui::subheading("Lighting");
-    if (auto t = ui::PropertyTable("##lighting")) {
-        ui::row("Lit", "Shaded by the scene's lights and global illumination, instead of drawn at full colour.",
-                [&] { edit |= ui::checkbox("##lit", s.lit); });
+    ftk::ui::Edit edit;
+    ftk::ui::subheading("Lighting");
+    if (auto t = ftk::ui::PropertyTable("##lighting")) {
+        ftk::ui::row("Lit", "Shaded by the scene's lights and global illumination, instead of drawn at full colour.",
+                [&] { edit |= ftk::ui::checkbox("##lit", s.lit); });
         if (s.lit) {
-            ui::row("Normal map", [&] {
+            ftk::ui::row("Normal map", [&] {
                 if (asset_slot({.label = "Normal map", .id = "##normal", .extensions = texture_exts, .ctx = &ctx},
                                s.normal_path)) {
                     normal_loaded = false;
                     edit = {true, true};
                 }
             });
-            ui::row("Roughness", [&] { edit |= ui::slider("##roughness", s.roughness, 0.0f, 1.0f); });
-            ui::row("Metallic", [&] { edit |= ui::slider("##metallic", s.metallic, 0.0f, 1.0f); });
-            ui::row("Emission", [&] {
-                edit |= ui::drag("##emission", s.emission, {.speed = 0.05f, .min = 0.0f, .max = 100.0f});
+            ftk::ui::row("Roughness", [&] { edit |= ftk::ui::slider("##roughness", s.roughness, 0.0f, 1.0f); });
+            ftk::ui::row("Metallic", [&] { edit |= ftk::ui::slider("##metallic", s.metallic, 0.0f, 1.0f); });
+            ftk::ui::row("Emission", [&] {
+                edit |= ftk::ui::drag("##emission", s.emission, {.speed = 0.05f, .min = 0.0f, .max = 100.0f});
             });
         }
     }
@@ -58,12 +58,12 @@ ui::Edit lighting(Surface& s, bool& normal_loaded, const InspectorContext& ctx) 
 
 } // namespace
 
-ui::Edit draw_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
     auto& mesh = *static_cast<MeshComponent*>(component);
     static const std::string model_exts[] = {".fjmesh"};
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##mesh")) {
-        ui::row("Model", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##mesh")) {
+        ftk::ui::row("Model", [&] {
             // The model is the node's source: the scene loads it from there.
             std::string model = node.source;
             if (asset_slot({.label = "Model", .id = "##model", .extensions = model_exts, .ctx = &ctx}, model)) {
@@ -86,12 +86,12 @@ ui::Edit draw_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
     return edit;
 }
 
-ui::Edit draw_skeletal_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_skeletal_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
     auto& skel = *static_cast<SkeletalMeshComponent*>(component);
     static const std::string model_exts[] = {".fjmesh", ".fjskel"};
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##skeletal_mesh")) {
-        ui::row("Model", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##skeletal_mesh")) {
+        ftk::ui::row("Model", [&] {
             std::string model = node.source;
             if (asset_slot({.label = "Model", .id = "##model", .extensions = model_exts, .ctx = &ctx}, model)) {
                 if (!model.empty() && ctx.resource_manager != nullptr) {
@@ -113,12 +113,12 @@ ui::Edit draw_skeletal_mesh(Node3D& node, void* component, const InspectorContex
     return edit;
 }
 
-ui::Edit draw_sprite(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_sprite(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
     auto& sp = *static_cast<SpriteComponent*>(component);
     static const std::string texture_exts[] = {".png", ".jpg", ".jpeg"};
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##sprite")) {
-        ui::row("Texture", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##sprite")) {
+        ftk::ui::row("Texture", [&] {
             if (asset_slot({.label = "Texture", .id = "##texture", .extensions = texture_exts, .ctx = &ctx},
                            sp.texture_path)) {
                 sp.texture_loaded = false;
@@ -126,36 +126,36 @@ ui::Edit draw_sprite(Node3D& /*node*/, void* component, const InspectorContext& 
             }
         });
         // The shader multiplies the tint as linear light.
-        ui::row("Tint", [&] { edit |= ui::color("##tint", sp.tint, ui::ColorSpace::Linear); });
-        ui::row("Opacity", [&] { edit |= ui::slider("##opacity", sp.opacity, 0.0f, 1.0f); });
-        ui::row("Pixels per unit", "How many texture pixels make one metre. 0 sizes the sprite by the node's scale instead.",
+        ftk::ui::row("Tint", [&] { edit |= ftk::ui::color("##tint", sp.tint, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Opacity", [&] { edit |= ftk::ui::slider("##opacity", sp.opacity, 0.0f, 1.0f); });
+        ftk::ui::row("Pixels per unit", "How many texture pixels make one metre. 0 sizes the sprite by the node's scale instead.",
                 [&] {
-                    edit |= ui::drag("##ppu", sp.pixels_per_unit,
+                    edit |= ftk::ui::drag("##ppu", sp.pixels_per_unit,
                                      {.speed = 1.0f, .min = 0.0f, .max = 1000.0f, .format = "%.0f"});
                 });
-        ui::row("Flat", "A flat quad in the node's XY plane, instead of a billboard facing the camera.",
-                [&] { edit |= ui::checkbox("##flat", sp.flat); });
-        ui::row("Flip horizontally", [&] { edit |= ui::checkbox("##flip", sp.flip_h); });
-        ui::row("Pixel art", "Sampled without smoothing, so pixels stay square.", [&] {
-            const ui::Edit e = ui::checkbox("##pixel_art", sp.pixel_art);
+        ftk::ui::row("Flat", "A flat quad in the node's XY plane, instead of a billboard facing the camera.",
+                [&] { edit |= ftk::ui::checkbox("##flat", sp.flat); });
+        ftk::ui::row("Flip horizontally", [&] { edit |= ftk::ui::checkbox("##flip", sp.flip_h); });
+        ftk::ui::row("Pixel art", "Sampled without smoothing, so pixels stay square.", [&] {
+            const ftk::ui::Edit e = ftk::ui::checkbox("##pixel_art", sp.pixel_art);
             if (e.changed) sp.texture_loaded = false;
             edit |= e;
         });
-        ui::row("Sort layer", "Which sprites draw in front: a higher layer is in front of a lower one.",
-                [&] { edit |= ui::drag_int("##layer", sp.sort_layer, 0.2f); });
-        ui::row("Sort order", "The order within a layer.", [&] { edit |= ui::drag_int("##order", sp.sort_order, 0.2f); });
+        ftk::ui::row("Sort layer", "Which sprites draw in front: a higher layer is in front of a lower one.",
+                [&] { edit |= ftk::ui::drag_int("##layer", sp.sort_layer, 0.2f); });
+        ftk::ui::row("Sort order", "The order within a layer.", [&] { edit |= ftk::ui::drag_int("##order", sp.sort_order, 0.2f); });
     }
     edit |= lighting(sp, sp.normal_loaded, ctx);
     return edit;
 }
 
-ui::Edit draw_tilemap(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_tilemap(Node3D& /*node*/, void* component, const InspectorContext& ctx) {
     auto& tm = *static_cast<TilemapComponent*>(component);
     static const std::string texture_exts[] = {".png", ".jpg", ".jpeg"};
-    ui::Edit edit;
+    ftk::ui::Edit edit;
     bool reshaped = false;
-    if (auto t = ui::PropertyTable("##tilemap")) {
-        ui::row("Tileset", [&] {
+    if (auto t = ftk::ui::PropertyTable("##tilemap")) {
+        ftk::ui::row("Tileset", [&] {
             if (asset_slot({.label = "Tileset", .id = "##tileset", .extensions = texture_exts, .ctx = &ctx},
                            tm.tileset_texture)) {
                 tm.texture_loaded = false;
@@ -163,40 +163,40 @@ ui::Edit draw_tilemap(Node3D& /*node*/, void* component, const InspectorContext&
                 edit = {true, true};
             }
         });
-        ui::row("Tile size", [&] {
-            const ui::Edit e = ui::ivec2("##tile_size", tm.tile_size, 1.0f, 1, 512, ui::Unit::Pixels);
+        ftk::ui::row("Tile size", [&] {
+            const ftk::ui::Edit e = ftk::ui::ivec2("##tile_size", tm.tile_size, 1.0f, 1, 512, ftk::ui::Unit::Pixels);
             reshaped = reshaped || e.changed;
             edit |= e;
         });
-        ui::row("Map size", "In tiles. Growing the map adds empty tiles; shrinking it drops the tiles outside.",
+        ftk::ui::row("Map size", "In tiles. Growing the map adds empty tiles; shrinking it drops the tiles outside.",
                 [&] {
-                    const ui::Edit e = ui::ivec2("##map_size", tm.map_size, 1.0f, 1, 256);
+                    const ftk::ui::Edit e = ftk::ui::ivec2("##map_size", tm.map_size, 1.0f, 1, 256);
                     if (e.changed) {
                         tm.tiles.resize(static_cast<size_t>(tm.map_size.x) * tm.map_size.y, -1);
                         reshaped = true;
                     }
                     edit |= e;
                 });
-        ui::row("", [&] {
-            if (ui::action(ui::icon::add, "Fill with the first tile")) {
+        ftk::ui::row("", [&] {
+            if (ftk::ui::action(ftk::ui::icon::add, "Fill with the first tile")) {
                 tm.tiles.assign(static_cast<size_t>(tm.map_size.x) * tm.map_size.y, 0);
                 reshaped = true;
                 edit = {true, true};
             }
         });
-        ui::row("Tile world size", [&] {
-            const ui::Edit e = ui::drag("##world_size", tm.world_tile_size,
-                                        {.speed = 0.01f, .min = 0.01f, .max = 10.0f, .unit = ui::Unit::Metres});
+        ftk::ui::row("Tile world size", [&] {
+            const ftk::ui::Edit e = ftk::ui::drag("##world_size", tm.world_tile_size,
+                                        {.speed = 0.01f, .min = 0.01f, .max = 10.0f, .unit = ftk::ui::Unit::Metres});
             reshaped = reshaped || e.changed;
             edit |= e;
         });
-        ui::row("Pixel art", "Sampled without smoothing, so pixels stay square.", [&] {
-            const ui::Edit e = ui::checkbox("##pixel_art", tm.pixel_art);
+        ftk::ui::row("Pixel art", "Sampled without smoothing, so pixels stay square.", [&] {
+            const ftk::ui::Edit e = ftk::ui::checkbox("##pixel_art", tm.pixel_art);
             if (e.changed) tm.texture_loaded = false;
             edit |= e;
         });
-        ui::row("Sort layer", "Which layer the map draws in; below sprites by default.",
-                [&] { edit |= ui::drag_int("##layer", tm.sort_layer, 0.2f); });
+        ftk::ui::row("Sort layer", "Which layer the map draws in; below sprites by default.",
+                [&] { edit |= ftk::ui::drag_int("##layer", tm.sort_layer, 0.2f); });
     }
     if (reshaped) tm.dirty = true;
     edit |= lighting(tm, tm.normal_loaded, ctx);

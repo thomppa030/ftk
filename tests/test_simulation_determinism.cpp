@@ -232,7 +232,7 @@ private:
     Scene scene_;
     Input input_;
     Clock clock_;
-    ThreadPool workers_{2};
+    ftk::ThreadPool workers_{2};
     PhysicsSubsystem physics_;
 };
 

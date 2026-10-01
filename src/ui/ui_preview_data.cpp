@@ -215,13 +215,13 @@ void UiPreviewData::release() {
 
 void UiPreviewData::draw(GameUi& ui, const InspectorContext& ctx) {
     if (models_.empty() && props_.empty()) {
-        ui::empty_state(ui::icon::ui_models, "Nothing to feed", "This widget has no props or Models");
+        ftk::ui::empty_state(ftk::ui::icon::ui_models, "Nothing to feed", "This widget has no props or Models");
         return;
     }
-    if (!scripts_.is_loaded()) ui::status(ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
+    if (!scripts_.is_loaded()) ftk::ui::status(ftk::ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
 
     if (!models_.empty()) {
-        ui::section("Models", ui::icon::ui_models);
+        ftk::ui::section("Models", ftk::ui::icon::ui_models);
         for (auto& entry : models_) {
             ImGui::PushID(entry.name.c_str());
             if (entry.kind == Entry::Kind::component) draw_component(entry, ui, ctx);
@@ -230,7 +230,7 @@ void UiPreviewData::draw(GameUi& ui, const InspectorContext& ctx) {
         }
     }
     if (!props_.empty()) {
-        ui::section("Props", ui::icon::ui_props);
+        ftk::ui::section("Props", ftk::ui::icon::ui_props);
         draw_values(ui);
         for (auto& entry : props_) {
             ImGui::PushID(entry.name.c_str());
@@ -242,17 +242,17 @@ void UiPreviewData::draw(GameUi& ui, const InspectorContext& ctx) {
 }
 
 void UiPreviewData::draw_component(Entry& entry, GameUi& ui, const InspectorContext& ctx) {
-    ui::InsetHeading heading{.text = entry.name.c_str(),
+    ftk::ui::InsetHeading heading{.text = entry.name.c_str(),
                              .code = true,
                              .detail = entry.type.c_str(),
                              .live = scripts_.playing() ? "Live: the scene is playing" : nullptr};
-    auto box = ui::InsetGroup("##component", heading);
+    auto box = ftk::ui::InsetGroup("##component", heading);
     if (!box) return;
 
     const auto reading = ui.models().reading(ui.context(), entry.name);
     const bool self = entry.decl.from == ModelSource::self;
-    if (auto table = ui::PropertyTable("##reads")) {
-        ui::row("Reads", "The node the component is read from. Picked here, it is kept while the editor has the "
+    if (auto table = ftk::ui::PropertyTable("##reads")) {
+        ftk::ui::row("Reads", "The node the component is read from. Picked here, it is kept while the editor has the "
                          "widget open and never saved.",
                 [&] {
                     uint32_t node = entry.picked;
@@ -262,7 +262,7 @@ void UiPreviewData::draw_component(Entry& entry, GameUi& ui, const InspectorCont
                         .refusal = [&](const Node& n) -> std::string {
                             return carries(n, entry.type) ? std::string() : n.name + " has no " + entry.type;
                         },
-                        .empty_glyph = self ? ui::icon::this_node : ui::icon::local_player,
+                        .empty_glyph = self ? ftk::ui::icon::this_node : ftk::ui::icon::local_player,
                         .empty_text = self ? "This node" : "Local player",
                     };
                     if (node_slot(slot, node)) {
@@ -272,13 +272,13 @@ void UiPreviewData::draw_component(Entry& entry, GameUi& ui, const InspectorCont
                     }
                 });
         if (reading.component != nullptr && entry.picked == 0 && scene_ != nullptr) {
-            if (const Node* found = scene_->find(reading.node)) ui::hint(("Found on " + found->name).c_str());
+            if (const Node* found = scene_->find(reading.node)) ftk::ui::hint(("Found on " + found->name).c_str());
         }
     }
     if (reading.component == nullptr) {
         const std::string why = entry.picked != 0 ? "The picked node is gone or has no " + entry.type
                                                   : "No node in the scene has " + entry.type;
-        ui::status(ui::Severity::Warning, why.c_str());
+        ftk::ui::status(ftk::ui::Severity::Warning, why.c_str());
         return;
     }
     const auto type = world_.component_type(entry.type);
@@ -290,14 +290,14 @@ void UiPreviewData::draw_component(Entry& entry, GameUi& ui, const InspectorCont
 
 void UiPreviewData::draw_owned(Entry& entry, const InspectorContext& ctx) {
     bool reset = false;
-    ui::InsetHeading heading{.text = entry.name.c_str(),
+    ftk::ui::InsetHeading heading{.text = entry.name.c_str(),
                              .code = true,
                              .detail = entry.type.c_str(),
-                             .action_icon = ui::icon::revert,
+                             .action_icon = ftk::ui::icon::revert,
                              .action_tooltip = "Back to the defaults",
                              .action = &reset};
     {
-        auto box = ui::InsetGroup("##owned", heading);
+        auto box = ftk::ui::InsetGroup("##owned", heading);
         if (box && entry.object) {
             (void)draw_model_fields(entry.object->type().fields, entry.object->get(),
                                     {.path = entry.name, .entries_of = {}, .editable = true, .ctx = &ctx,
@@ -310,35 +310,35 @@ void UiPreviewData::draw_owned(Entry& entry, const InspectorContext& ctx) {
 void UiPreviewData::draw_values(GameUi& ui) {
     const bool any = std::ranges::any_of(props_, [](const Entry& e) { return e.kind == Entry::Kind::value; });
     if (!any) return;
-    auto table = ui::PropertyTable("##values");
+    auto table = ftk::ui::PropertyTable("##values");
     if (!table) return;
     for (auto& entry : props_) {
         if (entry.kind != Entry::Kind::value) continue;
         ImGui::PushID(entry.name.c_str());
         const std::string label = field_label(entry.name);
-        ui::row(label.c_str(), entry.name.c_str(), [&] {
+        ftk::ui::row(label.c_str(), entry.name.c_str(), [&] {
             bool changed = false;
             if (entry.type == "bool") {
                 bool value = entry.value.truthy();
-                if (ui::checkbox("##bool", value).changed) {
+                if (ftk::ui::checkbox("##bool", value).changed) {
                     entry.value = UiValue(value);
                     changed = true;
                 }
             } else if (entry.type == "int") {
                 int value = static_cast<int>(entry.value.number().value_or(0.0f));
-                if (ui::drag_int("##int", value).changed) {
+                if (ftk::ui::drag_int("##int", value).changed) {
                     entry.value = UiValue(value);
                     changed = true;
                 }
             } else if (entry.type == "float") {
                 float value = entry.value.number().value_or(0.0f);
-                if (ui::drag("##float", value).changed) {
+                if (ftk::ui::drag("##float", value).changed) {
                     entry.value = UiValue(value);
                     changed = true;
                 }
             } else {
                 std::string value = entry.value.text();
-                if (ui::text_field("##text", value).committed) {
+                if (ftk::ui::text_field("##text", value).committed) {
                     entry.value = UiValue(value);
                     changed = true;
                 }

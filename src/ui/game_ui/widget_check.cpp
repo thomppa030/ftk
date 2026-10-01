@@ -71,11 +71,11 @@ UiSchema UiSchema::from_json(const nlohmann::json& manifest) {
     return schema;
 }
 
-Result<UiSchema> UiSchema::load(const std::string& path) {
+ftk::Result<UiSchema> UiSchema::load(const std::string& path) {
     std::ifstream file(path);
-    if (!file) return make_error("cannot read " + path);
+    if (!file) return ftk::make_error("cannot read " + path);
     const auto manifest = nlohmann::json::parse(file, nullptr, false);
-    if (manifest.is_discarded()) return make_error(path + " is not valid JSON");
+    if (manifest.is_discarded()) return ftk::make_error(path + " is not valid JSON");
     return from_json(manifest);
 }
 

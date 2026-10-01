@@ -1688,7 +1688,7 @@ static int bake_font(const std::string& recipe_path) {
 }
 
 int main(int argc, char* argv[]) {
-    fjell::log::init({.level = spdlog::level::info, .pattern = "%^[%T] [%n] [%l]%$ %v"});
+    ftk::log::init({.level = spdlog::level::info, .pattern = "%^[%T] [%n] [%l]%$ %v"});
 
     if (argc < 2) {
         print_usage(argv[0]);
@@ -1781,7 +1781,7 @@ int main(int argc, char* argv[]) {
 
     if (inspect) {
         print_inspection(scene);
-        fjell::log::shutdown();
+        ftk::log::shutdown();
         return 0;
     }
 
@@ -1901,6 +1901,6 @@ int main(int argc, char* argv[]) {
         json_done(output_files);
     }
 
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     return 0;
 }

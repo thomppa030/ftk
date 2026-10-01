@@ -18,12 +18,12 @@
 
 namespace fjell {
 
-Result<> MeshShaderDepthPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> MeshShaderDepthPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     // Nearer wins; each draw culls what its material culls, as the colour
     // pass does, so the depth holds exactly the faces it shades.
     const DepthVariantState state{
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
         .depth_format = resources.scene_depth_format,
         .samples = resources.samples,
     };
@@ -39,9 +39,9 @@ Result<> MeshShaderDepthPass::create(const PassResources& resources) {
         !made) {
         return made;
     }
-    for (const gpu::Cull cull : {gpu::Cull::none, gpu::Cull::back, gpu::Cull::front}) {
-        FJELL_TRY(gpu_driven_pipelines_[static_cast<size_t>(cull)],
-                  device.create(gpu::GraphicsPipelineDesc{
+    for (const ftk::gpu::Cull cull : {ftk::gpu::Cull::none, ftk::gpu::Cull::back, ftk::gpu::Cull::front}) {
+        FTK_TRY(gpu_driven_pipelines_[static_cast<size_t>(cull)],
+                  device.create(ftk::gpu::GraphicsPipelineDesc{
                       .task = "shaders/mesh_gpu_driven.task",
                       .mesh = "shaders/depth_gpu_driven.mesh",
                       .fragment = "shaders/depth_only.frag",
@@ -53,7 +53,7 @@ Result<> MeshShaderDepthPass::create(const PassResources& resources) {
                       .name = "mesh_depth_gpu_driven",
                   }));
     }
-    FJELL_TRY(skinned_pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(skinned_pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_depth.vert",
                                      .fragment = "shaders/depth_only.frag",
                                      .vertex_layout = SkinnedVertex::layout(),
@@ -63,7 +63,7 @@ Result<> MeshShaderDepthPass::create(const PassResources& resources) {
                                      .shared = {layouts.globals, layouts.draw_data},
                                      .name = "mesh_depth_skinned",
                                  }));
-    FJELL_GFX_DEBUG("Mesh shader depth pass created");
+    FTK_GFX_DEBUG("Mesh shader depth pass created");
     return {};
 }
 
@@ -75,19 +75,19 @@ void MeshShaderDepthPass::destroy() {
 
 namespace {
 
-gpu::Cull material_cull(const FrameContext& ctx, uint32_t pipeline_id) {
-    return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
+ftk::gpu::Cull material_cull(const FrameContext& ctx, uint32_t pipeline_id) {
+    return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : ftk::gpu::Cull::none;
 }
 
 } // namespace
 
-void MeshShaderDepthPass::draw_found(gpu::RenderEncoder& pass, const FrameContext& ctx,
+void MeshShaderDepthPass::draw_found(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx,
                                      MeshletInstancePass::Cull which) const {
     const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
     for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
         if (meshes_.has_custom(ranges[bin].pipeline_id)) continue;
-        const gpu::GraphicsPipeline needed =
+        const ftk::gpu::GraphicsPipeline needed =
             gpu_driven_pipelines_[static_cast<size_t>(material_cull(ctx, ranges[bin].pipeline_id))];
         if (needed != bound) {
             pass.set_pipeline(needed);
@@ -103,7 +103,7 @@ void MeshShaderDepthPass::draw_found(gpu::RenderEncoder& pass, const FrameContex
 void MeshShaderDepthPass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr || ctx.queue == nullptr) return;
 
-    FJELL_PROFILE_SCOPE_N("record_mesh_depth");
+    FTK_PROFILE_SCOPE_N("record_mesh_depth");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Mesh Depth");
     // Cleared as the scope opens. An empty queue does not mean an empty
@@ -113,8 +113,8 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
     // depth without writing it — would then smear stale terrain across the
     // view. A scene with nothing to draw at all still gets its clear for the
     // same reason: particles and the sky test against it.
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture(),
-                                                           .load = gpu::Load::clear}});
+    auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture(),
+                                                           .load = ftk::gpu::Load::clear}});
     if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
 
     // Meshlets read the meshlet set, which a viewport graph without the
@@ -131,7 +131,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         // The batch's per-draw commands: every range without the cull's, and
         // with them only the ranges of materials with their own mesh stage.
         const uint32_t most_groups = std::max(batch.most_mesh_task_groups(ctx.frame_index), 1U);
-        gpu::GraphicsPipeline bound{};
+        ftk::gpu::GraphicsPipeline bound{};
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             if (gpu_driven && !meshes_.has_custom(ranges[r].pipeline_id)) continue;
             const DepthVariants::Variant needed =
@@ -148,7 +148,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
             pass.push(first_draw);
             pass.draw_mesh_tasks_indirect_count(batch.mesh_commands(ctx.frame_index, first_draw, ranges[r].draw_count),
                                                 batch.mesh_count(ctx.frame_index, r), ranges[r].draw_count,
-                                                sizeof(gpu::DrawMeshTasksArgs), most_groups);
+                                                sizeof(ftk::gpu::DrawMeshTasksArgs), most_groups);
         }
     }
 

@@ -65,7 +65,7 @@ UiEditorContext::UiEditorContext(UiEditorDeps deps)
 
 UiEditorContext::~UiEditorContext() = default;
 
-EditorContext::DockPreset UiEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset UiEditorContext::dock_preset() const {
     return {.tree = {"Elements"}, .preview = {"Preview"}, .under_preview = {"Action log"}, .inspector = {"Properties", "Data"}};
 }
 
@@ -124,8 +124,8 @@ std::string UiEditorContext::document() const {
     return text;
 }
 
-Result<> UiEditorContext::write() {
-    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return make_error("no UI is open");
+ftk::Result<> UiEditorContext::write() {
+    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return ftk::make_error("no UI is open");
     auto markup_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
 
     // The watcher would otherwise see these writes and reopen the files we
@@ -135,25 +135,25 @@ Result<> UiEditorContext::write() {
 
     {
         std::ofstream out(markup_path);
-        if (!out) return make_error("cannot write " + markup_path);
+        if (!out) return ftk::make_error("cannot write " + markup_path);
         out << markup_text();
     }
     if (!fjss_path_.empty()) {
         std::ofstream out(fjss_path_);
-        if (!out) return make_error("cannot write " + fjss_path_);
+        if (!out) return ftk::make_error("cannot write " + fjss_path_);
         out << FjssSerializer::serialize(preview_ui_->stylesheet(), fjss_path_);
     }
-    FJELL_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
+    FTK_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
     check_widget_files();
     return {};
 }
 
-Result<> UiEditorContext::restore(const std::string& text) {
-    if (!preview_ui_ || !preview_ui_->root()) return make_error("no UI is open");
+ftk::Result<> UiEditorContext::restore(const std::string& text) {
+    if (!preview_ui_ || !preview_ui_->root()) return ftk::make_error("no UI is open");
     // Only the stylesheet is edited here; the markup comes back as it is.
     const auto split = text.find('\0');
     if (text.substr(0, split) != markup_text()) {
-        return make_error("the markup changed, and this editor only puts a stylesheet back");
+        return ftk::make_error("the markup changed, and this editor only puts a stylesheet back");
     }
     if (split != std::string::npos && !fjss_path_.empty()) {
         Stylesheet sheet = FjssParser::parse(std::string_view(text).substr(split + 1), fjss_path_);
@@ -236,7 +236,7 @@ void UiEditorContext::open_ui(const std::string& path) {
                 fjss_path_ = fjss.string();
             }
         } else {
-            FJELL_CORE_WARN("UiEditor: {}", result.error());
+            FTK_CORE_WARN("UiEditor: {}", result.error());
             fjui_path_ = path;
             fjss_path_.clear();
         }
@@ -289,7 +289,7 @@ void UiEditorContext::open_ui(const std::string& path) {
         offscreen_height_ = 600;
         for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
             offscreen_[i] = std::make_unique<OffscreenPass>(deps_.vulkan_context->gpu_device(), 800, 600,
-                                                            gpu::Samples::x1, OffscreenPass::Contents::color);
+                                                            ftk::gpu::Samples::x1, OffscreenPass::Contents::color);
         }
 
         // Register preview callback — renders to the current frame's offscreen pass
@@ -346,16 +346,16 @@ void UiEditorContext::open_ui(const std::string& path) {
     selected_node_ = nullptr;
     check_widget_files();
     document_opened();
-    FJELL_CORE_INFO("UI editor opened: {}", fjui_path_);
+    FTK_CORE_INFO("UI editor opened: {}", fjui_path_);
 }
 
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    auto panel = ui::Panel(ui::icon::preview, ctx_title("Preview").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::preview, ctx_title("Preview").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
-        ui::empty_state(ui::icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
         return;
     }
 
@@ -425,14 +425,14 @@ void UiEditorContext::draw_preview(float dt) {
         ImTextureID tex{};
         uint32_t latest = latest_rendered_offscreen_.load(std::memory_order_acquire);
         if (latest < PREVIEW_FRAMES && offscreen_[latest]) {
-            tex = imgui_texture(offscreen_[latest]->color_texture());
+            tex = ftk::imgui_texture(offscreen_[latest]->color_texture());
         }
         if (!tex) {
             // Fall back to any valid texture before the first real
             // render has completed (e.g. the very first frame).
             for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
                 if (offscreen_[i]) {
-                    tex = imgui_texture(offscreen_[i]->color_texture());
+                    tex = ftk::imgui_texture(offscreen_[i]->color_texture());
                     if (tex) break;
                 }
             }
@@ -473,11 +473,11 @@ void UiEditorContext::draw_preview_toolbar() {
     static constexpr const char* MODES[] = {"Edit", "Play"};
     int mode = play_mode_ ? 1 : 0;
     ImGui::SetNextItemWidth(120.0f);
-    if (ui::choice("##mode", mode, MODES).changed) play_mode_ = mode == 1;
+    if (ftk::ui::choice("##mode", mode, MODES).changed) play_mode_ = mode == 1;
     ImGui::SetItemTooltip("Edit selects elements with a click; Play hands the mouse to the UI");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_mode_);
-    if (ui::toggle_button("##layout", ui::icon::layout, show_layout_overlay_, "Layout overlay")) {
+    if (ftk::ui::toggle_button("##layout", ftk::ui::icon::layout, show_layout_overlay_, "Layout overlay")) {
         show_layout_overlay_ = !show_layout_overlay_;
     }
     ImGui::EndDisabled();
@@ -509,7 +509,7 @@ void UiEditorContext::draw_preview_toolbar() {
     constexpr float SIZE_W = 84.0f;
     const float times_w = ImGui::CalcTextSize("\xc3\x97").x;
     const float button = ImGui::GetFrameHeight();
-    const std::string design_label = std::string(ui::icon::revert) + "  Design size";
+    const std::string design_label = std::string(ftk::ui::icon::revert) + "  Design size";
     const float design_w = project != nullptr ? ImGui::CalcTextSize(design_label.c_str()).x + style.FramePadding.x * 2.0f : 0.0f;
     const float gap = style.ItemSpacing.x;
     const float right = ASPECT_W + SIZE_W * 2.0f + times_w + button + (project != nullptr ? design_w + gap : 0.0f) + gap * 5.0f;
@@ -517,23 +517,23 @@ void UiEditorContext::draw_preview_toolbar() {
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - right, 0.0f));
 
     ImGui::SetNextItemWidth(ASPECT_W);
-    if (ui::choice("##aspect", aspect, ASPECT_NAMES).changed && aspect < CUSTOM) {
+    if (ftk::ui::choice("##aspect", aspect, ASPECT_NAMES).changed && aspect < CUSTOM) {
         preview_width_ = std::round(preview_height_ * ASPECTS[aspect].ratio);
     }
     ImGui::SetItemTooltip("Aspect ratio at the current height");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(SIZE_W);
-    (void)ui::drag("##width", preview_width_,
-                   {.speed = 1.0f, .min = 100.0f, .max = 3840.0f, .unit = ui::Unit::Pixels, .format = "%.0f"});
+    (void)ftk::ui::drag("##width", preview_width_,
+                   {.speed = 1.0f, .min = 100.0f, .max = 3840.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.0f"});
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("\xc3\x97");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(SIZE_W);
-    (void)ui::drag("##height", preview_height_,
-                   {.speed = 1.0f, .min = 100.0f, .max = 2160.0f, .unit = ui::Unit::Pixels, .format = "%.0f"});
+    (void)ftk::ui::drag("##height", preview_height_,
+                   {.speed = 1.0f, .min = 100.0f, .max = 2160.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.0f"});
     ImGui::SameLine();
-    if (ui::toggle_button("##design_scale", ui::icon::design_scale, design_scale_,
+    if (ftk::ui::toggle_button("##design_scale", ftk::ui::icon::design_scale, design_scale_,
                           "Design scale: fit the project's design frame to the preview, as a screen-space "
                           "placement does in game. Off for world-space widgets")) {
         design_scale_ = !design_scale_;
@@ -541,7 +541,7 @@ void UiEditorContext::draw_preview_toolbar() {
     if (project != nullptr) {
         ImGui::SameLine();
         const auto& ui = project->config().ui;
-        if (ui::action(ui::icon::revert, "Design size", ui::ButtonKind::Ghost)) {
+        if (ftk::ui::action(ftk::ui::icon::revert, "Design size", ftk::ui::ButtonKind::Ghost)) {
             preview_width_ = static_cast<float>(ui.design_width);
             preview_height_ = static_cast<float>(ui.design_height);
         }
@@ -553,14 +553,14 @@ void UiEditorContext::draw_preview_toolbar() {
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    auto panel = ui::Panel(ui::icon::hierarchy, ctx_title("Elements").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::hierarchy, ctx_title("Elements").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
-        ui::empty_state(ui::icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
         return;
     }
     if (auto* root = preview_ui_->root()) {
-        if (auto tree = ui::Tree("##elements")) draw_node_tree(root, 0);
+        if (auto tree = ftk::ui::Tree("##elements")) draw_node_tree(root, 0);
     }
 }
 
@@ -571,20 +571,20 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
     // What kind of node it is: <tag> .class #id, a widget, a foreach copy,
     // or text.
     std::string label;
-    const char* icon = ui::icon::ui_element;
-    std::optional<theme::Category> category;
+    const char* icon = ftk::ui::icon::ui_element;
+    std::optional<ftk::theme::Category> category;
     if (node->type == UiNodeType::text) {
         label = "\"" + node->text_content + "\"";
-        icon = ui::icon::ui_text;
+        icon = ftk::ui::icon::ui_text;
     } else if (node->is_widget) {
         label = "<" + node->widget_tag + "/>";
         if (!node->id.empty()) label += " #" + node->id;
-        icon = ui::icon::ui_widget;
-        category = theme::Category::Ui;
+        icon = ftk::ui::icon::ui_widget;
+        category = ftk::theme::Category::Ui;
     } else if (node->foreach_item_index >= 0) {
         label = "<" + node->tag + "> [" + std::to_string(node->foreach_item_index) + "]";
-        icon = ui::icon::ui_repeat;
-        category = theme::Category::Ui;
+        icon = ftk::ui::icon::ui_repeat;
+        category = ftk::theme::Category::Ui;
     } else {
         label = "<" + (node->tag.empty() ? "root" : node->tag) + ">";
         if (!node->id.empty()) label += " #" + node->id;
@@ -596,14 +596,14 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
     }
 
     const std::string id = std::to_string(reinterpret_cast<std::uintptr_t>(node));
-    const auto row = ui::tree_row({
+    const auto row = ftk::ui::tree_row({
         .id = id.c_str(),
         .name = label,
         .depth = depth,
         .has_children = node->type != UiNodeType::text && !node->children.empty(),
         .icon = icon,
         .category = category,
-        .selection = node == selected_node_ ? ui::RowSelection::Primary : ui::RowSelection::None,
+        .selection = node == selected_node_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
         // Not drawn right now: an if="" that is false, or display: none.
         .dimmed = node->hidden_by_if || node->style.display == UiDisplay::none,
     });
@@ -637,22 +637,22 @@ void UiEditorContext::draw_problems() {
     const auto& diagnostics = preview_ui_->stylesheet().diagnostics;
     if (diagnostics.empty() && widget_problems_.empty()) return;
 
-    ui::section("Problems", ui::icon::warning);
+    ftk::ui::section("Problems", ftk::ui::icon::warning);
     auto line = [](const std::string& file, uint32_t row, uint32_t column, const std::string& message) {
         return fs::path(file).filename().string() + ":" + std::to_string(row) + ":" + std::to_string(column) +
                "  " + message;
     };
     for (const auto& d : diagnostics) {
         const std::string text = line(d.source, d.line, d.column, d.message);
-        ui::status(d.severity == FjssSeverity::error ? ui::Severity::Error : ui::Severity::Warning, text.c_str());
+        ftk::ui::status(d.severity == FjssSeverity::error ? ftk::ui::Severity::Error : ftk::ui::Severity::Warning, text.c_str());
     }
     for (const auto& p : widget_problems_) {
-        ui::status(ui::Severity::Warning, line(p.file, p.line, p.column, p.message).c_str());
+        ftk::ui::status(ftk::ui::Severity::Warning, line(p.file, p.line, p.column, p.message).c_str());
     }
 }
 
 void UiEditorContext::draw_inspector() {
-    auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     // Problems show up next to the UI they broke, even with nothing
     // selected: a typo in a hot-reloaded file should be the first thing
@@ -660,44 +660,44 @@ void UiEditorContext::draw_inspector() {
     draw_problems();
 
     if (!selected_node_) {
-        ui::empty_state(ui::icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");
+        ftk::ui::empty_state(ftk::ui::icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");
         return;
     }
     auto* node = selected_node_;
 
-    ui::section("Element", ui::icon::ui_element);
-    if (auto t = ui::PropertyTable("##element")) {
+    ftk::ui::section("Element", ftk::ui::icon::ui_element);
+    if (auto t = ftk::ui::PropertyTable("##element")) {
         const std::string tag = node->tag.empty() ? "root" : node->tag;
-        ui::row("Tag", [&] { ui::readout(tag.c_str()); });
-        if (!node->id.empty()) ui::row("ID", [&] { ui::readout(node->id.c_str()); });
+        ftk::ui::row("Tag", [&] { ftk::ui::readout(tag.c_str()); });
+        if (!node->id.empty()) ftk::ui::row("ID", [&] { ftk::ui::readout(node->id.c_str()); });
         std::string classes;
         for (const auto& c : node->classes) {
             if (c.starts_with("__w_")) continue;  // scope classes
             if (!classes.empty()) classes += " ";
             classes += "." + c;
         }
-        if (!classes.empty()) ui::row("Classes", [&] { ui::readout(classes.c_str()); });
-        if (node->type == UiNodeType::text) ui::row("Text", [&] { ui::readout(node->text_content.c_str()); });
-        if (!node->text_template.empty()) ui::row("Template", [&] { ui::readout(node->text_template.c_str()); });
+        if (!classes.empty()) ftk::ui::row("Classes", [&] { ftk::ui::readout(classes.c_str()); });
+        if (node->type == UiNodeType::text) ftk::ui::row("Text", [&] { ftk::ui::readout(node->text_content.c_str()); });
+        if (!node->text_template.empty()) ftk::ui::row("Template", [&] { ftk::ui::readout(node->text_template.c_str()); });
     }
-    if (node->hidden_by_if) ui::status(ui::Severity::Warning, "Hidden: its if= is false");
+    if (node->hidden_by_if) ftk::ui::status(ftk::ui::Severity::Warning, "Hidden: its if= is false");
 
     if (node->is_widget) {
-        ui::section("Widget", ui::icon::ui_widget);
-        if (auto t = ui::PropertyTable("##widget")) {
+        ftk::ui::section("Widget", ftk::ui::icon::ui_widget);
+        if (auto t = ftk::ui::PropertyTable("##widget")) {
             const std::string tag = "<" + node->widget_tag + "/>";
-            ui::row("Tag", [&] { ui::readout(tag.c_str()); });
+            ftk::ui::row("Tag", [&] { ftk::ui::readout(tag.c_str()); });
             for (const auto& [inner, outer] : node->prop_map) {
-                ui::row(inner.c_str(), "A prop of the widget and what this placement passes it.",
-                        [&] { ui::readout(outer.c_str()); });
+                ftk::ui::row(inner.c_str(), "A prop of the widget and what this placement passes it.",
+                        [&] { ftk::ui::readout(outer.c_str()); });
             }
             for (const auto& [event, action] : node->event_map) {
                 const std::string label = "on:" + event;
-                ui::row(label.c_str(), [&] { ui::readout(action.c_str()); });
+                ftk::ui::row(label.c_str(), [&] { ftk::ui::readout(action.c_str()); });
             }
             if (deps_.script_manager && deps_.script_manager->is_loaded()) {
                 auto* ui_type = deps_.script_manager->find_ui_type_by_tag(node->widget_tag);
-                ui::row("Controller", [&] { ui::readout(ui_type != nullptr ? ui_type->name.c_str() : "None registered"); });
+                ftk::ui::row("Controller", [&] { ftk::ui::readout(ui_type != nullptr ? ui_type->name.c_str() : "None registered"); });
                 if (ui_type != nullptr) {
                     for (const auto& f : ui_type->fields) {
                         const char* type_name = "?";
@@ -716,8 +716,8 @@ void UiEditorContext::draw_inspector() {
                             case FJELL_FIELD_VECTOR: type_name = "list"; break;
                             default: break;
                         }
-                        ui::row(f.name.c_str(), "A field the controller publishes as {key}.",
-                                [&] { ui::readout(type_name); });
+                        ftk::ui::row(f.name.c_str(), "A field the controller publishes as {key}.",
+                                [&] { ftk::ui::readout(type_name); });
                     }
                 }
             }
@@ -725,57 +725,57 @@ void UiEditorContext::draw_inspector() {
     }
 
     if (node->foreach_item_index >= 0) {
-        ui::section("Foreach", ui::icon::ui_repeat);
-        if (auto t = ui::PropertyTable("##foreach")) {
+        ftk::ui::section("Foreach", ftk::ui::icon::ui_repeat);
+        if (auto t = ftk::ui::PropertyTable("##foreach")) {
             const std::string item = std::to_string(node->foreach_item_index + 1);
-            ui::row("Item", [&] { ui::readout(item.c_str()); });
+            ftk::ui::row("Item", [&] { ftk::ui::readout(item.c_str()); });
         }
     }
 
     bool has_attributes = false;
     for (const auto& [key, value] : node->attributes) has_attributes |= !key.starts_with("_");
     if (has_attributes) {
-        ui::section("Attributes", ui::icon::ui_element);
-        if (auto t = ui::PropertyTable("##attributes")) {
+        ftk::ui::section("Attributes", ftk::ui::icon::ui_element);
+        if (auto t = ftk::ui::PropertyTable("##attributes")) {
             for (const auto& [key, value] : node->attributes) {
                 if (key.starts_with("_")) continue;  // internal attributes
-                ui::row(key.c_str(), [&] { ui::readout(value.c_str()); });
+                ftk::ui::row(key.c_str(), [&] { ftk::ui::readout(value.c_str()); });
             }
         }
     }
 
-    ui::section("State", ui::icon::info);
-    if (auto t = ui::PropertyTable("##state")) {
-        ui::row("Hovered", [&] { ui::readout(node->is_hovered() ? "Yes" : "No"); });
-        ui::row("Active", [&] { ui::readout(node->is_active() ? "Yes" : "No"); });
-        ui::row("Focused", [&] { ui::readout(node->is_focused() ? "Yes" : "No"); });
+    ftk::ui::section("State", ftk::ui::icon::info);
+    if (auto t = ftk::ui::PropertyTable("##state")) {
+        ftk::ui::row("Hovered", [&] { ftk::ui::readout(node->is_hovered() ? "Yes" : "No"); });
+        ftk::ui::row("Active", [&] { ftk::ui::readout(node->is_active() ? "Yes" : "No"); });
+        ftk::ui::row("Focused", [&] { ftk::ui::readout(node->is_focused() ? "Yes" : "No"); });
     }
 
-    ui::section("Layout", ui::icon::layout);
-    if (auto t = ui::PropertyTable("##layout_rect")) {
+    ftk::ui::section("Layout", ftk::ui::icon::layout);
+    if (auto t = ftk::ui::PropertyTable("##layout_rect")) {
         char text[64];
         const auto& r = node->layout_rect;
         std::snprintf(text, sizeof(text), "%.0f, %.0f px", r.x, r.y);
-        ui::row("Position", [&] { ui::readout(text); });
+        ftk::ui::row("Position", [&] { ftk::ui::readout(text); });
         std::snprintf(text, sizeof(text), "%.0f \xc3\x97 %.0f px", r.w, r.h);
-        ui::row("Size", [&] { ui::readout(text); });
+        ftk::ui::row("Size", [&] { ftk::ui::readout(text); });
         const auto& m = node->layout_margin;
         std::snprintf(text, sizeof(text), "%.0f %.0f %.0f %.0f", m.top, m.right, m.bottom, m.left);
-        ui::row("Margin", "Top, right, bottom, left, in px as laid out.", [&] { ui::readout(text); });
+        ftk::ui::row("Margin", "Top, right, bottom, left, in px as laid out.", [&] { ftk::ui::readout(text); });
         const auto& p = node->layout_padding;
         std::snprintf(text, sizeof(text), "%.0f %.0f %.0f %.0f", p.top, p.right, p.bottom, p.left);
-        ui::row("Padding", "Top, right, bottom, left, in px as laid out.", [&] { ui::readout(text); });
+        ftk::ui::row("Padding", "Top, right, bottom, left, in px as laid out.", [&] { ftk::ui::readout(text); });
     }
 
     // Style — editable. Edits write to the node's #id-selector rule in the
     // stylesheet (see SetStylePropertyCommand); values shown are the
     // resolved cascade output until something is set here, at which point
     // the value set here takes over.
-    ui::section("Style", ui::icon::colour);
+    ftk::ui::section("Style", ftk::ui::icon::colour);
     if (node->type != UiNodeType::text) {
         draw_style_editor(*node);
     } else {
-        ui::hint("Text takes its style from its parent element");
+        ftk::ui::hint("Text takes its style from its parent element");
     }
 
     // Material — only nodes with a material="..." attribute have one.
@@ -828,9 +828,9 @@ void UiEditorContext::draw_node_material_editor(UiNode& node) {
     uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache->shader_count()) return;
 
-    ui::section("Material", ui::icon::material);
-    if (auto t = ui::PropertyTable("##material")) {
-        ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
+    ftk::ui::section("Material", ftk::ui::icon::material);
+    if (auto t = ftk::ui::PropertyTable("##material")) {
+        ftk::ui::row("Shader", [&] { ftk::ui::readout(mat->shader_path().c_str()); });
     }
 
     // Param values live in the bindless SSBO and the fragment shader
@@ -872,7 +872,7 @@ void UiEditorContext::style_row_menu(UiNode& node, const char* property, const s
         ImGui::OpenPopup(popup.c_str());
     }
     if (ImGui::BeginPopup(popup.c_str())) {
-        if (ui::menu_item({.icon = ui::icon::clear, .label = "Unset"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::clear, .label = "Unset"})) {
             set_style(node, property, explicit_str, {});
         }
         ImGui::EndPopup();
@@ -880,7 +880,7 @@ void UiEditorContext::style_row_menu(UiNode& node, const char* property, const s
 }
 
 void UiEditorContext::style_edit_float(UiNode& node, const char* property, float resolved_value,
-                                       const ui::DragSpec& spec) {
+                                       const ftk::ui::DragSpec& spec) {
     // Empty explicit_str means "no rule sets this yet" — kept empty (not
     // defaulted to the resolved value's string form) so an undo restores
     // that exact unset state via SetStylePropertyCommand's empty-value
@@ -890,8 +890,8 @@ void UiEditorContext::style_edit_float(UiNode& node, const char* property, float
     if (!explicit_str.empty()) {
         try { source_value = std::stof(explicit_str); } catch (...) {}
     }
-    ui::mark_next_row(!explicit_str.empty());
-    ui::row(property, [&] {
+    ftk::ui::mark_next_row(!explicit_str.empty());
+    ftk::ui::row(property, [&] {
         // While a drag is in progress the field shows (and accumulates into)
         // the buffered value, not source_value, which only reflects the last
         // committed edit: the resolved style doesn't move until the edit
@@ -900,7 +900,7 @@ void UiEditorContext::style_edit_float(UiNode& node, const char* property, float
         auto it = active_float_edits_.find(id);
         float edited = it != active_float_edits_.end() ? it->second : source_value;
         const std::string field = std::string("##") + property;
-        const auto edit = ui::drag(field.c_str(), edited, spec);
+        const auto edit = ftk::ui::drag(field.c_str(), edited, spec);
         style_origin_tooltip(property);
         if (edit.changed) active_float_edits_[id] = edited;
         if (edit.committed) {
@@ -929,18 +929,18 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
     static constexpr const char* NAMES[] = {"px", "%", "em", "rem", "vw", "vh", "auto"};
     const std::span<const char* const> names(NAMES, desc->auto_allowed ? 7 : 6);
 
-    ui::mark_next_row(!explicit_str.empty());
-    ui::row(property, [&] {
+    ftk::ui::mark_next_row(!explicit_str.empty());
+    ftk::ui::row(property, [&] {
         constexpr float UNIT_W = 72.0f;
         const float x = ImGui::GetCursorPosX();
         const float width = ImGui::GetContentRegionAvail().x;
-        const float field_w = std::max(width - UNIT_W - theme::GAP_S, 1.0f);
+        const float field_w = std::max(width - UNIT_W - ftk::theme::GAP_S, 1.0f);
 
         if (source.is_auto()) {
             // No number to drag: auto is the value, and the unit choice
             // beside it goes back to a number.
             ImGui::SetNextItemWidth(field_w);
-            ui::readout("auto");
+            ftk::ui::readout("auto");
         } else {
             const ImGuiID id = ImGui::GetID(property);
             auto it = active_float_edits_.find(id);
@@ -951,7 +951,7 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
             const float step = source.is_relative() ? speed / 16.0f : speed;
             ImGui::SetNextItemWidth(field_w);
             const std::string field = std::string("##") + property;
-            const auto edit = ui::drag(field.c_str(), edited,
+            const auto edit = ftk::ui::drag(field.c_str(), edited,
                                        {.speed = step, .min = min, .max = limit,
                                         .format = source.unit == UiUnit::px || source.is_percent() ? "%.1f" : "%.2f"});
             style_origin_tooltip(property);
@@ -967,10 +967,10 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
             if (UNITS[i] == source.unit) unit = i;
         }
         ImGui::SameLine();
-        ImGui::SetCursorPosX(x + field_w + theme::GAP_S);
+        ImGui::SetCursorPosX(x + field_w + ftk::theme::GAP_S);
         ImGui::SetNextItemWidth(UNIT_W);
         const std::string choice = std::string("##unit_") + property;
-        if (ui::choice(choice.c_str(), unit, names).changed) {
+        if (ftk::ui::choice(choice.c_str(), unit, names).changed) {
             const float value = source.is_auto() ? 0.0f : source.value;
             set_style(node, property, explicit_str,
                       UNITS[unit] == UiUnit::auto_ ? to_css(UiLength::automatic()) : to_css({value, UNITS[unit]}));
@@ -983,8 +983,8 @@ void UiEditorContext::style_edit_color(UiNode& node, const char* property, const
     const auto explicit_str = style_prop_string(node, property, {});
     const UiColor source = explicit_str.empty() ? resolved_value : StyleResolver::parse_color(explicit_str);
 
-    ui::mark_next_row(!explicit_str.empty());
-    ui::row(property, [&] {
+    ftk::ui::mark_next_row(!explicit_str.empty());
+    ftk::ui::row(property, [&] {
         // Same buffered-while-active pattern as style_edit_float — see there.
         const ImGuiID id = ImGui::GetID(property);
         auto it = active_color_edits_.find(id);
@@ -992,7 +992,7 @@ void UiEditorContext::style_edit_color(UiNode& node, const char* property, const
             it != active_color_edits_.end() ? it->second : std::array{source.r, source.g, source.b, source.a};
         glm::vec4 edited{rgba[0], rgba[1], rgba[2], rgba[3]};
         const std::string field = std::string("##") + property;
-        const auto edit = ui::color(field.c_str(), edited, ui::ColorSpace::Srgb);
+        const auto edit = ftk::ui::color(field.c_str(), edited, ftk::ui::ColorSpace::Srgb);
         style_origin_tooltip(property);
         if (edit.changed) active_color_edits_[id] = {edited.r, edited.g, edited.b, edited.a};
         if (edit.committed) {
@@ -1013,11 +1013,11 @@ void UiEditorContext::style_edit_text(UiNode& node, const char* property, const 
     const auto explicit_str = style_prop_string(node, property, {});
     const std::string shown = explicit_str.empty() ? resolved_value : ui_style_unquote(explicit_str);
 
-    ui::mark_next_row(!explicit_str.empty());
-    ui::row(property, [&] {
+    ftk::ui::mark_next_row(!explicit_str.empty());
+    ftk::ui::row(property, [&] {
         std::string value = shown;
         const std::string field = std::string("##") + property;
-        const bool committed = ui::text_field(field.c_str(), value).committed;
+        const bool committed = ftk::ui::text_field(field.c_str(), value).committed;
         style_origin_tooltip(property);
         if (committed && value != shown) {
             // A name with a space needs quoting to read back as one name.
@@ -1045,11 +1045,11 @@ void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
         }
     }
 
-    ui::mark_next_row(!explicit_str.empty());
-    ui::row(property, [&] {
+    ftk::ui::mark_next_row(!explicit_str.empty());
+    ftk::ui::row(property, [&] {
         int edited = index;
         const std::string field = std::string("##") + property;
-        if (ui::choice(field.c_str(), edited, items).changed && edited != index) {
+        if (ftk::ui::choice(field.c_str(), edited, items).changed && edited != index) {
             set_style(node, property, explicit_str, items[static_cast<size_t>(edited)]);
         }
         style_origin_tooltip(property);
@@ -1092,8 +1092,8 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
         active_color_edits_.clear();
     }
 
-    if (ui::subheading_foldable("Layout")) {
-        if (auto t = ui::PropertyTable("##style_layout")) {
+    if (ftk::ui::subheading_foldable("Layout")) {
+        if (auto t = ftk::ui::PropertyTable("##style_layout")) {
             style_edit_keyword(node, "display");
             style_edit_keyword(node, "flex-direction");
             style_edit_keyword(node, "justify-content");
@@ -1106,8 +1106,8 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
             style_edit_float(node, "flex-shrink", s.flex_shrink, {.speed = 0.1f, .min = 0.0f, .max = 100.0f, .format = "%.1f"});
         }
     }
-    if (ui::subheading_foldable("Dimensions")) {
-        if (auto t = ui::PropertyTable("##style_dimensions")) {
+    if (ftk::ui::subheading_foldable("Dimensions")) {
+        if (auto t = ftk::ui::PropertyTable("##style_dimensions")) {
             style_edit_length(node, "width", s.width, 1.0f, 4096.0f);
             style_edit_length(node, "height", s.height, 1.0f, 4096.0f);
             style_edit_length(node, "min-width", s.min_width, 1.0f, 4096.0f);
@@ -1116,8 +1116,8 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
             style_edit_length(node, "max-height", s.max_height, 1.0f, 4096.0f);
         }
     }
-    if (ui::subheading_foldable("Spacing")) {
-        if (auto t = ui::PropertyTable("##style_spacing")) {
+    if (ftk::ui::subheading_foldable("Spacing")) {
+        if (auto t = ftk::ui::PropertyTable("##style_spacing")) {
             style_edit_length(node, "margin-top", s.margin.top, 1.0f, 512.0f);
             style_edit_length(node, "margin-right", s.margin.right, 1.0f, 512.0f);
             style_edit_length(node, "margin-bottom", s.margin.bottom, 1.0f, 512.0f);
@@ -1130,19 +1130,19 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
             style_edit_length(node, "column-gap", s.column_gap, 1.0f, 256.0f);
         }
     }
-    if (ui::subheading_foldable("Visual")) {
-        if (auto t = ui::PropertyTable("##style_visual")) {
+    if (ftk::ui::subheading_foldable("Visual")) {
+        if (auto t = ftk::ui::PropertyTable("##style_visual")) {
             style_edit_color(node, "background-color", s.background_color);
             style_edit_color(node, "color", s.color);
             style_edit_float(node, "font-size", s.font_size,
-                             {.speed = 0.5f, .min = 1.0f, .max = 256.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+                             {.speed = 0.5f, .min = 1.0f, .max = 256.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.1f"});
             style_edit_text(node, "font-family", s.font_family);
             style_edit_float(node, "font-weight", s.font_weight, {.speed = 10.0f, .min = 1.0f, .max = 1000.0f, .format = "%.0f"});
             style_edit_color(node, "border-color", s.border_color);
             style_edit_float(node, "border-width", s.border_width,
-                             {.speed = 0.5f, .min = 0.0f, .max = 64.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+                             {.speed = 0.5f, .min = 0.0f, .max = 64.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.1f"});
             style_edit_float(node, "border-radius", s.border_radius.top_left,
-                             {.speed = 0.5f, .min = 0.0f, .max = 256.0f, .unit = ui::Unit::Pixels, .format = "%.1f"});
+                             {.speed = 0.5f, .min = 0.0f, .max = 256.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.1f"});
             style_edit_float(node, "opacity", s.opacity, {.speed = 0.01f, .min = 0.0f, .max = 1.0f});
         }
     }
@@ -1151,10 +1151,10 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_data() {
-    auto panel = ui::Panel(ui::icon::ui_models, ctx_title("Data").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::ui_models, ctx_title("Data").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded() || !preview_data_) {
-        ui::empty_state(ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
         return;
     }
     const InspectorContext ctx{.resource_manager = deps_.resource_manager,
@@ -1166,26 +1166,26 @@ void UiEditorContext::draw_data() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    auto panel = ui::Panel(ui::icon::console, ctx_title("Action log").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::console, ctx_title("Action log").c_str());
     if (!panel) return;
     if (action_log_.empty()) {
-        ui::empty_state(ui::icon::console, "No actions yet", "Actions fired in Play mode are listed here");
+        ftk::ui::empty_state(ftk::ui::icon::console, "No actions yet", "Actions fired in Play mode are listed here");
         return;
     }
     ImGui::BeginDisabled(action_log_.empty());
-    if (ui::action(ui::icon::clear, "Clear", ui::ButtonKind::Ghost)) action_log_.clear();
+    if (ftk::ui::action(ftk::ui::icon::clear, "Clear", ftk::ui::ButtonKind::Ghost)) action_log_.clear();
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     char count[32];
     std::snprintf(count, sizeof(count), action_log_.size() == 1 ? "%zu action" : "%zu actions", action_log_.size());
-    ui::readout(count);
-    if (auto t = ui::PropertyTable("##log")) {
+    ftk::ui::readout(count);
+    if (auto t = ftk::ui::PropertyTable("##log")) {
         for (auto it = action_log_.rbegin(); it != action_log_.rend(); ++it) {
             char at[32];
             std::snprintf(at, sizeof(at), "%.1f s", it->timestamp);
             ImGui::PushID(static_cast<int>(std::distance(action_log_.rbegin(), it)));
-            ui::row(at, [&] { ui::readout(it->action.c_str()); });
+            ftk::ui::row(at, [&] { ftk::ui::readout(it->action.c_str()); });
             ImGui::PopID();
         }
     }
@@ -1312,7 +1312,7 @@ UiNode* UiEditorContext::node_at(UiNode* root, ImVec2 mouse, ImVec2 origin, floa
 
 void UiEditorContext::draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawList* draw_list, ImVec2 origin,
                                           float scale) {
-    const ImU32 box = ImGui::GetColorU32(theme::layout_box());
+    const ImU32 box = ImGui::GetColorU32(ftk::theme::layout_box());
     const auto screen = [&](const UiRect& r) {
         return std::pair{ImVec2{origin.x + r.x * scale, origin.y + r.y * scale},
                          ImVec2{origin.x + (r.x + r.w) * scale, origin.y + (r.y + r.h) * scale}};
@@ -1348,12 +1348,12 @@ void UiEditorContext::draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawL
             draw_list->AddRectFilled({o0.x, n0.y}, {n0.x, n1.y}, fill);
             draw_list->AddRectFilled({n1.x, n0.y}, {o1.x, n1.y}, fill);
         };
-        ring(m0, m1, p0, p1, ImGui::GetColorU32(theme::layout_margin()));
-        ring(p0, p1, i0, i1, ImGui::GetColorU32(theme::layout_padding()));
+        ring(m0, m1, p0, p1, ImGui::GetColorU32(ftk::theme::layout_margin()));
+        ring(p0, p1, i0, i1, ImGui::GetColorU32(ftk::theme::layout_padding()));
         draw_list->AddRect(p0, p1, box, 0.0f, 0, 1.5f);
 
         // A side's size, where the strip is tall enough to hold it.
-        ImGui::PushFont(theme::mono_font(), theme::AXIS_TEXT);
+        ImGui::PushFont(ftk::theme::mono_font(), ftk::theme::AXIS_TEXT);
         const float text_h = ImGui::GetFontSize();
         const auto size_in = [&](float value, ImVec2 a, ImVec2 b) {
             if (value <= 0.0f || std::min(b.x - a.x, b.y - a.y) < text_h) return;
@@ -1361,7 +1361,7 @@ void UiEditorContext::draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawL
             std::snprintf(text, sizeof(text), "%g", value);
             const ImVec2 ts = ImGui::CalcTextSize(text);
             draw_list->AddText({(a.x + b.x - ts.x) * 0.5f, (a.y + b.y - ts.y) * 0.5f},
-                               ImGui::GetColorU32(theme::text()), text);
+                               ImGui::GetColorU32(ftk::theme::text()), text);
         };
         size_in(m.top, m0, {m1.x, p0.y});
         size_in(m.bottom, {m0.x, p1.y}, m1);
@@ -1376,7 +1376,7 @@ void UiEditorContext::draw_layout_overlay(UiNode* root, UiNode* hovered, ImDrawL
         char label[96];
         std::snprintf(label, sizeof(label), "%s  %g \xc3\x97 %g", node->tag.c_str(), node->layout_rect.w,
                       node->layout_rect.h);
-        ui::canvas_readout(draw_list, {p1.x, p0.y}, label, draw_list->GetClipRectMin(), draw_list->GetClipRectMax());
+        ftk::ui::canvas_readout(draw_list, {p1.x, p0.y}, label, draw_list->GetClipRectMin(), draw_list->GetClipRectMax());
     };
     if (hovered != selected_node_) detail(hovered);
     detail(selected_node_);

@@ -12,7 +12,7 @@ public:
     HubUI();
 
     /// Set the device the file browser windows draw with.
-    void set_device(fjell::gpu::Device* device);
+    void set_device(ftk::gpu::Device* device);
 
     // Draw the current frame. Returns a project path to launch, or empty.
     [[nodiscard]] std::string draw(float window_w, float window_h);
@@ -51,9 +51,9 @@ private:
     std::string launch_create_name_;
 
     // File browsers (standalone windows)
-    FileBrowser open_browser_;
-    FileBrowser new_browser_;
-    std::vector<Connection> browser_connections_;
+    ftk::FileBrowser open_browser_;
+    ftk::FileBrowser new_browser_;
+    std::vector<ftk::Connection> browser_connections_;
 
     bool style_set_{false};
 };

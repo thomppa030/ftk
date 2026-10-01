@@ -89,27 +89,27 @@ public:
     static constexpr uint32_t TILE_SIZE = 8;
     static constexpr uint32_t DEPTH_SLICES = 128;
     static constexpr uint32_t SCREEN_DIVISOR = 16;
-    static constexpr gpu::Format VOLUME_FORMAT = gpu::Format::rgba16_float;
+    static constexpr ftk::gpu::Format VOLUME_FORMAT = ftk::gpu::Format::rgba16_float;
 
     struct Images {
         /// The lit froxels, this frame's and last frame's by turns.
-        gpu::Owned<gpu::Texture> scatter_volumes[2];
+        ftk::gpu::Owned<ftk::gpu::Texture> scatter_volumes[2];
 
         glm::uvec3 volume_extent{0};
         uint32_t frame_counter{0};
         uint32_t ping_pong{0};  // index of the "current" volume this frame
 
-        void create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        void create(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
         /// Releases the volumes; the frames still reading them keep them
         /// until they are done.
         void destroy();
-        void resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        void resize(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
 
         [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -133,7 +133,7 @@ public:
     static constexpr const char* INTEGRATED_NAME = "fog_integrated";
     /// The froxel grid, the shape of every transient in the chain; a reader
     /// re-creating one by name passes this.
-    [[nodiscard]] static TextureDesc volume_desc();
+    [[nodiscard]] static ftk::TextureDesc volume_desc();
     /// Where the froxel slices begin, in metres of view depth. They end at
     /// far_plane() and are spaced exponentially between the two.
     static constexpr float NEAR_PLANE = 0.1F;
@@ -144,14 +144,14 @@ public:
     static constexpr const char* WATER_LINE_NAME = "water_line";
 
     // Getters for follower passes.
-    [[nodiscard]] gpu::Sampler fog_sampler() const { return linear_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler fog_sampler() const { return linear_sampler_; }
     /// The haze material's two pipelines for this frame, or unset when
     /// neither the node's material nor the engine's default has compiled.
-    [[nodiscard]] gpu::ComputePipeline medium_pipeline() const { return medium_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline light_pipeline() const { return light_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline temporal_pipeline() const { return temporal_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline integrate_pipeline() const { return integrate_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline medium_pipeline() const { return medium_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline light_pipeline() const { return light_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline temporal_pipeline() const { return temporal_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline integrate_pipeline() const { return integrate_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
 
     // Scene-driven fog parameters + push-constant helper read by each node.
@@ -207,7 +207,7 @@ public:
     /// the dispatch needs.
     struct VolumeDraw {
         uint32_t index{0};          // its entry in the fog volume SSBO
-        gpu::ComputePipeline pipeline{};
+        ftk::gpu::ComputePipeline pipeline{};
         uint32_t material_id{0};    // the pass's row for this volume
         glm::mat4 transform{1.0f};  // world, for the froxel box and ORIGIN
     };
@@ -218,7 +218,7 @@ public:
     /// the shader, not from a box on the CPU.
     struct WaterDraw {
         uint32_t node_id{0};
-        gpu::ComputePipeline pipeline{};
+        ftk::gpu::ComputePipeline pipeline{};
         uint32_t material_id{0};    // the pass's row for this water
         glm::vec3 origin{0.0f};     // the node's position: ORIGIN
     };
@@ -227,8 +227,8 @@ public:
 private:
     /// The medium and light pipelines built from one fog shader entry.
     struct MaterialPipeline {
-        gpu::Owned<gpu::ComputePipeline> medium;
-        gpu::Owned<gpu::ComputePipeline> light;
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> medium;
+        ftk::gpu::Owned<ftk::gpu::ComputePipeline> light;
         uint32_t generation{0};
     };
     /// The engine's default for a kind of node, registered once and given a
@@ -299,21 +299,21 @@ private:
     std::unordered_map<uint32_t, Instance> water_instances_;
     std::vector<WaterDraw> water_draws_;
 
-    gpu::Device* gpu_device_{nullptr};
+    ftk::gpu::Device* gpu_device_{nullptr};
     /// The engine's globals and the bindless material set, which the fog
     /// shaders bind at sets 0 and 1.
-    gpu::SharedLayout globals_{};
-    gpu::SharedLayout bindless_layout_{};
+    ftk::gpu::SharedLayout globals_{};
+    ftk::gpu::SharedLayout bindless_layout_{};
 
-    gpu::Sampler linear_sampler_{};
+    ftk::gpu::Sampler linear_sampler_{};
 
     // This frame's haze: its material's pipelines, held in material_pipelines_.
-    gpu::ComputePipeline medium_pipeline_{};
-    gpu::ComputePipeline light_pipeline_{};
+    ftk::gpu::ComputePipeline medium_pipeline_{};
+    ftk::gpu::ComputePipeline light_pipeline_{};
 
-    gpu::Owned<gpu::ComputePipeline> temporal_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> integrate_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> temporal_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> integrate_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> composite_pipeline_;
 
     Images default_images_;
 };
@@ -323,17 +323,17 @@ private:
 class FogMediumPass : public FogCore {
 public:
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
 };
 
 class FogLightPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -342,11 +342,11 @@ private:
 
 class FogTemporalPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -355,11 +355,11 @@ private:
 
 class FogIntegratePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -368,11 +368,11 @@ private:
 
 class FogCompositePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:

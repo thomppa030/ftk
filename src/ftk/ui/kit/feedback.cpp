@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -188,4 +188,4 @@ void unsaved_dot(ImDrawList* draw_list, ImVec2 centre) {
     draw_list->AddCircleFilled(centre, UNSAVED_DOT_RADIUS, ImGui::GetColorU32(theme::text()));
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

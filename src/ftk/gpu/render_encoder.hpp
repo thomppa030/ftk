@@ -16,7 +16,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class CommandList;
 class Device;
@@ -251,4 +251,4 @@ private:
     bool open_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

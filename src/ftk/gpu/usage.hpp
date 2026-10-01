@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// How a texture may be used. Copies and clears are always allowed and never
 /// spelled.
@@ -46,4 +46,4 @@ inline constexpr bool is_flag_enum<BufferUse> = true;
 /// A set of `BufferUse`s.
 using BufferUses = Flags<BufferUse>;
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

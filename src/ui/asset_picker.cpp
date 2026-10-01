@@ -54,7 +54,7 @@ struct Listing {
 
 Listing g_listing;
 
-ThreadPool* g_pool{nullptr};
+ftk::ThreadPool* g_pool{nullptr};
 // The walk in flight, if any, and the extensions it was started for. Only the
 // main thread touches these: the worker's only contact with the picker is the
 // vector it returns through the future.
@@ -220,14 +220,14 @@ ImTextureID thumbnail_for(const Entry& entry, int& requests) {
 /// source and type when the field takes more than one type. The asset
 /// selected in the content browser, when the field takes it, comes first
 /// under a group of its own.
-std::vector<ui::grouped_picker::Group> build_groups(std::span<const std::string> extensions,
+std::vector<ftk::ui::grouped_picker::Group> build_groups(std::span<const std::string> extensions,
                                                 std::span<const ShaderType> shader_types,
                                                 std::string_view selected) {
     // Only one accepted type means a type header would say what the field
     // already says.
     const bool split_by_type = extensions.size() != 1;
 
-    std::vector<ui::grouped_picker::Group> groups;
+    std::vector<ftk::ui::grouped_picker::Group> groups;
     int requests = 0;
 
     // The entries are sorted by source then extension, so a group starts
@@ -289,12 +289,12 @@ std::vector<ui::grouped_picker::Group> build_groups(std::span<const std::string>
 
 } // namespace
 
-void set_thread_pool(ThreadPool* pool) {
+void set_thread_pool(ftk::ThreadPool* pool) {
     g_pool = pool;
 }
 
 void open(const char* widget_id) {
-    ui::grouped_picker::open(widget_id);
+    ftk::ui::grouped_picker::open(widget_id);
 }
 
 void invalidate() {
@@ -314,7 +314,7 @@ void invalidate() {
 bool draw(const char* widget_id, std::span<const std::string> extensions,
           std::span<const ShaderType> shader_types, const Project* project,
           std::string_view selected, std::string& picked) {
-    if (!ui::grouped_picker::is_open(widget_id)) return false;
+    if (!ftk::ui::grouped_picker::is_open(widget_id)) return false;
 
     poll_scan();
 
@@ -326,7 +326,7 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         begin_scan(extensions, project);
     }
 
-    const ui::grouped_picker::Config config{
+    const ftk::ui::grouped_picker::Config config{
         .search_hint = "Search assets",
         .empty_message = "No matching assets in this project.",
         .loading_message = "Looking for assets...",
@@ -335,7 +335,7 @@ bool draw(const char* widget_id, std::span<const std::string> extensions,
         .size = {POPUP_WIDTH, POPUP_HEIGHT},
     };
 
-    return ui::grouped_picker::draw(widget_id, build_groups(extensions, shader_types, selected), config,
+    return ftk::ui::grouped_picker::draw(widget_id, build_groups(extensions, shader_types, selected), config,
                                picked);
 }
 

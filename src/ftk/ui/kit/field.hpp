@@ -15,7 +15,7 @@
 // whose ends mean something (0–1 strength, 0–90° slope). Both take typed
 // input on double-click or Ctrl-click.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What a number measures, drawn after it inside the field in the
 /// secondary text colour. Never written into a label or a format string.
@@ -113,4 +113,4 @@ public:
 /// the secondary colour on the field's line.
 void readout(const char* text);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

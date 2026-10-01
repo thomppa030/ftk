@@ -21,21 +21,21 @@ namespace fjell {
 
 namespace {
 
-std::unique_ptr<gpu::Device> make_device(Window& window) {
-    auto made = gpu::Device::create(window);
+std::unique_ptr<ftk::gpu::Device> make_device(ftk::Window& window) {
+    auto made = ftk::gpu::Device::create(window);
     if (!made) throw std::runtime_error(made.error());
     return std::move(*made);
 }
 
 } // namespace
 
-GpuContext::GpuContext(Window& window)
+GpuContext::GpuContext(ftk::Window& window)
     : window_{window}
     , device_{make_device(window)}
     , render_stats_{std::make_unique<RenderStats>()} {
-    FJELL_GFX_INFO("Initializing GPU context");
+    FTK_GFX_INFO("Initializing GPU context");
 
-    auto swapchain = gpu::Swapchain::create(*device_, window);
+    auto swapchain = ftk::gpu::Swapchain::create(*device_, window);
     if (!swapchain) throw std::runtime_error(swapchain.error());
     swapchain_ = std::move(*swapchain);
 
@@ -64,11 +64,10 @@ GpuContext::GpuContext(Window& window)
     shared_layouts_.meshlets = meshlet_descriptor_.layout();
 
     // Four samples where the GPU has them.
-    msaa_samples_ = std::min(gpu::Samples::x4, device_->caps().max_samples);
-    FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
+    msaa_samples_ = std::min(ftk::gpu::Samples::x4, device_->caps().max_samples);
+    FTK_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
 
-
-    FJELL_GFX_INFO("GPU context ready");
+    FTK_GFX_INFO("GPU context ready");
 }
 
 void GpuContext::init_pipelines() {
@@ -87,7 +86,7 @@ void GpuContext::init_pipelines() {
             .bindless = shared_layouts_.bindless,
             .draw_data = shared_layouts_.draw_data,
             .meshlets = device_->caps().mesh_shaders ? shared_layouts_.meshlets
-                                                                : gpu::SharedLayout{},
+                                                                : ftk::gpu::SharedLayout{},
         });
 }
 
@@ -107,8 +106,6 @@ GpuContext::~GpuContext() {
     bindless_textures_.destroy();
     pipeline_cache_.reset();
 
-
-
     // The swapchain goes next, once the GPU is idle, then the device.
 }
 
@@ -117,54 +114,54 @@ void GpuContext::create_descriptor_resources() {
     // Buffers, samplers, and fallback images are created here.
     // Layout/pool/set creation happens in finalize_descriptors() to allow
     // additional bindings to be declared before the layout is locked.
-    gpu::Device& device = *device_;
+    ftk::gpu::Device& device = *device_;
 
     // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
     constexpr uint64_t tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                         MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
 
-    auto make = [&](uint64_t size, gpu::BufferUses use, gpu::Memory memory, std::string_view name) {
-        auto made = device.create(gpu::BufferDesc{.size = size, .use = use, .memory = memory, .name = name});
+    auto make = [&](uint64_t size, ftk::gpu::BufferUses use, ftk::gpu::Memory memory, std::string_view name) {
+        auto made = device.create(ftk::gpu::BufferDesc{.size = size, .use = use, .memory = memory, .name = name});
         if (!made) throw std::runtime_error(made.error());
         return std::move(*made);
     };
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < ftk::MAX_FRAMES_IN_FLIGHT; ++i) {
         // Light cull writes it, maybe on the async compute queue, and the
         // fragment shaders read it on graphics.
-        tile_light_ssbo_[i] = make(tile_ssbo_size, gpu::BufferUse::storage, gpu::Memory::gpu, "tile_light_ssbo");
+        tile_light_ssbo_[i] = make(tile_ssbo_size, ftk::gpu::BufferUse::storage, ftk::gpu::Memory::gpu, "tile_light_ssbo");
     }
     const uint64_t view_data_size = std::max({uint64_t{sizeof(GlobalUbo)}, uint64_t{sizeof(EnvironmentUbo)},
                                               LIGHT_SSBO_SIZE, uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume)});
-    view_data_fallback_ = make(view_data_size, gpu::BufferUse::uniform | gpu::BufferUse::storage,
-                               gpu::Memory::upload, "view_data_fallback");
+    view_data_fallback_ = make(view_data_size, ftk::gpu::BufferUse::uniform | ftk::gpu::BufferUse::storage,
+                               ftk::gpu::Memory::upload, "view_data_fallback");
     std::ranges::fill(device.mapped(view_data_fallback_), std::byte{0});
 
-    depth_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
-                                     .mip_filter = gpu::Filter::nearest,
-                                     .address = gpu::Address::clamp});
-    gi_fallback_sampler_ = device.sampler({.address = gpu::Address::clamp});
+    depth_sampler_ = device.sampler({.filter = ftk::gpu::Filter::nearest,
+                                     .mip_filter = ftk::gpu::Filter::nearest,
+                                     .address = ftk::gpu::Address::clamp});
+    gi_fallback_sampler_ = device.sampler({.address = ftk::gpu::Address::clamp});
 
     // Cleared to zero before anything samples them. A reader multiplies what
     // it samples by a strength that is zero when the real image is missing,
     // and zero times whatever garbage new memory holds is not zero when that
     // garbage is a NaN.
-    auto fallback = [&](gpu::TextureKind kind, gpu::Format format, float value, std::string_view name) {
-        auto made = device.create(gpu::TextureDesc{
+    auto fallback = [&](ftk::gpu::TextureKind kind, ftk::gpu::Format format, float value, std::string_view name) {
+        auto made = device.create(ftk::gpu::TextureDesc{
             .kind = kind,
             .format = format,
-            .use = gpu::TextureUse::sampled,
-            .queues = gpu::Queues::graphics_and_compute,
-            .initial = gpu::Clear{value, value, value, value},
+            .use = ftk::gpu::TextureUse::sampled,
+            .queues = ftk::gpu::Queues::graphics_and_compute,
+            .initial = ftk::gpu::Clear{value, value, value, value},
             .name = name,
         });
         if (!made) throw std::runtime_error(made.error());
         return std::move(*made);
     };
-    gi_fallback_ = fallback(gpu::TextureKind::tex2d, gpu::Format::rgba16_float, 0.0f, "gi_fallback");
-    volume_fallback_ = fallback(gpu::TextureKind::tex3d, gpu::Format::r16_float, 0.0f, "volume_fallback");
-    unoccluded_ = fallback(gpu::TextureKind::tex2d, gpu::Format::r8_unorm, 1.0f, "unoccluded");
+    gi_fallback_ = fallback(ftk::gpu::TextureKind::tex2d, ftk::gpu::Format::rgba16_float, 0.0f, "gi_fallback");
+    volume_fallback_ = fallback(ftk::gpu::TextureKind::tex3d, ftk::gpu::Format::r16_float, 0.0f, "volume_fallback");
+    unoccluded_ = fallback(ftk::gpu::TextureKind::tex2d, ftk::gpu::Format::r8_unorm, 1.0f, "unoccluded");
 
-    FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
+    FTK_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
 }
 
 void GpuContext::finalize_descriptors() {
@@ -173,26 +170,26 @@ void GpuContext::finalize_descriptors() {
     }
 
     // Write initial descriptor values for static bindings
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        global_bindings_.set(i, "tile_light_ssbo", gpu::storage(tile_light_ssbo_[i]));
-        global_bindings_.set(i, "fog_density_field", gpu::sampled(volume_fallback_, gi_fallback_sampler_));
+    for (uint32_t i = 0; i < ftk::MAX_FRAMES_IN_FLIGHT; ++i) {
+        global_bindings_.set(i, "tile_light_ssbo", ftk::gpu::storage(tile_light_ssbo_[i]));
+        global_bindings_.set(i, "fog_density_field", ftk::gpu::sampled(volume_fallback_, gi_fallback_sampler_));
         reset_view_bindings(i);
     }
 
     shared_layouts_.globals = global_bindings_.layout();
 
-    FJELL_GFX_DEBUG("Global descriptors finalized");
+    FTK_GFX_DEBUG("Global descriptors finalized");
 }
 
 void GpuContext::reset_view_bindings(uint32_t slot) {
-    const gpu::BindResource black = gpu::sampled(gi_fallback_, gi_fallback_sampler_);
-    const gpu::BindResource unoccluded = gpu::sampled(unoccluded_, gi_fallback_sampler_);
-    const gpu::BindEntry entries[] = {
-        {"global_ubo", gpu::uniform(gpu::BufferRange(view_data_fallback_, 0, sizeof(GlobalUbo)))},
-        {"environment_ubo", gpu::uniform(gpu::BufferRange(view_data_fallback_, 0, sizeof(EnvironmentUbo)))},
-        {"light_ssbo", gpu::storage(gpu::BufferRange(view_data_fallback_, 0, LIGHT_SSBO_SIZE))},
+    const ftk::gpu::BindResource black = ftk::gpu::sampled(gi_fallback_, gi_fallback_sampler_);
+    const ftk::gpu::BindResource unoccluded = ftk::gpu::sampled(unoccluded_, gi_fallback_sampler_);
+    const ftk::gpu::BindEntry entries[] = {
+        {"global_ubo", ftk::gpu::uniform(ftk::gpu::BufferRange(view_data_fallback_, 0, sizeof(GlobalUbo)))},
+        {"environment_ubo", ftk::gpu::uniform(ftk::gpu::BufferRange(view_data_fallback_, 0, sizeof(EnvironmentUbo)))},
+        {"light_ssbo", ftk::gpu::storage(ftk::gpu::BufferRange(view_data_fallback_, 0, LIGHT_SSBO_SIZE))},
         {"fog_volume_ssbo",
-         gpu::storage(gpu::BufferRange(view_data_fallback_, 0, uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume)))},
+         ftk::gpu::storage(ftk::gpu::BufferRange(view_data_fallback_, 0, uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume)))},
         {"depth_texture", black},
         {"ao_texture", unoccluded},
         {"screen_color", black},
@@ -203,7 +200,7 @@ void GpuContext::reset_view_bindings(uint32_t slot) {
     global_bindings_.set(slot, entries);
 }
 
-void GpuContext::share_draw_data_layout(gpu::SharedLayout layout) {
+void GpuContext::share_draw_data_layout(ftk::gpu::SharedLayout layout) {
     shared_layouts_.draw_data = layout;
 }
 

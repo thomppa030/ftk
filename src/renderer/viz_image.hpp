@@ -9,9 +9,12 @@
 #include <cstdint>
 #include <string>
 
+namespace ftk {
+class PassBuilder;
+} // namespace ftk
+
 namespace fjell {
 
-class PassBuilder;
 struct DeclareContext;
 
 // The picture a visualisation pass draws for a viewport to show in place of
@@ -29,7 +32,7 @@ public:
 
     /// A 64 × 64 image in `format` until the first resize, known to the graph
     /// as `name`.
-    void init(gpu::Device& device, gpu::Format format, std::string name);
+    void init(ftk::gpu::Device& device, ftk::gpu::Format format, std::string name);
     void cleanup();
 
     /// Made again at `width` × `height` when that changes; the frames still
@@ -40,29 +43,29 @@ public:
     void collect_exports(DeclareContext& ctx) const;
     /// Declares the draw into the texture. False, declaring nothing, when
     /// there is no texture to draw into.
-    bool declare(PassBuilder& builder, const DeclareContext& ctx) const;
+    bool declare(ftk::PassBuilder& builder, const DeclareContext& ctx) const;
     /// The texture as the one colour target, cleared to `clear`.
-    [[nodiscard]] gpu::RenderTargets targets(const gpu::Clear& clear) const;
+    [[nodiscard]] ftk::gpu::RenderTargets targets(const ftk::gpu::Clear& clear) const;
     /// The texture as the one colour target, what it held discarded: for a
     /// draw that covers every pixel.
-    [[nodiscard]] gpu::RenderTargets targets() const;
+    [[nodiscard]] ftk::gpu::RenderTargets targets() const;
 
     /// Mark that the image has been drawn into since it was made.
     void mark_rendered() { has_rendered_ = true; }
 
-    [[nodiscard]] gpu::Texture texture() const { return texture_; }
+    [[nodiscard]] ftk::gpu::Texture texture() const { return texture_; }
     /// The texture once something has been drawn into it, for a viewport to
     /// show; none before that.
-    [[nodiscard]] gpu::Texture picture() const { return has_rendered_ ? texture_.get() : gpu::Texture{}; }
+    [[nodiscard]] ftk::gpu::Texture picture() const { return has_rendered_ ? texture_.get() : ftk::gpu::Texture{}; }
     [[nodiscard]] bool valid() const { return static_cast<bool>(texture_); }
 
 private:
     void create(uint32_t width, uint32_t height);
 
-    gpu::Device* device_{nullptr};
-    gpu::Format format_{gpu::Format::undefined};
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Format format_{ftk::gpu::Format::undefined};
     std::string name_;
-    gpu::Owned<gpu::Texture> texture_;
+    ftk::gpu::Owned<ftk::gpu::Texture> texture_;
     glm::uvec2 extent_{0, 0};
     bool has_rendered_{false};
 };

@@ -14,14 +14,14 @@
 
 namespace fjell {
 
-Result<> TransparentPass::create(const PassResources& /*resources*/) {
+ftk::Result<> TransparentPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
 void TransparentPass::destroy() {}
 
 void TransparentPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_transparent");
+    FTK_PROFILE_SCOPE_N("record_transparent");
     auto* target = ctx.target;
     if (target == nullptr) { return; }
     auto& cmd = ctx.commands();
@@ -29,18 +29,18 @@ void TransparentPass::record(const FrameContext& ctx) {
 
     // Over what the opaque pass drew, each target resolved again under MSAA;
     // the depth tested, and sampled, not written.
-    const bool msaa = target->samples() != gpu::Samples::x1;
-    const auto scene_target = [&](gpu::Texture drawn, gpu::Texture resolved) {
-        return gpu::ColorAttachment{.view = drawn,
-                                    .resolve = msaa ? gpu::TextureView(resolved) : gpu::TextureView{}};
+    const bool msaa = target->samples() != ftk::gpu::Samples::x1;
+    const auto scene_target = [&](ftk::gpu::Texture drawn, ftk::gpu::Texture resolved) {
+        return ftk::gpu::ColorAttachment{.view = drawn,
+                                    .resolve = msaa ? ftk::gpu::TextureView(resolved) : ftk::gpu::TextureView{}};
     };
     auto pass = cmd.render({
         .color = {scene_target(target->msaa_color_texture(), target->color_texture()),
                   scene_target(target->msaa_mr_texture(), target->mr_texture()),
                   scene_target(target->msaa_normal_texture(), target->normal_texture()),
                   scene_target(target->msaa_velocity_texture(), target->velocity_texture())},
-        .depth = gpu::DepthAttachment{.view = target->msaa_depth_texture(),
-                                      .access = gpu::Access::depth_read_sampled},
+        .depth = ftk::gpu::DepthAttachment{.view = target->msaa_depth_texture(),
+                                      .access = ftk::gpu::Access::depth_read_sampled},
     });
 
     record_draws(ctx, pass);
@@ -57,7 +57,7 @@ void TransparentPass::record(const FrameContext& ctx) {
     }
 }
 
-void TransparentPass::record_draws(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void TransparentPass::record_draws(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (!ctx.queue || !ctx.queue->has_transparent()) return;
     if (!ctx.indirect_batch || !ctx.mega_buffer || !ctx.pipeline_cache) return;
 
@@ -110,7 +110,7 @@ PassSetup TransparentPass::setup() const {
     };
 }
 
-void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void TransparentPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto msaa_color = builder.import_named(ctx, "msaa_color");
     auto color = builder.import_named(ctx, "color");
     auto msaa_mr = builder.import_named(ctx, "msaa_mr");
@@ -123,20 +123,20 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     auto screen = builder.import_named(ctx, "screen_color");
 
-    builder.write(msaa_color, gpu::Access::color_attachment);
-    builder.write(color, gpu::Access::color_attachment);
-    builder.write(msaa_mr, gpu::Access::color_attachment);
-    builder.write(mr, gpu::Access::color_attachment);
-    builder.write(msaa_normal, gpu::Access::color_attachment);
-    builder.write(normal, gpu::Access::color_attachment);
-    builder.write(msaa_velocity, gpu::Access::color_attachment);
-    builder.write(velocity, gpu::Access::color_attachment);
+    builder.write(msaa_color, ftk::gpu::Access::color_attachment);
+    builder.write(color, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_mr, ftk::gpu::Access::color_attachment);
+    builder.write(mr, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_normal, ftk::gpu::Access::color_attachment);
+    builder.write(normal, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_velocity, ftk::gpu::Access::color_attachment);
+    builder.write(velocity, ftk::gpu::Access::color_attachment);
     // The multisampled depth is the read-only attachment the draws test
     // against; the resolved one is what the shaders sample. Without MSAA
     // they are one image and the graph merges the two.
-    builder.read(msaa_depth, gpu::Access::depth_read_sampled);
-    builder.read(depth, gpu::Access::sampled_fragment);
-    builder.read(screen, gpu::Access::sampled_fragment);
+    builder.read(msaa_depth, ftk::gpu::Access::depth_read_sampled);
+    builder.read(depth, ftk::gpu::Access::sampled_fragment);
+    builder.read(screen, ftk::gpu::Access::sampled_fragment);
 
     // Glass, lit particles and sprites.
     declare_lit_surface_reads(builder, ctx);

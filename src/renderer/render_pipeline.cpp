@@ -36,7 +36,7 @@ RenderPipeline::~RenderPipeline() {
     const float reduction = peak_logical_ == 0 ? 0.0f
         : 100.0f * (1.0f - (static_cast<float>(peak_physical_)
                              / static_cast<float>(peak_logical_)));
-    FJELL_GFX_INFO(
+    FTK_GFX_INFO(
         "FrameGraph aliasing (peak): {} logical -> {} physical ({:.1f}% reduction, "
         "~{:.1f} MiB saved, peak VRAM {:.1f} MiB)",
         peak_logical_, peak_physical_, reduction,
@@ -46,7 +46,7 @@ RenderPipeline::~RenderPipeline() {
 
 void RenderPipeline::register_pass(PassEntry entry) {
     pass_state_.try_emplace(entry.name); // create default state if not exists
-    entry.name_hash = fg_name_hash(entry.name);
+    entry.name_hash = ftk::fg_name_hash(entry.name);
     entries_.push_back(std::move(entry));
     sorted_ = false;
 }
@@ -81,15 +81,15 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
     return default_state_;
 }
 
-bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
-                              gpu::Samples msaa, uint32_t active_sources,
-                              ThreadPool& pool, gpu::Frame& frame,
-                              uint32_t frame_index, ResourceRegistry& registry,
+bool RenderPipeline::execute(ftk::gpu::CommandList& cmd, OffscreenPass& target,
+                              ftk::gpu::Samples msaa, uint32_t active_sources,
+                              ftk::ThreadPool& pool, ftk::gpu::Frame& frame,
+                              uint32_t frame_index, ftk::ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
                               const FrameContext& ctx,
                               bool async_compute_available,
                               const FjGraph* viewport_graph) {
-    FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
+    FTK_PROFILE_SCOPE_N("render_pipeline_execute");
 
     // Per-call viewport mask. When `viewport_graph` is non-null, only
     // passes whose name appears in the graph (with `enabled: true`) run
@@ -100,7 +100,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     viewport_enabled.clear();
     if (viewport_graph != nullptr) {
         for (const auto& entry : viewport_graph->passes) {
-            if (entry.enabled) { viewport_enabled.insert(fg_name_hash(entry.name)); }
+            if (entry.enabled) { viewport_enabled.insert(ftk::fg_name_hash(entry.name)); }
         }
     }
     auto pass_enabled_for_viewport = [&](const PassEntry& entry) {
@@ -142,7 +142,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         const auto* bloom = passes.try_get<BloomCore>("bloom_ds_0");
         const bool runs_chain = viewport_graph == nullptr
             ? state_for("bloom_us_0").enabled
-            : viewport_enabled.contains(fg_name_hash("bloom_us_0"));
+            : viewport_enabled.contains(ftk::fg_name_hash("bloom_us_0"));
         decl_ctx.bloom_enabled = bloom != nullptr && bloom->enabled() && runs_chain;
     }
     // Whether this run builds the fog volume, for passes outside the fog that
@@ -151,11 +151,11 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         const auto* fog = passes.try_get<FogCore>("fog_medium");
         const bool integrates = viewport_graph == nullptr
             ? state_for("fog_integrate").enabled
-            : viewport_enabled.contains(fg_name_hash("fog_integrate"));
+            : viewport_enabled.contains(ftk::fg_name_hash("fog_integrate"));
         decl_ctx.volumetric_fog_enabled = fog != nullptr && fog->enabled() && integrates;
     }
 
-    const bool has_msaa = (msaa != gpu::Samples::x1);
+    const bool has_msaa = (msaa != ftk::gpu::Samples::x1);
 
     // The surface depth is the scene depth with the sea laid over it, written
     // by the water as it draws. Where no water draws there is no such image
@@ -166,9 +166,9 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     const bool water_draws = water != nullptr && water->draws(ctx);
     decl_ctx.water_draws = water_draws;
     {
-        FJELL_PROFILE_SCOPE_N("rp_imports_fill");
-        auto add_import = [&](std::string_view name, gpu::Texture texture) {
-            decl_ctx.imports.emplace(fg_name_hash(name), ImportedImage{.view = texture});
+        FTK_PROFILE_SCOPE_N("rp_imports_fill");
+        auto add_import = [&](std::string_view name, ftk::gpu::Texture texture) {
+            decl_ctx.imports.emplace(ftk::fg_name_hash(name), ftk::ImportedImage{.view = texture});
         };
         add_import("color",        target.color_texture());
         add_import("depth",        target.depth_texture());
@@ -218,7 +218,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         // drift from actual image state.
         if (auto* gtao = pp_resources->gtao()) {
             if (gtao->ao) {
-                ImportedImage img{};
+                ftk::ImportedImage img{};
                 img.view = gtao->ao;
                 img.persistent = true;
                 // Sampled by the blur in compute, and by every fragment
@@ -226,8 +226,8 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
                 // run on the compute queue reaches those after the
                 // semaphore the graphics queue waits on, so compute is
                 // where it rests. Made ready to be sampled when created.
-                img.resting = gpu::Access::sampled_compute;
-                decl_ctx.imports.emplace(fg_name_hash("gtao_ao"), img);
+                img.resting = ftk::gpu::Access::sampled_compute;
+                decl_ctx.imports.emplace(ftk::fg_name_hash("gtao_ao"), img);
             }
         }
         // Fog scatter ping-pong volumes: same per-viewport-import pattern
@@ -237,10 +237,10 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         if (auto* fog = pp_resources->volumetric_fog()) {
             if (fog->scatter_volumes[0]) {
                 auto add_scatter = [&](std::string_view name, uint32_t idx) {
-                    ImportedImage img{};
+                    ftk::ImportedImage img{};
                     img.view = fog->scatter_volumes[idx];
                     img.persistent = true;
-                    decl_ctx.imports.emplace(fg_name_hash(name), img);
+                    decl_ctx.imports.emplace(ftk::fg_name_hash(name), img);
                 };
                 add_scatter("fog_scatter_cur", fog->cur_index());
                 add_scatter("fog_scatter_prev", fog->prev_index());
@@ -252,24 +252,24 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         if (auto* ddgi = pp_resources->ddgi(); ddgi != nullptr && ddgi->indirect) {
             decl_ctx.export_texture(DdgiPass::OUTPUT_NAME, ddgi->indirect,
                                     {.persistent = true,   // the opaque pass reads it the next frame
-                                     .resting = gpu::Access::sampled_fragment,
+                                     .resting = ftk::gpu::Access::sampled_fragment,
                                      .unwritten = !ddgi->indirect_written});
         }
         // DDGI's probe field, which it keeps from frame to frame and RT
         // reflections light their hits from. Made cleared, the atlases rest
         // where compute shaders and the editor's view of them sample them.
         if (auto* ddgi = pp_resources->ddgi(); ddgi != nullptr && ddgi->irradiance) {
-            const TextureExport field{.persistent = true, .resting = DdgiPass::ATLAS_REST};
+            const ftk::TextureExport field{.persistent = true, .resting = DdgiPass::ATLAS_REST};
             decl_ctx.export_texture(DdgiPass::IRRADIANCE_NAME, ddgi->irradiance, field);
             decl_ctx.export_texture(DdgiPass::VISIBILITY_NAME, ddgi->visibility, field);
             decl_ctx.export_texture(DdgiPass::PROBE_OFFSET_NAME, ddgi->probe_offset, field);
-            decl_ctx.buffer_imports.emplace(fg_name_hash(DdgiPass::PROBE_STATUS_NAME),
-                                            BufferImport{.buffer = ddgi->probe_status, .persistent = true});
+            decl_ctx.buffer_imports.emplace(ftk::fg_name_hash(DdgiPass::PROBE_STATUS_NAME),
+                                            ftk::BufferImport{.buffer = ddgi->probe_status, .persistent = true});
         }
         if (auto* ss_gi = pp_resources->ss_gi(); ss_gi != nullptr && ss_gi->indirect) {
             decl_ctx.export_texture(SsGiPass::OUTPUT_NAME, ss_gi->indirect,
                                     {.persistent = true,   // the opaque pass reads it the next frame
-                                     .resting = gpu::Access::sampled_fragment,
+                                     .resting = ftk::gpu::Access::sampled_fragment,
                                      .unwritten = !ss_gi->written});
             // The depth this viewport drew last frame, which SS-GI's resolve
             // reads before its depth history pass copies this frame's over
@@ -288,7 +288,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         // skips reads what the last one left, never an undefined image.
         if (auto* rt = pp_resources->rt_reflection(); rt != nullptr && rt->output) {
             decl_ctx.export_texture(RtReflectionPass::OUTPUT_NAME, rt->output,
-                                    {.resting = gpu::Access::sampled_compute});
+                                    {.resting = ftk::gpu::Access::sampled_compute});
         }
         // TAA's history ping-pong: the slot it writes this frame, which the
         // post pass then reads, and the one it reads back from the frame
@@ -304,11 +304,11 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         // The post pass's output, what the viewport shows: written as a colour
         // attachment, and resting where ImGui samples it after the graph.
         if (auto* output = pp_resources->post(); output != nullptr && output->texture) {
-            ImportedImage img{};
+            ftk::ImportedImage img{};
             img.view = output->texture;
-            img.resting = gpu::Access::sampled_fragment;
+            img.resting = ftk::gpu::Access::sampled_fragment;
             img.unwritten = !output->written;
-            decl_ctx.imports.emplace(fg_name_hash("post_output"), img);
+            decl_ctx.imports.emplace(ftk::fg_name_hash("post_output"), img);
         }
     }
 
@@ -319,7 +319,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         if (auto* shafts = passes.try_get<SunShaftsPass>("sun_shafts");
             shafts != nullptr && shafts->enabled()
             && (viewport_graph == nullptr ? state_for("sun_shafts").enabled
-                                          : viewport_enabled.contains(fg_name_hash("sun_shafts")))) {
+                                          : viewport_enabled.contains(ftk::fg_name_hash("sun_shafts")))) {
             auto& imgs = shafts->frame_images(decl_ctx.viewport_extent);
             auto add_history = [&](std::string_view name, uint32_t idx) {
                 decl_ctx.export_texture(name, imgs.shafts[idx], {.persistent = true});
@@ -336,13 +336,13 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         // The names the surfaces read the GI outputs by stand for what the
         // global set binds at those slots: the output once it holds
         // something, nothing while the set binds the fallback.
-        auto name_if_bound = [&](std::string_view slot, std::string_view output, gpu::Texture bound) {
-            const auto it = decl_ctx.imports.find(fg_name_hash(output));
+        auto name_if_bound = [&](std::string_view slot, std::string_view output, ftk::gpu::Texture bound) {
+            const auto it = decl_ctx.imports.find(ftk::fg_name_hash(output));
             if (!bound.valid() || it == decl_ctx.imports.end() || it->second.view.texture != bound) {
                 return;
             }
-            const ImportedImage img = it->second;
-            decl_ctx.imports.emplace(fg_name_hash(slot), img);
+            const ftk::ImportedImage img = it->second;
+            decl_ctx.imports.emplace(ftk::fg_name_hash(slot), img);
         };
         name_if_bound("gi_indirect", DdgiPass::OUTPUT_NAME, ctx.bound_gi_indirect);
         name_if_bound("ss_gi_emissive", SsGiPass::OUTPUT_NAME, ctx.bound_ss_gi_emissive);
@@ -353,7 +353,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     pending.clear();
 
     {
-        FJELL_PROFILE_SCOPE_N("rp_declare_loop");
+        FTK_PROFILE_SCOPE_N("rp_declare_loop");
         for (size_t i = 0; i < entries_.size(); ++i) {
             auto* p = entries_[i].pass;
             if (p == nullptr) { continue; }
@@ -371,12 +371,12 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
             // through to graphics unconditionally.
             auto setup = p->setup();
             if (async_compute_available && setup.async_hint == AsyncComputeHint::Prefer) {
-                builder.queue(QueueType::async_compute);
+                builder.queue(ftk::QueueType::async_compute);
             } else {
-                builder.queue(QueueType::graphics);
+                builder.queue(ftk::QueueType::graphics);
             }
             {
-                FJELL_PROFILE_SCOPE_DYNAMIC(entries_[i].name.c_str());
+                FTK_PROFILE_SCOPE_DYNAMIC(entries_[i].name.c_str());
                 p->declare(builder, decl_ctx);
             }
             pending.push_back(pp);
@@ -390,7 +390,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     auto& in_degree = in_degree_;
     in_degree.assign(n, 0);
 
-    auto resolve_texture_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
+    auto resolve_texture_key = [](const ftk::PassBuilder& b, ftk::FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
             if (imp.handle.id == h.id) {
                 return {.texture = imp.view.texture,
@@ -411,7 +411,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     // identity is enough for producer/consumer edges), and imported
     // acceleration structures by theirs. Created (transient) buffers key on
     // FNV-1a hash of name, mirroring the texture path.
-    auto resolve_buffer_key = [](const PassBuilder& b, FgBuffer h) -> ResKey {
+    auto resolve_buffer_key = [](const ftk::PassBuilder& b, ftk::FgBuffer h) -> ResKey {
         for (const auto& imp : b.imported_buffers()) {
             if (imp.handle.id == h.id) {
                 return {.buffer = imp.buffer, .structure = imp.structure};
@@ -433,14 +433,14 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     auto& dag_order = dag_order_;
     dag_order.clear();
     {
-        FJELL_PROFILE_SCOPE_N("rp_dag_sort");
+        FTK_PROFILE_SCOPE_N("rp_dag_sort");
         auto& last_writer = last_writer_;
         last_writer.clear();
         // Add an edge from `last_writer[k]` to pass `j` for every read
         // access whose key has been written earlier this frame. Update
         // `last_writer[k]` for every write. Buffers and textures share
         // the `ResKey` map — the discriminator is which field is set.
-        auto record_access = [&](size_t j, const ResKey& k, gpu::Access access) {
+        auto record_access = [&](size_t j, const ResKey& k, ftk::gpu::Access access) {
             if (!key_valid(k)) { return; }
             if (access_is_read(access)) {
                 auto it = last_writer.find(k);
@@ -485,7 +485,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     }
 
     if (dag_order.size() != n) {
-        FJELL_GFX_ERROR(
+        FTK_GFX_ERROR(
             "RenderPipeline: cycle detected in declared graph ({} of {} passes scheduled).",
             static_cast<unsigned>(dag_order.size()), static_cast<unsigned>(n));
         return false;
@@ -506,7 +506,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     auto& alive = alive_;
     alive.assign(n, 0);
     {
-        FJELL_PROFILE_SCOPE_N("rp_pass_cull");
+        FTK_PROFILE_SCOPE_N("rp_pass_cull");
         auto& work = work_;
         work.clear();
 
@@ -530,7 +530,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         }
 
         // Seed the set with roots.
-        auto pass_writes_persistent = [](const PassBuilder& b) {
+        auto pass_writes_persistent = [](const ftk::PassBuilder& b) {
             for (const auto& imp : b.imported_textures()) {
                 if (!imp.persistent) { continue; }
                 for (const auto& acc : b.texture_accesses()) {
@@ -589,7 +589,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     for (uint8_t a : alive) { if (!a) { ++culled; } }
 
     if (!dag_order_logged_) {
-        FJELL_GFX_INFO("RenderPipeline driven by declare(): {} passes ({} culled).",
+        FTK_GFX_INFO("RenderPipeline driven by declare(): {} passes ({} culled).",
                        static_cast<unsigned>(n), static_cast<unsigned>(culled));
         dag_order_logged_ = true;
     }
@@ -598,7 +598,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     auto& graph = graph_;
     graph.set_aliasing_enabled(aliasing_enabled_);
     {
-    FJELL_PROFILE_SCOPE_N("rp_graph_submit");
+    FTK_PROFILE_SCOPE_N("rp_graph_submit");
     graph.begin_frame(*ctx.device);
     auto color_id        = graph.register_image(target.color_texture());
     auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_texture()) : color_id;
@@ -635,7 +635,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         graph.submit_declared_pass(
             entries_[pp.entry_index].name,
             builders_[pp.builder],
-            [p = pp.pass, &ctx](gpu::CommandList* list) {
+            [p = pp.pass, &ctx](ftk::gpu::CommandList* list) {
                 FrameContext local = ctx;
                 local.command_list = list;
                 p->record(local);
@@ -647,7 +647,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
     // register each logical resource under the name it was declared
     // with, where passes read it through ctx.texture(name).
     if (ctx.transient_pool != nullptr) {
-        FJELL_PROFILE_SCOPE_N("rp_alias_bind");
+        FTK_PROFILE_SCOPE_N("rp_alias_bind");
         auto& lifetimes = lifetimes_;
         auto& groups = groups_;
         graph.compute_lifetimes(lifetimes);
@@ -668,17 +668,17 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         }
 
         for (const auto& group : groups) {
-            gpu::TextureUses uses{};
+            ftk::gpu::TextureUses uses{};
             for (uint32_t rid : group.resource_ids) {
                 uses |= lifetimes[rid].uses;
             }
-            const gpu::Texture texture =
+            const ftk::gpu::Texture texture =
                 ctx.transient_pool->acquire(group.desc, decl_ctx.viewport_extent, uses);
             if (!texture.valid()) { continue; }
             for (uint32_t rid : group.resource_ids) {
                 const auto& img = imgs[rid];
                 if (img.name.empty()) { continue; }
-                ResourceRegistry::ImageResource res{};
+                ftk::ResourceRegistry::ImageResource res{};
                 res.frame_graph_id = rid;
                 res.texture = texture;
                 res.mip_count = img.mip_count;
@@ -725,7 +725,7 @@ bool RenderPipeline::execute(gpu::CommandList& cmd, OffscreenPass& target,
         graph.log_queue_segments();
         (void)graph.validate_alias_groups(graph.compute_alias_groups());
         if (ctx.transient_pool != nullptr) {
-            FJELL_GFX_DEBUG(
+            FTK_GFX_DEBUG(
                 "TransientImagePool: {} live, {} acquires, {} new allocations this frame",
                 ctx.transient_pool->live_images(),
                 ctx.transient_pool->acquires_this_frame(),

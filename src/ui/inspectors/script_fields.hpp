@@ -17,12 +17,12 @@ struct InspectorContext;
 /// tooltip is its row's help. `scene` names the nodes a node reference
 /// points at; without one the reference shows its id. Used for script
 /// components and animation notifies alike.
-ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* instance,
+ftk::ui::Edit draw_script_fields(const std::vector<OwnedFieldDesc>& fields, void* instance,
                             const InspectorContext& ctx, const Scene* scene);
 
 /// One field's value, for the value column of a row the caller opened:
 /// `ptr` is the field's storage. A struct, a list or a getter draws nothing.
-ui::Edit draw_script_field(const OwnedFieldDesc& field, void* ptr, const InspectorContext& ctx, const Scene* scene);
+ftk::ui::Edit draw_script_field(const OwnedFieldDesc& field, void* ptr, const InspectorContext& ctx, const Scene* scene);
 
 /// A field's row label: `move_speed` reads "Move speed", the sentence case
 /// every label uses.

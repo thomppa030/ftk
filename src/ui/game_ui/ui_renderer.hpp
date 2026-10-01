@@ -18,12 +18,13 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
 class RenderEncoder;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
+
 class PipelineCache;
 struct UiNode;
 
@@ -53,7 +54,7 @@ public:
     /// Screen UI draws to one target of `output_format`, the scene colour's
     /// when undefined.
     void create(const PassResources& resources, PipelineCache* fjsl_pipelines,
-                gpu::Format output_format = gpu::Format::undefined);
+                ftk::gpu::Format output_format = ftk::gpu::Format::undefined);
     void destroy();
 
     /// Flatten the UI node tree into GPU quads and upload to SSBO.
@@ -79,7 +80,7 @@ public:
 
     /// Draws the frame's quads and text into `pass`, a scope with one colour
     /// target of the output format and no depth, `extent` pixels large.
-    void record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+    void record(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                 glm::uvec2 extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR format + scene MSAA). Call after create().
@@ -89,7 +90,7 @@ public:
     /// prev_mvp is last frame's mvp for this same widget (proj * view *
     /// world_transform, all from last frame) — used to compute the velocity
     /// attachment.
-    void record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+    void record_world(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                       glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                       const glm::mat4& prev_mvp);
 
@@ -173,18 +174,18 @@ private:
 
     // Per frame: the quads as collected, what paints in which order, the
     // glyphs of each text node, and the runs build_runs() made of them.
-    std::array<std::vector<CollectedQuad>, MAX_FRAMES_IN_FLIGHT> collected_;
-    std::array<std::vector<PaintItem>, MAX_FRAMES_IN_FLIGHT> paint_items_;
-    std::array<std::unordered_map<const UiNode*, GlyphRange>, MAX_FRAMES_IN_FLIGHT> glyph_ranges_;
-    std::array<std::vector<PaintRun>, MAX_FRAMES_IN_FLIGHT> runs_;
+    std::array<std::vector<CollectedQuad>, ftk::MAX_FRAMES_IN_FLIGHT> collected_;
+    std::array<std::vector<PaintItem>, ftk::MAX_FRAMES_IN_FLIGHT> paint_items_;
+    std::array<std::unordered_map<const UiNode*, GlyphRange>, ftk::MAX_FRAMES_IN_FLIGHT> glyph_ranges_;
+    std::array<std::vector<PaintRun>, ftk::MAX_FRAMES_IN_FLIGHT> runs_;
 
     // Pipelines built for one `shader_type ui;` PipelineCache entry, in the
     // two shapes the fixed quad pipelines come in. Rebuilt when the entry's
     // compile generation moves (a hot-reload); the device keeps the old ones
     // until the frames using them are done.
     struct MaterialPipelines {
-        gpu::Owned<gpu::GraphicsPipeline> screen;
-        gpu::Owned<gpu::GraphicsPipeline> world;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> screen;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> world;
         uint32_t generation{0};
     };
     // Builds or refreshes the pipelines for a PipelineCache entry. Returns
@@ -196,42 +197,42 @@ private:
 
     // A screen UI pipeline: quads or glyphs blended over the one target in
     // the order they are drawn, no depth. Text reads no globals.
-    [[nodiscard]] gpu::GraphicsPipelineDesc screen_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+    [[nodiscard]] ftk::gpu::GraphicsPipelineDesc screen_desc(ftk::gpu::ShaderCode vertex, ftk::gpu::ShaderCode fragment,
                                                         std::string_view name, bool reads_globals) const;
     // A world UI pipeline: blended over the scene's four targets in the
     // transparent pass, tested against its depth and never writing it,
     // writing its own motion.
-    [[nodiscard]] gpu::GraphicsPipelineDesc world_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+    [[nodiscard]] ftk::gpu::GraphicsPipelineDesc world_desc(ftk::gpu::ShaderCode vertex, ftk::gpu::ShaderCode fragment,
                                                        std::string_view name, bool reads_globals) const;
-    [[nodiscard]] std::vector<gpu::SharedLayout> shared(bool reads_globals) const;
-    [[nodiscard]] gpu::Owned<gpu::GraphicsPipeline> make(const gpu::GraphicsPipelineDesc& desc) const;
+    [[nodiscard]] std::vector<ftk::gpu::SharedLayout> shared(bool reads_globals) const;
+    [[nodiscard]] ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> make(const ftk::gpu::GraphicsPipelineDesc& desc) const;
 
-    gpu::Device* gpu_{nullptr};
-    gpu::SharedLayout globals_{};
-    gpu::SharedLayout bindless_{};
-    gpu::Format output_format_{gpu::Format::undefined};
+    ftk::gpu::Device* gpu_{nullptr};
+    ftk::gpu::SharedLayout globals_{};
+    ftk::gpu::SharedLayout bindless_{};
+    ftk::gpu::Format output_format_{ftk::gpu::Format::undefined};
     // The scene targets world UI draws to, kept so material pipelines can
     // match them.
     bool has_world_pipelines_{false};
     PassResources world_{};
 
-    gpu::Owned<gpu::GraphicsPipeline> quad_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> text_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> world_quad_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> world_text_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> quad_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> text_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> world_quad_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> world_text_pipeline_;
 
     // The frame slot's quads and glyphs, written by update() and
     // update_text() and read by its frame.
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> quad_buffers_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> glyph_buffers_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> quad_buffers_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> glyph_buffers_;
 
     // Per-frame counts
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> quad_counts_{};
+    std::array<uint32_t, ftk::MAX_FRAMES_IN_FLIGHT> quad_counts_{};
     // Screen pixels per layout pixel for each frame's quads. The shader
     // maps layout space onto the target through viewport_size; scissors are
     // set in target pixels and need the same factor.
-    std::array<float, MAX_FRAMES_IN_FLIGHT> frame_scales_{};
-    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> text_counts_{};
+    std::array<float, ftk::MAX_FRAMES_IN_FLIGHT> frame_scales_{};
+    std::array<uint32_t, ftk::MAX_FRAMES_IN_FLIGHT> text_counts_{};
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;

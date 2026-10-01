@@ -23,7 +23,7 @@ void AudioSubsystem::play_oneshot(AudioAssetHandle asset_handle,
                                    const Project* project) {
     auto* asset = resources.get(asset_handle);
     if (!asset) {
-        FJELL_CORE_ERROR("Audio: invalid asset handle");
+        FTK_CORE_ERROR("Audio: invalid asset handle");
         return;
     }
 

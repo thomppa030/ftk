@@ -101,7 +101,7 @@ static bool asset_exists(const std::string& reference, const Project* project) {
 static std::string accepted_nouns(std::span<const std::string> extensions) {
     std::string nouns;
     for (const auto& ext : extensions) {
-        const char* noun = ui::asset_kind(ext).noun;
+        const char* noun = ftk::ui::asset_kind(ext).noun;
         if (nouns.find(noun) != std::string::npos) continue;
         if (!nouns.empty()) nouns += " or ";
         nouns += noun;
@@ -115,7 +115,7 @@ static std::string drop_refusal(const std::string& dropped, std::span<const std:
     if (!matches_extension(dropped, extensions)) {
         const auto file = std::filesystem::path(dropped);
         return "Takes a " + accepted_nouns(extensions) + ". " + file.filename().string() + " is a " +
-               ui::asset_kind(file.extension().string()).noun + ".";
+               ftk::ui::asset_kind(file.extension().string()).noun + ".";
     }
     return shader_type_refusal(dropped, project, shader_types);
 }
@@ -145,7 +145,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
 
     ImGui::PushID(config.id);
     const bool has_value = !path.empty();
-    ui::Slot slot("ASSET_PATH", [&](const ImGuiPayload& payload) {
+    ftk::ui::Slot slot("ASSET_PATH", [&](const ImGuiPayload& payload) {
         return drop_refusal(static_cast<const char*>(payload.Data), config.extensions, project,
                             config.shader_types);
     });
@@ -164,7 +164,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
                 ImGui::Image(thumb, {HOVER_THUMB, HOVER_THUMB});
                 ImGui::TextUnformatted(shown_path.c_str());
                 if (const ImVec2 px = image_size(resolved); px.x > 0.0f) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+                    ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_secondary());
                     ImGui::Text("%.0f \xc3\x97 %.0f", static_cast<double>(px.x), static_cast<double>(px.y));
                     ImGui::PopStyleColor();
                 }
@@ -197,11 +197,11 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     const std::string name = shown_path.empty()
         ? reference
         : std::filesystem::path(shown_path).filename().string();
-    const ui::AssetPresence presence = !has_value ? ui::AssetPresence::empty
-                                       : missing  ? ui::AssetPresence::missing
-                                                  : ui::AssetPresence::held;
+    const ftk::ui::AssetPresence presence = !has_value ? ftk::ui::AssetPresence::empty
+                                       : missing  ? ftk::ui::AssetPresence::missing
+                                                  : ftk::ui::AssetPresence::held;
     std::string text;
-    ui::SlotFace face = ui::asset_face(
+    ftk::ui::SlotFace face = ftk::ui::asset_face(
         name, presence, config.extensions.empty() ? std::string_view{} : std::string_view{config.extensions.front()},
         text);
     if (thumb && !missing) face.picture = thumb;
@@ -210,7 +210,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
     // before the slot said what it takes.
     std::string problem =
         has_value && !missing ? shader_type_refusal(path, project, config.shader_types) : std::string();
-    if (!has_value && config.required) problem = ui::REQUIRED_PROBLEM;
+    if (!has_value && config.required) problem = ftk::ui::REQUIRED_PROBLEM;
     if (slot.finish(face, !has_value, problem)) {
         path.clear();
         changed = true;
@@ -225,7 +225,7 @@ bool asset_slot(const AssetRefConfig& config, std::string& path) {
 
     ImGui::PopID();
     if (changed) {
-        ui::detail::track_field(ImGui::GetID(config.id), name_before, name_of(path), false, {true, true});
+        ftk::ui::detail::track_field(ImGui::GetID(config.id), name_before, name_of(path), false, {true, true});
     }
     return changed;
 }

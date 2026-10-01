@@ -35,7 +35,7 @@ NetId SpawnReplicator::spawn(Scene& scene, ResourceManager& resources,
                              const Project* project) {
     auto handle = resources.load_preset_asset(preset_path, project);
     if (!handle) {
-        FJELL_CORE_ERROR("NetManager: spawn failed, can't load preset '{}'", preset_path);
+        FTK_CORE_ERROR("NetManager: spawn failed, can't load preset '{}'", preset_path);
         return NET_ID_NONE;
     }
     PresetAsset* asset = resources.get(*handle);
@@ -57,7 +57,7 @@ NetId SpawnReplicator::spawn(Scene& scene, ResourceManager& resources,
         transport->broadcast(packet, Channel::reliable);
     }
 
-    FJELL_CORE_INFO("NetManager: spawned '{}' as net {} (owner {})",
+    FTK_CORE_INFO("NetManager: spawned '{}' as net {} (owner {})",
                     preset_path, net_id, owner);
     return net_id;
 }
@@ -72,7 +72,7 @@ NetId SpawnReplicator::destroy(Scene& scene, NetScene& net_scene,
     put(packet, net_id);
     if (transport) transport->broadcast(packet, Channel::reliable);
 
-    FJELL_CORE_INFO("NetManager: despawned net {}", net_id);
+    FTK_CORE_INFO("NetManager: despawned net {}", net_id);
     return net_id;
 }
 
@@ -93,7 +93,7 @@ void SpawnReplicator::apply_spawn(Scene& scene, ResourceManager& resources,
 
     auto handle = resources.load_preset_asset(preset_path, project);
     if (!handle) {
-        FJELL_CORE_ERROR("NetManager: spawn of net {} failed, can't load '{}'",
+        FTK_CORE_ERROR("NetManager: spawn of net {} failed, can't load '{}'",
                          net_id, preset_path);
         return;
     }
@@ -107,7 +107,7 @@ void SpawnReplicator::apply_spawn(Scene& scene, ResourceManager& resources,
 
     net_scene.register_object(net_id, node_id);
     net_scene.set_owner(net_id, owner);
-    FJELL_CORE_INFO("NetManager: spawned net {} from '{}' (owner {})", net_id, preset_path, owner);
+    FTK_CORE_INFO("NetManager: spawned net {} from '{}' (owner {})", net_id, preset_path, owner);
 }
 
 NetId SpawnReplicator::apply_despawn(Scene& scene, NetScene& net_scene,
@@ -117,7 +117,7 @@ NetId SpawnReplicator::apply_despawn(Scene& scene, NetScene& net_scene,
 
     uint32_t node_id = net_scene.node_id_for(net_id);
     if (node_id != 0) scene.queue_destroy(node_id);
-    FJELL_CORE_INFO("NetManager: despawned net {}", net_id);
+    FTK_CORE_INFO("NetManager: despawned net {}", net_id);
     return net_id;
 }
 

@@ -157,12 +157,12 @@ uint32_t repoint_asset_references(const fs::path& project_root,
         {
             std::ofstream f(tmp, std::ios::binary);
             if (!f.is_open()) {
-                FJELL_CORE_WARN("Could not rewrite references in '{}'", rel);
+                FTK_CORE_WARN("Could not rewrite references in '{}'", rel);
                 return;
             }
             f << out;
             if (!f) {
-                FJELL_CORE_WARN("Could not rewrite references in '{}'", rel);
+                FTK_CORE_WARN("Could not rewrite references in '{}'", rel);
                 return;
             }
         }
@@ -171,7 +171,7 @@ uint32_t repoint_asset_references(const fs::path& project_root,
         fs::rename(tmp, path, ec);
         if (ec) {
             fs::remove(tmp, ec);
-            FJELL_CORE_WARN("Could not replace '{}': {}", rel, ec.message());
+            FTK_CORE_WARN("Could not replace '{}': {}", rel, ec.message());
             return;
         }
         ++rewritten;

@@ -9,11 +9,11 @@ namespace fjell {
 GlobalBindings::GlobalBindings() {
     // The numbers are the shaders': they declare these bindings by number,
     // so a number never changes.
-    using gpu::BindingKind;
-    using gpu::ShaderStage;
-    constexpr gpu::ShaderStages FRAG = ShaderStage::fragment;
-    constexpr gpu::ShaderStages FRAG_COMP = ShaderStage::fragment | ShaderStage::compute;
-    constexpr gpu::ShaderStages ALL = ShaderStage::vertex | ShaderStage::fragment | ShaderStage::compute |
+    using ftk::gpu::BindingKind;
+    using ftk::gpu::ShaderStage;
+    constexpr ftk::gpu::ShaderStages FRAG = ShaderStage::fragment;
+    constexpr ftk::gpu::ShaderStages FRAG_COMP = ShaderStage::fragment | ShaderStage::compute;
+    constexpr ftk::gpu::ShaderStages ALL = ShaderStage::vertex | ShaderStage::fragment | ShaderStage::compute |
                                       ShaderStage::task | ShaderStage::mesh;
 
     declare({"global_ubo",          0, BindingKind::uniform_buffer,  ALL});
@@ -52,11 +52,11 @@ void GlobalBindings::declare(Declared decl) {
     declared_.push_back(std::move(decl));
 }
 
-Result<> GlobalBindings::create(gpu::Device& gpu) {
+ftk::Result<> GlobalBindings::create(ftk::gpu::Device& gpu) {
     gpu_ = &gpu;
-    gpu::SharedLayoutDesc desc{.name = "globals", .usual_set = 0, .bindings = {}};
+    ftk::gpu::SharedLayoutDesc desc{.name = "globals", .usual_set = 0, .bindings = {}};
     for (const Declared& d : declared_) {
-        gpu::ShaderBinding binding;
+        ftk::gpu::ShaderBinding binding;
         binding.name = d.name;
         binding.binding = d.binding;
         binding.kind = d.kind;
@@ -64,21 +64,21 @@ Result<> GlobalBindings::create(gpu::Device& gpu) {
         desc.bindings.push_back(std::move(binding));
     }
     auto layout = gpu.create(desc);
-    if (!layout) return make_error(layout.error());
+    if (!layout) return ftk::make_error(layout.error());
     layout_ = *layout;
     for (auto& contents : contents_) contents.assign(declared_.size(), std::nullopt);
     return {};
 }
 
-std::optional<std::vector<gpu::BindEntry>> GlobalBindings::entries(uint32_t slot) {
-    std::vector<gpu::BindEntry> entries;
+std::optional<std::vector<ftk::gpu::BindEntry>> GlobalBindings::entries(uint32_t slot) {
+    std::vector<ftk::gpu::BindEntry> entries;
     entries.reserve(declared_.size());
     for (size_t i = 0; i < declared_.size(); ++i) {
-        const std::optional<gpu::BindResource>& content = contents_[slot][i];
+        const std::optional<ftk::gpu::BindResource>& content = contents_[slot][i];
         if (!content) {
             if (!missing_reported_) {
                 missing_reported_ = true;
-                FJELL_GFX_ERROR("Global binding '{}' is bound before anything set it",
+                FTK_GFX_ERROR("Global binding '{}' is bound before anything set it",
                                 declared_[i].name);
             }
             return std::nullopt;
@@ -88,49 +88,49 @@ std::optional<std::vector<gpu::BindEntry>> GlobalBindings::entries(uint32_t slot
     return entries;
 }
 
-gpu::BindGroup GlobalBindings::group(uint32_t slot) {
+ftk::gpu::BindGroup GlobalBindings::group(uint32_t slot) {
     if (groups_[slot]) return groups_[slot].get();
     const auto entries = this->entries(slot);
     if (!entries) return {};
-    auto made = gpu_->create(gpu::SharedGroupDesc{.layout = layout_, .entries = *entries, .name = "globals"});
+    auto made = gpu_->create(ftk::gpu::SharedGroupDesc{.layout = layout_, .entries = *entries, .name = "globals"});
     if (!made) {
-        FJELL_GFX_ERROR("Global set: {}", made.error());
+        FTK_GFX_ERROR("Global set: {}", made.error());
         return {};
     }
     groups_[slot] = std::move(*made);
     return groups_[slot].get();
 }
 
-void GlobalBindings::set(std::string_view name, const gpu::BindResource& resource) {
-    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) set(slot, name, resource);
+void GlobalBindings::set(std::string_view name, const ftk::gpu::BindResource& resource) {
+    for (uint32_t slot = 0; slot < ftk::MAX_FRAMES_IN_FLIGHT; ++slot) set(slot, name, resource);
 }
 
-void GlobalBindings::set(uint32_t slot, std::string_view name, const gpu::BindResource& resource) {
+void GlobalBindings::set(uint32_t slot, std::string_view name, const ftk::gpu::BindResource& resource) {
     const auto it = index_.find(name);
     if (it == index_.end()) {
-        FJELL_GFX_ERROR("GlobalBindings: no binding '{}'", name);
+        FTK_GFX_ERROR("GlobalBindings: no binding '{}'", name);
         return;
     }
     contents_[slot][it->second] = resource;
     if (!groups_[slot]) return;
-    const gpu::BindEntry entry[] = {{name, resource}};
+    const ftk::gpu::BindEntry entry[] = {{name, resource}};
     if (auto written = gpu_->update(groups_[slot], entry); !written) {
-        FJELL_GFX_ERROR("Global binding '{}': {}", name, written.error());
+        FTK_GFX_ERROR("Global binding '{}': {}", name, written.error());
     }
 }
 
-void GlobalBindings::set(uint32_t slot, std::span<const gpu::BindEntry> entries) {
-    for (const gpu::BindEntry& entry : entries) {
+void GlobalBindings::set(uint32_t slot, std::span<const ftk::gpu::BindEntry> entries) {
+    for (const ftk::gpu::BindEntry& entry : entries) {
         const auto it = index_.find(entry.name);
         if (it == index_.end()) {
-            FJELL_GFX_ERROR("GlobalBindings: no binding '{}'", entry.name);
+            FTK_GFX_ERROR("GlobalBindings: no binding '{}'", entry.name);
             return;
         }
         contents_[slot][it->second] = entry.resource;
     }
     if (!groups_[slot]) return;
     if (auto written = gpu_->update(groups_[slot], entries); !written) {
-        FJELL_GFX_ERROR("Global set: {}", written.error());
+        FTK_GFX_ERROR("Global set: {}", written.error());
     }
 }
 

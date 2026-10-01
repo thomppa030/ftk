@@ -13,6 +13,14 @@
 #include <memory>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
+namespace ftk::gpu {
+class Frame;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class PipelineCache;
@@ -22,13 +30,9 @@ class GpuContext;
 class Scene;
 struct Node;
 class ShadowPass;
-class ThreadPool;
 struct RenderStats;
 
 /// Input parameters for SceneGatherer::gather().
-namespace gpu {
-class Frame;
-}
 
 struct GatherInput {
     Scene* scene{nullptr};
@@ -37,9 +41,9 @@ struct GatherInput {
     glm::vec3 camera_position{0.0f};
     uint32_t frame_index{0};
     /// The frame recording, whose memory the batches are written into.
-    gpu::Frame* frame{nullptr};
+    ftk::gpu::Frame* frame{nullptr};
     const ShadowPass* shadow_pass{nullptr};
-    ThreadPool* pool{nullptr};
+    ftk::ThreadPool* pool{nullptr};
     RenderStats* stats{nullptr};
     AnimationSystem* animation_system{nullptr};
     /// The material pipelines, whose cull modes the camera batch notes per
@@ -73,7 +77,7 @@ public:
     }
     [[nodiscard]] DrawDataDescriptor& draw_data_descriptor() { return draw_data_descriptor_; }
     /// The layout of every draw data group, the main view's and the cascades'.
-    [[nodiscard]] gpu::SharedLayout draw_data_layout() const { return draw_data_layout_; }
+    [[nodiscard]] ftk::gpu::SharedLayout draw_data_layout() const { return draw_data_layout_; }
     [[nodiscard]] DrawDataDescriptor& shadow_draw_data(uint32_t cascade) { return shadow_draw_data_[cascade]; }
 
     [[nodiscard]] const glm::vec3& camera_position() const { return camera_position_; }
@@ -94,11 +98,11 @@ private:
     glm::mat4 projection_matrix_{1.0f};
 
     std::unique_ptr<IndirectBatch> indirect_batch_;
-    gpu::SharedLayout draw_data_layout_{};
+    ftk::gpu::SharedLayout draw_data_layout_{};
     /// Bytes a draw data binding with nothing to hold reads: enough for any
     /// one record.
     static constexpr uint64_t EMPTY_DRAW_DATA_BYTES = 256;
-    gpu::Owned<gpu::Buffer> empty_draw_data_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> empty_draw_data_;
     DrawDataDescriptor draw_data_descriptor_;
 
     // Per-cascade shadow batches (each cascade only draws its own geometry)

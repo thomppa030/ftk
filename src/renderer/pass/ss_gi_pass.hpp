@@ -60,16 +60,16 @@ public:
     struct Images {
         /// What each ray brought back: probe_count.x wide, probe_count.y *
         /// rays_per_probe tall. The trace writes it, the resolve reads it.
-        gpu::Owned<gpu::Texture> raw_radiance;
+        ftk::gpu::Owned<ftk::gpu::Texture> raw_radiance;
         /// Probe irradiance blended over frames, a texel per probe.
-        gpu::Owned<gpu::Texture> resolved;
+        ftk::gpu::Owned<ftk::gpu::Texture> resolved;
         /// Last frame's `resolved`, which this frame's blends onto.
-        gpu::Owned<gpu::Texture> history;
+        ftk::gpu::Owned<ftk::gpu::Texture> history;
         /// The indirect light the surfaces sample, at half the viewport.
-        gpu::Owned<gpu::Texture> indirect;
+        ftk::gpu::Owned<ftk::gpu::Texture> indirect;
         /// The scene depth as the last frame left it, the same size and
         /// format: the resolve drops history where the depth changed.
-        gpu::Owned<gpu::Texture> prev_depth;
+        ftk::gpu::Owned<ftk::gpu::Texture> prev_depth;
 
         glm::uvec2 indirect_extent{0, 0};
         glm::uvec2 probe_count{0, 0};
@@ -85,23 +85,23 @@ public:
         glm::mat4 prev_inv_view_proj{1.0f};
         bool history_valid{false};
 
-        void create(gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        void create(ftk::gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Releases the textures; the frames still reading them keep them
         /// until they are done.
         void destroy();
         /// Made again when the probe grid or the output size changes.
-        void resize(gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        void resize(ftk::gpu::Device& gpu, const SsGiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Makes `prev_depth` again unless it already matches `scene_depth`.
         /// The render pipeline calls it before exporting the copy, for the
         /// target the viewport draws into this frame.
-        void fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth);
+        void fit_prev_depth(ftk::gpu::Device& gpu, ftk::gpu::Texture scene_depth);
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// Where it stops before upsampling into the indirect output, the
     /// output holds what it held.
@@ -144,7 +144,7 @@ public:
         sun_intensity_ = intensity;
     }
 
-    [[nodiscard]] gpu::Sampler linear_sampler() const { return linear_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler linear_sampler() const { return linear_sampler_; }
 
 private:
     [[nodiscard]] GpuSsGiConstants constants(const Images& imgs, const FrameContext& ctx) const;
@@ -158,12 +158,12 @@ private:
     float sun_intensity_{1.5f};
 
     /// Traces with ray queries; null on a device without them.
-    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> resolve_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> upsample_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> resolve_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> upsample_pipeline_;
 
-    gpu::Sampler linear_sampler_;
-    gpu::Sampler nearest_sampler_;
+    ftk::gpu::Sampler linear_sampler_;
+    ftk::gpu::Sampler nearest_sampler_;
 
     AccelStructureManager* accel_manager_{nullptr};
     float trace_cell_size_{0.0F};
@@ -175,12 +175,12 @@ private:
 /// has read the last one.
 class SsGiDepthHistoryPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
     SsGiPass* core_{nullptr};

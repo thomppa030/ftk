@@ -30,7 +30,7 @@ namespace fjell {
 
 namespace {
 
-constexpr ui::Choice<SplineInterp> MODES[] = {
+constexpr ftk::ui::Choice<SplineInterp> MODES[] = {
     {SplineInterp::Linear, "Linear"},
     {SplineInterp::CurveAuto, "Curve (auto)"},
     {SplineInterp::CurveUser, "Curve (user)"},
@@ -38,7 +38,7 @@ constexpr ui::Choice<SplineInterp> MODES[] = {
     {SplineInterp::Constant, "Constant"},
 };
 
-constexpr ui::Choice<SplineMeshForward> FORWARDS[] = {
+constexpr ftk::ui::Choice<SplineMeshForward> FORWARDS[] = {
     {SplineMeshForward::X, "X"},
     {SplineMeshForward::Y, "Y"},
     {SplineMeshForward::Z, "Z"},
@@ -59,8 +59,8 @@ const char* mode_name(SplineInterp mode) {
 void summary(const char* first, const char* rest) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(first);
-    ImGui::SameLine(0.0f, theme::GAP_M);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+    ImGui::SameLine(0.0f, ftk::theme::GAP_M);
+    ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_secondary());
     ImGui::TextUnformatted(rest);
     ImGui::PopStyleColor();
 }
@@ -75,18 +75,18 @@ void refresh(SplineHolder& holder) {
 
 // The rows above the points shared by Spline and Spline Mesh: whether the
 // spline closes, and how long it is.
-ui::Edit spline_rows(Spline<glm::vec3>& spline) {
-    ui::Edit edit;
-    ui::row("Closed", "Join the last point back to the first.", [&] {
+ftk::ui::Edit spline_rows(Spline<glm::vec3>& spline) {
+    ftk::ui::Edit edit;
+    ftk::ui::row("Closed", "Join the last point back to the first.", [&] {
         bool closed = spline.closed;
-        const ui::Edit e = ui::checkbox("##closed", closed);
+        const ftk::ui::Edit e = ftk::ui::checkbox("##closed", closed);
         if (e.changed) spline.closed = closed;
         edit |= e;
     });
-    ui::row("Length", [&] {
+    ftk::ui::row("Length", [&] {
         char text[32];
         std::snprintf(text, sizeof(text), "%.2f m", spline.total_length());
-        ui::readout(text);
+        ftk::ui::readout(text);
     });
     return edit;
 }
@@ -95,32 +95,32 @@ ui::Edit spline_rows(Spline<glm::vec3>& spline) {
 // with its key, mode, position and, for a user curve, its tangents. The
 // selected point is the one the viewport's gizmo moves. Points stay in key
 // order, so the list is not reordered by dragging.
-ui::Edit spline_points(Spline<glm::vec3>& spline, int& selected) {
-    ui::Edit edit;
+ftk::ui::Edit spline_points(Spline<glm::vec3>& spline, int& selected) {
+    ftk::ui::Edit edit;
     auto& points = spline.points;
     std::optional<std::size_t> remove;
     std::optional<int> select;
-    ui::subheading("Points");
+    ftk::ui::subheading("Points");
     {
-        ui::ListEditor list("##points", points.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
+        ftk::ui::ListEditor list("##points", points.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
         for (std::size_t i = 0; i < points.size(); ++i) {
             const bool open = selected == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;
             auto& p = points[i];
             if (open) {
-                if (auto t = ui::PropertyTable("##point")) {
-                    ui::row("Key", [&] { edit |= ui::drag("##key", p.input_key, {.speed = 0.05f}); });
-                    ui::row("Mode", [&] { edit |= ui::choice("##mode", p.interp_mode, MODES); });
-                    ui::row("Position", [&] {
-                        edit |= ui::vec3("##position", p.value, {.speed = 0.05f, .unit = ui::Unit::Metres});
+                if (auto t = ftk::ui::PropertyTable("##point")) {
+                    ftk::ui::row("Key", [&] { edit |= ftk::ui::drag("##key", p.input_key, {.speed = 0.05f}); });
+                    ftk::ui::row("Mode", [&] { edit |= ftk::ui::choice("##mode", p.interp_mode, MODES); });
+                    ftk::ui::row("Position", [&] {
+                        edit |= ftk::ui::vec3("##position", p.value, {.speed = 0.05f, .unit = ftk::ui::Unit::Metres});
                     });
                     const bool user = p.interp_mode == SplineInterp::CurveUser;
                     if (user || p.interp_mode == SplineInterp::CurveBreak) {
-                        ui::row("Tangent in", [&] {
-                            edit |= ui::vec3("##arrive", p.arrive_tangent, {.speed = 0.05f});
+                        ftk::ui::row("Tangent in", [&] {
+                            edit |= ftk::ui::vec3("##arrive", p.arrive_tangent, {.speed = 0.05f});
                         });
-                        ui::row("Tangent out", [&] {
-                            edit |= ui::vec3("##leave", p.leave_tangent, {.speed = 0.05f});
+                        ftk::ui::row("Tangent out", [&] {
+                            edit |= ftk::ui::vec3("##leave", p.leave_tangent, {.speed = 0.05f});
                         });
                         // A user curve is symmetric: the leaving tangent
                         // follows the arriving one whichever is edited.
@@ -224,10 +224,10 @@ struct Placement {
 
 } // namespace
 
-ui::Edit draw_spline(Node3D& /*node*/, void* component, const InspectorContext& /*ctx*/) {
+ftk::ui::Edit draw_spline(Node3D& /*node*/, void* component, const InspectorContext& /*ctx*/) {
     auto& sp = *static_cast<SplineComponent*>(component);
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##spline")) {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##spline")) {
         edit |= spline_rows(sp.spline);
     }
     edit |= spline_points(sp.spline, sp.editor_selected_point);
@@ -235,12 +235,12 @@ ui::Edit draw_spline(Node3D& /*node*/, void* component, const InspectorContext& 
     return edit;
 }
 
-ui::Edit draw_spline_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_spline_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
     auto& sm = *static_cast<SplineMeshComponent*>(component);
     static const std::string model_exts[] = {".fjmesh"};
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##spline_mesh")) {
-        ui::row("Model", "Laid along the spline, one copy per segment. Empty uses a cube.", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##spline_mesh")) {
+        ftk::ui::row("Model", "Laid along the spline, one copy per segment. Empty uses a cube.", [&] {
             // A primitive isn't an asset: shown as an empty slot.
             std::string model = node.source.starts_with("primitive:") ? std::string{} : node.source;
             if (asset_slot({.label = "Model", .id = "##model", .extensions = model_exts, .ctx = &ctx}, model)) {
@@ -257,10 +257,10 @@ ui::Edit draw_spline_mesh(Node3D& node, void* component, const InspectorContext&
             }
             edit = {true, true};
         }
-        ui::row("Forward axis", "Which of the model's axes runs along the spline.",
-                [&] { edit |= ui::choice("##forward", sm.forward, FORWARDS); });
-        ui::row("Up", "The direction the model keeps up as the spline turns, in the node's space.", [&] {
-            edit |= ui::vec3("##up", sm.up_dir, {.speed = 0.05f});
+        ftk::ui::row("Forward axis", "Which of the model's axes runs along the spline.",
+                [&] { edit |= ftk::ui::choice("##forward", sm.forward, FORWARDS); });
+        ftk::ui::row("Up", "The direction the model keeps up as the spline turns, in the node's space.", [&] {
+            edit |= ftk::ui::vec3("##up", sm.up_dir, {.speed = 0.05f});
         });
         edit |= spline_rows(sm.spline);
     }
@@ -269,12 +269,12 @@ ui::Edit draw_spline_mesh(Node3D& node, void* component, const InspectorContext&
     return edit;
 }
 
-ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
+ftk::ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorContext& ctx) {
     auto& inst = *static_cast<InstancedMeshComponent*>(component);
     static const std::string model_exts[] = {".fjmesh"};
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##instanced_mesh")) {
-        ui::row("Model", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##instanced_mesh")) {
+        ftk::ui::row("Model", [&] {
             std::string model = node.source;
             if (asset_slot({.label = "Model", .id = "##model", .extensions = model_exts, .ctx = &ctx}, model)) {
                 if (!model.empty() && ctx.resource_manager != nullptr) {
@@ -296,35 +296,35 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
     }
 
     Scatter& s = scatter_for(node.id);
-    ui::subheading("Scatter");
-    if (auto t = ui::PropertyTable("##scatter")) {
-        ui::row("Count", [&] { (void)ui::drag_int("##count", s.count, 1.0f, 1, 100000); });
-        ui::row("Area from", [&] {
-            (void)ui::vec3("##area_min", s.area_min, {.speed = 0.1f, .unit = ui::Unit::Metres});
+    ftk::ui::subheading("Scatter");
+    if (auto t = ftk::ui::PropertyTable("##scatter")) {
+        ftk::ui::row("Count", [&] { (void)ftk::ui::drag_int("##count", s.count, 1.0f, 1, 100000); });
+        ftk::ui::row("Area from", [&] {
+            (void)ftk::ui::vec3("##area_min", s.area_min, {.speed = 0.1f, .unit = ftk::ui::Unit::Metres});
         });
-        ui::row("Area to", [&] {
-            (void)ui::vec3("##area_max", s.area_max, {.speed = 0.1f, .unit = ui::Unit::Metres});
+        ftk::ui::row("Area to", [&] {
+            (void)ftk::ui::vec3("##area_max", s.area_max, {.speed = 0.1f, .unit = ftk::ui::Unit::Metres});
         });
-        ui::row("Scale from", [&] {
-            (void)ui::drag("##scale_min", s.scale_min, {.speed = 0.01f, .min = 0.01f, .max = 100.0f});
+        ftk::ui::row("Scale from", [&] {
+            (void)ftk::ui::drag("##scale_min", s.scale_min, {.speed = 0.01f, .min = 0.01f, .max = 100.0f});
         });
-        ui::row("Scale to", [&] {
-            (void)ui::drag("##scale_max", s.scale_max, {.speed = 0.01f, .min = 0.01f, .max = 100.0f});
+        ftk::ui::row("Scale to", [&] {
+            (void)ftk::ui::drag("##scale_max", s.scale_max, {.speed = 0.01f, .min = 0.01f, .max = 100.0f});
         });
-        ui::row("Turn", "How far each instance may be turned about its up axis, either way.", [&] {
-            (void)ui::slider("##jitter", s.rotation_jitter, 0.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+        ftk::ui::row("Turn", "How far each instance may be turned about its up axis, either way.", [&] {
+            (void)ftk::ui::slider("##jitter", s.rotation_jitter, 0.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
         });
-        ui::row("On the ground", "Place every instance at height 0 instead of anywhere in the area's height.",
-                [&] { (void)ui::checkbox("##ground", s.on_ground); });
-        ui::row("Seed", "The same seed scatters the same way.", [&] { (void)ui::drag_int("##seed", s.seed, 1.0f); });
-        ui::row("", [&] {
-            if (ui::action(ui::icon::vfx, "Scatter")) {
+        ftk::ui::row("On the ground", "Place every instance at height 0 instead of anywhere in the area's height.",
+                [&] { (void)ftk::ui::checkbox("##ground", s.on_ground); });
+        ftk::ui::row("Seed", "The same seed scatters the same way.", [&] { (void)ftk::ui::drag_int("##seed", s.seed, 1.0f); });
+        ftk::ui::row("", [&] {
+            if (ftk::ui::action(ftk::ui::icon::vfx, "Scatter")) {
                 scatter(inst, s, false);
                 edit = {true, true};
             }
             ImGui::SetItemTooltip("Replace every instance with a new scatter");
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (ui::action(ui::icon::add, "Scatter more")) {
+            if (ftk::ui::action(ftk::ui::icon::add, "Scatter more")) {
                 scatter(inst, s, true);
                 edit = {true, true};
             }
@@ -334,29 +334,29 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
 
     char heading[48];
     std::snprintf(heading, sizeof(heading), "Instances · %zu", inst.instances.size());
-    ui::subheading(heading);
+    ftk::ui::subheading(heading);
     // Which instance is open: inspector state, one per list.
     int& open_instance = *ImGui::GetStateStorage()->GetIntRef(ImGui::GetID("##open_instance"), -1);
     std::optional<std::size_t> remove;
     std::optional<int> select;
     {
-        ui::ListEditor list("##instances", inst.instances.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
+        ftk::ui::ListEditor list("##instances", inst.instances.size(), {.reorder = false, .max_cards = MAX_CARDS, .opens = true});
         for (std::size_t i = 0; i < inst.instances.size(); ++i) {
             const bool open = open_instance == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;
             Placement p(inst.instances[i]);
             if (open) {
-                ui::Edit e;
-                if (auto t = ui::PropertyTable("##instance")) {
-                    ui::row("Position", [&] {
-                        e |= ui::vec3("##position", p.position, {.speed = 0.05f, .unit = ui::Unit::Metres});
+                ftk::ui::Edit e;
+                if (auto t = ftk::ui::PropertyTable("##instance")) {
+                    ftk::ui::row("Position", [&] {
+                        e |= ftk::ui::vec3("##position", p.position, {.speed = 0.05f, .unit = ftk::ui::Unit::Metres});
                     });
-                    ui::row("Turn", [&] {
-                        e |= ui::drag("##yaw", p.yaw, {.speed = 0.5f, .min = -360.0f, .max = 360.0f,
-                                                       .unit = ui::Unit::Degrees, .format = "%.1f"});
+                    ftk::ui::row("Turn", [&] {
+                        e |= ftk::ui::drag("##yaw", p.yaw, {.speed = 0.5f, .min = -360.0f, .max = 360.0f,
+                                                       .unit = ftk::ui::Unit::Degrees, .format = "%.1f"});
                     });
-                    ui::row("Scale", [&] {
-                        e |= ui::vec3("##scale", p.scale, {.speed = 0.01f, .min = 0.001f, .max = 1000.0f});
+                    ftk::ui::row("Scale", [&] {
+                        e |= ftk::ui::vec3("##scale", p.scale, {.speed = 0.01f, .min = 0.001f, .max = 1000.0f});
                     });
                 }
                 if (e.changed) {
@@ -384,7 +384,7 @@ ui::Edit draw_instanced_mesh(Node3D& node, void* component, const InspectorConte
         }
         if (!inst.instances.empty()) {
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (ui::action(ui::icon::remove, "Clear instances", ui::ButtonKind::GhostDanger)) {
+            if (ftk::ui::action(ftk::ui::icon::remove, "Clear instances", ftk::ui::ButtonKind::GhostDanger)) {
                 inst.instances.clear();
                 inst.dirty = true;
                 open_instance = -1;

@@ -117,7 +117,7 @@ void EnvironmentSubsystem::bind_day_profile(WorldEnvironmentNode& env, ResourceM
 
     auto handle = resources->load_day_profile(env.day_profile);
     if (!handle) {
-        FJELL_CORE_ERROR("World environment: {}", handle.error());
+        FTK_CORE_ERROR("World environment: {}", handle.error());
         return;
     }
     env.day_profile_handle = *handle;
@@ -184,7 +184,7 @@ void bind_node_material(MaterialNode& node, std::string_view default_shader, Sha
             auto handle = resources->load_material_asset(
                 base_path::resolve_asset(node.material_path, project), project);
             if (!handle) {
-                FJELL_CORE_ERROR("{}: {}", what, handle.error());
+                FTK_CORE_ERROR("{}: {}", what, handle.error());
             } else {
                 Material* material = resources->get(*handle);
                 if (material != nullptr && material->shader_type() != type) {
@@ -192,7 +192,7 @@ void bind_node_material(MaterialNode& node, std::string_view default_shader, Sha
                     // shader, so the node draws the engine's default and says
                     // why once instead of failing to build a pipeline every
                     // frame.
-                    FJELL_CORE_ERROR("{}: '{}' is shader_type '{}', this node needs shader_type "
+                    FTK_CORE_ERROR("{}: '{}' is shader_type '{}', this node needs shader_type "
                                      "{}; drawing the default",
                                      what, node.material_path,
                                      shader_type_name(material->shader_type()),
@@ -203,7 +203,7 @@ void bind_node_material(MaterialNode& node, std::string_view default_shader, Sha
                     if (material != nullptr && light_unused && resources->pipeline_cache() != nullptr) {
                         const auto& meta = resources->pipeline_cache()->metadata(material->pipeline_id());
                         if (!meta.light_body.empty()) {
-                            FJELL_CORE_ERROR("{}: '{}' defines light(), which only the Volumetric "
+                            FTK_CORE_ERROR("{}: '{}' defines light(), which only the Volumetric "
                                              "Fog node's material runs; the volume's medium draws, "
                                              "its light() is ignored",
                                              what, node.material_path);
@@ -250,7 +250,7 @@ void EnvironmentSubsystem::bind_weather(const WorldEnvironmentNode& env, Resourc
 
     auto handle = resources->load_weather_asset(env.weather);
     if (!handle) {
-        FJELL_CORE_ERROR("World environment: {}", handle.error());
+        FTK_CORE_ERROR("World environment: {}", handle.error());
         return;
     }
     play_weather(*handle, env.weather_start_phase);
@@ -267,7 +267,7 @@ void EnvironmentSubsystem::bind_climate(const WorldEnvironmentNode& env, Resourc
 
     auto handle = resources->load_climate_asset(env.climate);
     if (!handle) {
-        FJELL_CORE_ERROR("World environment: {}", handle.error());
+        FTK_CORE_ERROR("World environment: {}", handle.error());
         return;
     }
     scene_weather_.director.set_climate(resources->get(*handle), state_.hour);
@@ -293,7 +293,7 @@ void EnvironmentSubsystem::play_directed(ResourceManager* resources) {
     const std::string& event = climate->states[static_cast<size_t>(roll.state_index)].event;
     auto handle = resources->load_weather_asset(event);
     if (!handle) {
-        FJELL_CORE_ERROR("Climate '{}': {}", climate->name, handle.error());
+        FTK_CORE_ERROR("Climate '{}': {}", climate->name, handle.error());
         return;
     }
     play_weather(*handle);
@@ -313,7 +313,7 @@ const DayProfileAsset* EnvironmentSubsystem::profile_for(const WeatherAsset& eve
     if (event.day_profile.empty() || resources_ == nullptr) return nullptr;
     auto handle = resources_->load_day_profile(event.day_profile);
     if (!handle) {
-        FJELL_CORE_ERROR("Weather '{}': {}", event.name, handle.error());
+        FTK_CORE_ERROR("Weather '{}': {}", event.name, handle.error());
         return nullptr;
     }
     return resources_->get(*handle);
@@ -448,7 +448,7 @@ void EnvironmentSubsystem::update_precipitation(const TickContext& ctx) {
                     load_vfx_effect(base_path::resolve_asset(wanted, ctx.project)));
                 resolve_vfx_textures(*effect, *resources_, ctx.project);
             } catch (const std::exception& e) {
-                FJELL_CORE_ERROR("Weather precipitation: {}", e.what());
+                FTK_CORE_ERROR("Weather precipitation: {}", e.what());
                 return;
             }
             auto node = std::make_unique<Node3D>();
@@ -605,7 +605,7 @@ void EnvironmentSubsystem::update_breathing(const TickContext& ctx) {
             auto effect = std::make_shared<VfxEffect>(load_vfx_effect(
                 base_path::resolve_shared(std::string(BREATH_EFFECT), ctx.project)));
             if (effect->emitters.empty()) {
-                FJELL_CORE_ERROR("Breath: '{}' holds no emitter", BREATH_EFFECT);
+                FTK_CORE_ERROR("Breath: '{}' holds no emitter", BREATH_EFFECT);
                 return;
             }
             resolve_vfx_textures(*effect, *resources_, ctx.project);

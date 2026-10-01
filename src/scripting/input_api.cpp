@@ -19,7 +19,7 @@ namespace {
 // goes away mid-play takes its own bindings with it.
 struct OwnedConnection {
     const void* owner;
-    fjell::Connection connection;
+    ftk::Connection connection;
 };
 std::vector<OwnedConnection> s_input_connections;
 
@@ -135,7 +135,7 @@ const char* step_action(uint32_t action_handle_id) {
         static bool reported = false;
         if (!reported) {
             reported = true;
-            FJELL_CORE_WARN("Step input read outside fixed_tick(): it is the input of one fixed "
+            FTK_CORE_WARN("Step input read outside fixed_tick(): it is the input of one fixed "
                             "step, and outside one there is none. Bind the action with "
                             "input::bind() to react to it every frame instead");
         }

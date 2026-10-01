@@ -9,12 +9,15 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class AssetThumbnailRenderer;
 class BindlessTextures;
 class Clock;
-class IconCache;
 class Input;
 class Material;
 class PipelineCache;
@@ -28,7 +31,7 @@ struct MaterialEditorDeps {
     Input* input;
     Clock* clock;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
     AssetThumbnailRenderer* asset_thumbnails;
 };
 
@@ -42,8 +45,8 @@ public:
     void draw_header_actions() override;
     [[nodiscard]] std::string asset_path() const override { return fjmat_path_; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     void init() override;
 

@@ -3,7 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 
 namespace {
 

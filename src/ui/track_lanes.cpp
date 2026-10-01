@@ -37,7 +37,7 @@ constexpr float KEY_RADIUS = 4.0f;
 constexpr float STOP_HALF = 5.0f;
 constexpr float TANGENT_LENGTH = 36.0f;
 
-inline constexpr ui::Choice<TrackMode> MODES[] = {
+inline constexpr ftk::ui::Choice<TrackMode> MODES[] = {
     {TrackMode::Override, "Override"},
     {TrackMode::Multiply, "Multiply"},
 };
@@ -45,7 +45,7 @@ inline constexpr ui::Choice<TrackMode> MODES[] = {
 ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
 
 ImVec4 to_screen_vec4(const glm::vec3& linear) {
-    const glm::vec3 srgb = glm::clamp(color_space::linear_to_srgb(linear), 0.0f, 1.0f);
+    const glm::vec3 srgb = glm::clamp(ftk::color_space::linear_to_srgb(linear), 0.0f, 1.0f);
     return {srgb.r, srgb.g, srgb.b, 1.0f};
 }
 
@@ -54,14 +54,14 @@ ImU32 to_screen_colour(const glm::vec3& linear) {
 }
 
 std::string hex_of(const glm::vec3& linear) {
-    const glm::vec3 srgb = glm::clamp(color_space::linear_to_srgb(linear), 0.0f, 1.0f);
+    const glm::vec3 srgb = glm::clamp(ftk::color_space::linear_to_srgb(linear), 0.0f, 1.0f);
     char buf[16];
     std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", static_cast<int>(srgb.r * 255.0f + 0.5f),
                   static_cast<int>(srgb.g * 255.0f + 0.5f), static_cast<int>(srgb.b * 255.0f + 0.5f));
     return buf;
 }
 
-float curve_value(const Curve& curve, float t, bool wrap) {
+float curve_value(const ftk::Curve& curve, float t, bool wrap) {
     return wrap ? evaluate_periodic(curve, t) : curve.evaluate(t);
 }
 
@@ -73,11 +73,11 @@ bool near(ImVec2 a, ImVec2 b, float radius) {
 
 // Keeps a curve's keys in time order after one moved and says where the
 // moved key went.
-int sort_keys(Curve& curve, int moved) {
+int sort_keys(ftk::Curve& curve, int moved) {
     if (moved < 0 || moved >= static_cast<int>(curve.keyframes.size())) return moved;
-    const CurveKeyframe key = curve.keyframes[static_cast<size_t>(moved)];
+    const ftk::CurveKeyframe key = curve.keyframes[static_cast<size_t>(moved)];
     std::stable_sort(curve.keyframes.begin(), curve.keyframes.end(),
-                     [](const CurveKeyframe& a, const CurveKeyframe& b) { return a.time < b.time; });
+                     [](const ftk::CurveKeyframe& a, const ftk::CurveKeyframe& b) { return a.time < b.time; });
     for (size_t i = 0; i < curve.keyframes.size(); ++i) {
         const auto& k = curve.keyframes[i];
         if (k.time == key.time && k.value == key.value) return static_cast<int>(i);
@@ -150,7 +150,7 @@ void TrackLanes::select(const std::string& name) {
 bool TrackLanes::draw(const char* title, TrackSet& set, float dt) {
     length_ = set.length > 0.0f ? set.length : 1.0f;
     bool changed = false;
-    if (auto panel = ui::Panel(ui::icon::play, title)) {
+    if (auto panel = ftk::ui::Panel(ftk::ui::icon::play, title)) {
         draw_transport();
         const float label_w = std::min(LABEL_W, ImGui::GetContentRegionAvail().x * 0.4f);
         // Add track sits in the label column, beside the ruler.
@@ -180,7 +180,7 @@ void TrackLanes::advance(float dt) {
 }
 
 void TrackLanes::draw_transport() {
-    if (ui::icon_button("##play", playing_ ? ui::icon::pause : ui::icon::play,
+    if (ftk::ui::icon_button("##play", playing_ ? ftk::ui::icon::pause : ftk::ui::icon::play,
                         playing_ ? "Pause" : "Play")) {
         playing_ = !playing_;
     }
@@ -192,14 +192,14 @@ void TrackLanes::draw_transport() {
     const float speed_w = 90.0f;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - speed_w, 0.0f));
     ImGui::SetNextItemWidth(speed_w);
-    (void)ui::drag("##speed", speed_, {.speed = 0.05f, .min = 0.05f, .max = 50.0f, .unit = ui::Unit::Times,
+    (void)ftk::ui::drag("##speed", speed_, {.speed = 0.05f, .min = 0.05f, .max = 50.0f, .unit = ftk::ui::Unit::Times,
                                        .format = "%.2f"});
     ImGui::SetItemTooltip("Playback speed: how much of the timeline passes each second");
 }
 
 bool TrackLanes::draw_add_menu(TrackSet& set) {
     bool changed = false;
-    if (ui::action(ui::icon::add, "Add track")) ImGui::OpenPopup("##add_track");
+    if (ftk::ui::action(ftk::ui::icon::add, "Add track")) ImGui::OpenPopup("##add_track");
     if (ImGui::BeginPopup("##add_track")) {
         // Missing presets under their groups, in the order they are offered.
         std::vector<std::string> groups;
@@ -208,11 +208,11 @@ bool TrackLanes::draw_add_menu(TrackSet& set) {
             if (std::find(groups.begin(), groups.end(), preset.group) == groups.end()) groups.push_back(preset.group);
         }
         for (const auto& group : groups) {
-            ui::menu_heading(group.c_str());
+            ftk::ui::menu_heading(group.c_str());
             for (const auto& preset : presets_) {
                 if (preset.group != group || set.has(preset.name)) continue;
                 const std::string label = placement(preset.name).label;
-                if (!ui::menu_item({.label = label.c_str()})) continue;
+                if (!ftk::ui::menu_item({.label = label.c_str()})) continue;
                 Track& added = set.add(preset.name, preset.kind, preset.mode);
                 const float mid = preset.range_min + (preset.range_max - preset.range_min) * 0.5f;
                 if (added.kind == TrackKind::Float) {
@@ -227,11 +227,11 @@ bool TrackLanes::draw_add_menu(TrackSet& set) {
         }
         if (!groups.empty()) ImGui::Separator();
         bool custom = false;
-        if (ui::menu_item({.icon = ui::icon::add, .label = "Custom number track\xe2\x80\xa6"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Custom number track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Float;
             custom = true;
         }
-        if (ui::menu_item({.icon = ui::icon::colour, .label = "Custom colour track\xe2\x80\xa6"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::colour, .label = "Custom colour track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Color;
             custom = true;
         }
@@ -240,19 +240,19 @@ bool TrackLanes::draw_add_menu(TrackSet& set) {
         // inside the menu it would be a different popup.
         if (custom) {
             custom_name_.clear();
-            ui::open_dialog("##custom_track");
+            ftk::ui::open_dialog("##custom_track");
         }
     }
     return changed;
 }
 
 bool TrackLanes::draw_custom_dialog(TrackSet& set) {
-    const auto answer = ui::prompt_dialog(
+    const auto answer = ftk::ui::prompt_dialog(
         "##custom_track",
         {.title = custom_kind_ == TrackKind::Float ? "New number track" : "New colour track",
          .hint = "What it drives, e.g. sky.haze_amount", .confirm = "Add track"},
         custom_name_);
-    if (answer != ui::DialogAnswer::Confirm) return false;
+    if (answer != ftk::ui::DialogAnswer::Confirm) return false;
     if (set.has(custom_name_)) {
         select(custom_name_);
         return false;
@@ -275,7 +275,7 @@ void TrackLanes::draw_ruler(const TrackSet& set, float label_w) {
     const float width = ImGui::GetContentRegionAvail().x;
     const Lanes lanes{origin.x + label_w, std::max(width - label_w, 1.0f)};
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled({lanes.x, origin.y}, {lanes.x + lanes.width, origin.y + h}, colour(theme::surface_sunken()),
+    dl->AddRectFilled({lanes.x, origin.y}, {lanes.x + lanes.width, origin.y + h}, colour(ftk::theme::surface_sunken()),
                       ImGui::GetStyle().FrameRounding, ImDrawFlags_RoundCornersTop);
 
     view_.place({lanes.x, origin.y}, {lanes.width, h});
@@ -293,13 +293,13 @@ void TrackLanes::draw_ruler(const TrackSet& set, float label_w) {
     dl->PushClipRect({lanes.x, origin.y}, {lanes.x + lanes.width, origin.y + h}, true);
     for (const auto& marker : markers_) {
         const float x = std::floor(view_.to_screen_x(marker.at / length_)) + 0.5f;
-        dl->AddLine({x, origin.y + h - 6.0f}, {x, origin.y + h}, colour(theme::grid_major()));
-        dl->AddText({x + 4.0f, origin.y + (h - ImGui::GetTextLineHeight()) * 0.5f}, colour(theme::text_disabled()),
+        dl->AddLine({x, origin.y + h - 6.0f}, {x, origin.y + h}, colour(ftk::theme::grid_major()));
+        dl->AddText({x + 4.0f, origin.y + (h - ImGui::GetTextLineHeight()) * 0.5f}, colour(ftk::theme::text_disabled()),
                     marker.label.c_str());
     }
     const float px = std::floor(view_.to_screen_x(time_ / length_)) + 0.5f;
-    dl->AddLine({px, origin.y}, {px, origin.y + h}, colour(theme::text()), 1.0f);
-    dl->AddTriangleFilled({px - 5.0f, origin.y}, {px + 5.0f, origin.y}, {px, origin.y + 6.0f}, colour(theme::text()));
+    dl->AddLine({px, origin.y}, {px, origin.y + h}, colour(ftk::theme::text()), 1.0f);
+    dl->AddTriangleFilled({px - 5.0f, origin.y}, {px + 5.0f, origin.y}, {px, origin.y + 6.0f}, colour(ftk::theme::text()));
     dl->PopClipRect();
     ImGui::SetCursorScreenPos({origin.x, origin.y + h});
     ImGui::Dummy({width, 0.0f});
@@ -334,7 +334,7 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
     std::vector<std::string> order;   // the tracks as Up and Down walk them
 
     if (set.tracks.empty()) {
-        ui::empty_state(ui::icon::add, "No tracks yet", "Add track keys a value over the timeline");
+        ftk::ui::empty_state(ftk::ui::icon::add, "No tracks yet", "Add track keys a value over the timeline");
     }
 
     size_t removed = set.tracks.size();
@@ -347,24 +347,24 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
         }
         const bool hot = ImGui::IsItemHovered();
         dl->AddRectFilled(row, {row.x + width, row.y + GROUP_ROW},
-                          colour(hot ? theme::surface_hover() : theme::surface_base()));
+                          colour(hot ? ftk::theme::surface_hover() : ftk::theme::surface_base()));
         dl->AddLine({row.x, row.y + GROUP_ROW - 0.5f}, {row.x + width, row.y + GROUP_ROW - 0.5f},
-                    colour(theme::border()));
+                    colour(ftk::theme::border()));
         const float text_y = row.y + (GROUP_ROW - ImGui::GetTextLineHeight()) * 0.5f;
-        dl->AddText({row.x + theme::GAP_M, text_y}, colour(theme::text_disabled()),
-                    folded ? ui::icon::fold_closed : ui::icon::fold_open);
+        dl->AddText({row.x + ftk::theme::GAP_M, text_y}, colour(ftk::theme::text_disabled()),
+                    folded ? ftk::ui::icon::fold_closed : ftk::ui::icon::fold_open);
         std::string heading = group;
         std::transform(heading.begin(), heading.end(), heading.begin(),
                        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        ImGui::PushFont(nullptr, theme::SMALL_TEXT);
+        ImGui::PushFont(nullptr, ftk::theme::SMALL_TEXT);
         const float small_y = row.y + (GROUP_ROW - ImGui::GetTextLineHeight()) * 0.5f;
-        dl->AddText({row.x + theme::GAP_M + 18.0f, small_y}, colour(theme::text_secondary()), heading.c_str());
+        dl->AddText({row.x + ftk::theme::GAP_M + 18.0f, small_y}, colour(ftk::theme::text_secondary()), heading.c_str());
         if (folded) {
             const float after = ImGui::CalcTextSize(heading.c_str()).x;
             const auto& in_group = members[group];
             char count[32];
             std::snprintf(count, sizeof(count), in_group.size() == 1 ? "%zu track" : "%zu tracks", in_group.size());
-            dl->AddText({row.x + theme::GAP_M + 18.0f + after + theme::GAP_M, small_y}, colour(theme::text_disabled()),
+            dl->AddText({row.x + ftk::theme::GAP_M + 18.0f + after + ftk::theme::GAP_M, small_y}, colour(ftk::theme::text_disabled()),
                         count);
         }
         ImGui::PopFont();
@@ -383,7 +383,7 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
                 } else {
                     changed |= draw_color_lane(track, set, lanes, y, height);
                 }
-                dl->AddLine({top.x, y + height - 0.5f}, {top.x + width, y + height - 0.5f}, colour(theme::border()));
+                dl->AddLine({top.x, y + height - 0.5f}, {top.x + width, y + height - 0.5f}, colour(ftk::theme::border()));
                 ImGui::SetCursorScreenPos({top.x, y + height});
                 ImGui::Dummy({width, 0.0f});
                 ImGui::PopID();
@@ -397,14 +397,14 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
     if (bottom > top.y) {
         dl->PushClipRect({lanes.x, top.y}, {lanes.x + lanes.width, bottom}, true);
         const float px = std::floor(view_.to_screen_x(time_ / length_)) + 0.5f;
-        dl->AddLine({px, top.y}, {px, bottom}, colour(theme::text()));
+        dl->AddLine({px, top.y}, {px, bottom}, colour(ftk::theme::text()));
         dl->PopClipRect();
     }
     // Over every lane, so the lanes drawn after the dragged one leave it be.
     if (!readout_.empty()) {
         const ImVec2 clip_min = ImGui::GetWindowPos();
         const ImVec2 clip_max{clip_min.x + ImGui::GetWindowSize().x, clip_min.y + ImGui::GetWindowSize().y};
-        ui::canvas_readout(dl, readout_at_, readout_.c_str(), {lanes.x, clip_min.y}, clip_max);
+        ftk::ui::canvas_readout(dl, readout_at_, readout_.c_str(), {lanes.x, clip_min.y}, clip_max);
     }
 
     if (removed < set.tracks.size()) {
@@ -427,17 +427,17 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
     }
     const bool hot = ImGui::IsItemHovered();
     if (ImGui::BeginPopupContextItem("##track_menu")) {
-        const bool remove = ui::menu_item({.icon = ui::icon::remove, .label = "Remove track", .destructive = true});
+        const bool remove = ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove track", .destructive = true});
         ImGui::EndPopup();
         if (remove) return true;
     }
     dl->AddRectFilled({x, y}, {x + label_w, y + height},
-                      colour(selected ? theme::surface_hover() : hot ? theme::surface_raised() : theme::surface_base()));
-    if (selected) dl->AddRectFilled({x, y}, {x + 2.0f, y + height}, colour(theme::accent()));
+                      colour(selected ? ftk::theme::surface_hover() : hot ? ftk::theme::surface_raised() : ftk::theme::surface_base()));
+    if (selected) dl->AddRectFilled({x, y}, {x + 2.0f, y + height}, colour(ftk::theme::accent()));
 
     const float line = ImGui::GetTextLineHeight();
     const float cy = y + std::min(height, THIN_LANE) * 0.5f;
-    float cursor = x + theme::GAP_M;
+    float cursor = x + ftk::theme::GAP_M;
     const float value_x = track.kind == TrackKind::Float
                               ? set.value_of(track.name, time_).value_or(0.0f)
                               : 0.0f;
@@ -445,12 +445,12 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
         const glm::vec3 now = set.color_of(track.name, time_).value_or(glm::vec3(0.0f));
         const float s = 14.0f;
         dl->AddRectFilled({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, to_screen_colour(now), 3.0f);
-        dl->AddRect({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, colour(theme::border()), 3.0f);
+        dl->AddRect({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, colour(ftk::theme::border()), 3.0f);
     } else {
-        dl->AddText({cursor, cy - line * 0.5f}, colour(theme::category(theme::Category::Environment)),
-                    ui::icon::curve);
+        dl->AddText({cursor, cy - line * 0.5f}, colour(ftk::theme::category(ftk::theme::Category::Environment)),
+                    ftk::ui::icon::curve);
     }
-    cursor += 14.0f + theme::GAP_M;
+    cursor += 14.0f + ftk::theme::GAP_M;
 
     // The value at the playhead, right-aligned in the mono face.
     char value[24];
@@ -460,25 +460,25 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
         std::snprintf(value, sizeof(value), "%s",
                       hex_of(set.color_of(track.name, time_).value_or(glm::vec3(0.0f))).c_str());
     }
-    ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
+    ImGui::PushFont(ftk::theme::mono_font(), ftk::theme::SMALL_TEXT);
     const ImVec2 value_size = ImGui::CalcTextSize(value);
-    const float value_left = x + label_w - theme::GAP_M - value_size.x;
-    dl->AddText({value_left, cy - value_size.y * 0.5f}, colour(theme::text_secondary()), value);
+    const float value_left = x + label_w - ftk::theme::GAP_M - value_size.x;
+    dl->AddText({value_left, cy - value_size.y * 0.5f}, colour(ftk::theme::text_secondary()), value);
     ImGui::PopFont();
 
     // A note (a fog track that reaches nothing) is a warning icon before the value.
-    float name_right = value_left - theme::GAP_M;
+    float name_right = value_left - ftk::theme::GAP_M;
     const std::string note = note_ ? note_(track.name) : std::string{};
     if (!note.empty()) {
-        const float icon_w = ImGui::CalcTextSize(ui::icon::warning).x;
+        const float icon_w = ImGui::CalcTextSize(ftk::ui::icon::warning).x;
         name_right -= icon_w;
-        dl->AddText({name_right, cy - line * 0.5f}, colour(theme::warning()), ui::icon::warning);
+        dl->AddText({name_right, cy - line * 0.5f}, colour(ftk::theme::warning()), ftk::ui::icon::warning);
         if (hot && ImGui::GetIO().MousePos.x >= name_right) ImGui::SetTooltip("%s", note.c_str());
-        name_right -= theme::GAP_S;
+        name_right -= ftk::theme::GAP_S;
     }
     const std::string name = placement(track.name).label;
     dl->PushClipRect({cursor, y}, {std::max(name_right, cursor), y + height}, true);
-    dl->AddText({cursor, cy - line * 0.5f}, colour(theme::text()), name.c_str());
+    dl->AddText({cursor, cy - line * 0.5f}, colour(ftk::theme::text()), name.c_str());
     dl->PopClipRect();
     if (hot && ImGui::GetIO().MousePos.x < name_right) {
         ImGui::SetTooltip("%s: %s, %s", track.name.c_str(), track.kind == TrackKind::Color ? "colour" : "number",
@@ -508,30 +508,30 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     auto& keys = track.curve.keyframes;
 
-    dl->AddRectFilled(min, max, colour(theme::surface_sunken()));
+    dl->AddRectFilled(min, max, colour(ftk::theme::surface_sunken()));
     dl->PushClipRect(min, max, true);
     if (tall) {
         for (const auto& marker : markers_) {
             const float x = std::floor(view_.to_screen_x(marker.at / length_)) + 0.5f;
-            dl->AddLine({x, min.y}, {x, max.y}, colour(theme::grid_major()));
+            dl->AddLine({x, min.y}, {x, max.y}, colour(ftk::theme::grid_major()));
         }
         for (int g = 1; g < 4; ++g) {
             const float gy = std::floor(y + pad + (height - 2.0f * pad) * static_cast<float>(g) / 4.0f) + 0.5f;
-            dl->AddLine({min.x, gy}, {max.x, gy}, colour(theme::grid_minor()));
+            dl->AddLine({min.x, gy}, {max.x, gy}, colour(ftk::theme::grid_minor()));
         }
         if (range.min < 0.0f && range.max > 0.0f) {
             const float zy = std::floor(to_y(0.0f)) + 0.5f;
-            dl->AddLine({min.x, zy}, {max.x, zy}, colour(theme::grid_zero()));
+            dl->AddLine({min.x, zy}, {max.x, zy}, colour(ftk::theme::grid_zero()));
         }
         char bound[24];
         std::snprintf(bound, sizeof(bound), "%.2f", range.max);
-        dl->AddText({min.x + 4.0f, min.y + 1.0f}, colour(theme::text_disabled()), bound);
+        dl->AddText({min.x + 4.0f, min.y + 1.0f}, colour(ftk::theme::text_disabled()), bound);
         std::snprintf(bound, sizeof(bound), "%.2f", range.min);
-        dl->AddText({min.x + 4.0f, max.y - ImGui::GetTextLineHeight() - 1.0f}, colour(theme::text_disabled()), bound);
+        dl->AddText({min.x + 4.0f, max.y - ImGui::GetTextLineHeight() - 1.0f}, colour(ftk::theme::text_disabled()), bound);
     }
 
     // The curve, one sample every two pixels.
-    const ImU32 line = colour(theme::category(theme::Category::Environment));
+    const ImU32 line = colour(ftk::theme::category(ftk::theme::Category::Environment));
     const int samples = std::max(8, static_cast<int>(lanes.width / 2.0f));
     ImVec2 prev{};
     for (int s = 0; s <= samples; ++s) {
@@ -549,8 +549,8 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     }
 
     // Keys and the selected key's tangents.
-    const auto key_pos = [&](const CurveKeyframe& k) { return ImVec2{view_.to_screen_x(k.time), to_y(k.value)}; };
-    const auto tangent_end = [&](const CurveKeyframe& k, float slope, float side) {
+    const auto key_pos = [&](const ftk::CurveKeyframe& k) { return ImVec2{view_.to_screen_x(k.time), to_y(k.value)}; };
+    const auto tangent_end = [&](const ftk::CurveKeyframe& k, float slope, float side) {
         // The slope is value per unit of normalised time; on screen it is
         // drawn at a fixed length along that direction.
         const float px_per_t = view_.scale_x();
@@ -566,17 +566,17 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
         const auto& k = keys[static_cast<size_t>(selected_key_)];
         for (const float side : {-1.0f, 1.0f}) {
             const ImVec2 end = tangent_end(k, side < 0.0f ? k.tangent_in : k.tangent_out, side);
-            dl->AddLine(key_pos(k), end, colour(theme::text_disabled()));
-            const bool near_end = hovered && near(mouse, end, ui::CANVAS_HIT_RADIUS);
-            dl->AddCircleFilled(end, 3.0f, colour(near_end ? theme::text() : theme::text_secondary()));
+            dl->AddLine(key_pos(k), end, colour(ftk::theme::text_disabled()));
+            const bool near_end = hovered && near(mouse, end, ftk::ui::CANVAS_HIT_RADIUS);
+            dl->AddCircleFilled(end, 3.0f, colour(near_end ? ftk::theme::text() : ftk::theme::text_secondary()));
             if (near_end) hot_tangent = side < 0.0f ? -1 : 1;
         }
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (hovered && hot_tangent == 0 && near(mouse, key_pos(keys[i]), ui::CANVAS_HIT_RADIUS)) hot_key = static_cast<int>(i);
+        if (hovered && hot_tangent == 0 && near(mouse, key_pos(keys[i]), ftk::ui::CANVAS_HIT_RADIUS)) hot_key = static_cast<int>(i);
     }
     for (size_t i = 0; i < keys.size(); ++i) {
-        ui::canvas_handle(dl, key_pos(keys[i]), static_cast<int>(i) == hot_key, static_cast<int>(i) == selected_key_,
+        ftk::ui::canvas_handle(dl, key_pos(keys[i]), static_cast<int>(i) == hot_key, static_cast<int>(i) == selected_key_,
                           {.radius = KEY_RADIUS});
     }
 
@@ -647,14 +647,14 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     }
     if (ImGui::BeginPopup("##key_menu")) {
         const bool on_key = ImGui::GetStateStorage()->GetBool(ImGui::GetID("##menu_on_key"));
-        if (!on_key && ui::menu_item({.icon = ui::icon::add, .label = "Add key here"})) {
+        if (!on_key && ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add key here"})) {
             const float t = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_t")), 0.0f, 1.0f);
             const float v = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_v")), range.min, range.max);
             keys.push_back({t, v, 0.0f, 0.0f});
             selected_key_ = sort_keys(track.curve, static_cast<int>(keys.size()) - 1);
             changed = true;
         }
-        if (on_key && ui::menu_item({.icon = ui::icon::remove, .label = "Remove key", .shortcut = "Del",
+        if (on_key && ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove key", .shortcut = "Del",
                                      .enabled = keys.size() > 1,
                                      .disabled_reason = "A track keeps at least one key",
                                      .destructive = true})) {
@@ -686,7 +686,7 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const bool selected = track.name == selected_;
 
-    dl->AddRectFilled(min, max, colour(theme::surface_sunken()));
+    dl->AddRectFilled(min, max, colour(ftk::theme::surface_sunken()));
     dl->PushClipRect(min, max, true);
     const int steps = std::max(8, static_cast<int>(lanes.width / 3.0f));
     for (int i = 0; i < steps; ++i) {
@@ -698,15 +698,15 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
 
     int hot_stop = -1;
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (hovered && near(mouse, {view_.to_screen_x(keys[i].time), mid}, ui::CANVAS_HIT_RADIUS)) {
+        if (hovered && near(mouse, {view_.to_screen_x(keys[i].time), mid}, ftk::ui::CANVAS_HIT_RADIUS)) {
             hot_stop = static_cast<int>(i);
         }
     }
     for (size_t i = 0; i < keys.size(); ++i) {
         const ImVec4 fill = to_screen_vec4(keys[i].color);
-        ui::canvas_handle(dl, {view_.to_screen_x(keys[i].time), mid}, static_cast<int>(i) == hot_stop,
+        ftk::ui::canvas_handle(dl, {view_.to_screen_x(keys[i].time), mid}, static_cast<int>(i) == hot_stop,
                           selected && static_cast<int>(i) == selected_key_,
-                          {.shape = ui::HandleShape::Diamond, .radius = STOP_HALF, .fill = &fill});
+                          {.shape = ftk::ui::HandleShape::Diamond, .radius = STOP_HALF, .fill = &fill});
     }
 
     if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !view_.panning()) {
@@ -749,14 +749,14 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
         ImGui::OpenPopup("##stop_menu");
     }
     if (ImGui::BeginPopup("##stop_menu")) {
-        if (selected_key_ < 0 && ui::menu_item({.icon = ui::icon::add, .label = "Add stop here"})) {
+        if (selected_key_ < 0 && ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add stop here"})) {
             const float t = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_t")), 0.0f, 1.0f);
             keys.push_back({t, track.gradient.evaluate(t, set.wrap)});
             selected_key_ = sort_stops(track.gradient, static_cast<int>(keys.size()) - 1);
             changed = true;
         }
         if (selected_key_ >= 0 &&
-            ui::menu_item({.icon = ui::icon::remove, .label = "Remove stop", .shortcut = "Del",
+            ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove stop", .shortcut = "Del",
                            .enabled = keys.size() > 1, .disabled_reason = "A track keeps at least one stop",
                            .destructive = true})) {
             keys.erase(keys.begin() + selected_key_);
@@ -769,7 +769,7 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
 }
 
 bool TrackLanes::handle_keys(TrackSet& set, const std::vector<std::string>& order) {
-    if (!ui::canvas_has_keys()) return false;
+    if (!ftk::ui::canvas_has_keys()) return false;
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) view_.frame({0.0f, 0.0f}, {1.0f, 0.0f});
     if (!order.empty() && (ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_UpArrow))) {
         auto it = std::find(order.begin(), order.end(), selected_);
@@ -804,30 +804,30 @@ bool TrackLanes::draw_selection(TrackSet& set) {
     if (track == nullptr) return false;
     bool changed = false;
     const std::string label = placement(track->name).label;
-    ui::section(label.c_str(), track->kind == TrackKind::Color ? ui::icon::colour : ui::icon::curve);
+    ftk::ui::section(label.c_str(), track->kind == TrackKind::Color ? ftk::ui::icon::colour : ftk::ui::icon::curve);
     if (note_) {
         const std::string note = note_(track->name);
-        if (!note.empty()) ui::status(ui::Severity::Warning, note.c_str());
+        if (!note.empty()) ftk::ui::status(ftk::ui::Severity::Warning, note.c_str());
     }
-    if (auto t = ui::PropertyTable("##track")) {
-        ui::row("Mode", "Override replaces the value underneath; Multiply scales it.", [&] {
-            changed |= ui::segmented("##mode", track->mode, MODES).changed;
+    if (auto t = ftk::ui::PropertyTable("##track")) {
+        ftk::ui::row("Mode", "Override replaces the value underneath; Multiply scales it.", [&] {
+            changed |= ftk::ui::segmented("##mode", track->mode, MODES).changed;
         });
         if (track->kind == TrackKind::Float) {
             Range& range = range_for(*track);
-            ui::row("Value range", "The values the lane is drawn over. Only the view; the track is not changed.", [&] {
+            ftk::ui::row("Value range", "The values the lane is drawn over. Only the view; the track is not changed.", [&] {
                 glm::vec2 r{range.min, range.max};
-                if (ui::vec2("##range", r, {.speed = 0.05f}).changed && r.y > r.x) {
+                if (ftk::ui::vec2("##range", r, {.speed = 0.05f}).changed && r.y > r.x) {
                     range = {r.x, r.y};
                 }
             });
             auto& keys = track->curve.keyframes;
             if (selected_key_ >= 0 && selected_key_ < static_cast<int>(keys.size())) {
                 auto& k = keys[static_cast<size_t>(selected_key_)];
-                ui::row("Key time", [&] {
+                ftk::ui::row("Key time", [&] {
                     float at = k.time * length_;
                     const std::string text = format(at);
-                    if (ui::slider_labelled("##key_time", at, 0.0f, length_, text.c_str()).changed) {
+                    if (ftk::ui::slider_labelled("##key_time", at, 0.0f, length_, text.c_str()).changed) {
                         k.time = std::clamp(at / length_, 0.0f, 1.0f);
                         selected_key_ = sort_keys(track->curve, selected_key_);
                         changed = true;
@@ -835,19 +835,19 @@ bool TrackLanes::draw_selection(TrackSet& set) {
                 });
                 if (selected_key_ >= 0 && selected_key_ < static_cast<int>(keys.size())) {
                     auto& kv = keys[static_cast<size_t>(selected_key_)];
-                    ui::row("Key value", [&] { changed |= ui::drag("##key_value", kv.value, {.speed = 0.01f}).changed; });
+                    ftk::ui::row("Key value", [&] { changed |= ftk::ui::drag("##key_value", kv.value, {.speed = 0.01f}).changed; });
                 }
             } else {
-                ui::hint("Double-click the lane to add a key; Del removes the selected one");
+                ftk::ui::hint("Double-click the lane to add a key; Del removes the selected one");
             }
         } else {
             auto& keys = track->gradient.keys;
             if (selected_key_ >= 0 && selected_key_ < static_cast<int>(keys.size())) {
                 auto& stop = keys[static_cast<size_t>(selected_key_)];
-                ui::row("Stop time", [&] {
+                ftk::ui::row("Stop time", [&] {
                     float at = stop.time * length_;
                     const std::string text = format(at);
-                    if (ui::slider_labelled("##stop_time", at, 0.0f, length_, text.c_str()).changed) {
+                    if (ftk::ui::slider_labelled("##stop_time", at, 0.0f, length_, text.c_str()).changed) {
                         stop.time = std::clamp(at / length_, 0.0f, 1.0f);
                         selected_key_ = sort_stops(track->gradient, selected_key_);
                         changed = true;
@@ -855,12 +855,12 @@ bool TrackLanes::draw_selection(TrackSet& set) {
                 });
                 if (selected_key_ >= 0 && selected_key_ < static_cast<int>(keys.size())) {
                     auto& sc = keys[static_cast<size_t>(selected_key_)];
-                    ui::row("Stop colour", [&] {
-                        changed |= ui::color("##stop_colour", sc.color, ui::ColorSpace::Linear).changed;
+                    ftk::ui::row("Stop colour", [&] {
+                        changed |= ftk::ui::color("##stop_colour", sc.color, ftk::ui::ColorSpace::Linear).changed;
                     });
                 }
             } else {
-                ui::hint("Double-click the lane to add a stop; Del removes the selected one");
+                ftk::ui::hint("Double-click the lane to add a stop; Del removes the selected one");
             }
         }
     }

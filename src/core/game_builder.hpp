@@ -10,7 +10,7 @@ class Project;
 
 class GameBuilder {
 public:
-    static Result<> build(const Project& project,
+    static ftk::Result<> build(const Project& project,
                           const std::filesystem::path& output_dir);
 };
 

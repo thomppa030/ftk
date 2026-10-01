@@ -14,7 +14,7 @@
 
 #include <optional>
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 /// The Vulkan format for `format`; `VK_FORMAT_UNDEFINED` for `Format::undefined`.
 [[nodiscard]] VkFormat to_vk(Format format);
@@ -103,4 +103,4 @@ namespace fjell::gpu::vulkan {
 /// leaves it in: read-only depth for a depth format, shader-read otherwise.
 [[nodiscard]] VkImageLayout sampled_layout(Format format);
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

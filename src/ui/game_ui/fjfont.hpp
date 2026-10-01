@@ -59,16 +59,16 @@ struct FjFontRecipe {
 /// and unparseable charset entries are dropped and reported in `warnings`
 /// as "<path>: <message>" so a linter can print them and the engine can log
 /// them; pass nullptr to ignore them.
-[[nodiscard]] Result<FjFontRecipe> load_font_recipe(const std::filesystem::path& path,
+[[nodiscard]] ftk::Result<FjFontRecipe> load_font_recipe(const std::filesystem::path& path,
                                                     std::vector<std::string>* warnings = nullptr);
 
 /// A recipe read back from its text, as font_recipe_text() writes it.
 /// `where` names it in errors and warnings (the file it came from).
-[[nodiscard]] Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
+[[nodiscard]] ftk::Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
                                                          std::vector<std::string>* warnings);
 
 /// Parses one charset entry: a named set or `U+XXXX` / `U+XXXX-YYYY`.
-[[nodiscard]] Result<CharsetRange> parse_charset_entry(std::string_view entry);
+[[nodiscard]] ftk::Result<CharsetRange> parse_charset_entry(std::string_view entry);
 
 /// A range as a recipe spells it: the named set it equals, else `U+XXXX`
 /// or `U+XXXX-YYYY`.
@@ -77,7 +77,7 @@ struct FjFontRecipe {
 /// Writes a recipe as the editor does: the known keys in a fixed order,
 /// ranges by their names where they have one. Fails when the file cannot
 /// be written.
-[[nodiscard]] Result<> save_font_recipe(const std::filesystem::path& path, const FjFontRecipe& recipe);
+[[nodiscard]] ftk::Result<> save_font_recipe(const std::filesystem::path& path, const FjFontRecipe& recipe);
 
 /// The text save_font_recipe() writes, without writing it.
 [[nodiscard]] std::string font_recipe_text(const FjFontRecipe& recipe);
@@ -112,7 +112,7 @@ static constexpr uint32_t FJFONT_BAKE_REVISION = 5;
 
 /// The same hash computed from the files on disk. Fails when either cannot
 /// be read.
-[[nodiscard]] Result<uint64_t> font_source_hash(const std::filesystem::path& recipe_path,
+[[nodiscard]] ftk::Result<uint64_t> font_source_hash(const std::filesystem::path& recipe_path,
                                                 const std::filesystem::path& source_path);
 
 // ── Baked atlas file ────────────────────────────────────────────────────
@@ -175,13 +175,13 @@ struct BakedFontAtlas {
 
 /// Writes the atlas, creating the directory. Section offsets in the header
 /// are filled in here; the caller sets everything else.
-[[nodiscard]] Result<> write_font_atlas(const std::filesystem::path& path, BakedFontAtlas& atlas);
+[[nodiscard]] ftk::Result<> write_font_atlas(const std::filesystem::path& path, BakedFontAtlas& atlas);
 
 /// Reads only the header, for freshness checks. Fails on a missing file,
 /// wrong magic or a version this reader does not know.
-[[nodiscard]] Result<FjFontAtlasHeader> read_font_atlas_header(const std::filesystem::path& path);
+[[nodiscard]] ftk::Result<FjFontAtlasHeader> read_font_atlas_header(const std::filesystem::path& path);
 
-[[nodiscard]] Result<BakedFontAtlas> read_font_atlas(const std::filesystem::path& path);
+[[nodiscard]] ftk::Result<BakedFontAtlas> read_font_atlas(const std::filesystem::path& path);
 
 /// True when the atlas at `cache_path` was built from the recipe and font
 /// as they are now: it is newer than both files and records `source_hash`.

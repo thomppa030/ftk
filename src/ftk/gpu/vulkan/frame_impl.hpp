@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// A list a frame handed out, with the recording state behind it.
 struct FrameList {
@@ -85,4 +85,4 @@ struct FrameSlot {
     Frame frame;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

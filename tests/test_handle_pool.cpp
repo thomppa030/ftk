@@ -6,7 +6,7 @@
 #include <set>
 #include <string>
 
-using namespace fjell;
+using namespace ftk;
 
 namespace {
 struct ItemTag;

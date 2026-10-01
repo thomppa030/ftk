@@ -100,23 +100,23 @@ static_assert(sizeof(WaterPushConstants) == 100, "push block layout must match t
 /// carries on over it with the same colour targets.
 class WaterPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// Declare reads of the simulated sea's textures, which every water set
     /// binds, for a pass that binds one: the draws, and the waterline in the
     /// fog medium. Absent when the graph has no water_fft pass.
-    static void declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
-                                         gpu::Access access);
+    static void declare_simulation_reads(ftk::PassBuilder& builder, const DeclareContext& ctx,
+                                         ftk::gpu::Access access);
     /// The same for a pass that places the surface and does nothing else
     /// with the sea: its displacement alone.
-    static void declare_displacement_read(PassBuilder& builder, const DeclareContext& ctx,
-                                          gpu::Access access);
+    static void declare_displacement_read(ftk::PassBuilder& builder, const DeclareContext& ctx,
+                                          ftk::gpu::Access access);
 
     /// Draw every water node's depth, and nothing else, into the water's
     /// depth attachment the seed filled, resolving it into the surface depth
@@ -157,7 +157,7 @@ public:
 private:
     /// A colour pipeline built from one water FJSL entry.
     struct MaterialPipeline {
-        gpu::Owned<gpu::GraphicsPipeline> pipeline;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline;
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
@@ -181,20 +181,20 @@ private:
     /// terrain's heights and how open the water is to the sea, either unset
     /// where it has none.
     struct Ground {
-        gpu::Texture bed;
-        gpu::Texture exposure;
+        ftk::gpu::Texture bed;
+        ftk::gpu::Texture exposure;
     };
     /// The water set for one draw or dispatch: `field` and `clipmap` and
     /// `wakes` copies made for it, `medium` the fog's volume or unset, and the
     /// ground under this water.
-    [[nodiscard]] std::vector<gpu::BindEntry> water_set(WaterSet use, gpu::BufferRange field,
-                                                        gpu::BufferRange clipmap, gpu::BufferRange wakes,
-                                                        gpu::Texture medium, Ground ground) const;
+    [[nodiscard]] std::vector<ftk::gpu::BindEntry> water_set(WaterSet use, ftk::gpu::BufferRange field,
+                                                        ftk::gpu::BufferRange clipmap, ftk::gpu::BufferRange wakes,
+                                                        ftk::gpu::Texture medium, Ground ground) const;
     /// The ground under `water` this frame.
     [[nodiscard]] Ground ground_of(const WaterComponent* water) const;
     /// `water`'s exposure on the GPU, uploaded when a new bake has arrived;
     /// unset if it could not be made.
-    [[nodiscard]] gpu::Texture exposure_texture(const WaterComponent* water,
+    [[nodiscard]] ftk::gpu::Texture exposure_texture(const WaterComponent* water,
                                                 const std::shared_ptr<const water::ShoreExposure>& exposure);
 
 public:
@@ -214,7 +214,7 @@ public:
     /// Recorded from the fog medium pass, outside any rendering scope, once
     /// the water's buffers for the frame are in place. Writes an empty mask
     /// when no surface is within reach of the camera.
-    void record_water_line(const FrameContext& ctx, gpu::Texture mask);
+    void record_water_line(const FrameContext& ctx, ftk::gpu::Texture mask);
 
     /// How close, in metres, a surface has to be to the camera for the
     /// waterline to be worked out. The near plane is centimetres; the slack
@@ -228,7 +228,7 @@ private:
 
     /// The waterline compute pipeline: the water set as the mesh stage has
     /// it, plus the mask it writes.
-    gpu::Owned<gpu::ComputePipeline> line_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> line_pipeline_;
 
     /// Bind, push and draw every water node with a usable material, with its
     /// material's colour pipeline, or with `depth_only` for all of them when
@@ -236,25 +236,25 @@ private:
     /// always cover the same nodes. `medium` is the fog's integrated volume
     /// when this run built one, for the nodes that name a medium. Inside a
     /// rendering scope.
-    void draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass, gpu::GraphicsPipeline depth_only,
-                    gpu::Texture medium);
+    void draw_nodes(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass, ftk::gpu::GraphicsPipeline depth_only,
+                    ftk::gpu::Texture medium);
 
     /// Build (or rebuild after a recompile) the colour pipeline for a water
     /// FJSL entry. Returns unset when the entry failed to compile or is not a
     /// water shader, in which case the fallback pipeline draws instead.
-    gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
+    ftk::gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
 
     /// The colour pipeline and material row a node draws with: its own
     /// material when that is a water shader that compiled, else the engine's
     /// water.fjsl at its defaults.
-    void resolve_node_material(const WaterComponent& comp, gpu::GraphicsPipeline& out_pipeline,
+    void resolve_node_material(const WaterComponent& comp, ftk::gpu::GraphicsPipeline& out_pipeline,
                                uint32_t& out_material_id);
 
     /// Register the engine's water.fjsl and give it a material row, so a node
     /// with no material of its own still draws.
     void ensure_fallback_material();
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     PassResources resources_{};
     /// Where the scene SDF sits, refreshed each frame through set_sdf_bounds().
     /// Equal min and max mean no SDF, which the shader reads as no geometry
@@ -263,7 +263,7 @@ private:
     glm::vec3 sdf_volume_max_{0.0F};
     /// The prepass pipeline: the same task and mesh stages, no fragment stage,
     /// no colour attachments.
-    gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> depth_pipeline_;
     /// The target the prepass drew into this frame, or null. The colour draw
     /// tests against that depth, and does not draw without it.
     const OffscreenPass* depth_drawn_for_{nullptr};
@@ -276,12 +276,12 @@ private:
     FogCore* fog_{nullptr};
     /// Bound in place of the fog's volume where there is none: one texel
     /// of air, which nothing samples while there is no medium.
-    gpu::Owned<gpu::Texture> no_medium_;
+    ftk::gpu::Owned<ftk::gpu::Texture> no_medium_;
     /// Bound in place of a terrain's heights where the water has no ground
     /// under it: one texel, which nothing reads while the field says so.
-    gpu::Owned<gpu::Texture> no_bed_;
+    ftk::gpu::Owned<ftk::gpu::Texture> no_bed_;
     /// The same for an exposure: one texel of open sea.
-    gpu::Owned<gpu::Texture> no_exposure_;
+    ftk::gpu::Owned<ftk::gpu::Texture> no_exposure_;
     /// Whether the scene currently holds a second, different simulated sea and
     /// that has been said, so it is said when it starts and not every frame.
     bool warned_second_sea_{false};
@@ -296,7 +296,7 @@ private:
     /// done, rather than written over under them.
     struct ExposureTexture {
         std::shared_ptr<const water::ShoreExposure> from;
-        gpu::Owned<gpu::Texture> texture;
+        ftk::gpu::Owned<ftk::gpu::Texture> texture;
     };
     std::unordered_map<const WaterComponent*, ExposureTexture> exposures_;
     /// The levels an infinite surface is drawn from, recentered on the camera
@@ -334,12 +334,12 @@ private:
 /// layouts and on to where their next readers want them.
 class WaterDepthSeedPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
     WaterPass* water_{nullptr};
@@ -349,12 +349,12 @@ private:
 /// attachment: the surface depth the fog volume and the colour draw read.
 class WaterDepthPrepass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
     WaterPass* water_{nullptr};

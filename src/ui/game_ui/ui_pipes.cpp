@@ -102,7 +102,7 @@ bool UiPipes::is_engine_pipe(std::string_view name) {
 void UiPipes::set_game_pipes(const ReflectedTypes* types) { game_ = types; }
 
 void UiPipes::report(const std::string& message) const {
-    if (reported_.insert(message).second) FJELL_CORE_WARN("Game UI: {}", message);
+    if (reported_.insert(message).second) FTK_CORE_WARN("Game UI: {}", message);
 }
 
 UiValue UiPipes::apply(const UiValue& value, const UiPipeCall& call) const {

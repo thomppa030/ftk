@@ -16,7 +16,7 @@
 
 namespace fjell {
 
-PipelineCache::PipelineCache(gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts)
+PipelineCache::PipelineCache(ftk::gpu::Device& gpu, const Targets& targets, const SharedLayouts& layouts)
     : gpu_{gpu}
     , targets_{targets}
     , layouts_{layouts}
@@ -28,7 +28,7 @@ PipelineCache::PipelineCache(gpu::Device& gpu, const Targets& targets, const Sha
     // Register standard.fjsl as pipeline ID 0
     register_shader("shaders/standard.fjsl");
 
-    FJELL_GFX_DEBUG("PipelineCache created with standard shader (ID 0)");
+    FTK_GFX_DEBUG("PipelineCache created with standard shader (ID 0)");
 }
 
 void PipelineCache::load_templates() {
@@ -74,12 +74,12 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
     entries_.push_back(std::move(entry));
 
     path_to_id_[fjsl_path] = id;
-    FJELL_GFX_INFO("Registered FJSL shader '{}' as pipeline ID {}", fjsl_path, id);
+    FTK_GFX_INFO("Registered FJSL shader '{}' as pipeline ID {}", fjsl_path, id);
     return id;
 }
 
 void PipelineCache::compile_entry(Entry& entry) {
-    FJELL_PROFILE_SCOPE_N("fjsl_compile_entry");
+    FTK_PROFILE_SCOPE_N("fjsl_compile_entry");
     // Build into a temporary entry — only commit on full success
     Entry next{};
 
@@ -132,7 +132,7 @@ void PipelineCache::compile_entry(Entry& entry) {
         // Generate vertex shaders to disk (fast, must happen before parallel compile)
         next.has_custom_vertex = !next.program.metadata.vertex_body.empty();
 
-        std::vector<ShaderCompiler::Job> jobs;
+        std::vector<ftk::ShaderCompiler::Job> jobs;
 
         // The main stage is always compiled: a fragment for every drawn type,
         // the fog pass's medium compute shader for a fog shader, which is
@@ -214,7 +214,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     } catch (const std::exception& e) {
         // Compilation failed — keep old pipelines, store error
         entry.compile_error = e.what();
-        FJELL_GFX_ERROR("Shader compile failed for '{}': {}", entry.program.path, entry.compile_error);
+        FTK_GFX_ERROR("Shader compile failed for '{}': {}", entry.program.path, entry.compile_error);
 
         return;
     }
@@ -248,7 +248,7 @@ void PipelineCache::compile_entry(Entry& entry) {
 namespace {
 
 // A built pipeline, or the reason the entry's compile fails.
-gpu::Owned<gpu::GraphicsPipeline> built(Result<gpu::Owned<gpu::GraphicsPipeline>> made,
+ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> built(ftk::Result<ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>> made,
                                         const std::string& what) {
     if (!made) throw std::runtime_error("Failed to create " + what + ": " + made.error());
     return std::move(*made);
@@ -256,7 +256,7 @@ gpu::Owned<gpu::GraphicsPipeline> built(Result<gpu::Owned<gpu::GraphicsPipeline>
 
 // Loaded SPIR-V, or the reason the entry's compile fails.
 std::vector<uint32_t> spirv_at(const std::string& path) {
-    auto words = gpu::read_spirv(path);
+    auto words = ftk::gpu::read_spirv(path);
     if (!words) throw std::runtime_error(words.error());
     return std::move(*words);
 }
@@ -270,33 +270,33 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
     // The material's own vertex stage when it has one; mesh.vert otherwise.
     std::vector<uint32_t> own_vertex;
-    gpu::ShaderCode vertex = "shaders/mesh.vert";
+    ftk::gpu::ShaderCode vertex = "shaders/mesh.vert";
     if (entry.has_custom_vertex && !entry.vert_spv.empty()) {
         own_vertex = spirv_at(entry.vert_spv);
         vertex = std::span<const uint32_t>(own_vertex);
     }
 
-    gpu::Raster raster{};
+    ftk::gpu::Raster raster{};
     if (rs.cull_disabled) {
-        raster.cull = gpu::Cull::none;
+        raster.cull = ftk::gpu::Cull::none;
     } else if (rs.cull_front) {
-        raster.cull = gpu::Cull::front;
+        raster.cull = ftk::gpu::Cull::front;
     } else {
-        raster.cull = gpu::Cull::back;
+        raster.cull = ftk::gpu::Cull::back;
     }
     // The meshlet culls drop back-facing meshlets unless a draw's data says
     // it keeps them, as it does for exactly the materials that cull no back
     // faces.
     // The colour pass tests against the prepass's depth and writes none.
-    const gpu::Depth depth{.test = !rs.depth_test_disabled, .write = false,
-                           .compare = gpu::Compare::less_equal};
+    const ftk::gpu::Depth depth{.test = !rs.depth_test_disabled, .write = false,
+                           .compare = ftk::gpu::Compare::less_equal};
 
     // The four targets the scene draws to: colour, then metallic/roughness,
     // normal and motion, of which an opaque surface writes two channels and
     // a blended one nothing.
-    constexpr gpu::ChannelMask TWO_CHANNELS = gpu::Channel::r | gpu::Channel::g;
-    const auto targets = [&](gpu::Blend color_blend, gpu::ChannelMask others) {
-        return std::vector<gpu::ColorTarget>{
+    constexpr ftk::gpu::ChannelMask TWO_CHANNELS = ftk::gpu::Channel::r | ftk::gpu::Channel::g;
+    const auto targets = [&](ftk::gpu::Blend color_blend, ftk::gpu::ChannelMask others) {
+        return std::vector<ftk::gpu::ColorTarget>{
             {.format = targets_.color, .blend = color_blend},
             {.format = targets_.mr, .write = others},
             {.format = targets_.normal, .write = others},
@@ -306,31 +306,31 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
     // A blended surface over the colour: by alpha, added by alpha, or
     // multiplied; the target's alpha keeps what is drawn or accumulates.
-    gpu::Blend blend{};
+    ftk::gpu::Blend blend{};
     switch (rs.blend) {
         case BlendMode::Add:
-            blend = {true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one, gpu::BlendFactor::one,
-                     gpu::BlendFactor::one};
+            blend = {true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one,
+                     ftk::gpu::BlendFactor::one};
             break;
         case BlendMode::Multiply:
-            blend = gpu::Blend::multiply;
+            blend = ftk::gpu::Blend::multiply;
             break;
         default: // Alpha
-            blend = {true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
-                     gpu::BlendFactor::one, gpu::BlendFactor::zero};
+            blend = {true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one_minus_src_alpha,
+                     ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::zero};
             break;
     }
-    const std::vector<gpu::SharedLayout> vertex_layouts{layouts_.globals, layouts_.bindless,
+    const std::vector<ftk::gpu::SharedLayout> vertex_layouts{layouts_.globals, layouts_.bindless,
                                                         layouts_.draw_data};
 
     // ── Transparent pipeline ──
-    entry.transparent = built(gpu_.create(gpu::GraphicsPipelineDesc{
+    entry.transparent = built(gpu_.create(ftk::gpu::GraphicsPipelineDesc{
                                   .vertex = vertex,
                                   .fragment = std::span<const uint32_t>(fragment),
                                   .vertex_layout = Vertex::layout(),
                                   .raster = raster,
                                   .depth = depth,
-                                  .color = targets(blend, gpu::ChannelMask{}),
+                                  .color = targets(blend, ftk::gpu::ChannelMask{}),
                                   .depth_format = targets_.depth,
                                   .samples = targets_.samples,
                                   .shared = vertex_layouts,
@@ -341,28 +341,28 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     // ── Skinned pipelines ──
     // Disable backface culling for skinned meshes — bone transforms at
     // joints can flip triangle winding, causing holes in the mesh.
-    gpu::Raster skinned_raster = raster;
-    skinned_raster.cull = gpu::Cull::none;
-    entry.skinned_opaque = built(gpu_.create(gpu::GraphicsPipelineDesc{
+    ftk::gpu::Raster skinned_raster = raster;
+    skinned_raster.cull = ftk::gpu::Cull::none;
+    entry.skinned_opaque = built(gpu_.create(ftk::gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_mesh.vert",
                                      .fragment = std::span<const uint32_t>(fragment),
                                      .vertex_layout = SkinnedVertex::layout(),
                                      .raster = skinned_raster,
                                      .depth = depth,
-                                     .color = targets(gpu::Blend::none, TWO_CHANNELS),
+                                     .color = targets(ftk::gpu::Blend::none, TWO_CHANNELS),
                                      .depth_format = targets_.depth,
                                      .samples = targets_.samples,
                                      .shared = vertex_layouts,
                                      .name = path,
                                  }),
                                  "skinned opaque pipeline for: " + path);
-    entry.skinned_transparent = built(gpu_.create(gpu::GraphicsPipelineDesc{
+    entry.skinned_transparent = built(gpu_.create(ftk::gpu::GraphicsPipelineDesc{
                                           .vertex = "shaders/skinned_mesh.vert",
                                           .fragment = std::span<const uint32_t>(fragment),
                                           .vertex_layout = SkinnedVertex::layout(),
                                           .raster = skinned_raster,
                                           .depth = depth,
-                                          .color = targets(blend, gpu::ChannelMask{}),
+                                          .color = targets(blend, ftk::gpu::ChannelMask{}),
                                           .depth_format = targets_.depth,
                                           .samples = targets_.samples,
                                           .shared = vertex_layouts,
@@ -373,18 +373,18 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
     if (layouts_.meshlets.valid()) {
         std::vector<uint32_t> own_mesh;
-        gpu::ShaderCode mesh = "shaders/mesh_gpu_driven.mesh";
+        ftk::gpu::ShaderCode mesh = "shaders/mesh_gpu_driven.mesh";
         if (entry.has_custom_vertex && !entry.mesh_spv.empty()) {
             own_mesh = spirv_at(entry.mesh_spv);
             mesh = std::span<const uint32_t>(own_mesh);
         }
-        entry.gpu_driven = built(gpu_.create(gpu::GraphicsPipelineDesc{
+        entry.gpu_driven = built(gpu_.create(ftk::gpu::GraphicsPipelineDesc{
                                      .task = "shaders/mesh_gpu_driven.task",
                                      .mesh = mesh,
                                      .fragment = std::span<const uint32_t>(fragment),
                                      .raster = raster,
                                      .depth = depth,
-                                     .color = targets(gpu::Blend::none, TWO_CHANNELS),
+                                     .color = targets(ftk::gpu::Blend::none, TWO_CHANNELS),
                                      .depth_format = targets_.depth,
                                      .samples = targets_.samples,
                                      .shared = {layouts_.globals, layouts_.bindless, layouts_.draw_data,
@@ -398,22 +398,22 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     // Back faces pushed out along their normals, blended over the colour,
     // no depth written.
     std::vector<uint32_t> own_outline;
-    gpu::ShaderCode outline_vertex = "shaders/outline.vert";
+    ftk::gpu::ShaderCode outline_vertex = "shaders/outline.vert";
     if (entry.has_custom_vertex && !entry.outline_vert_spv.empty()) {
         own_outline = spirv_at(entry.outline_vert_spv);
         outline_vertex = std::span<const uint32_t>(own_outline);
     }
-    gpu::Raster outline_raster = raster;
-    outline_raster.cull = gpu::Cull::front;
-    const gpu::Blend over{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
-                          gpu::BlendFactor::one, gpu::BlendFactor::zero};
-    entry.outline = built(gpu_.create(gpu::GraphicsPipelineDesc{
+    ftk::gpu::Raster outline_raster = raster;
+    outline_raster.cull = ftk::gpu::Cull::front;
+    const ftk::gpu::Blend over{true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one_minus_src_alpha,
+                          ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::zero};
+    entry.outline = built(gpu_.create(ftk::gpu::GraphicsPipelineDesc{
                               .vertex = outline_vertex,
                               .fragment = "shaders/outline.frag",
                               .vertex_layout = Vertex::layout(),
                               .raster = outline_raster,
                               .depth = depth,
-                              .color = targets(over, gpu::ChannelMask{}),
+                              .color = targets(over, ftk::gpu::ChannelMask{}),
                               .depth_format = targets_.depth,
                               .samples = targets_.samples,
                               .shared = vertex_layouts,
@@ -425,7 +425,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 void PipelineCache::reload(uint32_t id) {
     if (id >= entries_.size()) return;
     compile_entry(entries_[id]);
-    FJELL_GFX_INFO("Reloaded FJSL pipeline {}", id);
+    FTK_GFX_INFO("Reloaded FJSL pipeline {}", id);
 }
 
 uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_paths) {
@@ -447,7 +447,7 @@ uint32_t PipelineCache::reload_changed(const std::vector<std::string>& changed_p
 
     for (uint32_t id : to_reload) {
         compile_entry(entries_[id]);
-        FJELL_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].program.path);
+        FTK_GFX_INFO("Reloaded FJSL pipeline {} ('{}')", id, entries_[id].program.path);
     }
     return static_cast<uint32_t>(to_reload.size());
 }
@@ -463,42 +463,42 @@ void PipelineCache::recreate_all() {
         if (!entry.compile_error.empty()) failures++;
     }
     if (failures > 0) {
-        FJELL_GFX_WARN("Recreated FJSL pipelines: {}/{} failed", failures, entries_.size());
+        FTK_GFX_WARN("Recreated FJSL pipelines: {}/{} failed", failures, entries_.size());
     } else {
-        FJELL_GFX_INFO("Recreated all {} FJSL pipelines", entries_.size());
+        FTK_GFX_INFO("Recreated all {} FJSL pipelines", entries_.size());
     }
 }
 
-gpu::GraphicsPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
-    const gpu::GraphicsPipeline p = entries_[id].transparent;
-    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].transparent);
+ftk::gpu::GraphicsPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
+    const ftk::gpu::GraphicsPipeline p = entries_[id].transparent;
+    return p.valid() ? p : ftk::gpu::GraphicsPipeline(entries_[0].transparent);
 }
 
-gpu::GraphicsPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
-    const gpu::GraphicsPipeline p = entries_[id].gpu_driven;
-    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].gpu_driven);
+ftk::gpu::GraphicsPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
+    const ftk::gpu::GraphicsPipeline p = entries_[id].gpu_driven;
+    return p.valid() ? p : ftk::gpu::GraphicsPipeline(entries_[0].gpu_driven);
 }
 
-gpu::GraphicsPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
-    const gpu::GraphicsPipeline p = entries_[id].skinned_opaque;
-    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].skinned_opaque);
+ftk::gpu::GraphicsPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
+    const ftk::gpu::GraphicsPipeline p = entries_[id].skinned_opaque;
+    return p.valid() ? p : ftk::gpu::GraphicsPipeline(entries_[0].skinned_opaque);
 }
 
-gpu::GraphicsPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
-    const gpu::GraphicsPipeline p = entries_[id].skinned_transparent;
-    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].skinned_transparent);
+ftk::gpu::GraphicsPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
+    const ftk::gpu::GraphicsPipeline p = entries_[id].skinned_transparent;
+    return p.valid() ? p : ftk::gpu::GraphicsPipeline(entries_[0].skinned_transparent);
 }
 
-gpu::GraphicsPipeline PipelineCache::outline_pipeline(uint32_t id) const {
-    const gpu::GraphicsPipeline p = entries_[id].outline;
-    return p.valid() ? p : gpu::GraphicsPipeline(entries_[0].outline);
+ftk::gpu::GraphicsPipeline PipelineCache::outline_pipeline(uint32_t id) const {
+    const ftk::gpu::GraphicsPipeline p = entries_[id].outline;
+    return p.valid() ? p : ftk::gpu::GraphicsPipeline(entries_[0].outline);
 }
 
-gpu::Cull PipelineCache::cull(uint32_t id) const {
+ftk::gpu::Cull PipelineCache::cull(uint32_t id) const {
     const auto& rs = entries_[id].program.metadata.render_state;
-    if (rs.cull_disabled) return gpu::Cull::none;
-    if (rs.cull_front) return gpu::Cull::front;
-    return gpu::Cull::back;
+    if (rs.cull_disabled) return ftk::gpu::Cull::none;
+    if (rs.cull_front) return ftk::gpu::Cull::front;
+    return ftk::gpu::Cull::back;
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {

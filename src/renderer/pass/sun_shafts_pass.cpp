@@ -49,15 +49,15 @@ namespace {
 
 /// The march's output. Declared by the march that writes it and by the resolve
 /// that reads it, and the two descriptions have to be the same one.
-TextureDesc raw_desc() {
-    TextureDesc desc{};
+ftk::TextureDesc raw_desc() {
+    ftk::TextureDesc desc{};
     desc.format = SunShaftsPass::RAW_FORMAT;
-    desc.size_class = SizeClass::viewport;
+    desc.size_class = ftk::SizeClass::viewport;
     desc.viewport_divisor = SunShaftsPass::RESOLUTION_DIVISOR;
     return desc;
 }
 
-void dispatch(gpu::CommandList& cmd, glm::uvec2 extent) {
+void dispatch(ftk::gpu::CommandList& cmd, glm::uvec2 extent) {
     cmd.dispatch((extent.x + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE,
                  (extent.y + SunShaftsPass::TILE_SIZE - 1) / SunShaftsPass::TILE_SIZE, 1);
 }
@@ -71,7 +71,7 @@ glm::uvec2 size_of(const OffscreenPass& target) {
 
 // ── Images ─────────────────────────────────────────────────────────────────
 
-void SunShaftsPass::Images::create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+void SunShaftsPass::Images::create(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
     const uint32_t w = std::max(1U, screen_w / RESOLUTION_DIVISOR);
     const uint32_t h = std::max(1U, screen_h / RESOLUTION_DIVISOR);
 
@@ -81,15 +81,15 @@ void SunShaftsPass::Images::create(gpu::Device& gpu, uint32_t screen_w, uint32_t
     history_valid = false;
 
     for (auto& image : shafts) {
-        auto made = gpu.create(gpu::TextureDesc{
+        auto made = gpu.create(ftk::gpu::TextureDesc{
             .format = SHAFTS_FORMAT,
             .width = w,
             .height = h,
-            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
             .name = "sun_shafts",
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             destroy();
             return;
         }
@@ -103,7 +103,7 @@ void SunShaftsPass::Images::destroy() {
     history_valid = false;
 }
 
-void SunShaftsPass::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+void SunShaftsPass::Images::resize(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
     const uint32_t w = std::max(1U, screen_w / RESOLUTION_DIVISOR);
     const uint32_t h = std::max(1U, screen_h / RESOLUTION_DIVISOR);
     if (w == extent.x && h == extent.y) return;
@@ -113,26 +113,26 @@ void SunShaftsPass::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t
 
 // ── SunShaftsPass ──────────────────────────────────────────────────────────
 
-Result<> SunShaftsPass::create(const PassResources& resources) {
+ftk::Result<> SunShaftsPass::create(const PassResources& resources) {
     device_ = resources.device;
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::clamp});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::clamp});
     auto build = [&](const char* shader, const char* name) {
-        return device_->create(gpu::ComputePipelineDesc{
+        return device_->create(ftk::gpu::ComputePipelineDesc{
             .shader = shader,
             .shared = {resources.globals},
             .name = name,
         });
     };
-    FJELL_TRY(march_pipeline_, build("shaders/sun_shafts.comp", "sun_shafts"));
-    FJELL_TRY(resolve_pipeline_, build("shaders/sun_shafts_resolve.comp", "sun_shafts_resolve"));
-    FJELL_TRY(composite_pipeline_,
+    FTK_TRY(march_pipeline_, build("shaders/sun_shafts.comp", "sun_shafts"));
+    FTK_TRY(resolve_pipeline_, build("shaders/sun_shafts_resolve.comp", "sun_shafts_resolve"));
+    FTK_TRY(composite_pipeline_,
               build("shaders/sun_shafts_composite.comp", "sun_shafts_composite"));
 
     default_images_.create(*device_, 2, 2);
 
-    FJELL_GFX_DEBUG("Sun shafts pass created");
+    FTK_GFX_DEBUG("Sun shafts pass created");
     return {};
 }
 
@@ -198,33 +198,33 @@ SunShaftsPass::RayPush SunShaftsPass::ray_push(const Images& imgs, glm::uvec2 vi
     return {.output_size = imgs.extent, .full_size = viewport, .max_reach = max_reach_};
 }
 
-void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SunShaftsPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled_) { return; }
 
     auto depth = builder.import_named(ctx, DEPTH_NAME);
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
     // The march samples the cascades every step, so the shadow pass has to
     // finish first. Declared rather than left to the producer's inline
     // finalize barrier, which is the edge the DAG could not otherwise see.
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, gpu::Access::sampled_compute);
+        builder.read(atlas, ftk::gpu::Access::sampled_compute);
     }
     // Clouds shade the shafts too.
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
-        builder.read(clouds, gpu::Access::sampled_compute);
+        builder.read(clouds, ftk::gpu::Access::sampled_compute);
     }
 
     auto raw = builder.create(RAW_NAME, raw_desc());
-    builder.write(raw, gpu::Access::storage_write_compute);
+    builder.write(raw, ftk::gpu::Access::storage_write_compute);
 }
 
 void SunShaftsPass::record(const FrameContext& ctx) {
     if (!enabled_ || ctx.target == nullptr) return;
-    const gpu::Texture raw = ctx.texture(RAW_NAME);
-    const gpu::Texture surface_depth = ctx.texture(DEPTH_NAME);
+    const ftk::gpu::Texture raw = ctx.texture(RAW_NAME);
+    const ftk::gpu::Texture surface_depth = ctx.texture(DEPTH_NAME);
     if (!raw.valid() || !surface_depth.valid()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_sun_shafts");
+    FTK_PROFILE_SCOPE_N("record_sun_shafts");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Sun Shafts");
 
@@ -266,15 +266,15 @@ void SunShaftsPass::record(const FrameContext& ctx) {
 
     cmd.set_pipeline(march_pipeline_);
     cmd.bind(ctx.globals);
-    cmd.bind({{"shafts_raw", gpu::storage(raw)},
-              {"depth_texture", gpu::sampled(surface_depth, sampler_)}});
+    cmd.bind({{"shafts_raw", ftk::gpu::storage(raw)},
+              {"depth_texture", ftk::gpu::sampled(surface_depth, sampler_)}});
     cmd.push(push);
     dispatch(cmd, imgs.extent);
 }
 
 // ── SunShaftsResolvePass ───────────────────────────────────────────────────
 
-Result<> SunShaftsResolvePass::create(const PassResources& /*resources*/) {
+ftk::Result<> SunShaftsResolvePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -292,7 +292,7 @@ PassSetup SunShaftsResolvePass::setup() const {
     };
 }
 
-void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SunShaftsResolvePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto raw = builder.create(SunShaftsPass::RAW_NAME, raw_desc());
@@ -301,32 +301,32 @@ void SunShaftsResolvePass::declare(PassBuilder& builder, const DeclareContext& c
     auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     // The resolved velocity: under MSAA the multisampled one cannot be sampled.
     auto velocity = builder.import_named(ctx, "velocity");
-    builder.read(raw, gpu::Access::sampled_compute);
-    builder.read(prev, gpu::Access::sampled_compute);
-    builder.read(depth, gpu::Access::sampled_compute);
-    builder.read(velocity, gpu::Access::sampled_compute);
-    builder.write(cur, gpu::Access::storage_write_compute);
+    builder.read(raw, ftk::gpu::Access::sampled_compute);
+    builder.read(prev, ftk::gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
+    builder.read(velocity, ftk::gpu::Access::sampled_compute);
+    builder.write(cur, ftk::gpu::Access::storage_write_compute);
 }
 
 void SunShaftsResolvePass::record(const FrameContext& ctx) {
     if (core_ == nullptr || !core_->enabled() || ctx.target == nullptr) { return; }
-    const gpu::Texture raw = ctx.texture(SunShaftsPass::RAW_NAME);
-    const gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
+    const ftk::gpu::Texture raw = ctx.texture(SunShaftsPass::RAW_NAME);
+    const ftk::gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
     if (!raw.valid() || !surface_depth.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_sun_shafts_resolve");
+    FTK_PROFILE_SCOPE_N("record_sun_shafts_resolve");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Sun Shafts Resolve");
 
     auto& imgs = core_->images();
-    const gpu::Sampler sampler = core_->sampler();
+    const ftk::gpu::Sampler sampler = core_->sampler();
     cmd.set_pipeline(core_->resolve_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"shafts_out", gpu::storage(imgs.shafts[imgs.cur_index()])},
-              {"shafts_raw", gpu::sampled(raw, sampler)},
-              {"shafts_history", gpu::sampled(imgs.shafts[imgs.prev_index()], sampler)},
-              {"depth_texture", gpu::sampled(surface_depth, sampler)},
-              {"velocity_texture", gpu::sampled(ctx.target->velocity_texture(), sampler)}});
+    cmd.bind({{"shafts_out", ftk::gpu::storage(imgs.shafts[imgs.cur_index()])},
+              {"shafts_raw", ftk::gpu::sampled(raw, sampler)},
+              {"shafts_history", ftk::gpu::sampled(imgs.shafts[imgs.prev_index()], sampler)},
+              {"depth_texture", ftk::gpu::sampled(surface_depth, sampler)},
+              {"velocity_texture", ftk::gpu::sampled(ctx.target->velocity_texture(), sampler)}});
     cmd.push(ShaftsResolvePush{
         .ray = core_->ray_push(imgs, size_of(*ctx.target)),
         .history_valid = imgs.history_valid ? 1U : 0U,
@@ -336,7 +336,7 @@ void SunShaftsResolvePass::record(const FrameContext& ctx) {
 
 // ── SunShaftsCompositePass ─────────────────────────────────────────────────
 
-Result<> SunShaftsCompositePass::create(const PassResources& /*resources*/) {
+ftk::Result<> SunShaftsCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -354,34 +354,34 @@ PassSetup SunShaftsCompositePass::setup() const {
     };
 }
 
-void SunShaftsCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SunShaftsCompositePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto shafts = builder.import_named(ctx, SunShaftsPass::HISTORY_CUR_NAME);
     auto depth = builder.import_named(ctx, SunShaftsPass::DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
-    builder.read(shafts, gpu::Access::sampled_compute);
-    builder.read(depth, gpu::Access::sampled_compute);
-    builder.read_write(color, gpu::Access::storage_read_write_compute);
+    builder.read(shafts, ftk::gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
+    builder.read_write(color, ftk::gpu::Access::storage_read_write_compute);
 }
 
 void SunShaftsCompositePass::record(const FrameContext& ctx) {
     if (core_ == nullptr || !core_->enabled() || ctx.target == nullptr) { return; }
-    const gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
+    const ftk::gpu::Texture surface_depth = ctx.texture(SunShaftsPass::DEPTH_NAME);
     if (!surface_depth.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_sun_shafts_composite");
+    FTK_PROFILE_SCOPE_N("record_sun_shafts_composite");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Sun Shafts Composite");
 
     auto& imgs = core_->images();
     const glm::uvec2 extent = size_of(*ctx.target);
-    const gpu::Sampler sampler = core_->sampler();
+    const ftk::gpu::Sampler sampler = core_->sampler();
     cmd.set_pipeline(core_->composite_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"shafts_tex", gpu::sampled(imgs.shafts[imgs.cur_index()], sampler)},
-              {"depth_texture", gpu::sampled(surface_depth, sampler)},
-              {"scene_color", gpu::storage(ctx.target->color_texture())}});
+    cmd.bind({{"shafts_tex", ftk::gpu::sampled(imgs.shafts[imgs.cur_index()], sampler)},
+              {"depth_texture", ftk::gpu::sampled(surface_depth, sampler)},
+              {"scene_color", ftk::gpu::storage(ctx.target->color_texture())}});
     cmd.push(ShaftsCompositePush{
         .viewport_size = extent,
         .shafts_size = imgs.extent,

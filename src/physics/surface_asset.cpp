@@ -7,17 +7,17 @@
 
 namespace fjell {
 
-Result<SurfaceAsset> load_surface_asset_file(const std::string& path) {
+ftk::Result<SurfaceAsset> load_surface_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjsurface file: " + path);
+        return ftk::make_error("Failed to open .fjsurface file: " + path);
     }
 
     nlohmann::json j;
     try {
         f >> j;
     } catch (const std::exception& e) {
-        return make_error("Malformed .fjsurface file " + path + ": " + e.what());
+        return ftk::make_error("Malformed .fjsurface file " + path + ": " + e.what());
     }
 
     SurfaceAsset asset;
@@ -28,13 +28,13 @@ Result<SurfaceAsset> load_surface_asset_file(const std::string& path) {
     return asset;
 }
 
-Result<> save_surface_asset_file(const std::string& path, const SurfaceAsset& asset) {
+ftk::Result<> save_surface_asset_file(const std::string& path, const SurfaceAsset& asset) {
     nlohmann::json j;
     j["name"] = asset.name;
 
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjsurface file: " + path);
+        return ftk::make_error("Failed to write .fjsurface file: " + path);
     }
     f << j.dump(4) << "\n";
     return {};

@@ -8,7 +8,7 @@
 #include <cmath>
 #include <tuple>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -162,4 +162,4 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     return result;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

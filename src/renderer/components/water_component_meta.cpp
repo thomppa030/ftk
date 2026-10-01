@@ -18,7 +18,6 @@
 
 namespace fjell {
 
-
 // Resolve the component's material path to a loaded material, or clear it.
 void load_water_material(WaterComponent& water, ResourceManager* resources,
                          const Project* project) {
@@ -31,7 +30,7 @@ void load_water_material(WaterComponent& water, ResourceManager* resources,
     auto resolved = base_path::resolve_asset(water.material_path, project);
     auto handle = resources->load_material_asset(resolved, project);
     if (!handle) {
-        FJELL_CORE_ERROR("water: {}", handle.error());
+        FTK_CORE_ERROR("water: {}", handle.error());
         return;
     }
     water.material_handle = *handle;
@@ -49,12 +48,12 @@ void load_water_medium(WaterComponent& water, ResourceManager* resources,
     auto resolved = base_path::resolve_asset(water.medium_material_path, project);
     auto handle = resources->load_material_asset(resolved, project);
     if (!handle) {
-        FJELL_CORE_ERROR("water medium: {}", handle.error());
+        FTK_CORE_ERROR("water medium: {}", handle.error());
         return;
     }
     Material* material = resources->get(*handle);
     if (material != nullptr && material->shader_type() != ShaderType::Fog) {
-        FJELL_CORE_ERROR("water medium: '{}' is shader_type '{}', a water's medium needs "
+        FTK_CORE_ERROR("water medium: '{}' is shader_type '{}', a water's medium needs "
                          "shader_type fog; the water has no medium",
                          water.medium_material_path, shader_type_name(material->shader_type()));
         return;
@@ -74,7 +73,7 @@ void load_water_field(WaterComponent& water, const Project* project) {
             water.water = std::move(*loaded);
             water.water_loaded = true;
         } else {
-            FJELL_CORE_ERROR("water: {}", loaded.error());
+            FTK_CORE_ERROR("water: {}", loaded.error());
         }
     }
     // What the renderer and physics read, derived here in still air so a body

@@ -15,18 +15,18 @@ class FjGraphParser {
 public:
     /// Load and parse a graph file from disk. The returned graph carries
     /// the source path so hot-reload can re-load on inotify events.
-    [[nodiscard]] static Result<FjGraph> load(const std::string& path);
+    [[nodiscard]] static ftk::Result<FjGraph> load(const std::string& path);
 
     /// Parse from an in-memory buffer. `source_path` is used only for
     /// error messages and is propagated into the returned graph.
-    [[nodiscard]] static Result<FjGraph> parse(std::string_view text,
+    [[nodiscard]] static ftk::Result<FjGraph> parse(std::string_view text,
                                                std::string source_path);
 
 private:
     /// Validate a parsed graph against the runtime: every `class` resolves
     /// in `PassFactory` and every pass name is unique. Returns the same graph
     /// on success, otherwise an error.
-    [[nodiscard]] static Result<FjGraph> validate(FjGraph graph);
+    [[nodiscard]] static ftk::Result<FjGraph> validate(FjGraph graph);
 };
 
 } // namespace fjell

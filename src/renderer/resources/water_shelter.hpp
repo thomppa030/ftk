@@ -10,10 +10,13 @@
 #include <optional>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 struct FjWaterData;
-class ThreadPool;
 
 /// Shelter: how much of the sea reaches water that land stands in front of.
 ///
@@ -134,7 +137,7 @@ public:
     /// body of water has just been copied into play. With no `workers` the
     /// bake is done here and now.
     [[nodiscard]] std::shared_ptr<const ShoreExposure> derive(
-        const ShoreBed& bed, const FjWaterData& water, ThreadPool* workers,
+        const ShoreBed& bed, const FjWaterData& water, ftk::ThreadPool* workers,
         std::shared_ptr<const ShoreExposure> previous = nullptr);
 
 private:

@@ -32,7 +32,7 @@ namespace fs = std::filesystem;
 
 // -- ResourceManager ---------------------------------------------------------
 
-ResourceManager::ResourceManager(gpu::Device& gpu,
+ResourceManager::ResourceManager(ftk::gpu::Device& gpu,
                                  BindlessTextures& bindless, MegaBuffer* mega_buffer,
                                  MeshletBuffer* meshlet_buffer,
                                  PipelineCache* pipeline_cache)
@@ -71,10 +71,10 @@ ResourceManager::ResourceManager(gpu::Device& gpu,
     }
 }
 
-Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
+ftk::Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
     auto it = models_.name_to_handle.find(path);
     if (it != models_.name_to_handle.end()) {
-        FJELL_GFX_DEBUG("Model cache hit: {}", path);
+        FTK_GFX_DEBUG("Model cache hit: {}", path);
         return it->second;
     }
 
@@ -97,7 +97,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
                 auto src_time = fs::last_write_time(file_path, ec);
                 auto cache_time = fs::last_write_time(cached, ec);
                 if (!ec && cache_time >= src_time) {
-                    FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
+                    FTK_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
                     auto data = Model::load_fjmesh(cached.string());
                     auto model = std::make_unique<Model>(std::move(data), *mega_buffer_, *meshlet_buffer_);
                     return models_.insert(path, std::move(model));
@@ -109,11 +109,11 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         auto model = std::make_unique<Model>(gpu_, path, *mega_buffer_, *meshlet_buffer_);
         return models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
-        return make_error("Failed to load model '" + path + "': " + e.what());
+        return ftk::make_error("Failed to load model '" + path + "': " + e.what());
     }
 }
 
-Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
+ftk::Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
     std::string key = "primitive:" + type;
     auto it = models_.name_to_handle.find(key);
     if (it != models_.name_to_handle.end()) {
@@ -132,17 +132,17 @@ Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
     } else if (type == "sphere") {
         data = primitives::sphere();
     } else {
-        return make_error("Unknown primitive type: " + type);
+        return ftk::make_error("Unknown primitive type: " + type);
     }
 
     auto model = std::make_unique<Model>(data, *mega_buffer_, *meshlet_buffer_);
     return models_.insert(key, std::move(model));
 }
 
-Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
+ftk::Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     auto it = textures_.name_to_handle.find(path);
     if (it != textures_.name_to_handle.end()) {
-        FJELL_GFX_DEBUG("Texture cache hit: {}", path);
+        FTK_GFX_DEBUG("Texture cache hit: {}", path);
         return it->second;
     }
 
@@ -153,11 +153,11 @@ Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
         texture_to_bindless_[handle.index()] = bindless_idx;
         return handle;
     } catch (const std::exception& e) {
-        return make_error("Failed to load texture '" + path + "': " + e.what());
+        return ftk::make_error("Failed to load texture '" + path + "': " + e.what());
     }
 }
 
-Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& path) {
+ftk::Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& path) {
     // Use a distinct cache key so the same image can be loaded with different samplers
     std::string key = path + "?nearest";
     auto it = textures_.name_to_handle.find(key);
@@ -172,7 +172,7 @@ Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& p
         texture_to_bindless_[handle.index()] = bindless_idx;
         return handle;
     } catch (const std::exception& e) {
-        return make_error("Failed to load texture (nearest) '" + path + "': " + e.what());
+        return ftk::make_error("Failed to load texture (nearest) '" + path + "': " + e.what());
     }
 }
 
@@ -196,21 +196,21 @@ uint32_t ResourceManager::file_texture_index(const FjslUniform& u, const std::st
                                              const Project* project) {
     if (u.hint != UniformHint::Lut) {
         auto texture = load_texture(base_path::resolve_asset(file, project));
-        if (!texture) FJELL_GFX_WARN("Material '{}': {}", material_path, texture.error());
+        if (!texture) FTK_GFX_WARN("Material '{}': {}", material_path, texture.error());
         return bindless_index(texture ? *texture : default_white_handle_);
     }
     // A grading table is not an image: it wants its 16 bits, no mips and no
     // wrap, which only the .fjlut path gives it. Any other file is refused
     // rather than read as a picture of a table.
     if (std::filesystem::path(file).extension() != ".fjlut") {
-        FJELL_GFX_WARN("Material '{}': '{}' is a colour grading table and takes a .fjlut, not "
+        FTK_GFX_WARN("Material '{}': '{}' is a colour grading table and takes a .fjlut, not "
                        "'{}'; using the neutral table",
                        material_path, u.name, file);
         return fallback_texture_index(UniformHint::Lut);
     }
     auto lut = load_lut(base_path::resolve_asset(file, project));
     if (!lut) {
-        FJELL_GFX_WARN("Material '{}': {}; using the neutral table", material_path, lut.error());
+        FTK_GFX_WARN("Material '{}': {}; using the neutral table", material_path, lut.error());
         return fallback_texture_index(UniformHint::Lut);
     }
     return bindless_index(*lut);
@@ -221,15 +221,15 @@ std::unique_ptr<Texture> ResourceManager::make_lut_texture(const LutStrip& strip
     // offsets and reads the table's edge texels as its ends.
     return std::make_unique<Texture>(gpu_, reinterpret_cast<const uint8_t*>(strip.rgba.data()),
                                      strip.width(), strip.height(),
-                                     gpu::Format::rgba16_unorm, 1, true);
+                                     ftk::gpu::Format::rgba16_unorm, 1, true);
 }
 
-Result<TextureHandle> ResourceManager::load_lut(const std::string& path) {
+ftk::Result<TextureHandle> ResourceManager::load_lut(const std::string& path) {
     auto it = textures_.name_to_handle.find(path);
     if (it != textures_.name_to_handle.end()) return it->second;
 
     auto strip = fjell::load_lut(path);
-    if (!strip) return make_error(strip.error());
+    if (!strip) return ftk::make_error(strip.error());
     try {
         auto texture = make_lut_texture(*strip);
         const uint32_t bindless_idx = bindless_.add(*texture);
@@ -238,7 +238,7 @@ Result<TextureHandle> ResourceManager::load_lut(const std::string& path) {
         watch_lut(path, handle);
         return handle;
     } catch (const std::exception& e) {
-        return make_error("Failed to create the table for '" + path + "': " + e.what());
+        return ftk::make_error("Failed to create the table for '" + path + "': " + e.what());
     }
 }
 
@@ -289,7 +289,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     // file reads whole, and the next change event tries again.
     auto strip = fjell::load_lut(lut.recipe);
     if (!strip) {
-        FJELL_GFX_WARN("LUT reload: {}", strip.error());
+        FTK_GFX_WARN("LUT reload: {}", strip.error());
         return;
     }
     if (auto recipe = read_lut_recipe(lut.recipe)) {
@@ -299,7 +299,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     try {
         fresh = make_lut_texture(*strip);
     } catch (const std::exception& e) {
-        FJELL_GFX_WARN("LUT reload: {}: {}", lut.recipe, e.what());
+        FTK_GFX_WARN("LUT reload: {}: {}", lut.recipe, e.what());
         return;
     }
     // Same bindless index, so every material pointing at it follows; the old
@@ -308,7 +308,7 @@ void ResourceManager::reload_lut(LoadedLut& lut) {
     const uint32_t index = bindless_index(lut.handle);
     bindless_.update_entry(index, fresh->texture());
     textures_.slots[lut.handle.index()] = std::move(fresh);
-    FJELL_GFX_INFO("LUT reloaded: {}", lut.recipe);
+    FTK_GFX_INFO("LUT reloaded: {}", lut.recipe);
 }
 
 MaterialHandle ResourceManager::create_material(const std::string& name,
@@ -381,7 +381,7 @@ std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_ha
 
         auto resolved = base_path::resolve_asset(authored[i].path, project);
         if (resolved.empty()) {
-            FJELL_GFX_WARN("Mesh material slot '{}' -> '{}': does not resolve",
+            FTK_GFX_WARN("Mesh material slot '{}' -> '{}': does not resolve",
                            authored[i].name, authored[i].path);
             continue;
         }
@@ -391,7 +391,7 @@ std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_ha
         // object falling back to its own material.
         auto result = load_material_asset(resolved, project);
         if (!result) {
-            FJELL_GFX_WARN("Mesh material slot '{}' -> '{}': {}",
+            FTK_GFX_WARN("Mesh material slot '{}' -> '{}': {}",
                            authored[i].name, authored[i].path, result.error());
             continue;
         }
@@ -401,7 +401,7 @@ std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_ha
     return slots;
 }
 
-Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& path,
+ftk::Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& path,
                                                              const Project* project) {
     if (const auto ready = materials_.ready(path); ready.valid()) return ready;
 
@@ -413,7 +413,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         asset = fjell::load_material_asset(path);
     } catch (const std::exception& e) {
         materials_.fail(path);
-        return make_error("Failed to load material '" + path + "': " + e.what());
+        return ftk::make_error("Failed to load material '" + path + "': " + e.what());
     }
 
     // Register shader in pipeline cache
@@ -430,7 +430,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         if (tex_it != asset.textures.end()) {
             auto result = load_texture(base_path::resolve_asset(tex_it->second, project));
             if (result) return *result;
-            FJELL_GFX_WARN("Material '{}': {}", path, result.error());
+            FTK_GFX_WARN("Material '{}': {}", path, result.error());
         }
         return fallback;
     };
@@ -479,7 +479,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                     // vec3 given one float renders black in two channels —
                     // so say which material and what it expected.
                     if (param_it->second.size() != count) {
-                        FJELL_GFX_WARN("{}: '{}' holds {} value(s) but the shader declares "
+                        FTK_GFX_WARN("{}: '{}' holds {} value(s) but the shader declares "
                                        "{} — the rest fall back to zero",
                                        path, u.name, param_it->second.size(), count);
                     }
@@ -506,7 +506,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                     shader_meta->uniforms.begin(), shader_meta->uniforms.end(),
                     [&key](const FjslUniform& u) { return u.name == key; });
                 if (!declared) {
-                    FJELL_GFX_WARN("{}: '{}' is not a uniform of '{}' — left over from a "
+                    FTK_GFX_WARN("{}: '{}' is not a uniform of '{}' — left over from a "
                                    "rename or a removal, and ignored",
                                    path, key, asset.shader);
                 }
@@ -644,7 +644,7 @@ Model* ResourceManager::get(ModelHandle handle) const {
 
 // ── Skeletal models ─────────────────────────────────────────────────────
 
-Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::string& path) {
+ftk::Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::string& path) {
     auto it = skeletal_models_.name_to_handle.find(path);
     if (it != skeletal_models_.name_to_handle.end()) {
         return it->second;
@@ -655,7 +655,7 @@ Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::stri
         auto model = std::make_unique<SkeletalModel>(gpu_, std::move(data), *meshlet_buffer_);
         return skeletal_models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
-        return make_error("Failed to load skeletal model '" + path + "': " + e.what());
+        return ftk::make_error("Failed to load skeletal model '" + path + "': " + e.what());
     }
 }
 
@@ -703,7 +703,7 @@ MaterialHandle ResourceManager::find_material(const std::string& name) const {
 
 // ── VFX assets ───────────────────────────────────────────────────────────
 
-Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) {
+ftk::Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) {
     if (const auto ready = vfx_assets_.ready(path); ready.valid()) return ready;
 
     try {
@@ -711,7 +711,7 @@ Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) 
         return vfx_assets_.store(path, std::move(effect));
     } catch (const std::exception& e) {
         vfx_assets_.fail(path);
-        return make_error(e.what());
+        return ftk::make_error(e.what());
     }
 }
 
@@ -721,7 +721,7 @@ VfxEffect* ResourceManager::get(VfxAssetHandle handle) const {
 
 // ── Terrain assets ───────────────────────────────────────────────────────
 
-Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string& path,
+ftk::Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string& path,
                                                                const Project* project) {
     auto it = terrain_assets_.name_to_handle.find(path);
     if (it != terrain_assets_.name_to_handle.end()) {
@@ -730,7 +730,7 @@ Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string
 
     auto terrain = TerrainAsset::load(path, gpu_);
     if (!terrain) {
-        return make_error(terrain.error());
+        return ftk::make_error(terrain.error());
     }
     resolve_terrain_layers(**terrain, project);
     return terrain_assets_.insert(path, std::move(*terrain));
@@ -749,7 +749,7 @@ void ResourceManager::resolve_terrain_layers(TerrainAsset& terrain, const Projec
         }
         auto material = load_material_asset(base_path::resolve_asset(path, project), project);
         if (!material) {
-            FJELL_CORE_ERROR("terrain '{}' layer {}: {}", terrain.path(), i, material.error());
+            FTK_CORE_ERROR("terrain '{}' layer {}: {}", terrain.path(), i, material.error());
             terrain.set_layer_material(i, nullptr);
             continue;
         }
@@ -763,7 +763,7 @@ void ResourceManager::resolve_terrain_layers(TerrainAsset& terrain, const Projec
         }
         auto surface = load_surface_asset(base_path::resolve_asset(path, project));
         if (!surface) {
-            FJELL_CORE_ERROR("terrain '{}' layer {} surface: {}", terrain.path(), i,
+            FTK_CORE_ERROR("terrain '{}' layer {} surface: {}", terrain.path(), i,
                              surface.error());
             terrain.set_layer_surface(i, 0);
             continue;
@@ -778,13 +778,13 @@ TerrainAsset* ResourceManager::get(TerrainAssetHandle handle) const {
 
 // ── Audio assets ─────────────────────────────────────────────────────────
 
-Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& path) {
+ftk::Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& path) {
     if (const auto ready = audio_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_audio_asset_file(path);
     if (!result) {
         audio_assets_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
     auto asset = std::make_unique<AudioAsset>(std::move(*result));
     return audio_assets_.store(path, std::move(asset));
@@ -792,13 +792,13 @@ Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& pa
 
 // ── Surface assets ───────────────────────────────────────────────────────
 
-Result<SurfaceAssetHandle> ResourceManager::load_surface_asset(const std::string& path) {
+ftk::Result<SurfaceAssetHandle> ResourceManager::load_surface_asset(const std::string& path) {
     if (const auto ready = surface_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_surface_asset_file(path);
     if (!result) {
         surface_assets_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
     auto asset = std::make_unique<SurfaceAsset>(std::move(*result));
     return surface_assets_.store(path, std::move(asset));
@@ -814,23 +814,23 @@ std::string ResourceManager::asset_path_of(SurfaceAssetHandle handle) const {
 
 // ── Day profiles ─────────────────────────────────────────────────────────
 
-Result<DayProfileAssetHandle> ResourceManager::load_day_profile(const std::string& path) {
+ftk::Result<DayProfileAssetHandle> ResourceManager::load_day_profile(const std::string& path) {
     if (const auto ready = day_profiles_.ready(path); ready.valid()) return ready;
 
     auto result = load_day_profile_file(base_path::resolve_asset(path, project_));
     if (!result) {
         day_profiles_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
     auto asset = std::make_unique<DayProfileAsset>(std::move(*result));
     return day_profiles_.store(path, std::move(asset));
 }
 
-Result<> ResourceManager::reload_day_profile(const std::string& path) {
+ftk::Result<> ResourceManager::reload_day_profile(const std::string& path) {
     auto it = day_profiles_.name_to_handle.find(path);
     if (it == day_profiles_.name_to_handle.end()) return {};
     auto result = load_day_profile_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) return ftk::make_error(result.error());
     if (auto* live = day_profiles_.get(it->second)) {
         *live = std::move(*result);
     } else {
@@ -849,23 +849,23 @@ std::string ResourceManager::asset_path_of(DayProfileAssetHandle handle) const {
 
 // ── Weather events ───────────────────────────────────────────────────────
 
-Result<WeatherAssetHandle> ResourceManager::load_weather_asset(const std::string& path) {
+ftk::Result<WeatherAssetHandle> ResourceManager::load_weather_asset(const std::string& path) {
     if (const auto ready = weather_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_weather_asset_file(base_path::resolve_asset(path, project_));
     if (!result) {
         weather_assets_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
     auto asset = std::make_unique<WeatherAsset>(std::move(*result));
     return weather_assets_.store(path, std::move(asset));
 }
 
-Result<> ResourceManager::reload_weather_asset(const std::string& path) {
+ftk::Result<> ResourceManager::reload_weather_asset(const std::string& path) {
     auto it = weather_assets_.name_to_handle.find(path);
     if (it == weather_assets_.name_to_handle.end()) return {};
     auto result = load_weather_asset_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) return ftk::make_error(result.error());
     if (auto* live = weather_assets_.get(it->second)) {
         *live = std::move(*result);
     } else {
@@ -884,23 +884,23 @@ std::string ResourceManager::asset_path_of(WeatherAssetHandle handle) const {
 
 // ── Climates ─────────────────────────────────────────────────────────────
 
-Result<ClimateAssetHandle> ResourceManager::load_climate_asset(const std::string& path) {
+ftk::Result<ClimateAssetHandle> ResourceManager::load_climate_asset(const std::string& path) {
     if (const auto ready = climate_assets_.ready(path); ready.valid()) return ready;
 
     auto result = load_climate_asset_file(base_path::resolve_asset(path, project_));
     if (!result) {
         climate_assets_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
     auto asset = std::make_unique<ClimateAsset>(std::move(*result));
     return climate_assets_.store(path, std::move(asset));
 }
 
-Result<> ResourceManager::reload_climate_asset(const std::string& path) {
+ftk::Result<> ResourceManager::reload_climate_asset(const std::string& path) {
     auto it = climate_assets_.name_to_handle.find(path);
     if (it == climate_assets_.name_to_handle.end()) return {};
     auto result = load_climate_asset_file(base_path::resolve_asset(path, project_));
-    if (!result) return make_error(result.error());
+    if (!result) return ftk::make_error(result.error());
     if (auto* live = climate_assets_.get(it->second)) {
         *live = std::move(*result);
     } else {
@@ -923,19 +923,19 @@ AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
 
 // ── Input action assets ──────────────────────────────────────────────────
 
-Result<InputActionHandle> ResourceManager::load_input_action(const std::string& path) {
+ftk::Result<InputActionHandle> ResourceManager::load_input_action(const std::string& path) {
     if (const auto ready = input_actions_.ready(path); ready.valid()) return ready;
 
     std::ifstream f(path);
     if (!f.is_open()) {
         input_actions_.fail(path);
-        return make_error("Cannot open " + path);
+        return ftk::make_error("Cannot open " + path);
     }
 
     auto j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) {
         input_actions_.fail(path);
-        return make_error("Invalid JSON in " + path);
+        return ftk::make_error("Invalid JSON in " + path);
     }
 
     auto def = std::make_unique<InputActionDef>();
@@ -954,11 +954,11 @@ InputActionDef* ResourceManager::get(InputActionHandle handle) const {
 
 // ── Generic asset loading ────────────────────────────────────────────────
 
-Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_name,
+ftk::Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_name,
                                                       const std::string& path) {
     auto* entry = AssetTypeRegistry::instance().find_by_name(type_name);
     if (!entry || !entry->load) {
-        return make_error("Unknown asset type: " + type_name);
+        return ftk::make_error("Unknown asset type: " + type_name);
     }
     return entry->load(*this, path);
 }
@@ -981,14 +981,14 @@ std::string ResourceManager::asset_path_of(InputActionHandle handle) const {
 
 // ── Preset assets ────────────────────────────────────────────────────────
 
-Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path,
+ftk::Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path,
                                                              const Project* project) {
     if (const auto ready = preset_assets_.ready(path); ready.valid()) return ready;
 
     auto result = PresetTemplate::load(path, *this, project ? project : project_);
     if (!result) {
         preset_assets_.fail(path);
-        return make_error(result.error());
+        return ftk::make_error(result.error());
     }
 
     auto asset = std::make_unique<PresetAsset>();

@@ -7,11 +7,11 @@
 #include <cstdint>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class RenderEncoder;
-} // namespace gpu
+} // namespace ftk::gpu
+
+namespace fjell {
 
 class DebugDrawQueue;
 class Scene;
@@ -50,7 +50,7 @@ public:
 
     /// Draws what the last `update()` gathered, through the debug pass's
     /// pipeline set on `pass`.
-    void draw(gpu::RenderEncoder& pass) const;
+    void draw(ftk::gpu::RenderEncoder& pass) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }
 

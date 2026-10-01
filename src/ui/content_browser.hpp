@@ -13,17 +13,20 @@
 #include <string_view>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
-class IconCache;
 class AssetThumbnailRenderer;
-class ThreadPool;
 class ResourceManager;
 
 class ContentBrowser {
 public:
-    void init(IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
-              ResourceManager* resources, ThreadPool* pool = nullptr);
+    void init(ftk::IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
+              ResourceManager* resources, ftk::ThreadPool* pool = nullptr);
 
     /// Lets go of what it holds on the GPU; before the icon cache goes away.
     void shutdown() { texture_preview_.shutdown(); }
@@ -90,10 +93,10 @@ private:
 
     [[nodiscard]] static FileType classify(const std::filesystem::path& path);
 
-    IconCache* icons_{nullptr};
+    ftk::IconCache* icons_{nullptr};
     AssetThumbnailRenderer* asset_thumbnails_{nullptr};
     ResourceManager* resources_{nullptr};
-    ThreadPool* pool_{nullptr};
+    ftk::ThreadPool* pool_{nullptr};
 
     std::filesystem::path root_;
     std::filesystem::path current_dir_;
@@ -107,7 +110,7 @@ private:
     int context_menu_index_{-1};
 
     // The entry being renamed, keyed by its index in entries_.
-    ui::RenameBox rename_;
+    ftk::ui::RenameBox rename_;
     // The search over the open folder.
     std::string search_;
     void start_rename(int index);
@@ -122,7 +125,7 @@ private:
     bool show_delete_popup_{false};
     // The bottom of the content browser's bar, centred across it, where a
     // question about a file hangs from.
-    ui::DialogAnchor bar_anchor_{};
+    ftk::ui::DialogAnchor bar_anchor_{};
     int delete_index_{-1};
 
     // Files referencing the entry the delete prompt is about. Looked up once
@@ -130,13 +133,11 @@ private:
     int delete_refs_index_{-1};
     std::vector<std::string> delete_refs_;
 
-
     TexturePreview texture_preview_;
     // Directory changes free every thumbnail descriptor, so they are applied
     // between frames — never while draw commands still reference them.
     std::filesystem::path pending_dir_;
     bool has_pending_dir_{false};
-
 
 public:
     void refresh_current_dir();
@@ -144,30 +145,30 @@ public:
     /// Get the relative path of the currently selected file (empty if none or directory).
     [[nodiscard]] std::string selected_asset_path() const;
 
-    Delegate<void(const std::string&)> on_add_model;
-    Delegate<void(const std::string&)> on_load_scene;
+    ftk::Delegate<void(const std::string&)> on_add_model;
+    ftk::Delegate<void(const std::string&)> on_load_scene;
     // Hook for opening asset-specific editor contexts (path, file type string)
-    Delegate<void(const std::string&, const std::string&)> on_open_asset;
+    ftk::Delegate<void(const std::string&, const std::string&)> on_open_asset;
     // Preset: instantiate a .fjp file into the scene
-    Delegate<void(const std::string&)> on_instantiate_preset;
+    ftk::Delegate<void(const std::string&)> on_instantiate_preset;
     // Preset: create from hierarchy node drop (node_id, target directory)
-    Delegate<void(uint32_t, const std::string&)> on_create_preset;
+    ftk::Delegate<void(uint32_t, const std::string&)> on_create_preset;
     // Import model via in-engine importer
-    Delegate<void(const std::string&)> on_import_model;
+    ftk::Delegate<void(const std::string&)> on_import_model;
     /// Pick a model file and import it into this directory (absolute path).
-    Delegate<void(const std::string& dir)> on_import_into;
+    ftk::Delegate<void(const std::string& dir)> on_import_into;
     /// Bake a font recipe's atlas (absolute path): a recipe just created, or
     /// one the user asked to bake. The engine's font library does the work
     /// off the frame.
-    Delegate<void(const std::string& recipe)> on_bake_font;
+    ftk::Delegate<void(const std::string& recipe)> on_bake_font;
 
     /// Fired after a file is renamed or moved, with the old and new paths
     /// relative to the project root, so the asset database can follow it.
-    Delegate<void(const std::string& from, const std::string& to)> on_asset_moved;
+    ftk::Delegate<void(const std::string& from, const std::string& to)> on_asset_moved;
 
     /// Fired once per deleted file, with its project-relative path, so the
     /// asset database can drop the entry rather than wait for a rebuild.
-    Delegate<void(const std::string& path)> on_asset_deleted;
+    ftk::Delegate<void(const std::string& path)> on_asset_deleted;
 
     /// Files referencing the asset at this project-relative path. Set by the
     /// engine, which owns the asset database; the delete prompt uses it to

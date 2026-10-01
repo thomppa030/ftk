@@ -70,13 +70,13 @@ void MaterialInstance::write_floats(const std::string& name,
     for (const auto& u : meta.uniforms) {
         if (u.name != name) continue;
         if (u.type == UniformType::Sampler2D) {
-            FJELL_GFX_WARN("MaterialInstance::set_param('{}'): uniform is a sampler, "
+            FTK_GFX_WARN("MaterialInstance::set_param('{}'): uniform is a sampler, "
                            "not a scalar/vector — ignored", name);
             return;
         }
         const uint32_t expected = uniform_float_count(u.type);
         if (expected != count) {
-            FJELL_GFX_WARN("MaterialInstance::set_param('{}'): type mismatch "
+            FTK_GFX_WARN("MaterialInstance::set_param('{}'): type mismatch "
                            "(shader expects {} floats, got {}) — ignored",
                            name, expected, count);
             return;
@@ -88,7 +88,7 @@ void MaterialInstance::write_floats(const std::string& name,
                                 encoded.data(), count);
         return;
     }
-    FJELL_GFX_WARN("MaterialInstance::set_param('{}'): no such uniform on shader '{}'",
+    FTK_GFX_WARN("MaterialInstance::set_param('{}'): no such uniform on shader '{}'",
                    name, material_.shader_path());
 }
 

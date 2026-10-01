@@ -11,7 +11,7 @@ namespace fjell {
 
 // ── Save ─────────────────────────────────────────────────────────────────
 
-Result<> PresetTemplate::save(const std::string& path, const Project* project) const {
+ftk::Result<> PresetTemplate::save(const std::string& path, const Project* project) const {
     nlohmann::json j;
     j["preset"] = {{"name", header_.name}};
     j["next_id"] = local_next_id_;
@@ -23,27 +23,27 @@ Result<> PresetTemplate::save(const std::string& path, const Project* project) c
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        return make_error("Failed to save preset: " + path);
+        return ftk::make_error("Failed to save preset: " + path);
     }
     file << j.dump(2);
-    FJELL_CORE_INFO("Preset saved: {} ({} nodes)", path, nodes_.size());
+    FTK_CORE_INFO("Preset saved: {} ({} nodes)", path, nodes_.size());
     return {};
 }
 
 // ── Load ─────────────────────────────────────────────────────────────────
 
-Result<PresetTemplate> PresetTemplate::load(const std::string& path, ResourceManager& resources,
+ftk::Result<PresetTemplate> PresetTemplate::load(const std::string& path, ResourceManager& resources,
                                             const Project* project) {
     std::ifstream file(path);
     if (!file.is_open()) {
-        return make_error("Preset file not found: " + path);
+        return ftk::make_error("Preset file not found: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error(std::string("Failed to parse preset: ") + e.what());
+        return ftk::make_error(std::string("Failed to parse preset: ") + e.what());
     }
 
     std::string name;
@@ -59,7 +59,7 @@ Result<PresetTemplate> PresetTemplate::load(const std::string& path, ResourceMan
         }
     }
 
-    FJELL_CORE_INFO("Preset loaded: {} ({} nodes)", path, nodes.size());
+    FTK_CORE_INFO("Preset loaded: {} ({} nodes)", path, nodes.size());
     return from_nodes(std::move(name), std::move(nodes), path);
 }
 

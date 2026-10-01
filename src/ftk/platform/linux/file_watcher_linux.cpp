@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 struct FileWatcher::Impl {
     int inotify_fd{-1};
@@ -36,7 +36,7 @@ struct FileWatcher::Impl {
     Impl() {
         inotify_fd = inotify_init1(IN_NONBLOCK);
         if (inotify_fd < 0) {
-            FJELL_CORE_WARN("FileWatcher: failed to init inotify");
+            FTK_CORE_WARN("FileWatcher: failed to init inotify");
         }
     }
 
@@ -69,7 +69,7 @@ struct FileWatcher::Impl {
         int wd = inotify_add_watch(inotify_fd, watch_path.c_str(),
                                    IN_CLOSE_WRITE | IN_MODIFY | IN_MOVED_TO);
         if (wd < 0) {
-            FJELL_CORE_WARN("FileWatcher: failed to watch {}", path.string());
+            FTK_CORE_WARN("FileWatcher: failed to watch {}", path.string());
             return false;
         }
 
@@ -133,4 +133,4 @@ bool FileWatcher::poll() {
     return impl_->poll_events();
 }
 
-} // namespace fjell::platform
+} // namespace ftk::platform

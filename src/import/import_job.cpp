@@ -17,8 +17,8 @@ ImportJob::~ImportJob() {
 }
 
 std::filesystem::path ImportJob::find_fjimport() {
-    auto dir = platform::executable_path().parent_path();
-    const auto exe = std::string("fjimport") + platform::EXE_EXT;
+    auto dir = ftk::platform::executable_path().parent_path();
+    const auto exe = std::string("fjimport") + ftk::platform::EXE_EXT;
     // Same directory as the engine executable (install layout)
     auto candidate = dir / exe;
     if (fs::exists(candidate)) return candidate;
@@ -62,13 +62,13 @@ std::filesystem::path ImportJob::write_settings_file(const MeshImportSettings& s
 
 bool ImportJob::start(const MeshImportSettings& settings) {
     if (state_ == ImportState::running) {
-        FJELL_CORE_WARN("Import already running");
+        FTK_CORE_WARN("Import already running");
         return false;
     }
 
     auto fjimport_path = find_fjimport();
     if (fjimport_path.empty()) {
-        FJELL_CORE_ERROR("Could not find fjimport executable");
+        FTK_CORE_ERROR("Could not find fjimport executable");
         return false;
     }
 
@@ -94,9 +94,9 @@ bool ImportJob::start(const MeshImportSettings& settings) {
         "--settings", settings_file_.string()
     };
 
-    auto result = platform::spawn_with_pipe(args);
+    auto result = ftk::platform::spawn_with_pipe(args);
     if (!result) {
-        FJELL_CORE_ERROR("Failed to spawn fjimport: {}", result.error());
+        FTK_CORE_ERROR("Failed to spawn fjimport: {}", result.error());
         return false;
     }
 
@@ -106,7 +106,7 @@ bool ImportJob::start(const MeshImportSettings& settings) {
     output_files_.clear();
     line_buffer_.clear();
 
-    FJELL_CORE_INFO("Import started: {}", source.string());
+    FTK_CORE_INFO("Import started: {}", source.string());
     return true;
 }
 
@@ -114,15 +114,15 @@ void ImportJob::poll() {
     if (state_ != ImportState::running) return;
 
     // Read available lines
-    auto lines = platform::read_lines(subprocess_, line_buffer_);
+    auto lines = ftk::platform::read_lines(subprocess_, line_buffer_);
     for (const auto& line : lines) {
         parse_progress_line(line);
     }
 
     // Check if process exited
-    if (platform::poll_exit(subprocess_)) {
+    if (ftk::platform::poll_exit(subprocess_)) {
         // Drain any remaining lines
-        auto remaining = platform::read_lines(subprocess_, line_buffer_);
+        auto remaining = ftk::platform::read_lines(subprocess_, line_buffer_);
         for (const auto& line : remaining) {
             parse_progress_line(line);
         }
@@ -134,10 +134,10 @@ void ImportJob::poll() {
 
 void ImportJob::cancel() {
     if (state_ != ImportState::running) return;
-    platform::close_subprocess(subprocess_);
+    ftk::platform::close_subprocess(subprocess_);
     state_ = ImportState::idle;
     progress_ = {};
-    FJELL_CORE_INFO("Import cancelled");
+    FTK_CORE_INFO("Import cancelled");
 }
 
 void ImportJob::parse_progress_line(const std::string& line) {
@@ -160,7 +160,7 @@ void ImportJob::parse_progress_line(const std::string& line) {
 }
 
 void ImportJob::finish(bool success) {
-    platform::close_subprocess(subprocess_);
+    ftk::platform::close_subprocess(subprocess_);
 
     // Clean up temp settings file
     if (!settings_file_.empty()) {
@@ -171,9 +171,9 @@ void ImportJob::finish(bool success) {
 
     state_ = success ? ImportState::succeeded : ImportState::failed;
     if (success) {
-        FJELL_CORE_INFO("Import complete: {} files", output_files_.size());
+        FTK_CORE_INFO("Import complete: {} files", output_files_.size());
     } else {
-        FJELL_CORE_ERROR("Import failed (exit code {})", subprocess_.exit_code);
+        FTK_CORE_ERROR("Import failed (exit code {})", subprocess_.exit_code);
     }
 
     on_complete.broadcast(success, output_files_);

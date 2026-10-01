@@ -31,7 +31,7 @@ public:
     void set_kit_gallery_flag(bool* show) { show_kit_gallery_ = show; }
     void set_sdf_debug_flag(bool* show) { show_sdf_debug_ = show; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
-    void set_device(gpu::Device* device);
+    void set_device(ftk::gpu::Device* device);
 
     /// Tick standalone file browser windows. Call from the main loop.
     void tick_browsers();
@@ -40,20 +40,20 @@ public:
     void set_active_layout(const std::string& name) { active_layout_name_ = name; }
 
     // ── Actions — Engine binds handlers ─────────────────────────────────
-    Delegate<void()> on_save_scene;
-    Delegate<void()> on_load_scene;
-    Delegate<void()> on_save_project;
-    Delegate<void()> on_open_settings;
-    Delegate<void(const std::filesystem::path&)> on_open_project;
-    Delegate<void(const std::filesystem::path&, const std::string&)> on_create_project;
-    Delegate<void()> on_close_project;
-    Delegate<void()> on_build_scripts;
-    Delegate<void(const std::string&)> on_new_script;
-    Delegate<void()> on_build_game;
-    Delegate<void(const std::string&)> on_save_layout;
-    Delegate<void(const std::string&)> on_load_layout;
-    Delegate<void()> on_import_model;
-    Delegate<void()> on_open_capture;
+    ftk::Delegate<void()> on_save_scene;
+    ftk::Delegate<void()> on_load_scene;
+    ftk::Delegate<void()> on_save_project;
+    ftk::Delegate<void()> on_open_settings;
+    ftk::Delegate<void(const std::filesystem::path&)> on_open_project;
+    ftk::Delegate<void(const std::filesystem::path&, const std::string&)> on_create_project;
+    ftk::Delegate<void()> on_close_project;
+    ftk::Delegate<void()> on_build_scripts;
+    ftk::Delegate<void(const std::string&)> on_new_script;
+    ftk::Delegate<void()> on_build_game;
+    ftk::Delegate<void(const std::string&)> on_save_layout;
+    ftk::Delegate<void(const std::string&)> on_load_layout;
+    ftk::Delegate<void()> on_import_model;
+    ftk::Delegate<void()> on_open_capture;
 
 private:
     void draw_file_menu();
@@ -73,12 +73,12 @@ private:
     bool building_{false};
 
     // Owned state
-    FileBrowser open_browser_;
-    FileBrowser new_browser_;
-    std::vector<Connection> browser_connections_;
+    ftk::FileBrowser open_browser_;
+    ftk::FileBrowser new_browser_;
+    std::vector<ftk::Connection> browser_connections_;
     // Where the menu's dialog hangs: the menu's own top-left, under the
     // menu bar at that menu.
-    ui::DialogAnchor menu_anchor_{};
+    ftk::ui::DialogAnchor menu_anchor_{};
     bool show_new_script_popup_{false};
     std::string new_script_name_;
     bool show_save_layout_popup_{false};

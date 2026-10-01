@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 struct SheetDir {
     fs::path base;
     SheetDir() {
-        base = fs::temp_directory_path() / ("fjell_fjss_loader_test_" + std::to_string(platform::process_id()));
+        base = fs::temp_directory_path() / ("fjell_fjss_loader_test_" + std::to_string(ftk::platform::process_id()));
         fs::create_directories(base / "shared");
     }
     ~SheetDir() { fs::remove_all(base); }

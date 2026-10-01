@@ -50,7 +50,7 @@ namespace fs = std::filesystem;
 VfxEditorContext::VfxEditorContext(VfxEditorDeps deps)
     : deps_{deps} {}
 
-EditorContext::DockPreset VfxEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset VfxEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .under_preview = {"Graph", "Timeline"}, .inspector = {"Modules"}};
 }
 
@@ -59,7 +59,7 @@ void VfxEditorContext::init() {
     viewport_manager_.add_viewport(ViewportSource::final_color, "Preview");
 
     timeline_.set_title("Timeline");
-    timeline_.set_category(theme::Category::Vfx);
+    timeline_.set_category(ftk::theme::Category::Vfx);
     timeline_.set_looping(true);
     timeline_.set_duration(5.0f);
     timeline_.set_playing(true);
@@ -223,7 +223,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
         resolve_vfx_textures(loaded, *deps_.resource_manager, deps_.project_mgr->active());
         effect_ = std::make_shared<VfxEffect>(std::move(loaded));
     } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("VFX editor: failed to load {}: {}", fjvfx_path, e.what());
+        FTK_CORE_ERROR("VFX editor: failed to load {}: {}", fjvfx_path, e.what());
         return;
     }
 
@@ -239,7 +239,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     viewport_manager_.frame({0.0f, 1.0f, 0.0f}, 3.0f);
 
     document_opened();
-    FJELL_CORE_INFO("VFX editor opened: {}", fjvfx_path);
+    FTK_CORE_INFO("VFX editor opened: {}", fjvfx_path);
 
 #ifndef NDEBUG
     fjvfx_watcher_.clear();
@@ -256,20 +256,20 @@ void VfxEditorContext::reload_effect() {
     try {
         take_effect(load_vfx_effect(fjvfx_abs_path_));
     } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("VFX hot-reload failed for {}: {}", fjvfx_path_, e.what());
+        FTK_CORE_ERROR("VFX hot-reload failed for {}: {}", fjvfx_path_, e.what());
         return;
     }
     document_opened();
-    FJELL_CORE_INFO("VFX hot-reloaded: {}", fjvfx_path_);
+    FTK_CORE_INFO("VFX hot-reloaded: {}", fjvfx_path_);
 }
 
 #endif
 
-Result<> VfxEditorContext::restore(const std::string& text) {
+ftk::Result<> VfxEditorContext::restore(const std::string& text) {
     try {
         take_effect(load_vfx_effect_from_json(nlohmann::json::parse(text)));
     } catch (const std::exception& e) {
-        return make_error(e.what());
+        return ftk::make_error(e.what());
     }
     return {};
 }
@@ -292,18 +292,17 @@ std::string VfxEditorContext::document() const {
     return effect_ ? vfx_effect_text(*effect_) : std::string{};
 }
 
-Result<> VfxEditorContext::write() {
-    if (fjvfx_abs_path_.empty() || !effect_) return make_error("no effect is open");
+ftk::Result<> VfxEditorContext::write() {
+    if (fjvfx_abs_path_.empty() || !effect_) return ftk::make_error("no effect is open");
 
     try {
         save_vfx_effect(fjvfx_abs_path_, *effect_);
     } catch (const std::exception& e) {
-        return make_error(e.what());
+        return ftk::make_error(e.what());
     }
-    FJELL_CORE_INFO("VFX saved: {}", fjvfx_abs_path_);
+    FTK_CORE_INFO("VFX saved: {}", fjvfx_abs_path_);
     return {};
 }
-
 
 void VfxEditorContext::setup_preview() {
     preview_scene_.clear();
@@ -327,19 +326,19 @@ void VfxEditorContext::show_emitter() {
 }
 
 void VfxEditorContext::draw_graph() {
-    auto panel = ui::Panel(ui::icon::vfx, ctx_title("Graph").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::vfx, ctx_title("Graph").c_str());
     if (!panel) return;
     if (!effect_) {
-        ui::empty_state(ui::icon::vfx, "No effect", "The effect couldn't be read; the console says why");
+        ftk::ui::empty_state(ftk::ui::icon::vfx, "No effect", "The effect couldn't be read; the console says why");
         return;
     }
 
     // The emitters as tabs, the one the graph shows in front (sheet 25).
     std::vector<std::string> names;
     for (const auto& em : effect_->emitters) names.push_back(em.name);
-    const auto tabs = ui::tab_strip("##emitters", {.names = names,
+    const auto tabs = ftk::ui::tab_strip("##emitters", {.names = names,
                                                    .selected = std::max(selected_emitter_, 0),
-                                                   .category = theme::Category::Vfx,
+                                                   .category = ftk::theme::Category::Vfx,
                                                    .add_label = "Add emitter",
                                                    .remove_label = "Remove emitter"});
     if (tabs.selected) {
@@ -363,10 +362,10 @@ void VfxEditorContext::draw_graph() {
     if (tabs.rename) {
         renaming_emitter_ = *tabs.rename;
         rename_text_ = effect_->emitters[static_cast<size_t>(*tabs.rename)].name;
-        ui::open_dialog("##rename_emitter");
+        ftk::ui::open_dialog("##rename_emitter");
     }
-    if (ui::prompt_dialog("##rename_emitter", {.title = "Rename emitter", .hint = "Its name", .confirm = "Rename"},
-                          rename_text_) == ui::DialogAnswer::Confirm &&
+    if (ftk::ui::prompt_dialog("##rename_emitter", {.title = "Rename emitter", .hint = "Its name", .confirm = "Rename"},
+                          rename_text_) == ftk::ui::DialogAnswer::Confirm &&
         renaming_emitter_ >= 0 && renaming_emitter_ < static_cast<int>(effect_->emitters.size())) {
         effect_->emitters[static_cast<size_t>(renaming_emitter_)].name = rename_text_;
     }
@@ -375,10 +374,10 @@ void VfxEditorContext::draw_graph() {
     ImGui::TextUnformatted("Preview speed");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120.0f);
-    (void)ui::slider("##speed", time_scale_, 0.0f, 3.0f, ui::Unit::Times, "%.1f");
+    (void)ftk::ui::slider("##speed", time_scale_, 0.0f, 3.0f, ftk::ui::Unit::Times, "%.1f");
 
     if (selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-        ui::empty_state(ui::icon::vfx, "No emitter selected", "Pick one above or add one");
+        ftk::ui::empty_state(ftk::ui::icon::vfx, "No emitter selected", "Pick one above or add one");
         return;
     }
     (void)graph_.draw(effect_->emitters[static_cast<size_t>(selected_emitter_)]);
@@ -445,7 +444,7 @@ std::vector<std::unique_ptr<VfxModule>>& VfxEditorContext::stack_of(VfxEmitter& 
 
 void VfxEditorContext::draw_add_module_items(VfxEmitter& emitter, int stack) {
     for (const auto& kind : MODULE_KINDS) {
-        if (kind.stack != stack || !ui::menu_item({.label = kind.label})) continue;
+        if (kind.stack != stack || !ftk::ui::menu_item({.label = kind.label})) continue;
         auto& modules = stack_of(emitter, stack);
         modules.push_back(kind.make());
         graph_.select_module(stack, static_cast<int>(modules.size()) - 1);
@@ -476,52 +475,52 @@ void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
 }
 
 void VfxEditorContext::draw_module_stack() {
-    auto panel = ui::Panel(ui::icon::vfx, ctx_title("Modules").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::vfx, ctx_title("Modules").c_str());
     if (!panel) return;
     if (!effect_ || selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-        ui::empty_state(ui::icon::vfx, "No emitter selected", "Select an emitter in the graph");
+        ftk::ui::empty_state(ftk::ui::icon::vfx, "No emitter selected", "Select an emitter in the graph");
         return;
     }
     auto& emitter = effect_->emitters[static_cast<size_t>(selected_emitter_)];
 
-    ui::section("Emitter", ui::icon::vfx);
-    if (auto t = ui::PropertyTable("##emitter")) {
-        ui::row("Name", [&] { (void)ui::text_field("##name", emitter.name); });
-        ui::row("Max particles", [&] {
+    ftk::ui::section("Emitter", ftk::ui::icon::vfx);
+    if (auto t = ftk::ui::PropertyTable("##emitter")) {
+        ftk::ui::row("Name", [&] { (void)ftk::ui::text_field("##name", emitter.name); });
+        ftk::ui::row("Max particles", [&] {
             int max_particles = static_cast<int>(emitter.max_particles);
-            if (ui::drag_int("##max", max_particles, 10.0f, 100, 1000000).changed) {
+            if (ftk::ui::drag_int("##max", max_particles, 10.0f, 100, 1000000).changed) {
                 emitter.max_particles = static_cast<uint32_t>(std::max(100, max_particles));
             }
         });
-        static constexpr ui::Choice<ParticleBlendMode> BLENDS[] = {
+        static constexpr ftk::ui::Choice<ParticleBlendMode> BLENDS[] = {
             {ParticleBlendMode::additive, "Additive"}, {ParticleBlendMode::alpha, "Alpha"},
             {ParticleBlendMode::opaque, "Opaque"}};
-        ui::row("Blend", [&] { (void)ui::choice("##blend", emitter.blend_mode, BLENDS); });
-        ui::row("Start delay", [&] {
-            (void)ui::drag("##delay", emitter.start_delay,
-                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ui::Unit::Seconds});
+        ftk::ui::row("Blend", [&] { (void)ftk::ui::choice("##blend", emitter.blend_mode, BLENDS); });
+        ftk::ui::row("Start delay", [&] {
+            (void)ftk::ui::drag("##delay", emitter.start_delay,
+                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ftk::ui::Unit::Seconds});
         });
         char lifetime[80];
         std::snprintf(lifetime, sizeof(lifetime), "How long it emits. 0 runs for a particle's lifetime, %.1f s.",
                       emitter.lifetime_max());
-        ui::row("Duration", lifetime, [&] {
-            (void)ui::drag("##duration", emitter.duration,
-                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ui::Unit::Seconds});
+        ftk::ui::row("Duration", lifetime, [&] {
+            (void)ftk::ui::drag("##duration", emitter.duration,
+                           {.speed = 0.05f, .min = 0.0f, .max = 60.0f, .unit = ftk::ui::Unit::Seconds});
         });
-        ui::row("Loops", "How many times it runs. 0 loops for ever.", [&] {
+        ftk::ui::row("Loops", "How many times it runs. 0 loops for ever.", [&] {
             int loops = static_cast<int>(emitter.loop_count);
-            if (ui::drag_int("##loops", loops, 0.2f, 0, 1000).changed) {
+            if (ftk::ui::drag_int("##loops", loops, 0.2f, 0, 1000).changed) {
                 emitter.loop_count = static_cast<uint32_t>(std::max(0, loops));
             }
         });
-        ui::row("Own time", "Off, the graph's Time node reads the engine's clock, so a sin- or cos-driven value "
+        ftk::ui::row("Own time", "Off, the graph's Time node reads the engine's clock, so a sin- or cos-driven value "
                             "lands on another phase each time the emitter fires. On, each firing starts its own "
                             "Time at 0, so the graph replays the same way every time.",
-                [&] { (void)ui::checkbox("##instanced_time", emitter.instanced_time); });
+                [&] { (void)ftk::ui::checkbox("##instanced_time", emitter.instanced_time); });
         char now[96];
         std::snprintf(now, sizeof(now), "%.2f s, loop %u, %s", emitter.emitter_elapsed, emitter.loops_completed,
                       emitter.finished ? "finished" : emitter.paused ? "paused" : "playing");
-        ui::row("Now", [&] { ui::readout(now); });
+        ftk::ui::row("Now", [&] { ftk::ui::readout(now); });
     }
 
     InspectorContext ictx{};
@@ -532,15 +531,15 @@ void VfxEditorContext::draw_module_stack() {
 
     for (int stack = 0; stack < 3; ++stack) {
         auto& modules = stack_of(emitter, stack);
-        ui::section(STACK_NAMES[stack], ui::icon::vfx);
+        ftk::ui::section(STACK_NAMES[stack], ftk::ui::icon::vfx);
         std::optional<std::size_t> remove;
         for (std::size_t i = 0; i < modules.size(); ++i) {
             VfxModule& module = *modules[i];
             ImGui::PushID(stack);
             ImGui::PushID(static_cast<int>(i));
             bool removed = false;
-            if (ui::component_block(module.name(), theme::Category::Vfx, removed, module.enabled)) {
-                ui::FadedBody faded(!module.enabled);
+            if (ftk::ui::component_block(module.name(), ftk::theme::Category::Vfx, removed, module.enabled)) {
+                ftk::ui::FadedBody faded(!module.enabled);
                 if (draw_vfx_module_fields(module, ictx).committed) resolve_module_assets(module);
             }
             if (removed) remove = i;
@@ -556,7 +555,7 @@ void VfxEditorContext::draw_module_stack() {
         ImGui::PushID(stack);
         const std::string add = std::string("Add ") + (stack == 0 ? "spawn" : stack == 1 ? "update" : "render") +
                                 " module";
-        if (ui::action(ui::icon::add, add.c_str(), ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_to_stack");
+        if (ftk::ui::action(ftk::ui::icon::add, add.c_str(), ftk::ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_to_stack");
         if (ImGui::BeginPopup("##add_to_stack")) {
             draw_add_module_items(emitter, stack);
             ImGui::EndPopup();

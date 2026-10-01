@@ -12,20 +12,20 @@ constexpr std::string_view INSTANCES = "instance_transforms";
 constexpr std::string_view VISIBLE_INSTANCES = "visible_instance_transforms";
 constexpr std::string_view SPLINE_SEGMENTS = "spline_segments";
 
-gpu::ShaderBinding storage_binding(std::string_view name, uint32_t binding, gpu::ShaderStages stages) {
-    gpu::ShaderBinding b;
+ftk::gpu::ShaderBinding storage_binding(std::string_view name, uint32_t binding, ftk::gpu::ShaderStages stages) {
+    ftk::gpu::ShaderBinding b;
     b.name = std::string(name);
     b.binding = binding;
-    b.kind = gpu::BindingKind::storage_buffer;
+    b.kind = ftk::gpu::BindingKind::storage_buffer;
     b.stages = stages;
     return b;
 }
 
 } // namespace
 
-Result<gpu::SharedLayout> DrawDataDescriptor::make_layout(gpu::Device& gpu) {
-    using gpu::ShaderStage;
-    return gpu.create(gpu::SharedLayoutDesc{
+ftk::Result<ftk::gpu::SharedLayout> DrawDataDescriptor::make_layout(ftk::gpu::Device& gpu) {
+    using ftk::gpu::ShaderStage;
+    return gpu.create(ftk::gpu::SharedLayoutDesc{
         .name = "draw data",
         .usual_set = 2,
         .bindings = {
@@ -42,20 +42,20 @@ Result<gpu::SharedLayout> DrawDataDescriptor::make_layout(gpu::Device& gpu) {
     });
 }
 
-Result<> DrawDataDescriptor::create(gpu::Device& gpu, gpu::SharedLayout layout, gpu::Buffer empty) {
+ftk::Result<> DrawDataDescriptor::create(ftk::gpu::Device& gpu, ftk::gpu::SharedLayout layout, ftk::gpu::Buffer empty) {
     gpu_ = &gpu;
     empty_ = empty;
     for (auto& group : groups_) {
-        auto made = gpu.create(gpu::SharedGroupDesc{
+        auto made = gpu.create(ftk::gpu::SharedGroupDesc{
             .layout = layout,
-            .entries = {{DRAWS, gpu::storage(empty)},
-                        {BONES, gpu::storage(empty)},
-                        {INSTANCES, gpu::storage(empty)},
-                        {VISIBLE_INSTANCES, gpu::storage(empty)},
-                        {SPLINE_SEGMENTS, gpu::storage(empty)}},
+            .entries = {{DRAWS, ftk::gpu::storage(empty)},
+                        {BONES, ftk::gpu::storage(empty)},
+                        {INSTANCES, ftk::gpu::storage(empty)},
+                        {VISIBLE_INSTANCES, ftk::gpu::storage(empty)},
+                        {SPLINE_SEGMENTS, ftk::gpu::storage(empty)}},
             .name = "draw_data",
         });
-        if (!made) return make_error(made.error());
+        if (!made) return ftk::make_error(made.error());
         group = std::move(*made);
     }
     return {};
@@ -65,31 +65,31 @@ void DrawDataDescriptor::destroy() {
     for (auto& group : groups_) group.reset();
 }
 
-void DrawDataDescriptor::write(std::string_view binding, const gpu::BufferRange& range, uint32_t frame_index) {
-    const gpu::BindEntry entry[] = {
-        {binding, gpu::storage(range.buffer.valid() && range.size > 0 ? range : gpu::BufferRange(empty_))}};
+void DrawDataDescriptor::write(std::string_view binding, const ftk::gpu::BufferRange& range, uint32_t frame_index) {
+    const ftk::gpu::BindEntry entry[] = {
+        {binding, ftk::gpu::storage(range.buffer.valid() && range.size > 0 ? range : ftk::gpu::BufferRange(empty_))}};
     if (auto written = gpu_->update(groups_[frame_index], entry); !written) {
-        FJELL_GFX_ERROR("Draw data '{}': {}", binding, written.error());
+        FTK_GFX_ERROR("Draw data '{}': {}", binding, written.error());
     }
 }
 
-void DrawDataDescriptor::update(const gpu::BufferRange& range, uint32_t frame_index) {
+void DrawDataDescriptor::update(const ftk::gpu::BufferRange& range, uint32_t frame_index) {
     write(DRAWS, range, frame_index);
 }
 
-void DrawDataDescriptor::update_bones(const gpu::BufferRange& range, uint32_t frame_index) {
+void DrawDataDescriptor::update_bones(const ftk::gpu::BufferRange& range, uint32_t frame_index) {
     write(BONES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index) {
+void DrawDataDescriptor::update_instance_transforms(const ftk::gpu::BufferRange& range, uint32_t frame_index) {
     write(INSTANCES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_visible_instance_transforms(const gpu::BufferRange& range, uint32_t frame_index) {
+void DrawDataDescriptor::update_visible_instance_transforms(const ftk::gpu::BufferRange& range, uint32_t frame_index) {
     write(VISIBLE_INSTANCES, range, frame_index);
 }
 
-void DrawDataDescriptor::update_spline_segments(const gpu::BufferRange& range, uint32_t frame_index) {
+void DrawDataDescriptor::update_spline_segments(const ftk::gpu::BufferRange& range, uint32_t frame_index) {
     write(SPLINE_SEGMENTS, range, frame_index);
 }
 

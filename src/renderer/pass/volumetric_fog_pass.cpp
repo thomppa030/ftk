@@ -67,7 +67,7 @@ FogCore::Images* images_for(const FrameContext& ctx, FogCore* core) {
 // integrated volume across the whole screen, so any froxel column the
 // dispatches miss reaches the screen as unwritten memory.
 glm::uvec3 froxel_grid(uint32_t screen_w, uint32_t screen_h) {
-    return TransientImagePool::resolve_extent(FogCore::volume_desc(), {screen_w, screen_h});
+    return ftk::TransientImagePool::resolve_extent(FogCore::volume_desc(), {screen_w, screen_h});
 }
 
 // Workgroups covering `size` froxels or pixels, a tile at a time.
@@ -79,23 +79,23 @@ uint32_t tiles(uint32_t size) {
 
 // ── Images ──────────────────────────────────────────────────────────────────
 
-void FogCore::Images::create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+void FogCore::Images::create(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
     volume_extent = froxel_grid(screen_w, screen_h);
     ping_pong = 0;
     frame_counter = 0;
 
     for (auto& volume : scatter_volumes) {
-        auto made = gpu.create(gpu::TextureDesc{
-            .kind = gpu::TextureKind::tex3d,
+        auto made = gpu.create(ftk::gpu::TextureDesc{
+            .kind = ftk::gpu::TextureKind::tex3d,
             .format = VOLUME_FORMAT,
             .width = volume_extent.x,
             .height = volume_extent.y,
             .depth = volume_extent.z,
-            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
             .name = "fog_scatter",
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             destroy();
             return;
         }
@@ -108,7 +108,7 @@ void FogCore::Images::destroy() {
     volume_extent = glm::uvec3(0);
 }
 
-void FogCore::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
+void FogCore::Images::resize(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h) {
     const glm::uvec3 grid = froxel_grid(screen_w, screen_h);
     if (grid.x == volume_extent.x && grid.y == volume_extent.y && scatter_volumes[0]) { return; }
     destroy();
@@ -117,28 +117,28 @@ void FogCore::Images::resize(gpu::Device& gpu, uint32_t screen_w, uint32_t scree
 
 // ── FogCore ─────────────────────────────────────────────────────────────────
 
-Result<> FogCore::create(const PassResources& resources) {
+ftk::Result<> FogCore::create(const PassResources& resources) {
     gpu_device_ = resources.device;
     globals_ = resources.globals;
     bindless_layout_ = resources.bindless;
 
-    linear_sampler_ = gpu_device_->sampler({.filter = gpu::Filter::linear,
-                                            .mip_filter = gpu::Filter::nearest,
-                                            .address = gpu::Address::clamp});
+    linear_sampler_ = gpu_device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                            .mip_filter = ftk::gpu::Filter::nearest,
+                                            .address = ftk::gpu::Address::clamp});
 
     // The medium and light pipelines are built per fog shader in
     // prepare_frame(); these three steps are the engine's own. Temporal and
     // composite read the globals at set 0; integrate binds only its own.
-    FJELL_TRY(temporal_pipeline_, gpu_device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(temporal_pipeline_, gpu_device_->create(ftk::gpu::ComputePipelineDesc{
                                       .shader = "shaders/fog_temporal.comp",
                                       .shared = {globals_},
                                       .name = "fog_temporal",
                                   }));
-    FJELL_TRY(integrate_pipeline_, gpu_device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(integrate_pipeline_, gpu_device_->create(ftk::gpu::ComputePipelineDesc{
                                        .shader = "shaders/fog_integrate.comp",
                                        .name = "fog_integrate",
                                    }));
-    FJELL_TRY(composite_pipeline_, gpu_device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(composite_pipeline_, gpu_device_->create(ftk::gpu::ComputePipelineDesc{
                                        .shader = "shaders/fog_composite.comp",
                                        .shared = {globals_},
                                        .name = "fog_composite",
@@ -146,7 +146,7 @@ Result<> FogCore::create(const PassResources& resources) {
 
     default_images_.create(*gpu_device_, 1, 1);
 
-    FJELL_GFX_DEBUG("Volumetric fog pass created");
+    FTK_GFX_DEBUG("Volumetric fog pass created");
     return {};
 }
 
@@ -239,7 +239,7 @@ void FogCore::ensure_fallback(Fallback& fallback, std::string_view shader) {
         // Said once: this runs every frame until a hot reload of the file
         // compiles, and the cache has already logged the compiler's output.
         if (reported_entries_.insert(pid).second) {
-            FJELL_GFX_ERROR("Fog: '{}' failed to compile; nothing draws with it until it does",
+            FTK_GFX_ERROR("Fog: '{}' failed to compile; nothing draws with it until it does",
                             shader);
         }
         return;
@@ -297,7 +297,7 @@ const FogCore::MaterialPipeline* FogCore::ensure_material_pipeline(uint32_t pipe
     const auto& meta = pipeline_cache_->metadata(pipeline_id);
     if (meta.shader_type != ShaderType::Fog) {
         if (reported_entries_.insert(pipeline_id).second) {
-            FJELL_GFX_ERROR("Fog: '{}' is shader_type '{}', a fog node needs shader_type fog",
+            FTK_GFX_ERROR("Fog: '{}' is shader_type '{}', a fog node needs shader_type fog",
                             pipeline_cache_->shader_path(pipeline_id),
                             shader_type_name(meta.shader_type));
         }
@@ -310,10 +310,10 @@ const FogCore::MaterialPipeline* FogCore::ensure_material_pipeline(uint32_t pipe
 
     // Set 0 the globals, set 1 the bindless material set the shader reads its
     // uniforms from, set 2 the step's own images.
-    const auto build = [&](const std::string& spv, std::string_view step) -> Result<gpu::Owned<gpu::ComputePipeline>> {
-        auto code = gpu::read_spirv(spv);
+    const auto build = [&](const std::string& spv, std::string_view step) -> ftk::Result<ftk::gpu::Owned<ftk::gpu::ComputePipeline>> {
+        auto code = ftk::gpu::read_spirv(spv);
         if (!code) return std::unexpected(code.error());
-        return gpu_device_->create(gpu::ComputePipelineDesc{
+        return gpu_device_->create(ftk::gpu::ComputePipelineDesc{
             .shader = std::span<const uint32_t>(*code),
             .shared = {globals_, bindless_layout_},
             .name = step,
@@ -322,7 +322,7 @@ const FogCore::MaterialPipeline* FogCore::ensure_material_pipeline(uint32_t pipe
     auto medium = build(pipeline_cache_->fog_medium_spv(pipeline_id), "fog_medium");
     auto light = build(pipeline_cache_->fog_light_spv(pipeline_id), "fog_light");
     if (!medium || !light) {
-        FJELL_GFX_ERROR("Fog: '{}': {}", pipeline_cache_->shader_path(pipeline_id),
+        FTK_GFX_ERROR("Fog: '{}': {}", pipeline_cache_->shader_path(pipeline_id),
                         !medium ? medium.error() : light.error());
         return it != material_pipelines_.end() ? &it->second : nullptr;
     }
@@ -333,7 +333,7 @@ const FogCore::MaterialPipeline* FogCore::ensure_material_pipeline(uint32_t pipe
     slot.medium = std::move(*medium);
     slot.light = std::move(*light);
     slot.generation = generation;
-    FJELL_GFX_DEBUG("Fog: built pipelines for '{}'", pipeline_cache_->shader_path(pipeline_id));
+    FTK_GFX_DEBUG("Fog: built pipelines for '{}'", pipeline_cache_->shader_path(pipeline_id));
     return &slot;
 }
 
@@ -434,13 +434,13 @@ FogCore::PushConstants FogCore::make_push(const Images& imgs,
     return push;
 }
 
-TextureDesc FogCore::volume_desc() {
-    TextureDesc desc{};
+ftk::TextureDesc FogCore::volume_desc() {
+    ftk::TextureDesc desc{};
     desc.format = VOLUME_FORMAT;
-    desc.size_class = SizeClass::viewport;
+    desc.size_class = ftk::SizeClass::viewport;
     desc.viewport_divisor = SCREEN_DIVISOR;
     desc.depth = DEPTH_SLICES;
-    desc.kind = gpu::TextureKind::tex3d;
+    desc.kind = ftk::gpu::TextureKind::tex3d;
     return desc;
 }
 
@@ -532,36 +532,36 @@ PassSetup FogMediumPass::setup() const {
     };
 }
 
-void FogMediumPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogMediumPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!enabled()) { return; }
 
     auto medium = builder.create(MEDIUM_NAME, volume_desc());
-    builder.write(medium, gpu::Access::storage_write_compute);
+    builder.write(medium, ftk::gpu::Access::storage_write_compute);
     // The surface depth, for which froxels lie inside a body of water. Read
     // whether or not a water draws this frame, so the set is one shape.
     auto depth = builder.import_named(ctx, COMPOSITE_DEPTH_NAME);
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
     auto scene_depth = builder.import_named(ctx, "depth");
-    builder.read(scene_depth, gpu::Access::sampled_compute);
+    builder.read(scene_depth, ftk::gpu::Access::sampled_compute);
     // The waterline dispatch recorded at the head of this node binds the
     // water's set, and so the simulated sea's textures.
-    WaterPass::declare_simulation_reads(builder, ctx, gpu::Access::sampled_compute);
+    WaterPass::declare_simulation_reads(builder, ctx, ftk::gpu::Access::sampled_compute);
     // What stirs the fog, through the global set.
     if (auto motion = builder.import_named_optional(ctx, "motion_field"); motion.valid()) {
-        builder.read(motion, gpu::Access::sampled_compute);
+        builder.read(motion, ftk::gpu::Access::sampled_compute);
     }
     if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
-        builder.read(stir, gpu::Access::sampled_compute);
+        builder.read(stir, ftk::gpu::Access::sampled_compute);
     }
     // The waterline mask, written by the water pass's dispatch at the start
     // of this node's recording and read by every medium dispatch after it.
     // One texel per froxel column.
-    TextureDesc line_desc{};
-    line_desc.format = gpu::Format::r8_unorm;
-    line_desc.size_class = SizeClass::viewport;
+    ftk::TextureDesc line_desc{};
+    line_desc.format = ftk::gpu::Format::r8_unorm;
+    line_desc.size_class = ftk::SizeClass::viewport;
     line_desc.viewport_divisor = SCREEN_DIVISOR;
     auto line = builder.create(WATER_LINE_NAME, line_desc);
-    builder.write(line, gpu::Access::storage_write_compute);
+    builder.write(line, ftk::gpu::Access::storage_write_compute);
 }
 
 void FogMediumPass::record(const FrameContext& ctx) {
@@ -570,13 +570,13 @@ void FogMediumPass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, this);
     if (imgs == nullptr || !imgs->scatter_volumes[0]) { return; }
 
-    const gpu::Texture medium = ctx.texture(MEDIUM_NAME);
-    const gpu::Texture surface_depth = ctx.texture(COMPOSITE_DEPTH_NAME);
-    const gpu::Texture scene_depth = ctx.texture("depth");
-    const gpu::Texture line = ctx.texture(WATER_LINE_NAME);
+    const ftk::gpu::Texture medium = ctx.texture(MEDIUM_NAME);
+    const ftk::gpu::Texture surface_depth = ctx.texture(COMPOSITE_DEPTH_NAME);
+    const ftk::gpu::Texture scene_depth = ctx.texture("depth");
+    const ftk::gpu::Texture line = ctx.texture(WATER_LINE_NAME);
     if (!medium.valid() || !surface_depth.valid() || !scene_depth.valid() || !line.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_fog_medium");
+    FTK_PROFILE_SCOPE_N("record_fog_medium");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Medium");
     const auto extent = ctx.target->extent();
@@ -587,18 +587,18 @@ void FogMediumPass::record(const FrameContext& ctx) {
     if (auto* water_pass = ctx.passes != nullptr ? ctx.passes->try_get<WaterPass>("water")
                                                  : nullptr) {
         water_pass->record_water_line(ctx, line);
-        cmd.barrier(line, gpu::Access::storage_write_compute, gpu::Access::storage_read_compute);
+        cmd.barrier(line, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::storage_read_compute);
     }
 
     PushConstants push = make_push(*imgs, extent.x, extent.y);
-    const auto bind = [&](gpu::ComputePipeline pipeline) {
+    const auto bind = [&](ftk::gpu::ComputePipeline pipeline) {
         cmd.set_pipeline(pipeline);
         cmd.bind(ctx.globals);
         cmd.bind(ctx.bindless);
-        cmd.bind({{"fog_medium", gpu::storage(medium)},
-                  {"surface_depth_tex", gpu::sampled(surface_depth, fog_sampler())},
-                  {"water_line_img", gpu::storage(line)},
-                  {"scene_depth_tex", gpu::sampled(scene_depth, fog_sampler())}});
+        cmd.bind({{"fog_medium", ftk::gpu::storage(medium)},
+                  {"surface_depth_tex", ftk::gpu::sampled(surface_depth, fog_sampler())},
+                  {"water_line_img", ftk::gpu::storage(line)},
+                  {"scene_depth_tex", ftk::gpu::sampled(scene_depth, fog_sampler())}});
     };
 
     // The haze first, over the whole grid: it writes rather than adds, so
@@ -610,9 +610,9 @@ void FogMediumPass::record(const FrameContext& ctx) {
 
     // Each volume adds over what is there, so every dispatch waits for the
     // one before it.
-    gpu::ComputePipeline bound = medium_pipeline();
-    const auto next_source = [&](gpu::ComputePipeline pipeline) {
-        cmd.barrier(medium, gpu::Access::storage_write_compute, gpu::Access::storage_read_write_compute);
+    ftk::gpu::ComputePipeline bound = medium_pipeline();
+    const auto next_source = [&](ftk::gpu::ComputePipeline pipeline) {
+        cmd.barrier(medium, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::storage_read_write_compute);
         if (pipeline != bound) {
             bind(pipeline);
             bound = pipeline;
@@ -662,7 +662,7 @@ void FogMediumPass::record(const FrameContext& ctx) {
 
 // ── FogLightPass ────────────────────────────────────────────────────────────
 
-Result<> FogLightPass::create(const PassResources& /*resources*/) {
+ftk::Result<> FogLightPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -680,31 +680,31 @@ PassSetup FogLightPass::setup() const {
     };
 }
 
-void FogLightPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogLightPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto medium = builder.create(FogCore::MEDIUM_NAME, FogCore::volume_desc());
-    builder.read(medium, gpu::Access::storage_read_compute);
+    builder.read(medium, ftk::gpu::Access::storage_read_compute);
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
-    builder.write(scatter_cur, gpu::Access::storage_write_compute);
+    builder.write(scatter_cur, ftk::gpu::Access::storage_write_compute);
     builder.has_side_effects();  // writes a persistent cross-frame volume
 
     // What the light variant samples through the global set.
     if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, gpu::Access::sampled_compute);
+        builder.read(atlas, ftk::gpu::Access::sampled_compute);
     }
     if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
-        builder.read(atlas, gpu::Access::sampled_compute);
+        builder.read(atlas, ftk::gpu::Access::sampled_compute);
     }
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
-        builder.read(sky, gpu::Access::sampled_compute);
+        builder.read(sky, ftk::gpu::Access::sampled_compute);
     }
     if (auto clouds = builder.import_named_optional(ctx, "cloud_shadow"); clouds.valid()) {
-        builder.read(clouds, gpu::Access::sampled_compute);
+        builder.read(clouds, ftk::gpu::Access::sampled_compute);
     }
     if (auto stir = builder.import_named_optional(ctx, "fog_density_field"); stir.valid()) {
-        builder.read(stir, gpu::Access::sampled_compute);
+        builder.read(stir, ftk::gpu::Access::sampled_compute);
     }
 }
 
@@ -713,10 +713,10 @@ void FogLightPass::record(const FrameContext& ctx) {
 
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || !imgs->scatter_volumes[0]) { return; }
-    const gpu::Texture medium = ctx.texture(FogCore::MEDIUM_NAME);
+    const ftk::gpu::Texture medium = ctx.texture(FogCore::MEDIUM_NAME);
     if (!medium.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_fog_light");
+    FTK_PROFILE_SCOPE_N("record_fog_light");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Light");
     const auto extent = ctx.target->extent();
@@ -725,15 +725,15 @@ void FogLightPass::record(const FrameContext& ctx) {
     cmd.set_pipeline(core_->light_pipeline());
     cmd.bind(ctx.globals);
     cmd.bind(ctx.bindless);
-    cmd.bind({{"fog_medium", gpu::storage(medium)},
-              {"scatter_volume", gpu::storage(imgs->scatter_volumes[imgs->cur_index()])}});
+    cmd.bind({{"fog_medium", ftk::gpu::storage(medium)},
+              {"scatter_volume", ftk::gpu::storage(imgs->scatter_volumes[imgs->cur_index()])}});
     cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), grid.z);
 }
 
 // ── FogTemporalPass ─────────────────────────────────────────────────────────
 
-Result<> FogTemporalPass::create(const PassResources& /*resources*/) {
+ftk::Result<> FogTemporalPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -751,14 +751,14 @@ PassSetup FogTemporalPass::setup() const {
     };
 }
 
-void FogTemporalPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogTemporalPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
     auto scatter_prev = builder.import_named(ctx, "fog_scatter_prev");
-    builder.read(scatter_cur, gpu::Access::storage_read_compute);
-    builder.write(scatter_cur, gpu::Access::storage_write_compute);
-    builder.read(scatter_prev, gpu::Access::sampled_compute);
+    builder.read(scatter_cur, ftk::gpu::Access::storage_read_compute);
+    builder.write(scatter_cur, ftk::gpu::Access::storage_write_compute);
+    builder.read(scatter_prev, ftk::gpu::Access::sampled_compute);
     builder.has_side_effects();
 }
 
@@ -768,7 +768,7 @@ void FogTemporalPass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || !imgs->scatter_volumes[0]) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_fog_temporal");
+    FTK_PROFILE_SCOPE_N("record_fog_temporal");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Temporal");
     const auto extent = ctx.target->extent();
@@ -776,15 +776,15 @@ void FogTemporalPass::record(const FrameContext& ctx) {
 
     cmd.set_pipeline(core_->temporal_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"scatter_volume", gpu::storage(imgs->scatter_volumes[imgs->cur_index()])},
-              {"history_volume", gpu::sampled(imgs->scatter_volumes[imgs->prev_index()], core_->fog_sampler())}});
+    cmd.bind({{"scatter_volume", ftk::gpu::storage(imgs->scatter_volumes[imgs->cur_index()])},
+              {"history_volume", ftk::gpu::sampled(imgs->scatter_volumes[imgs->prev_index()], core_->fog_sampler())}});
     cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), grid.z);
 }
 
 // ── FogIntegratePass ────────────────────────────────────────────────────────
 
-Result<> FogIntegratePass::create(const PassResources& /*resources*/) {
+ftk::Result<> FogIntegratePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -802,14 +802,14 @@ PassSetup FogIntegratePass::setup() const {
     };
 }
 
-void FogIntegratePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogIntegratePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto scatter_cur = builder.import_named(ctx, "fog_scatter_cur");
-    builder.read(scatter_cur, gpu::Access::sampled_compute);
+    builder.read(scatter_cur, ftk::gpu::Access::sampled_compute);
 
     auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
-    builder.write(integrated, gpu::Access::storage_write_compute);
+    builder.write(integrated, ftk::gpu::Access::storage_write_compute);
 }
 
 void FogIntegratePass::record(const FrameContext& ctx) {
@@ -817,10 +817,10 @@ void FogIntegratePass::record(const FrameContext& ctx) {
 
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || !imgs->scatter_volumes[0]) { return; }
-    const gpu::Texture integrated = ctx.texture(FogCore::INTEGRATED_NAME);
+    const ftk::gpu::Texture integrated = ctx.texture(FogCore::INTEGRATED_NAME);
     if (!integrated.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_fog_integrate");
+    FTK_PROFILE_SCOPE_N("record_fog_integrate");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Integrate");
     const auto extent = ctx.target->extent();
@@ -828,15 +828,15 @@ void FogIntegratePass::record(const FrameContext& ctx) {
 
     // One invocation per froxel column, marching its slices front to back.
     cmd.set_pipeline(core_->integrate_pipeline());
-    cmd.bind({{"scatter_volume", gpu::sampled(imgs->scatter_volumes[imgs->cur_index()], core_->fog_sampler())},
-              {"integrated_volume", gpu::storage(integrated)}});
+    cmd.bind({{"scatter_volume", ftk::gpu::sampled(imgs->scatter_volumes[imgs->cur_index()], core_->fog_sampler())},
+              {"integrated_volume", ftk::gpu::storage(integrated)}});
     cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(grid.x), tiles(grid.y), 1);
 }
 
 // ── FogCompositePass ────────────────────────────────────────────────────────
 
-Result<> FogCompositePass::create(const PassResources& /*resources*/) {
+ftk::Result<> FogCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -857,16 +857,16 @@ PassSetup FogCompositePass::setup() const {
     };
 }
 
-void FogCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogCompositePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->enabled()) { return; }
 
     auto integrated = builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc());
-    builder.read(integrated, gpu::Access::sampled_compute);
+    builder.read(integrated, ftk::gpu::Access::sampled_compute);
 
     auto depth = builder.import_named(ctx, FogCore::COMPOSITE_DEPTH_NAME);
     auto color = builder.import_named(ctx, "color");
-    builder.read(depth, gpu::Access::sampled_compute);
-    builder.read_write(color, gpu::Access::storage_read_write_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
+    builder.read_write(color, ftk::gpu::Access::storage_read_write_compute);
     // Increment the frame counter once per frame after the last node that
     // uses it. Composite is always last in the fog chain, so flip here.
     // (We mutate through core_ in record(), not declare — here we just
@@ -878,20 +878,20 @@ void FogCompositePass::record(const FrameContext& ctx) {
 
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || !imgs->scatter_volumes[0]) { return; }
-    const gpu::Texture integrated = ctx.texture(FogCore::INTEGRATED_NAME);
-    const gpu::Texture composite_depth = ctx.texture(FogCore::COMPOSITE_DEPTH_NAME);
+    const ftk::gpu::Texture integrated = ctx.texture(FogCore::INTEGRATED_NAME);
+    const ftk::gpu::Texture composite_depth = ctx.texture(FogCore::COMPOSITE_DEPTH_NAME);
     if (!integrated.valid() || !composite_depth.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_fog_composite");
+    FTK_PROFILE_SCOPE_N("record_fog_composite");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Composite");
     const auto extent = ctx.target->extent();
 
     cmd.set_pipeline(core_->composite_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"integrated_volume", gpu::sampled(integrated, core_->fog_sampler())},
-              {"depth_texture", gpu::sampled(composite_depth, core_->fog_sampler())},
-              {"scene_color", gpu::storage(ctx.target->color_texture())}});
+    cmd.bind({{"integrated_volume", ftk::gpu::sampled(integrated, core_->fog_sampler())},
+              {"depth_texture", ftk::gpu::sampled(composite_depth, core_->fog_sampler())},
+              {"scene_color", ftk::gpu::storage(ctx.target->color_texture())}});
     cmd.push(core_->make_push(*imgs, extent.x, extent.y));
     cmd.dispatch(tiles(extent.x), tiles(extent.y), 1);
 

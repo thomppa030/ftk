@@ -17,7 +17,7 @@ namespace {
 struct FontDir {
     fs::path base;
     FontDir() {
-        base = fs::temp_directory_path() / ("fjell_fjfont_test_" + std::to_string(platform::process_id()));
+        base = fs::temp_directory_path() / ("fjell_fjfont_test_" + std::to_string(ftk::platform::process_id()));
         fs::create_directories(base);
     }
     ~FontDir() { fs::remove_all(base); }

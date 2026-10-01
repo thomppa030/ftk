@@ -36,26 +36,26 @@ constexpr uint32_t MAX_NAME_LENGTH = 4096;
 
 } // namespace
 
-Result<FjTerrainData> load_fjterrain(const std::string& path) {
+ftk::Result<FjTerrainData> load_fjterrain(const std::string& path) {
     FilePtr file{std::fopen(path.c_str(), "rb")};
     if (!file) {
-        return make_error("fjterrain: cannot open " + path);
+        return ftk::make_error("fjterrain: cannot open " + path);
     }
 
     FjTerrainData data;
     if (std::fread(&data.header, sizeof(data.header), 1, file.get()) != 1) {
-        return make_error("fjterrain: truncated header in " + path);
+        return ftk::make_error("fjterrain: truncated header in " + path);
     }
     if (data.header.magic != FJTERRAIN_MAGIC) {
-        return make_error("fjterrain: bad magic in " + path);
+        return ftk::make_error("fjterrain: bad magic in " + path);
     }
     if (data.header.version != 1 && data.header.version != 2 &&
         data.header.version != FJTERRAIN_VERSION) {
-        return make_error("fjterrain: unsupported version " +
+        return ftk::make_error("fjterrain: unsupported version " +
                           std::to_string(data.header.version) + " in " + path);
     }
     if (data.header.version == 1 && data.header.layer_count > 0) {
-        return make_error("fjterrain: version 1 file carries layers but no name table in " +
+        return ftk::make_error("fjterrain: version 1 file carries layers but no name table in " +
                           path);
     }
     // Before the tiling test, because a wrong patch_quads makes that message
@@ -65,19 +65,19 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
     // mismatch renders one surface and collides against another. Refusing the
     // file is the only honest answer.
     if (data.header.patch_quads != FJTERRAIN_PATCH_QUADS) {
-        return make_error("fjterrain: patch_quads is " +
+        return ftk::make_error("fjterrain: patch_quads is " +
                           std::to_string(data.header.patch_quads) + " but the renderer only "
                           "draws " + std::to_string(FJTERRAIN_PATCH_QUADS) +
                           "; regenerate the terrain with that patch size, in " + path);
     }
     if (!patches_tile_evenly(data.header)) {
-        return make_error("fjterrain: sample_count " +
+        return ftk::make_error("fjterrain: sample_count " +
                           std::to_string(data.header.sample_count) +
                           " is not one greater than a multiple of patch_quads " +
                           std::to_string(data.header.patch_quads) + " in " + path);
     }
     if (data.header.layer_count > FJTERRAIN_MAX_LAYERS) {
-        return make_error("fjterrain: layer_count exceeds " +
+        return ftk::make_error("fjterrain: layer_count exceeds " +
                           std::to_string(FJTERRAIN_MAX_LAYERS) + " in " + path);
     }
 
@@ -88,14 +88,14 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
     if (data.header.height_format == FjTerrainHeightFormat::unorm16) {
         std::vector<uint16_t> raw(samples);
         if (std::fread(raw.data(), sizeof(uint16_t), samples, file.get()) != samples) {
-            return make_error("fjterrain: truncated height data in " + path);
+            return ftk::make_error("fjterrain: truncated height data in " + path);
         }
         for (size_t i = 0; i < samples; ++i) {
             data.heights[i] = static_cast<float>(raw[i]) / UNORM16_MAX;
         }
     } else {
         if (std::fread(data.heights.data(), sizeof(float), samples, file.get()) != samples) {
-            return make_error("fjterrain: truncated height data in " + path);
+            return ftk::make_error("fjterrain: truncated height data in " + path);
         }
     }
 
@@ -104,7 +104,7 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
             static_cast<size_t>(data.header.weight_count) * data.header.weight_count * 4;
         data.weights.resize(weights);
         if (std::fread(data.weights.data(), 1, weights, file.get()) != weights) {
-            return make_error("fjterrain: truncated weight data in " + path);
+            return ftk::make_error("fjterrain: truncated weight data in " + path);
         }
     }
 
@@ -114,7 +114,7 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
             std::vector<FjTerrainLayerV2> old_layers(data.layers.size());
             if (std::fread(old_layers.data(), sizeof(FjTerrainLayerV2), old_layers.size(),
                            file.get()) != old_layers.size()) {
-                return make_error("fjterrain: truncated layer table in " + path);
+                return ftk::make_error("fjterrain: truncated layer table in " + path);
             }
             // A version 2 layer has no surface; it gets an empty name of its
             // own so every layer keeps one entry per field.
@@ -124,15 +124,15 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
             }
         } else if (std::fread(data.layers.data(), sizeof(FjTerrainLayer), data.layers.size(),
                               file.get()) != data.layers.size()) {
-            return make_error("fjterrain: truncated layer table in " + path);
+            return ftk::make_error("fjterrain: truncated layer table in " + path);
         }
 
         uint32_t name_count = 0;
         if (std::fread(&name_count, sizeof(name_count), 1, file.get()) != 1) {
-            return make_error("fjterrain: truncated name table in " + path);
+            return ftk::make_error("fjterrain: truncated name table in " + path);
         }
         if (name_count > MAX_NAMES) {
-            return make_error("fjterrain: name table claims " + std::to_string(name_count) +
+            return ftk::make_error("fjterrain: name table claims " + std::to_string(name_count) +
                               " entries in " + path);
         }
         data.names.resize(name_count);
@@ -140,11 +140,11 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
             uint32_t length = 0;
             if (std::fread(&length, sizeof(length), 1, file.get()) != 1 ||
                 length > MAX_NAME_LENGTH) {
-                return make_error("fjterrain: truncated name table in " + path);
+                return ftk::make_error("fjterrain: truncated name table in " + path);
             }
             name.resize(length);
             if (length > 0 && std::fread(name.data(), 1, length, file.get()) != length) {
-                return make_error("fjterrain: truncated name table in " + path);
+                return ftk::make_error("fjterrain: truncated name table in " + path);
             }
         }
         if (data.header.version == 2) {
@@ -156,7 +156,7 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
         for (const auto& layer : data.layers) {
             if (layer.material_path >= data.names.size() ||
                 layer.surface_path >= data.names.size()) {
-                return make_error("fjterrain: layer names a string outside the name table in " +
+                return ftk::make_error("fjterrain: layer names a string outside the name table in " +
                                   path);
             }
         }
@@ -165,32 +165,32 @@ Result<FjTerrainData> load_fjterrain(const std::string& path) {
     return data;
 }
 
-Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
+ftk::Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
     const uint32_t samples_per_side = data.header.sample_count;
     const size_t samples = static_cast<size_t>(samples_per_side) * samples_per_side;
     if (data.heights.size() != samples) {
-        return make_error("fjterrain: height array holds " +
+        return ftk::make_error("fjterrain: height array holds " +
                           std::to_string(data.heights.size()) + " entries, expected " +
                           std::to_string(samples));
     }
     if (data.header.patch_quads != FJTERRAIN_PATCH_QUADS) {
-        return make_error("fjterrain: patch_quads is " +
+        return ftk::make_error("fjterrain: patch_quads is " +
                           std::to_string(data.header.patch_quads) + " but the renderer only "
                           "draws " + std::to_string(FJTERRAIN_PATCH_QUADS));
     }
     if (!patches_tile_evenly(data.header)) {
-        return make_error("fjterrain: sample_count is not one greater than a multiple "
+        return ftk::make_error("fjterrain: sample_count is not one greater than a multiple "
                           "of patch_quads");
     }
 
     FilePtr file{std::fopen(path.c_str(), "wb")};
     if (!file) {
-        return make_error("fjterrain: cannot write " + path);
+        return ftk::make_error("fjterrain: cannot write " + path);
     }
 
     for (const auto& layer : data.layers) {
         if (layer.material_path >= data.names.size() || layer.surface_path >= data.names.size()) {
-            return make_error("fjterrain: layer names a string outside the name table");
+            return ftk::make_error("fjterrain: layer names a string outside the name table");
         }
     }
 
@@ -204,13 +204,13 @@ Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
     const size_t expected_weights =
         static_cast<size_t>(header.weight_count) * header.weight_count * 4;
     if (data.weights.size() != expected_weights) {
-        return make_error("fjterrain: weight array holds " +
+        return ftk::make_error("fjterrain: weight array holds " +
                           std::to_string(data.weights.size()) + " bytes, expected " +
                           std::to_string(expected_weights));
     }
 
     if (std::fwrite(&header, sizeof(header), 1, file.get()) != 1) {
-        return make_error("fjterrain: failed writing header to " + path);
+        return ftk::make_error("fjterrain: failed writing header to " + path);
     }
 
     if (header.height_format == FjTerrainHeightFormat::unorm16) {
@@ -220,35 +220,35 @@ Result<> save_fjterrain(const std::string& path, const FjTerrainData& data) {
             raw[i] = static_cast<uint16_t>(std::lround(clamped * UNORM16_MAX));
         }
         if (std::fwrite(raw.data(), sizeof(uint16_t), samples, file.get()) != samples) {
-            return make_error("fjterrain: failed writing height data to " + path);
+            return ftk::make_error("fjterrain: failed writing height data to " + path);
         }
     } else {
         if (std::fwrite(data.heights.data(), sizeof(float), samples, file.get()) != samples) {
-            return make_error("fjterrain: failed writing height data to " + path);
+            return ftk::make_error("fjterrain: failed writing height data to " + path);
         }
     }
 
     if (header.layer_count > 0 && header.weight_count > 0) {
         if (std::fwrite(data.weights.data(), 1, data.weights.size(), file.get()) !=
             data.weights.size()) {
-            return make_error("fjterrain: failed writing weight data to " + path);
+            return ftk::make_error("fjterrain: failed writing weight data to " + path);
         }
     }
 
     if (header.layer_count > 0) {
         if (std::fwrite(data.layers.data(), sizeof(FjTerrainLayer), data.layers.size(),
                         file.get()) != data.layers.size()) {
-            return make_error("fjterrain: failed writing layer table to " + path);
+            return ftk::make_error("fjterrain: failed writing layer table to " + path);
         }
         const auto name_count = static_cast<uint32_t>(data.names.size());
         if (std::fwrite(&name_count, sizeof(name_count), 1, file.get()) != 1) {
-            return make_error("fjterrain: failed writing name table to " + path);
+            return ftk::make_error("fjterrain: failed writing name table to " + path);
         }
         for (const auto& name : data.names) {
             const auto length = static_cast<uint32_t>(name.size());
             if (std::fwrite(&length, sizeof(length), 1, file.get()) != 1 ||
                 (length > 0 && std::fwrite(name.data(), 1, length, file.get()) != length)) {
-                return make_error("fjterrain: failed writing name table to " + path);
+                return ftk::make_error("fjterrain: failed writing name table to " + path);
             }
         }
     }

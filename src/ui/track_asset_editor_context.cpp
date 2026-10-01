@@ -25,16 +25,16 @@ TrackAssetEditorContext::TrackAssetEditorContext(TrackAssetEditorDeps deps,
     // anything else is custom.
     lanes_.set_placement([this](std::string_view name) -> TrackLanes::Placement {
         if (auto target = material_track::parse(name)) {
-            return {material_track::heading(*target), display_name(target->uniform)};
+            return {material_track::heading(*target), ftk::display_name(target->uniform)};
         }
         for (const auto& preset : presets_) {
-            if (preset.name == name) return {preset.group, display_name(preset.name)};
+            if (preset.name == name) return {preset.group, ftk::display_name(preset.name)};
         }
-        return {"Custom", display_name(std::string(name))};
+        return {"Custom", ftk::display_name(std::string(name))};
     });
 }
 
-EditorContext::DockPreset TrackAssetEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset TrackAssetEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .under_preview = {"Timeline"}, .inspector = {"Properties"}};
 }
 
@@ -85,17 +85,17 @@ void TrackAssetEditorContext::draw(float dt) {
         lanes_.set_presets(std::move(presets));
 
         sync_timeline();
-        Connection scrub = lanes_.on_scrub.bind([this](float t) { scrubbed(t); });
+        ftk::Connection scrub = lanes_.on_scrub.bind([this](float t) { scrubbed(t); });
         if (lanes_.draw(ctx_title("Timeline").c_str(), tracks(), dt)) push_live();
     }
 
-    if (auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str())) {
+    if (auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str())) {
         if (loaded_) {
             draw_status();
             if (lanes_.draw_selection(tracks())) push_live();
             draw_properties();
         } else {
-            ui::empty_state(ui::icon::warning, "The file couldn't be read", "The console says why");
+            ftk::ui::empty_state(ftk::ui::icon::warning, "The file couldn't be read", "The console says why");
         }
     }
     draw_shared_panels(dt);

@@ -17,7 +17,7 @@ namespace fjell {
 namespace {
 
 // Build an ozz RawSkeleton from flat joint array, then compile to runtime
-Result<ozz::animation::Skeleton> build_ozz_skeleton(const std::vector<FjSkelJoint>& joints) {
+ftk::Result<ozz::animation::Skeleton> build_ozz_skeleton(const std::vector<FjSkelJoint>& joints) {
     ozz::animation::offline::RawSkeleton raw;
 
     // Find root joints (parent == -1)
@@ -57,13 +57,13 @@ Result<ozz::animation::Skeleton> build_ozz_skeleton(const std::vector<FjSkelJoin
     }
 
     if (!raw.Validate()) {
-        return make_error("Invalid skeleton hierarchy");
+        return ftk::make_error("Invalid skeleton hierarchy");
     }
 
     ozz::animation::offline::SkeletonBuilder builder;
     auto result = builder(raw);
     if (!result) {
-        return make_error("Failed to build ozz skeleton");
+        return ftk::make_error("Failed to build ozz skeleton");
     }
 
     return std::move(*result);
@@ -96,24 +96,24 @@ std::vector<glm::mat4> compute_inverse_bind_matrices(
 
 } // anonymous namespace
 
-Result<Skeleton> Skeleton::load(const std::string& path) {
+ftk::Result<Skeleton> Skeleton::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) {
-        return make_error("Failed to open skeleton: " + path);
+        return ftk::make_error("Failed to open skeleton: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error("Failed to parse skeleton JSON: " + path + " — " + e.what());
+        return ftk::make_error("Failed to parse skeleton JSON: " + path + " — " + e.what());
     }
 
     Skeleton skel;
 
     // Parse joints
     if (!j.contains("joints") || !j["joints"].is_array()) {
-        return make_error("Skeleton missing 'joints' array: " + path);
+        return ftk::make_error("Skeleton missing 'joints' array: " + path);
     }
 
     const auto& jjoints = j["joints"];
@@ -171,37 +171,37 @@ Result<Skeleton> Skeleton::load(const std::string& path) {
     for (auto it = j.begin(); it != j.end(); ++it) {
         if (it.key() != "joints" && it.key() != "slots" &&
             it.key() != asset_identity::UUID_KEY) {
-            FJELL_CORE_WARN("Skeleton {}: unknown field '{}'", path, it.key());
+            FTK_CORE_WARN("Skeleton {}: unknown field '{}'", path, it.key());
         }
     }
 
     // Build ozz runtime skeleton from joint data
     auto skel_result = build_ozz_skeleton(skel.joints_);
     if (!skel_result) {
-        return make_error(skel_result.error());
+        return ftk::make_error(skel_result.error());
     }
     skel.skeleton_ = std::move(*skel_result);
 
     // Compute inverse bind matrices from rest pose hierarchy
     skel.inverse_bind_matrices_ = compute_inverse_bind_matrices(skel.joints_);
 
-    FJELL_CORE_INFO("Loaded skeleton: {} ({} joints)", path, skel.num_joints());
+    FTK_CORE_INFO("Loaded skeleton: {} ({} joints)", path, skel.num_joints());
     return skel;
 }
 
-Result<Skeleton> Skeleton::from_joints(const std::vector<FjSkelJoint>& joints) {
+ftk::Result<Skeleton> Skeleton::from_joints(const std::vector<FjSkelJoint>& joints) {
     Skeleton skel;
     skel.joints_ = joints;
     auto skel_result = build_ozz_skeleton(skel.joints_);
     if (!skel_result) {
-        return make_error(skel_result.error());
+        return ftk::make_error(skel_result.error());
     }
     skel.skeleton_ = std::move(*skel_result);
     skel.inverse_bind_matrices_ = compute_inverse_bind_matrices(skel.joints_);
     return skel;
 }
 
-Result<> Skeleton::save(const std::string& path) const {
+ftk::Result<> Skeleton::save(const std::string& path) const {
     nlohmann::json j;
     j["joints"] = nlohmann::json::array();
 
@@ -229,10 +229,10 @@ Result<> Skeleton::save(const std::string& path) const {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        return make_error("Failed to save skeleton: " + path);
+        return ftk::make_error("Failed to save skeleton: " + path);
     }
     file << j.dump(2);
-    FJELL_CORE_INFO("Saved skeleton: {}", path);
+    FTK_CORE_INFO("Saved skeleton: {}", path);
     return {};
 }
 

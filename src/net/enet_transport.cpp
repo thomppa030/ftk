@@ -30,7 +30,7 @@ PeerId get_peer_id(ENetPeer* peer) {
 EnetGlobal::EnetGlobal() {
     if (g_enet_refcount++ == 0) {
         if (enet_initialize() != 0) {
-            FJELL_CORE_ERROR("ENet: enet_initialize() failed");
+            FTK_CORE_ERROR("ENet: enet_initialize() failed");
             g_enet_refcount = 0;
         }
     }
@@ -53,7 +53,7 @@ EnetTransport::~EnetTransport() {
 
 bool EnetTransport::host(uint16_t port, uint32_t max_clients) {
     if (host_) {
-        FJELL_CORE_WARN("ENet: host() called while already active; disconnecting first");
+        FTK_CORE_WARN("ENet: host() called while already active; disconnecting first");
         disconnect();
     }
 
@@ -63,29 +63,29 @@ bool EnetTransport::host(uint16_t port, uint32_t max_clients) {
 
     host_ = enet_host_create(&address, max_clients, CHANNEL_COUNT, 0, 0);
     if (!host_) {
-        FJELL_CORE_ERROR("ENet: failed to create host on port {}", port);
+        FTK_CORE_ERROR("ENet: failed to create host on port {}", port);
         return false;
     }
     is_host_ = true;
-    FJELL_CORE_INFO("ENet: hosting on port {} (max {} clients)", port, max_clients);
+    FTK_CORE_INFO("ENet: hosting on port {} (max {} clients)", port, max_clients);
     return true;
 }
 
 bool EnetTransport::connect(const std::string& address, uint16_t port) {
     if (host_) {
-        FJELL_CORE_WARN("ENet: connect() called while already active; disconnecting first");
+        FTK_CORE_WARN("ENet: connect() called while already active; disconnecting first");
         disconnect();
     }
 
     host_ = enet_host_create(nullptr, 1, CHANNEL_COUNT, 0, 0);
     if (!host_) {
-        FJELL_CORE_ERROR("ENet: failed to create client host");
+        FTK_CORE_ERROR("ENet: failed to create client host");
         return false;
     }
 
     ENetAddress addr{};
     if (enet_address_set_host(&addr, address.c_str()) != 0) {
-        FJELL_CORE_ERROR("ENet: could not resolve address '{}'", address);
+        FTK_CORE_ERROR("ENet: could not resolve address '{}'", address);
         enet_host_destroy(as_host(host_));
         host_ = nullptr;
         return false;
@@ -94,7 +94,7 @@ bool EnetTransport::connect(const std::string& address, uint16_t port) {
 
     ENetPeer* server = enet_host_connect(as_host(host_), &addr, CHANNEL_COUNT, 0);
     if (!server) {
-        FJELL_CORE_ERROR("ENet: no available peers to connect to {}:{}", address, port);
+        FTK_CORE_ERROR("ENet: no available peers to connect to {}:{}", address, port);
         enet_host_destroy(as_host(host_));
         host_ = nullptr;
         return false;
@@ -102,7 +102,7 @@ bool EnetTransport::connect(const std::string& address, uint16_t port) {
     // The host is always SERVER_PEER from a client's point of view.
     set_peer_id(server, SERVER_PEER);
     is_host_ = false;
-    FJELL_CORE_INFO("ENet: connecting to {}:{}", address, port);
+    FTK_CORE_INFO("ENet: connecting to {}:{}", address, port);
     return true;
 }
 
@@ -137,7 +137,7 @@ void EnetTransport::poll(float timeout_ms) {
             PeerId id = is_host_ ? next_peer_id_++ : SERVER_PEER;
             set_peer_id(event.peer, id);
             peers_[id] = event.peer;
-            FJELL_CORE_INFO("ENet: peer {} connected", id);
+            FTK_CORE_INFO("ENet: peer {} connected", id);
             if (on_connect) on_connect(id);
             break;
         }
@@ -157,7 +157,7 @@ void EnetTransport::poll(float timeout_ms) {
         }
         case ENET_EVENT_TYPE_DISCONNECT: {
             PeerId id = get_peer_id(event.peer);
-            FJELL_CORE_INFO("ENet: peer {} disconnected", id);
+            FTK_CORE_INFO("ENet: peer {} disconnected", id);
             peers_.erase(id);
             event.peer->data = nullptr;
             if (on_disconnect) on_disconnect(id);
@@ -172,7 +172,7 @@ void EnetTransport::poll(float timeout_ms) {
     }
 
     if (serviced < 0) {
-        FJELL_CORE_ERROR("ENet: enet_host_service() failed");
+        FTK_CORE_ERROR("ENet: enet_host_service() failed");
     }
 }
 

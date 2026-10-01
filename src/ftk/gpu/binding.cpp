@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -175,4 +175,4 @@ Result<std::vector<uint32_t>> place_shared(const ShaderLayout& layout,
     return placed;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

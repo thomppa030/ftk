@@ -75,7 +75,7 @@ static LoadedImage load_image_from_source(
     return result;
 }
 
-Model::Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets) {
+Model::Model(ftk::gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets) {
     auto gltf_path = std::filesystem::path(path);
     auto base_dir = gltf_path.parent_path();
 
@@ -98,7 +98,7 @@ Model::Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, Meshle
 
     auto& asset = result.get();
 
-    FJELL_GFX_DEBUG("Loading model: {} ({} meshes, {} textures)",
+    FTK_GFX_DEBUG("Loading model: {} ({} meshes, {} textures)",
                     path, asset.meshes.size(), asset.images.size());
 
     // Load textures from embedded/external images
@@ -203,7 +203,7 @@ Model::Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, Meshle
     lod0.max_screen_size = 1.0f;
     lod_levels_.push_back(lod0);
 
-    FJELL_GFX_INFO("Model loaded: {} meshes, {} textures, {} meshlets",
+    FTK_GFX_INFO("Model loaded: {} meshes, {} textures, {} meshlets",
                    mega_entries_.size(), textures_.size(), total_meshlet_count());
 }
 
@@ -399,7 +399,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
         std::fclose(f);
-        FJELL_GFX_WARN("Skipping skinned .fjmesh (use SkeletalModel): {}", path);
+        FTK_GFX_WARN("Skipping skinned .fjmesh (use SkeletalModel): {}", path);
         return {};
     }
     if (header.max_meshlet_vertices != MAX_MESHLET_VERTICES ||
@@ -539,7 +539,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
 
     std::fclose(f);
 
-    FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets, {} LODs)",
+    FTK_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets, {} LODs)",
                     path, data.vertices.size(), data.indices.size(),
                     data.submeshes.size(), data.meshlets.size(), data.lod_levels.size());
 
@@ -655,7 +655,7 @@ Model::Model(FjMeshData&& data, MegaBuffer& mega, MeshletBuffer& meshlets) {
         lod_levels_.push_back(lod0);
     }
 
-    FJELL_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets, {} LODs",
+    FTK_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets, {} LODs",
                    mega_entries_.size(), total_meshlet_count(), lod_levels_.size());
 }
 

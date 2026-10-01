@@ -48,7 +48,7 @@ fjell::MaterialInstance* ensure_mid(const MaterialSlot& slot) {
     auto& svc = fjell::script_services();
     auto* pc = svc.resources ? svc.resources->pipeline_cache() : nullptr;
     if (!svc.resources || !pc) {
-        FJELL_GFX_WARN("fjell_mesh_set_param: ResourceManager or PipelineCache not "
+        FTK_GFX_WARN("fjell_mesh_set_param: ResourceManager or PipelineCache not "
                        "available — call set_param after engine init");
         return nullptr;
     }

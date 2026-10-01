@@ -25,33 +25,33 @@ namespace fjell {
 
 namespace {
 
-ui::Unit unit_of(PinUnit unit) {
+ftk::ui::Unit unit_of(PinUnit unit) {
     switch (unit) {
-        case PinUnit::none: return ui::Unit::None;
-        case PinUnit::seconds: return ui::Unit::Seconds;
-        case PinUnit::metres: return ui::Unit::Metres;
-        case PinUnit::metres_per_second: return ui::Unit::MetresPerSecond;
-        case PinUnit::degrees: return ui::Unit::Degrees;
-        case PinUnit::times: return ui::Unit::Times;
+        case PinUnit::none: return ftk::ui::Unit::None;
+        case PinUnit::seconds: return ftk::ui::Unit::Seconds;
+        case PinUnit::metres: return ftk::ui::Unit::Metres;
+        case PinUnit::metres_per_second: return ftk::ui::Unit::MetresPerSecond;
+        case PinUnit::degrees: return ftk::ui::Unit::Degrees;
+        case PinUnit::times: return ftk::ui::Unit::Times;
     }
-    return ui::Unit::None;
+    return ftk::ui::Unit::None;
 }
 
 // An angle stored in radians and edited in degrees.
-ui::Edit degrees(const char* id, float& radians, const ui::DragSpec& spec) {
+ftk::ui::Edit degrees(const char* id, float& radians, const ftk::ui::DragSpec& spec) {
     float deg = glm::degrees(radians);
-    const ui::Edit edit = ui::drag(id, deg, spec);
+    const ftk::ui::Edit edit = ftk::ui::drag(id, deg, spec);
     if (edit.changed) radians = glm::radians(deg);
     return edit;
 }
 
 // One of a module's values as a row, from its descriptor: the same
 // description the graph draws its pin and field from.
-ui::Edit pin_row(PinDescriptor& pin) {
-    ui::Edit edit;
-    const std::string label = pin.label.empty() ? display_name(pin.name) : pin.label;
+ftk::ui::Edit pin_row(PinDescriptor& pin) {
+    ftk::ui::Edit edit;
+    const std::string label = pin.label.empty() ? ftk::display_name(pin.name) : pin.label;
     const std::string id = "##" + pin.name;
-    const ui::DragSpec spec{.speed = pin.drag_speed, .min = pin.range_min, .max = pin.range_max,
+    const ftk::ui::DragSpec spec{.speed = pin.drag_speed, .min = pin.range_min, .max = pin.range_max,
                             .unit = unit_of(pin.unit), .format = pin.format != nullptr ? pin.format : "%.2f"};
     const auto field = [&] {
         ImGui::BeginDisabled(pin.disabled);
@@ -61,29 +61,29 @@ ui::Edit pin_row(PinDescriptor& pin) {
                 if (pin.radians) {
                     edit |= degrees(id.c_str(), v, spec);
                 } else if (pin.widget == PinWidget::slider) {
-                    edit |= ui::slider(id.c_str(), v, pin.range_min, pin.range_max, spec.unit, spec.format);
+                    edit |= ftk::ui::slider(id.c_str(), v, pin.range_min, pin.range_max, spec.unit, spec.format);
                 } else {
-                    edit |= ui::drag(id.c_str(), v, spec);
+                    edit |= ftk::ui::drag(id.c_str(), v, spec);
                 }
                 break;
             }
             case PinDataType::vec3_type: {
                 auto& v = *static_cast<glm::vec3*>(pin.value_ptr);
                 if (pin.widget == PinWidget::colour) {
-                    edit |= ui::color(id.c_str(), v, ui::ColorSpace::Srgb);
+                    edit |= ftk::ui::color(id.c_str(), v, ftk::ui::ColorSpace::Srgb);
                 } else {
-                    edit |= ui::vec3(id.c_str(), v, spec);
+                    edit |= ftk::ui::vec3(id.c_str(), v, spec);
                 }
                 break;
             }
             case PinDataType::vec4_type:
-                edit |= ui::color(id.c_str(), *static_cast<glm::vec4*>(pin.value_ptr), ui::ColorSpace::Srgb);
+                edit |= ftk::ui::color(id.c_str(), *static_cast<glm::vec4*>(pin.value_ptr), ftk::ui::ColorSpace::Srgb);
                 break;
             case PinDataType::uint_type: {
                 auto& v = *static_cast<uint32_t*>(pin.value_ptr);
                 const int lo = static_cast<int>(pin.range_min);
                 int whole = static_cast<int>(v);
-                const ui::Edit e = ui::drag_int(id.c_str(), whole, pin.drag_speed, lo, static_cast<int>(pin.range_max));
+                const ftk::ui::Edit e = ftk::ui::drag_int(id.c_str(), whole, pin.drag_speed, lo, static_cast<int>(pin.range_max));
                 if (e.changed) v = static_cast<uint32_t>(std::max(whole, lo));
                 edit |= e;
                 break;
@@ -93,7 +93,7 @@ ui::Edit pin_row(PinDescriptor& pin) {
                 std::vector<const char*> names;
                 for (const auto& name : pin.enum_names) names.push_back(name.c_str());
                 int index = static_cast<int>(v);
-                const ui::Edit e = ui::choice(id.c_str(), index, names);
+                const ftk::ui::Edit e = ftk::ui::choice(id.c_str(), index, names);
                 if (e.changed && index >= 0) v = static_cast<uint32_t>(index);
                 edit |= e;
                 break;
@@ -102,20 +102,20 @@ ui::Edit pin_row(PinDescriptor& pin) {
         ImGui::EndDisabled();
     };
     if (pin.help != nullptr) {
-        ui::row(label.c_str(), pin.help, field);
+        ftk::ui::row(label.c_str(), pin.help, field);
     } else {
-        ui::row(label.c_str(), field);
+        ftk::ui::row(label.c_str(), field);
     }
     return edit;
 }
 
 // A curve with ready-made shapes under it.
 template <typename... Presets>
-ui::Edit curve_with_presets(const char* id, Curve& curve, Presets&&... presets) {
-    ui::Edit edit;
-    edit |= ui::curve_editor(id, curve);
-    auto apply = [&](const char* label, Curve shape) {
-        if (ui::button(label, ui::ButtonKind::Ghost)) {
+ftk::ui::Edit curve_with_presets(const char* id, ftk::Curve& curve, Presets&&... presets) {
+    ftk::ui::Edit edit;
+    edit |= ftk::ui::curve_editor(id, curve);
+    auto apply = [&](const char* label, ftk::Curve shape) {
+        if (ftk::ui::button(label, ftk::ui::ButtonKind::Ghost)) {
             curve = shape;
             edit = {true, true};
         }
@@ -128,15 +128,15 @@ ui::Edit curve_with_presets(const char* id, Curve& curve, Presets&&... presets) 
 
 } // namespace
 
-ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) {
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##module")) {
+ftk::ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##module")) {
         // What decides whether another value is used comes before it.
         if (module.type() == ModuleType::wind) {
             auto& m = static_cast<WindModule&>(module);
-            ui::row("Global wind", "Blow with the environment's wind, its direction, speed and gusts, times "
+            ftk::ui::row("Global wind", "Blow with the environment's wind, its direction, speed and gusts, times "
                                    "Strength; Direction is then not used.",
-                    [&] { edit |= ui::checkbox("##global", m.use_global); });
+                    [&] { edit |= ftk::ui::checkbox("##global", m.use_global); });
         }
 
         // The module's values, as its descriptors say; those its mode leaves
@@ -146,7 +146,7 @@ ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) 
         for (auto& pin : pins) {
             if (!pin.shown) continue;
             if (pin.group != nullptr && (group == nullptr || std::string_view(group) != pin.group)) {
-                ui::subheading(pin.group);
+                ftk::ui::subheading(pin.group);
             }
             group = pin.group;
             edit |= pin_row(pin);
@@ -160,22 +160,22 @@ ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) 
                 char frames[64];
                 const uint32_t total = m.frame_count > 0 ? m.frame_count : m.columns * m.rows;
                 std::snprintf(frames, sizeof(frames), "%u frames on a %u \xc3\x97 %u grid", total, m.columns, m.rows);
-                ui::row("Plays", [&] { ui::readout(frames); });
+                ftk::ui::row("Plays", [&] { ftk::ui::readout(frames); });
                 break;
             }
             case ModuleType::billboard:
-                ui::row("Draws", [&] { ui::readout("A quad facing the camera"); });
+                ftk::ui::row("Draws", [&] { ftk::ui::readout("A quad facing the camera"); });
                 break;
             case ModuleType::trail: {
                 auto& m = static_cast<TrailModule&>(module);
-                ui::row("Width", [&] {
-                    edit |= ui::drag("##width", m.width, {.speed = 0.001f, .min = 0.001f, .max = 10.0f,
-                                                          .unit = ui::Unit::Metres, .format = "%.3f"});
+                ftk::ui::row("Width", [&] {
+                    edit |= ftk::ui::drag("##width", m.width, {.speed = 0.001f, .min = 0.001f, .max = 10.0f,
+                                                          .unit = ftk::ui::Unit::Metres, .format = "%.3f"});
                 });
-                ui::row("Width over life", "1 keeps the width to the end; 0 tapers it to nothing.", [&] {
-                    edit |= ui::slider("##taper", m.width_over_life, 0.0f, 1.0f);
+                ftk::ui::row("Width over life", "1 keeps the width to the end; 0 tapers it to nothing.", [&] {
+                    edit |= ftk::ui::slider("##taper", m.width_over_life, 0.0f, 1.0f);
                 });
-                ui::row("Face camera", [&] { edit |= ui::checkbox("##face", m.face_camera); });
+                ftk::ui::row("Face camera", [&] { edit |= ftk::ui::checkbox("##face", m.face_camera); });
                 break;
             }
             default:
@@ -186,7 +186,7 @@ ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) 
         for (auto& field : module.asset_fields()) {
             char id[64];
             std::snprintf(id, sizeof(id), "##asset%p", static_cast<const void*>(field.reference));
-            ui::row(field.label, [&] {
+            ftk::ui::row(field.label, [&] {
                 if (asset_slot({.label = field.label, .id = id, .extensions = field.extensions, .ctx = &ctx,
                                 .shader_types = field.shader_types},
                                *field.reference)) {
@@ -201,40 +201,40 @@ ui::Edit draw_vfx_module_fields(VfxModule& module, const InspectorContext& ctx) 
         auto& m = static_cast<CurveColorOverLifeModule&>(module);
         const struct {
             const char* label;
-            Curve* curve;
+            ftk::Curve* curve;
         } channels[] = {{"Red", &m.curve_r}, {"Green", &m.curve_g}, {"Blue", &m.curve_b}, {"Alpha", &m.curve_a}};
         for (const auto& channel : channels) {
-            if (ui::subheading_foldable(channel.label, false)) {
+            if (ftk::ui::subheading_foldable(channel.label, false)) {
                 ImGui::PushID(channel.label);
-                edit |= ui::curve_editor("##curve", *channel.curve);
+                edit |= ftk::ui::curve_editor("##curve", *channel.curve);
                 ImGui::PopID();
             }
         }
-        if (ui::button("Linear", ui::ButtonKind::Ghost)) {
-            m.curve_r = Curve::linear(1.0f, 1.0f);
-            m.curve_g = Curve::linear(0.8f, 0.1f);
-            m.curve_b = Curve::linear(0.2f, 0.0f);
-            m.curve_a = Curve::linear(1.0f, 0.0f);
+        if (ftk::ui::button("Linear", ftk::ui::ButtonKind::Ghost)) {
+            m.curve_r = ftk::Curve::linear(1.0f, 1.0f);
+            m.curve_g = ftk::Curve::linear(0.8f, 0.1f);
+            m.curve_b = ftk::Curve::linear(0.2f, 0.0f);
+            m.curve_a = ftk::Curve::linear(1.0f, 0.0f);
             edit = {true, true};
         }
         ImGui::SameLine();
-        if (ui::button("Fade out", ui::ButtonKind::Ghost)) {
-            m.curve_r = Curve::linear(1.0f, 1.0f);
-            m.curve_g = Curve::linear(1.0f, 1.0f);
-            m.curve_b = Curve::linear(1.0f, 1.0f);
-            m.curve_a = Curve::ease_in(1.0f, 0.0f);
+        if (ftk::ui::button("Fade out", ftk::ui::ButtonKind::Ghost)) {
+            m.curve_r = ftk::Curve::linear(1.0f, 1.0f);
+            m.curve_g = ftk::Curve::linear(1.0f, 1.0f);
+            m.curve_b = ftk::Curve::linear(1.0f, 1.0f);
+            m.curve_a = ftk::Curve::ease_in(1.0f, 0.0f);
             edit = {true, true};
         }
         ImGui::SameLine();
-        if (ui::button("Pulse", ui::ButtonKind::Ghost)) {
-            m.curve_a = Curve::bell(1.0f);
+        if (ftk::ui::button("Pulse", ftk::ui::ButtonKind::Ghost)) {
+            m.curve_a = ftk::Curve::bell(1.0f);
             edit = {true, true};
         }
     } else if (module.type() == ModuleType::curve_size_over_life) {
         auto& m = static_cast<CurveSizeOverLifeModule&>(module);
-        edit |= curve_with_presets("##size", m.curve, std::pair{"Linear", Curve::linear(0.1f, 0.02f)},
-                                   std::pair{"Shrink", Curve::ease_in(0.1f, 0.0f)},
-                                   std::pair{"Grow", Curve::ease_out(0.0f, 0.1f)}, std::pair{"Pulse", Curve::bell(0.15f)});
+        edit |= curve_with_presets("##size", m.curve, std::pair{"Linear", ftk::Curve::linear(0.1f, 0.02f)},
+                                   std::pair{"Shrink", ftk::Curve::ease_in(0.1f, 0.0f)},
+                                   std::pair{"Grow", ftk::Curve::ease_out(0.0f, 0.1f)}, std::pair{"Pulse", ftk::Curve::bell(0.15f)});
     }
     return edit;
 }

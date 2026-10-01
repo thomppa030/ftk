@@ -1,11 +1,11 @@
 #include "ftk/gpu/vulkan/frame_descriptor_cache.hpp"
 
-// Pure hashing / equality for FrameCacheKey. Lives in its own .cpp so
-// fjell-testable can link the logic without pulling in the full
+// Pure hashing / equality for FrameCacheKey. Lives in its own .cpp so the
+// unit tests can link the logic without pulling in the full
 // FrameDescriptorCache (which touches VkDescriptorPool and requires a
 // real Vulkan device).
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -78,4 +78,4 @@ size_t FrameCacheKeyHash::operator()(const FrameCacheKeyView& k) const noexcept 
     return h;
 }
 
-} // namespace fjell
+} // namespace ftk

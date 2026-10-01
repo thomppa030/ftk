@@ -16,7 +16,7 @@ void AnimNotifyRegistry::register_notify(NotifyTypeInfo info) {
 std::unique_ptr<AnimNotify> AnimNotifyRegistry::create(const std::string& type_name) const {
     auto it = entries_.find(type_name);
     if (it == entries_.end()) {
-        FJELL_CORE_WARN("AnimNotifyRegistry: unknown notify type '{}'", type_name);
+        FTK_CORE_WARN("AnimNotifyRegistry: unknown notify type '{}'", type_name);
         return nullptr;
     }
     return it->second.create();

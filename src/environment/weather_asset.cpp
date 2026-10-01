@@ -87,22 +87,22 @@ std::optional<WeatherPhase> weather_phase_from_name(std::string_view name) {
     return std::nullopt;
 }
 
-Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
+ftk::Result<WeatherAsset> load_weather_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjweather file: " + path);
+        return ftk::make_error("Failed to open .fjweather file: " + path);
     }
     std::stringstream text;
     text << f.rdbuf();
     return weather_asset_from_text(text.str(), path);
 }
 
-Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path) {
+ftk::Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::string& path) {
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
-        return make_error("Malformed .fjweather file " + path + ": " + e.what());
+        return ftk::make_error("Malformed .fjweather file " + path + ": " + e.what());
     }
 
     WeatherAsset asset;
@@ -126,7 +126,7 @@ Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::s
         auto& l = asset.lightning;
         l.duration = std::max(jl.value("duration", l.duration), 0.01f);
         if (jl.contains("color")) {
-            const auto c = color_space::srgb_to_linear(
+            const auto c = ftk::color_space::srgb_to_linear(
                 glm::vec3{jl["color"][0].get<float>(), jl["color"][1].get<float>(),
                           jl["color"][2].get<float>()});
             l.color = c;
@@ -138,7 +138,7 @@ Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::s
         l.vfx = jl.value("vfx", std::string{});
         if (jl.contains("flash") && jl["flash"].is_array()) {
             for (const auto& k : jl["flash"]) {
-                CurveKeyframe key;
+                ftk::CurveKeyframe key;
                 key.time = std::clamp(k.value("t", 0.0f), 0.0f, 1.0f);
                 key.value = k.value("v", 0.0f);
                 key.tangent_in = k.value("in", 0.0f);
@@ -146,7 +146,7 @@ Result<WeatherAsset> weather_asset_from_text(std::string_view text, const std::s
                 l.flash.keyframes.push_back(key);
             }
             std::stable_sort(l.flash.keyframes.begin(), l.flash.keyframes.end(),
-                             [](const CurveKeyframe& a, const CurveKeyframe& b) {
+                             [](const ftk::CurveKeyframe& a, const ftk::CurveKeyframe& b) {
                                  return a.time < b.time;
                              });
         }
@@ -189,7 +189,7 @@ std::string weather_asset_text(const WeatherAsset& asset) {
         const auto& l = asset.lightning;
         nlohmann::json jl;
         jl["duration"] = l.duration;
-        const glm::vec3 srgb = color_space::linear_to_srgb(l.color);
+        const glm::vec3 srgb = ftk::color_space::linear_to_srgb(l.color);
         jl["color"] = {srgb.r, srgb.g, srgb.b};
         jl["intensity"] = l.intensity;
         jl["radius"] = l.radius;
@@ -221,10 +221,10 @@ std::string weather_asset_text(const WeatherAsset& asset) {
     return j.dump(4) + "\n";
 }
 
-Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset) {
+ftk::Result<> save_weather_asset_file(const std::string& path, const WeatherAsset& asset) {
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjweather file: " + path);
+        return ftk::make_error("Failed to write .fjweather file: " + path);
     }
     f << weather_asset_text(asset);
     return {};

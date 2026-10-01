@@ -6,7 +6,7 @@
 #include <initializer_list>
 #include <numbers>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -90,4 +90,4 @@ void loading(ImDrawList* dl, ImVec2 top_centre, std::string_view what, float sec
                 ImGui::GetColorU32(theme::text_secondary()), begin, end);
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

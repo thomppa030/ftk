@@ -95,7 +95,7 @@ uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer, uint32_t max_bytes) cons
     for (const auto& m : update_modules) try_write(m);
 
     if (dropped_any) {
-        FJELL_CORE_ERROR("VfxEmitter '{}': module data exceeds its {}-byte budget, "
+        FTK_CORE_ERROR("VfxEmitter '{}': module data exceeds its {}-byte budget, "
                          "one or more modules were dropped this frame", name, max_bytes);
     }
 

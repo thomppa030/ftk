@@ -18,12 +18,12 @@
 namespace fjell {
 
 nlohmann::json color_to_json(glm::vec3 linear) {
-    const glm::vec3 c = color_space::linear_to_srgb(linear);
+    const glm::vec3 c = ftk::color_space::linear_to_srgb(linear);
     return {c.x, c.y, c.z};
 }
 
 glm::vec3 color_from_json(const nlohmann::json& srgb) {
-    return color_space::srgb_to_linear(
+    return ftk::color_space::srgb_to_linear(
         glm::vec3{srgb[0].get<float>(), srgb[1].get<float>(), srgb[2].get<float>()});
 }
 
@@ -436,7 +436,7 @@ bool apply_node_type(Node& node, const nlohmann::json& j) {
             if (const auto phase = weather_phase_from_name(phase_name)) {
                 env->weather_start_phase = *phase;
             } else {
-                FJELL_CORE_WARN("World environment: '{}' is not a weather phase, "
+                FTK_CORE_WARN("World environment: '{}' is not a weather phase, "
                                 "starting at the approach", phase_name);
             }
         }

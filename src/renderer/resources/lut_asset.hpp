@@ -32,12 +32,12 @@ struct LutStrip {
 
 /// A strip from an image file's bytes: 8 or 16 bits per channel, N·N wide and
 /// N tall for any N from 2 to 64 (16 and 32 are the usual).
-[[nodiscard]] Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes);
+[[nodiscard]] ftk::Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes);
 
 /// A strip from a Resolve / Adobe `.cube` 3D table: `LUT_3D_SIZE`, optional
 /// `DOMAIN_MIN` and `DOMAIN_MAX`, then size³ rows with red changing fastest.
 /// Resampled trilinearly onto a 32 strip.
-[[nodiscard]] Result<LutStrip> decode_cube(std::string_view text);
+[[nodiscard]] ftk::Result<LutStrip> decode_cube(std::string_view text);
 
 /// A `.fjlut` recipe: `{"name": "Dusk", "source": "grading/dusk.png"}`. The
 /// source is a strip image or a `.cube`, relative to the recipe's folder.
@@ -45,14 +45,14 @@ struct LutRecipe {
     std::string name;
     std::string source;
 };
-[[nodiscard]] Result<LutRecipe> read_lut_recipe(const std::filesystem::path& recipe_path);
+[[nodiscard]] ftk::Result<LutRecipe> read_lut_recipe(const std::filesystem::path& recipe_path);
 
 /// Where a recipe's source file is.
 [[nodiscard]] std::filesystem::path lut_source_path(const std::filesystem::path& recipe_path,
                                                    const LutRecipe& recipe);
 
 /// The strip a `.fjlut` recipe names, read and decoded.
-[[nodiscard]] Result<LutStrip> load_lut(const std::filesystem::path& recipe_path);
+[[nodiscard]] ftk::Result<LutStrip> load_lut(const std::filesystem::path& recipe_path);
 
 /// A strip as a 16-bit RGB PNG, for writing the neutral strips a grade
 /// starts from.

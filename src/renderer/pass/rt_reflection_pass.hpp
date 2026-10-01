@@ -56,18 +56,18 @@ public:
         /// What the composite reads. The trace writes its one noisy sample
         /// per pixel here, the denoise reads it, and the spatial filter
         /// writes the finished reflection over it.
-        gpu::Owned<gpu::Texture> output;
+        ftk::gpu::Owned<ftk::gpu::Texture> output;
         /// The denoise's accumulation of the trace, before the filter.
-        gpu::Owned<gpu::Texture> accumulated;
+        ftk::gpu::Owned<ftk::gpu::Texture> accumulated;
         /// Last frame's `accumulated`, which this frame's blends onto.
-        gpu::Owned<gpu::Texture> history;
+        ftk::gpu::Owned<ftk::gpu::Texture> history;
         /// Depth as the denoise saw it, for the disocclusion test. Two,
         /// ping-ponged: the dispatch samples last frame's at an arbitrary
         /// reprojected texel while writing this frame's, so one would race
         /// itself. R32F colour, written by the shader — see the note in
         /// rt_reflection_denoise.comp on why this is not a copy of the depth
         /// buffer.
-        std::array<gpu::Owned<gpu::Texture>, 2> prev_depth;
+        std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> prev_depth;
         uint32_t prev_depth_slot{0};
         glm::uvec2 extent{0, 0};
         bool history_valid{false};
@@ -79,19 +79,19 @@ public:
         glm::mat4 prev_view_proj{1.0F};
         glm::mat4 prev_inv_view_proj{1.0F};
 
-        void create(gpu::Device& gpu, uint32_t width, uint32_t height);
+        void create(ftk::gpu::Device& gpu, uint32_t width, uint32_t height);
         /// Releases the textures; the frames still reading them keep them
         /// until they are done.
         void destroy();
-        void resize(gpu::Device& gpu, uint32_t width, uint32_t height);
+        void resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height);
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
     void set_mode(Mode m) { mode_ = m; }
@@ -159,15 +159,15 @@ private:
     glm::vec3 sun_color_{1.0F};
     float sun_intensity_{1.5F};
 
-    gpu::Sampler linear_sampler_;
-    gpu::Sampler nearest_sampler_;
+    ftk::gpu::Sampler linear_sampler_;
+    ftk::gpu::Sampler nearest_sampler_;
     /// Traces with ray queries; null on a device without them, as are the
     /// denoise and the filter.
-    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> trace_pipeline_;
     /// Temporal accumulation of the trace.
-    gpu::Owned<gpu::ComputePipeline> denoise_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> denoise_pipeline_;
     /// Spatial filter, run on the accumulated result.
-    gpu::Owned<gpu::ComputePipeline> spatial_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> spatial_pipeline_;
 
     // Scales the roughness-driven kernel radius of the spatial filter; 0
     // leaves the accumulated image unfiltered.

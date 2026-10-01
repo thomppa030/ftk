@@ -1,6 +1,6 @@
 #include "ftk/gpu/vulkan/access.hpp"
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 namespace {
 
@@ -223,12 +223,12 @@ VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages) {
     return (stages & ~GRAPHICS_ONLY) | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 }
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 std::string state_name(AccessSet accesses, bool depth) {
     return vulkan::layout_name(vulkan::merged_image_scope(accesses, depth).layout);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

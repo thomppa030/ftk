@@ -68,16 +68,16 @@ glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
 bool override_row(const FjslUniform& u, std::span<float> values, bool overridden,
                   const char* revert_tip, bool& revert) {
     bool changed = false;
-    const std::string label = display_name(u.name);
+    const std::string label = ftk::display_name(u.name);
     ImGui::PushID(u.name.c_str());
-    ui::row(label.c_str(), [&] {
+    ftk::ui::row(label.c_str(), [&] {
         const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
         const float revert_w = overridden ? ImGui::GetFrameHeight() + spacing : 0.0f;
         ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - revert_w, 1.0f));
         changed = draw_uniform_value(u, values);
         if (overridden) {
             ImGui::SameLine(0.0f, spacing);
-            revert = ui::icon_button("##revert", ui::icon::revert, revert_tip);
+            revert = ftk::ui::icon_button("##revert", ftk::ui::icon::revert, revert_tip);
         }
     });
     ImGui::PopID();
@@ -96,8 +96,8 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     const uint32_t pid = ictx.pipeline_cache->register_shader(
         canonical_sky_shader_path(env.sky_shader, project));
     auto sky_box = [] {
-        return ui::InsetGroup("##sky_values", "Sky shader", ui::icon::shader,
-                              theme::category(theme::Category::Environment));
+        return ftk::ui::InsetGroup("##sky_values", "Sky shader", ftk::ui::icon::shader,
+                              ftk::theme::category(ftk::theme::Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
     if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {
@@ -115,7 +115,7 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     if (!box) return false;
     shader_error_callout(*ictx.pipeline_cache, pid, project);
     std::string revert_name;
-    if (auto t = ui::PropertyTable("##sky_uniforms")) {
+    if (auto t = ftk::ui::PropertyTable("##sky_uniforms")) {
         for (const auto& u : meta.uniforms) {
             if (u.type == UniformType::Sampler2D) continue;
             const uint32_t count = uniform_float_count(u.type);
@@ -161,7 +161,7 @@ bool node_material_row(std::string& material_path, std::vector<NamedValue>& para
                        ShaderType type, const InspectorContext& ictx) {
     static const std::string exts[] = {".fjmat"};
     bool changed = false;
-    ui::row("Material", [&] {
+    ftk::ui::row("Material", [&] {
         changed = asset_slot({.label = "Material",
                               .id = "##material",
                               .extensions = exts,
@@ -194,8 +194,8 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     if (pid >= ictx.pipeline_cache->shader_count()) return false;
     const Project* project = ictx.project_mgr != nullptr ? ictx.project_mgr->active() : nullptr;
     auto node_box = [icon] {
-        return ui::InsetGroup("##node_values", "This node", icon,
-                              theme::category(theme::Category::Environment));
+        return ftk::ui::InsetGroup("##node_values", "This node", icon,
+                              ftk::theme::category(ftk::theme::Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
     if (ictx.pipeline_cache->has_compile_error(pid) && ictx.pipeline_cache->generation(pid) == 0) {
@@ -222,11 +222,11 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
         auto box = node_box();
         if (!box) return false;
         shader_error_callout(*ictx.pipeline_cache, pid, project);
-        ui::hint(material_shown
+        ftk::ui::hint(material_shown
                      ? "This node's own values, over the material's; the material and other nodes "
                        "sharing it keep theirs"
                      : "Values for this node, over the engine default's");
-        if (auto t = ui::PropertyTable("##node_values")) {
+        if (auto t = ftk::ui::PropertyTable("##node_values")) {
             for (const auto& u : meta.uniforms) {
                 if (!listed(u)) continue;
                 const uint32_t count = uniform_float_count(u.type);
@@ -265,14 +265,14 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     // One value made the node's own, starting where the material has it, so
     // taking it changes nothing until it is moved.
     if (material_shown && any_to_add) {
-        if (ui::action(ui::icon::add, "Override for this node", ui::ButtonKind::Ghost)) {
+        if (ftk::ui::action(ftk::ui::icon::add, "Override for this node", ftk::ui::ButtonKind::Ghost)) {
             ImGui::OpenPopup("##override_for_node");
         }
         if (ImGui::BeginPopup("##override_for_node")) {
             for (const auto& u : meta.uniforms) {
                 if (u.type == UniformType::Sampler2D || find_named(params, u.name) != nullptr) continue;
-                const std::string label = display_name(u.name);
-                if (!ui::menu_item({.label = label.c_str()})) continue;
+                const std::string label = ftk::display_name(u.name);
+                if (!ftk::ui::menu_item({.label = label.c_str()})) continue;
                 NamedValue value;
                 value.name = u.name;
                 value.count = uniform_float_count(u.type);
@@ -293,12 +293,12 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     return changed;
 }
 
-constexpr ui::Choice<CameraProjection> PROJECTIONS[] = {
+constexpr ftk::ui::Choice<CameraProjection> PROJECTIONS[] = {
     {CameraProjection::perspective, "Perspective"},
     {CameraProjection::orthographic, "Orthographic"},
 };
 
-constexpr ui::Choice<ColliderShape> VOLUME_SHAPES[] = {
+constexpr ftk::ui::Choice<ColliderShape> VOLUME_SHAPES[] = {
     {ColliderShape::Box, "Box"},
     {ColliderShape::Sphere, "Sphere"},
 };
@@ -319,7 +319,7 @@ const char* moon_phase_name(float phase) {
 } // namespace
 
 void PropertiesPanel::draw_transform(Node3D& node) {
-    ui::section("Transform", ui::icon::transform);
+    ftk::ui::section("Transform", ftk::ui::icon::transform);
 
     // Matches the viewport gizmo: Ctrl inverts the toggle.
     const bool snapping = grid_settings_ != nullptr
@@ -329,12 +329,12 @@ void PropertiesPanel::draw_transform(Node3D& node) {
         drag_start_name_ = node.name;
     }
 
-    ui::Edit edit;
+    ftk::ui::Edit edit;
     bool active = false;
-    if (auto t = ui::PropertyTable("##transform")) {
-        ui::row("Position", [&] {
+    if (auto t = ftk::ui::PropertyTable("##transform")) {
+        ftk::ui::row("Position", [&] {
             glm::vec3 position = node.transform.position;
-            const ui::Edit e = ui::vec3("##position", position,
+            const ftk::ui::Edit e = ftk::ui::vec3("##position", position,
                                         {.speed = snapping ? grid_settings_->cell_size : 0.1f});
             if (e.changed) {
                 node.transform.position = snapping
@@ -343,12 +343,12 @@ void PropertiesPanel::draw_transform(Node3D& node) {
             active = active || ImGui::IsItemActive();
             edit |= e;
         });
-        ui::row("Rotation", [&] {
+        ftk::ui::row("Rotation", [&] {
             glm::vec3 euler = node.transform.euler_degrees();
-            const ui::Edit e = ui::vec3(
+            const ftk::ui::Edit e = ftk::ui::vec3(
                 "##rotation", euler,
                 {.speed = snapping ? grid_settings_->rotation_snap_degrees : 1.0f,
-                 .unit = ui::Unit::Degrees, .format = "%.1f"});
+                 .unit = ftk::ui::Unit::Degrees, .format = "%.1f"});
             if (e.changed) {
                 node.transform.set_euler_degrees(
                     snapping ? snap_to_grid(euler, grid_settings_->rotation_snap_degrees) : euler);
@@ -356,9 +356,9 @@ void PropertiesPanel::draw_transform(Node3D& node) {
             active = active || ImGui::IsItemActive();
             edit |= e;
         });
-        ui::row("Scale", [&] {
+        ftk::ui::row("Scale", [&] {
             glm::vec3 scale = node.transform.scale;
-            const ui::Edit e = ui::vec3("##scale", scale,
+            const ftk::ui::Edit e = ftk::ui::vec3("##scale", scale,
                                         {.speed = snapping ? grid_settings_->scale_snap : 0.05f,
                                          .min = 0.01f, .max = 100.0f});
             if (e.changed) {
@@ -372,9 +372,9 @@ void PropertiesPanel::draw_transform(Node3D& node) {
             edit |= e;
         });
         if (!node.source.empty()) {
-            ui::row("Source", [&] {
+            ftk::ui::row("Source", [&] {
                 ImGui::AlignTextToFramePadding();
-                ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+                ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_secondary());
                 ImGui::TextUnformatted(node.source.c_str());
                 ImGui::PopStyleColor();
                 ImGui::SetItemTooltip("%s", node.source.c_str());
@@ -389,8 +389,8 @@ void PropertiesPanel::draw_transform(Node3D& node) {
     }
 
     if (snapping) {
-        const std::string label = std::string(ui::icon::snap) + "  Snap to grid";
-        if (ui::button(label.c_str())) {
+        const std::string label = std::string(ftk::ui::icon::snap) + "  Snap to grid";
+        if (ftk::ui::button(label.c_str())) {
             const Transform before = node.transform;
             node.transform.position = snap_to_grid(node.transform.position, grid_settings_->cell_size);
             scene_->mark_dirty();
@@ -406,7 +406,7 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
     // The section in one group, so the tracker knows whether a field in it
     // is being edited or under the mouse.
     const std::string scope = std::to_string(node.id) + "/node";
-    ui::edit_scope(scope);
+    ftk::ui::edit_scope(scope);
     ImGui::BeginGroup();
     bool changed = false;
     const char* title = nullptr;
@@ -436,7 +436,7 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
         changed = draw_world_environment(*env, ictx);
     }
     ImGui::EndGroup();
-    ui::edit_scope({});
+    ftk::ui::edit_scope({});
     if (title == nullptr) return;
 
     // Fields here are a mix of the kit's, which say when an edit is done,
@@ -456,33 +456,33 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
 
 bool PropertiesPanel::draw_camera(CameraNode& camera) {
     bool changed = false;
-    ui::section("Camera", ui::icon::camera);
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##camera")) {
-        ui::row("Projection", [&] { edit |= ui::choice("##projection", camera.projection, PROJECTIONS); });
+    ftk::ui::section("Camera", ftk::ui::icon::camera);
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##camera")) {
+        ftk::ui::row("Projection", [&] { edit |= ftk::ui::choice("##projection", camera.projection, PROJECTIONS); });
         if (camera.projection == CameraProjection::perspective) {
-            ui::row("Field of view", [&] {
-                edit |= ui::drag("##fov", camera.fov, {.speed = 0.5f, .min = 1.0f, .max = 179.0f,
-                                                       .unit = ui::Unit::Degrees, .format = "%.1f"});
+            ftk::ui::row("Field of view", [&] {
+                edit |= ftk::ui::drag("##fov", camera.fov, {.speed = 0.5f, .min = 1.0f, .max = 179.0f,
+                                                       .unit = ftk::ui::Unit::Degrees, .format = "%.1f"});
             });
         } else {
-            ui::row("Orthographic size", [&] {
-                edit |= ui::drag("##ortho_size", camera.ortho_size,
-                                 {.speed = 0.1f, .min = 0.1f, .max = 1000.0f, .unit = ui::Unit::Metres});
+            ftk::ui::row("Orthographic size", [&] {
+                edit |= ftk::ui::drag("##ortho_size", camera.ortho_size,
+                                 {.speed = 0.1f, .min = 0.1f, .max = 1000.0f, .unit = ftk::ui::Unit::Metres});
             });
         }
-        ui::row("Near", [&] {
+        ftk::ui::row("Near", [&] {
             // The lower bound is a depth-precision floor, not a taste call:
             // D32_SFLOAT spends its mantissa on the integer part as near
             // shrinks, and below ~0.01 the quantum at distance grows past a
             // typical AO/SSR sampling radius, banding every depth-derived
             // effect.
-            edit |= ui::drag("##near", camera.near_plane,
-                             {.speed = 0.01f, .min = 0.01f, .max = 100.0f, .unit = ui::Unit::Metres});
+            edit |= ftk::ui::drag("##near", camera.near_plane,
+                             {.speed = 0.01f, .min = 0.01f, .max = 100.0f, .unit = ftk::ui::Unit::Metres});
         });
-        ui::row("Far", [&] {
-            edit |= ui::drag("##far", camera.far_plane, {.speed = 10.0f, .min = 1.0f, .max = 100000.0f,
-                                                         .unit = ui::Unit::Metres, .format = "%.0f"});
+        ftk::ui::row("Far", [&] {
+            edit |= ftk::ui::drag("##far", camera.far_plane, {.speed = 10.0f, .min = 1.0f, .max = 100000.0f,
+                                                         .unit = ftk::ui::Unit::Metres, .format = "%.0f"});
         });
     }
     return changed || edit.changed;
@@ -490,26 +490,26 @@ bool PropertiesPanel::draw_camera(CameraNode& camera) {
 
 bool PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
     bool changed = false;
-    ui::section("Directional light", ui::icon::directional_light);
+    ftk::ui::section("Directional light", ftk::ui::icon::directional_light);
     const auto* world = find_world_environment(*scene_);
     const bool sun_driven = world != nullptr && world->time_of_day_enabled;
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##directional")) {
-        ui::row("Direction", [&] {
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##directional")) {
+        ftk::ui::row("Direction", [&] {
             ImGui::BeginDisabled(sun_driven);
-            edit |= ui::vec3("##direction", light.direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
+            edit |= ftk::ui::vec3("##direction", light.direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
             ImGui::EndDisabled();
             if (sun_driven) {
                 ImGui::SetItemTooltip("Driven by the World Environment's time of day");
             }
         });
-        ui::row("Colour", [&] { edit |= ui::color("##colour", light.color, ui::ColorSpace::Linear); });
-        ui::row("Intensity", [&] {
-            edit |= ui::drag("##intensity", light.intensity, {.speed = 0.05f, .min = 0.0f, .max = 10.0f});
+        ftk::ui::row("Colour", [&] { edit |= ftk::ui::color("##colour", light.color, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Intensity", [&] {
+            edit |= ftk::ui::drag("##intensity", light.intensity, {.speed = 0.05f, .min = 0.0f, .max = 10.0f});
         });
-        ui::row("Ambient", [&] { edit |= ui::color("##ambient", light.ambient_color, ui::ColorSpace::Linear); });
-        ui::row("Ambient intensity", [&] {
-            edit |= ui::drag("##ambient_intensity", light.ambient_intensity,
+        ftk::ui::row("Ambient", [&] { edit |= ftk::ui::color("##ambient", light.ambient_color, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Ambient intensity", [&] {
+            edit |= ftk::ui::drag("##ambient_intensity", light.ambient_intensity,
                              {.speed = 0.05f, .min = 0.0f, .max = 2.0f});
         });
     }
@@ -518,25 +518,25 @@ bool PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
 
 bool PropertiesPanel::draw_point_light(PointLightNode& light) {
     bool changed = false;
-    ui::section("Point light", ui::icon::point_light);
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##point")) {
-        ui::row("Colour", [&] { edit |= ui::color("##colour", light.color, ui::ColorSpace::Linear); });
-        ui::row("Intensity", [&] {
-            edit |= ui::drag("##intensity", light.intensity, {.speed = 0.1f, .min = 0.0f, .max = 100.0f});
+    ftk::ui::section("Point light", ftk::ui::icon::point_light);
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##point")) {
+        ftk::ui::row("Colour", [&] { edit |= ftk::ui::color("##colour", light.color, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Intensity", [&] {
+            edit |= ftk::ui::drag("##intensity", light.intensity, {.speed = 0.1f, .min = 0.0f, .max = 100.0f});
         });
-        ui::row("Radius", [&] {
-            edit |= ui::drag("##radius", light.radius,
-                             {.speed = 0.5f, .min = 0.1f, .max = 500.0f, .unit = ui::Unit::Metres});
+        ftk::ui::row("Radius", [&] {
+            edit |= ftk::ui::drag("##radius", light.radius,
+                             {.speed = 0.5f, .min = 0.1f, .max = 500.0f, .unit = ftk::ui::Unit::Metres});
         });
-        ui::row("Volumetric scatter", [&] {
-            edit |= ui::drag("##scatter", light.vol_scatter_intensity,
+        ftk::ui::row("Volumetric scatter", [&] {
+            edit |= ftk::ui::drag("##scatter", light.vol_scatter_intensity,
                              {.speed = 0.05f, .min = 0.0f, .max = 10.0f});
         });
-        ui::row("Cast shadows", [&] { edit |= ui::checkbox("##shadows", light.cast_shadows); });
+        ftk::ui::row("Cast shadows", [&] { edit |= ftk::ui::checkbox("##shadows", light.cast_shadows); });
         if (light.cast_shadows) {
-            ui::row("Shadow bias", [&] {
-                edit |= ui::drag("##bias", light.shadow_bias,
+            ftk::ui::row("Shadow bias", [&] {
+                edit |= ftk::ui::drag("##bias", light.shadow_bias,
                                  {.speed = 0.0005f, .min = 0.0f, .max = 0.05f, .format = "%.4f"});
             });
         }
@@ -546,36 +546,36 @@ bool PropertiesPanel::draw_point_light(PointLightNode& light) {
 
 bool PropertiesPanel::draw_spot_light(SpotLightNode& light) {
     bool changed = false;
-    ui::section("Spot light", ui::icon::spot_light);
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##spot")) {
-        ui::row("Direction", [&] {
-            edit |= ui::vec3("##direction", light.direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
+    ftk::ui::section("Spot light", ftk::ui::icon::spot_light);
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##spot")) {
+        ftk::ui::row("Direction", [&] {
+            edit |= ftk::ui::vec3("##direction", light.direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
         });
-        ui::row("Colour", [&] { edit |= ui::color("##colour", light.color, ui::ColorSpace::Linear); });
-        ui::row("Intensity", [&] {
-            edit |= ui::drag("##intensity", light.intensity, {.speed = 0.1f, .min = 0.0f, .max = 100.0f});
+        ftk::ui::row("Colour", [&] { edit |= ftk::ui::color("##colour", light.color, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Intensity", [&] {
+            edit |= ftk::ui::drag("##intensity", light.intensity, {.speed = 0.1f, .min = 0.0f, .max = 100.0f});
         });
-        ui::row("Radius", [&] {
-            edit |= ui::drag("##radius", light.radius,
-                             {.speed = 0.5f, .min = 0.1f, .max = 500.0f, .unit = ui::Unit::Metres});
+        ftk::ui::row("Radius", [&] {
+            edit |= ftk::ui::drag("##radius", light.radius,
+                             {.speed = 0.5f, .min = 0.1f, .max = 500.0f, .unit = ftk::ui::Unit::Metres});
         });
-        ui::row("Inner angle", [&] {
-            edit |= ui::drag("##inner", light.inner_angle, {.speed = 0.5f, .min = 0.0f, .max = 90.0f,
-                                                            .unit = ui::Unit::Degrees, .format = "%.1f"});
+        ftk::ui::row("Inner angle", [&] {
+            edit |= ftk::ui::drag("##inner", light.inner_angle, {.speed = 0.5f, .min = 0.0f, .max = 90.0f,
+                                                            .unit = ftk::ui::Unit::Degrees, .format = "%.1f"});
         });
-        ui::row("Outer angle", [&] {
-            edit |= ui::drag("##outer", light.outer_angle, {.speed = 0.5f, .min = 0.0f, .max = 90.0f,
-                                                            .unit = ui::Unit::Degrees, .format = "%.1f"});
+        ftk::ui::row("Outer angle", [&] {
+            edit |= ftk::ui::drag("##outer", light.outer_angle, {.speed = 0.5f, .min = 0.0f, .max = 90.0f,
+                                                            .unit = ftk::ui::Unit::Degrees, .format = "%.1f"});
         });
-        ui::row("Volumetric scatter", [&] {
-            edit |= ui::drag("##scatter", light.vol_scatter_intensity,
+        ftk::ui::row("Volumetric scatter", [&] {
+            edit |= ftk::ui::drag("##scatter", light.vol_scatter_intensity,
                              {.speed = 0.05f, .min = 0.0f, .max = 10.0f});
         });
-        ui::row("Cast shadows", [&] { edit |= ui::checkbox("##shadows", light.cast_shadows); });
+        ftk::ui::row("Cast shadows", [&] { edit |= ftk::ui::checkbox("##shadows", light.cast_shadows); });
         if (light.cast_shadows) {
-            ui::row("Shadow bias", [&] {
-                edit |= ui::drag("##bias", light.shadow_bias,
+            ftk::ui::row("Shadow bias", [&] {
+                edit |= ftk::ui::drag("##bias", light.shadow_bias,
                                  {.speed = 0.0005f, .min = 0.0f, .max = 0.05f, .format = "%.4f"});
             });
         }
@@ -585,69 +585,69 @@ bool PropertiesPanel::draw_spot_light(SpotLightNode& light) {
 
 bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx) {
     bool changed = false;
-    ui::section("Volumetric fog", ui::icon::volumetric_fog);
+    ftk::ui::section("Volumetric fog", ftk::ui::icon::volumetric_fog);
     // How the haze looks is its material; the node keeps where it is, how
     // far it reaches and how it answers movement.
-    if (auto t = ui::PropertyTable("##fog_material")) {
+    if (auto t = ftk::ui::PropertyTable("##fog_material")) {
         changed |= node_material_row(fog.material_path, fog.params, ShaderType::Fog, ictx);
     }
     if (fog.material != nullptr) {
         draw_material_inspector_for(fog.material);
     } else {
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_SHADER);
-        ui::hint(text.c_str());
+        ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(fog.material, DEFAULT_FOG_SHADER, ShaderType::Fog,
-                                ui::icon::volumetric_fog, fog.params, fog.material_values_, ictx);
+                                ftk::ui::icon::volumetric_fog, fog.params, fog.material_values_, ictx);
 
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##fog")) {
-        ui::row("Max distance", [&] {
-            edit |= ui::slider("##distance", fog.max_distance, 10.0f, 1000.0f, ui::Unit::Metres, "%.0f");
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##fog")) {
+        ftk::ui::row("Max distance", [&] {
+            edit |= ftk::ui::slider("##distance", fog.max_distance, 10.0f, 1000.0f, ftk::ui::Unit::Metres, "%.0f");
         });
-        ui::row("Temporal blend", [&] {
-            edit |= ui::slider("##temporal", fog.temporal_blend, 0.0f, 0.99f);
+        ftk::ui::row("Temporal blend", [&] {
+            edit |= ftk::ui::slider("##temporal", fog.temporal_blend, 0.0f, 0.99f);
         });
     }
 
-    ui::subheading("Sun shafts");
-    if (auto t = ui::PropertyTable("##shafts")) {
-        ui::row("Enabled", [&] { edit |= ui::checkbox("##enabled", fog.shafts_enabled); });
+    ftk::ui::subheading("Sun shafts");
+    if (auto t = ftk::ui::PropertyTable("##shafts")) {
+        ftk::ui::row("Enabled", [&] { edit |= ftk::ui::checkbox("##enabled", fog.shafts_enabled); });
         if (fog.shafts_enabled) {
-            ui::row("Intensity", [&] { edit |= ui::slider("##intensity", fog.shaft_intensity, 0.0f, 10.0f); });
-            ui::row("Density multiplier", [&] {
-                edit |= ui::slider("##density", fog.shaft_density_mult, 0.0f, 5.0f);
+            ftk::ui::row("Intensity", [&] { edit |= ftk::ui::slider("##intensity", fog.shaft_intensity, 0.0f, 10.0f); });
+            ftk::ui::row("Density multiplier", [&] {
+                edit |= ftk::ui::slider("##density", fog.shaft_density_mult, 0.0f, 5.0f);
             });
-            ui::row("Max reach", [&] {
-                edit |= ui::slider("##reach", fog.shaft_max_reach, 10.0f, 1000.0f, ui::Unit::Metres, "%.0f");
+            ftk::ui::row("Max reach", [&] {
+                edit |= ftk::ui::slider("##reach", fog.shaft_max_reach, 10.0f, 1000.0f, ftk::ui::Unit::Metres, "%.0f");
             });
-            ui::row("Steps", [&] { edit |= ui::slider_int("##steps", fog.shaft_step_count, 8, 128); });
-            ui::row("Anisotropy", [&] {
-                edit |= ui::slider("##anisotropy", fog.shaft_anisotropy, 0.0f, 0.9f);
+            ftk::ui::row("Steps", [&] { edit |= ftk::ui::slider_int("##steps", fog.shaft_step_count, 8, 128); });
+            ftk::ui::row("Anisotropy", [&] {
+                edit |= ftk::ui::slider("##anisotropy", fog.shaft_anisotropy, 0.0f, 0.9f);
             });
-            ui::row("Directionality", [&] {
-                edit |= ui::slider("##directionality", fog.shaft_directionality, 0.0f, 1.0f);
+            ftk::ui::row("Directionality", [&] {
+                edit |= ftk::ui::slider("##directionality", fog.shaft_directionality, 0.0f, 1.0f);
             });
-            ui::row("Threshold", [&] { edit |= ui::slider("##threshold", fog.shaft_threshold, 0.0f, 0.95f); });
+            ftk::ui::row("Threshold", [&] { edit |= ftk::ui::slider("##threshold", fog.shaft_threshold, 0.0f, 0.95f); });
         }
     }
 
-    ui::subheading("Motion");
-    if (auto t = ui::PropertyTable("##fog_motion")) {
-        ui::row("Response", [&] { edit |= ui::slider("##response", fog.motion_response, 0.0f, 1.0f); });
+    ftk::ui::subheading("Motion");
+    if (auto t = ftk::ui::PropertyTable("##fog_motion")) {
+        ftk::ui::row("Response", [&] { edit |= ftk::ui::slider("##response", fog.motion_response, 0.0f, 1.0f); });
         if (fog.motion_response <= 0.0f) {
-            ui::hint("Ignores things moving through it");
+            ftk::ui::hint("Ignores things moving through it");
         } else {
-            ui::hint("Faint in open haze: a few metres of a long column. Fog volumes carry a wake");
+            ftk::ui::hint("Faint in open haze: a few metres of a long column. Fog volumes carry a wake");
         }
-        ui::row("Show field", [&] {
+        ftk::ui::row("Show field", [&] {
             bool on = fog.density_field_debug > 0.0f;
-            const ui::Edit e = ui::checkbox("##field", on);
+            const ftk::ui::Edit e = ftk::ui::checkbox("##field", on);
             if (e.changed) fog.density_field_debug = on ? 1.0f : 0.0f;
             edit |= e;
         });
         if (fog.density_field_debug > 0.0f) {
-            ui::hint("Red is air pushed aside, blue piled up");
+            ftk::ui::hint("Red is air pushed aside, blue piled up");
         }
     }
     return changed || edit.changed;
@@ -655,71 +655,71 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
 
 bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx) {
     bool changed = false;
-    ui::section("Fog volume", ui::icon::fog_volume);
+    ftk::ui::section("Fog volume", ftk::ui::icon::fog_volume);
     // What the bank looks like is its material; the node keeps the shape,
     // how the bank drifts and how it answers movement.
-    if (auto t = ui::PropertyTable("##volume_material")) {
+    if (auto t = ftk::ui::PropertyTable("##volume_material")) {
         changed |= node_material_row(volume.material_path, volume.params, ShaderType::Fog, ictx);
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);
     } else {
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_FOG_VOLUME_SHADER);
-        ui::hint(text.c_str());
+        ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(volume.material, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog,
-                                ui::icon::volumetric_fog, volume.params, volume.material_values_,
+                                ftk::ui::icon::volumetric_fog, volume.params, volume.material_values_,
                                 ictx);
 
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##fog_volume")) {
-        ui::row("Shape", [&] { edit |= ui::choice("##shape", volume.shape, VOLUME_SHAPES); });
-        ui::hint("Size comes from the node's scale");
-        ui::row("Edge falloff", [&] { edit |= ui::slider("##falloff", volume.edge_falloff, 0.0f, 1.0f); });
-        ui::row("Group", [&] { edit |= ui::text_field("##group", volume.fog_group); });
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##fog_volume")) {
+        ftk::ui::row("Shape", [&] { edit |= ftk::ui::choice("##shape", volume.shape, VOLUME_SHAPES); });
+        ftk::ui::hint("Size comes from the node's scale");
+        ftk::ui::row("Edge falloff", [&] { edit |= ftk::ui::slider("##falloff", volume.edge_falloff, 0.0f, 1.0f); });
+        ftk::ui::row("Group", [&] { edit |= ftk::ui::text_field("##group", volume.fog_group); });
         if (!volume.fog_group.empty()) {
             const std::string text = "Driven by fog." + volume.fog_group + ".<uniform> tracks";
-            ui::hint(text.c_str());
+            ftk::ui::hint(text.c_str());
         }
     }
 
     // How the bank's field moves through the world. What the field is, the
     // wisps' size and contrast, is the material's.
-    ui::subheading("Drift");
-    if (auto t = ui::PropertyTable("##drift")) {
-        ui::row("Direction", [&] {
-            edit |= ui::vec3("##direction", volume.drift_direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
+    ftk::ui::subheading("Drift");
+    if (auto t = ftk::ui::PropertyTable("##drift")) {
+        ftk::ui::row("Direction", [&] {
+            edit |= ftk::ui::vec3("##direction", volume.drift_direction, {.speed = 0.01f, .min = -1.0f, .max = 1.0f});
         });
-        ui::row("Speed", [&] {
-            edit |= ui::slider("##speed", volume.drift_speed, 0.0f, 5.0f, ui::Unit::MetresPerSecond);
+        ftk::ui::row("Speed", [&] {
+            edit |= ftk::ui::slider("##speed", volume.drift_speed, 0.0f, 5.0f, ftk::ui::Unit::MetresPerSecond);
         });
-        ui::row("Wind", [&] { edit |= ui::slider("##wind", volume.wind_influence, 0.0f, 1.0f); });
+        ftk::ui::row("Wind", [&] { edit |= ftk::ui::slider("##wind", volume.wind_influence, 0.0f, 1.0f); });
         if (volume.wind_influence > 0.0f) {
-            ui::row("Wind scale", [&] {
-                edit |= ui::slider("##wind_scale", volume.wind_speed_scale, 0.0f, 1.0f);
+            ftk::ui::row("Wind scale", [&] {
+                edit |= ftk::ui::slider("##wind_scale", volume.wind_speed_scale, 0.0f, 1.0f);
             });
         }
     }
 
-    ui::subheading("Motion");
-    if (auto t = ui::PropertyTable("##volume_motion")) {
-        ui::row("Response", [&] { edit |= ui::slider("##response", volume.motion_response, 0.0f, 1.0f); });
+    ftk::ui::subheading("Motion");
+    if (auto t = ftk::ui::PropertyTable("##volume_motion")) {
+        ftk::ui::row("Response", [&] { edit |= ftk::ui::slider("##response", volume.motion_response, 0.0f, 1.0f); });
         if (volume.motion_response <= 0.0f) {
-            ui::hint("Ignores things moving through it");
+            ftk::ui::hint("Ignores things moving through it");
         }
-        ui::row("Vortices", [&] { edit |= ui::slider("##vortices", volume.vortex_strength, 0.0f, 2.0f); });
+        ftk::ui::row("Vortices", [&] { edit |= ftk::ui::slider("##vortices", volume.vortex_strength, 0.0f, 2.0f); });
         if (volume.motion_response > 0.0f && volume.vortex_strength > 0.0f) {
-            ui::hint("Rolls shed off each flank of a wake");
+            ftk::ui::hint("Rolls shed off each flank of a wake");
         }
-        ui::row("Compression", [&] { edit |= ui::slider("##compression", volume.compression, 0.0f, 3.0f); });
-        ui::row("Show field", [&] {
+        ftk::ui::row("Compression", [&] { edit |= ftk::ui::slider("##compression", volume.compression, 0.0f, 3.0f); });
+        ftk::ui::row("Show field", [&] {
             bool on = volume.density_field_debug > 0.0f;
-            const ui::Edit e = ui::checkbox("##field", on);
+            const ftk::ui::Edit e = ftk::ui::checkbox("##field", on);
             if (e.changed) volume.density_field_debug = on ? 1.0f : 0.0f;
             edit |= e;
         });
         if (volume.density_field_debug > 0.0f) {
-            ui::hint("Red is air pushed aside, blue piled up");
+            ftk::ui::hint("Red is air pushed aside, blue piled up");
         }
     }
     return changed || edit.changed;
@@ -728,41 +728,41 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
 bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
                                                const InspectorContext& ictx) {
     bool changed = false;
-    ui::section("Post process volume", ui::icon::post_process_volume);
+    ftk::ui::section("Post process volume", ftk::ui::icon::post_process_volume);
     // How the frame looks is the material; the node keeps where the look
     // applies, over which others and how much.
-    if (auto t = ui::PropertyTable("##post_material")) {
+    if (auto t = ftk::ui::PropertyTable("##post_material")) {
         changed |= node_material_row(volume.material_path, volume.params, ShaderType::Post, ictx);
     }
     if (volume.material != nullptr) {
         draw_material_inspector_for(volume.material);
     } else {
         const std::string text = "Drawn with the engine's " + std::string(DEFAULT_POST_SHADER);
-        ui::hint(text.c_str());
+        ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(volume.material, DEFAULT_POST_SHADER, ShaderType::Post,
-                                ui::icon::post_process_volume, volume.params,
+                                ftk::ui::icon::post_process_volume, volume.params,
                                 volume.material_values_, ictx);
 
-    ui::Edit edit;
-    if (auto t = ui::PropertyTable("##post_volume")) {
-        ui::row("Infinite bounds", [&] { edit |= ui::checkbox("##infinite", volume.infinite_bounds); });
+    ftk::ui::Edit edit;
+    if (auto t = ftk::ui::PropertyTable("##post_volume")) {
+        ftk::ui::row("Infinite bounds", [&] { edit |= ftk::ui::checkbox("##infinite", volume.infinite_bounds); });
         if (volume.infinite_bounds) {
-            ui::hint("Applies everywhere; the shape is ignored");
+            ftk::ui::hint("Applies everywhere; the shape is ignored");
         } else {
-            ui::row("Shape", [&] { edit |= ui::choice("##shape", volume.shape, VOLUME_SHAPES); });
-            ui::hint("Size comes from the node's scale");
-            ui::row("Edge falloff", [&] { edit |= ui::slider("##falloff", volume.edge_falloff, 0.0f, 1.0f); });
+            ftk::ui::row("Shape", [&] { edit |= ftk::ui::choice("##shape", volume.shape, VOLUME_SHAPES); });
+            ftk::ui::hint("Size comes from the node's scale");
+            ftk::ui::row("Edge falloff", [&] { edit |= ftk::ui::slider("##falloff", volume.edge_falloff, 0.0f, 1.0f); });
         }
-        ui::row("Priority", [&] { edit |= ui::drag_int("##priority", volume.priority, 0.1f); });
-        ui::hint("Where volumes overlap, higher applies over lower");
-        ui::row("Weight", [&] { edit |= ui::slider("##weight", volume.weight, 0.0f, 1.0f); });
-        ui::row("Group", [&] { edit |= ui::text_field("##group", volume.post_group); });
+        ftk::ui::row("Priority", [&] { edit |= ftk::ui::drag_int("##priority", volume.priority, 0.1f); });
+        ftk::ui::hint("Where volumes overlap, higher applies over lower");
+        ftk::ui::row("Weight", [&] { edit |= ftk::ui::slider("##weight", volume.weight, 0.0f, 1.0f); });
+        ftk::ui::row("Group", [&] { edit |= ftk::ui::text_field("##group", volume.post_group); });
         if (!volume.post_group.empty()) {
             const std::string text = "Driven by post." + volume.post_group + ".<uniform> tracks";
-            ui::hint(text.c_str());
+            ftk::ui::hint(text.c_str());
         } else if (volume.infinite_bounds) {
-            ui::hint("Driven by post.<uniform> tracks");
+            ftk::ui::hint("Driven by post.<uniform> tracks");
         }
     }
     return changed || edit.changed;
@@ -770,18 +770,18 @@ bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
 
 bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx) {
     bool changed = false;
-    ui::section("World environment", ui::icon::world_environment);
+    ftk::ui::section("World environment", ftk::ui::icon::world_environment);
     static const std::string hdri_exts[] = {".hdr", ".exr"};
     static const std::string sky_shader_exts[] = {".fjsl"};
     static const std::string day_profile_exts[] = {".fjday"};
     static const std::string weather_exts[] = {".fjweather"};
     static const std::string climate_exts[] = {".fjclimate"};
-    if (auto t = ui::PropertyTable("##sky_assets")) {
-        ui::row("HDRI", [&] {
+    if (auto t = ftk::ui::PropertyTable("##sky_assets")) {
+        ftk::ui::row("HDRI", [&] {
             changed |= asset_slot({.label = "HDRI", .id = "##hdri", .extensions = hdri_exts, .ctx = &ictx},
                                   env.hdri_path);
         });
-        ui::row("Sky shader", [&] {
+        ftk::ui::row("Sky shader", [&] {
             changed |= asset_slot({.label = "Sky shader",
                                    .id = "##sky_shader",
                                    .extensions = sky_shader_exts,
@@ -793,18 +793,18 @@ bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const In
     if (!env.sky_shader.empty()) {
         changed |= draw_sky_uniforms(env, ictx);
     }
-    if (auto t = ui::PropertyTable("##time_assets")) {
-        ui::row("Day profile", [&] {
+    if (auto t = ftk::ui::PropertyTable("##time_assets")) {
+        ftk::ui::row("Day profile", [&] {
             changed |= asset_slot(
                 {.label = "Day profile", .id = "##day_profile", .extensions = day_profile_exts, .ctx = &ictx},
                 env.day_profile);
         });
-        ui::row("Weather", [&] {
+        ftk::ui::row("Weather", [&] {
             changed |= asset_slot(
                 {.label = "Weather", .id = "##weather", .extensions = weather_exts, .ctx = &ictx},
                 env.weather);
         });
-        ui::row("Climate", [&] {
+        ftk::ui::row("Climate", [&] {
             changed |= asset_slot(
                 {.label = "Climate", .id = "##climate", .extensions = climate_exts, .ctx = &ictx},
                 env.climate);
@@ -812,103 +812,103 @@ bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const In
     }
     changed |= draw_weather_controls(env, ictx);
 
-    ui::Edit edit;
+    ftk::ui::Edit edit;
     const bool gradient = env.hdri_path.empty();
-    if (auto t = ui::PropertyTable("##sky")) {
+    if (auto t = ftk::ui::PropertyTable("##sky")) {
         ImGui::BeginDisabled(!gradient);
-        ui::row("Sky top", [&] { edit |= ui::color("##top", env.sky_top_color, ui::ColorSpace::Linear); });
-        ui::row("Sky bottom", [&] {
-            edit |= ui::color("##bottom", env.sky_bottom_color, ui::ColorSpace::Linear);
+        ftk::ui::row("Sky top", [&] { edit |= ftk::ui::color("##top", env.sky_top_color, ftk::ui::ColorSpace::Linear); });
+        ftk::ui::row("Sky bottom", [&] {
+            edit |= ftk::ui::color("##bottom", env.sky_bottom_color, ftk::ui::ColorSpace::Linear);
         });
         ImGui::EndDisabled();
         if (!gradient) {
-            ui::hint("The HDRI replaces the gradient");
+            ftk::ui::hint("The HDRI replaces the gradient");
         }
-        ui::row("IBL intensity", [&] { edit |= ui::slider("##ibl", env.ibl_intensity, 0.0f, 5.0f); });
+        ftk::ui::row("IBL intensity", [&] { edit |= ftk::ui::slider("##ibl", env.ibl_intensity, 0.0f, 5.0f); });
     }
 
-    ui::subheading("Contact shadows");
-    if (auto t = ui::PropertyTable("##contact")) {
-        ui::row("Enabled", [&] { edit |= ui::checkbox("##enabled", env.contact_shadows_enabled); });
+    ftk::ui::subheading("Contact shadows");
+    if (auto t = ftk::ui::PropertyTable("##contact")) {
+        ftk::ui::row("Enabled", [&] { edit |= ftk::ui::checkbox("##enabled", env.contact_shadows_enabled); });
         if (env.contact_shadows_enabled) {
-            ui::row("Distance", [&] {
-                edit |= ui::slider("##distance", env.contact_shadow_distance, 0.05f, 2.0f, ui::Unit::Metres);
+            ftk::ui::row("Distance", [&] {
+                edit |= ftk::ui::slider("##distance", env.contact_shadow_distance, 0.05f, 2.0f, ftk::ui::Unit::Metres);
             });
-            ui::row("Thickness", [&] {
-                edit |= ui::slider("##thickness", env.contact_shadow_thickness, 0.01f, 0.5f, ui::Unit::Metres);
+            ftk::ui::row("Thickness", [&] {
+                edit |= ftk::ui::slider("##thickness", env.contact_shadow_thickness, 0.01f, 0.5f, ftk::ui::Unit::Metres);
             });
-            ui::row("Steps", [&] { edit |= ui::slider_int("##steps", env.contact_shadow_steps, 4, 64); });
+            ftk::ui::row("Steps", [&] { edit |= ftk::ui::slider_int("##steps", env.contact_shadow_steps, 4, 64); });
         }
     }
 
-    ui::subheading("Time of day");
-    if (auto t = ui::PropertyTable("##time_of_day")) {
-        ui::row("Enabled", [&] { edit |= ui::checkbox("##enabled", env.time_of_day_enabled); });
+    ftk::ui::subheading("Time of day");
+    if (auto t = ftk::ui::PropertyTable("##time_of_day")) {
+        ftk::ui::row("Enabled", [&] { edit |= ftk::ui::checkbox("##enabled", env.time_of_day_enabled); });
         if (env.time_of_day_enabled) {
-            ui::row("Hour", [&] {
+            ftk::ui::row("Hour", [&] {
                 const int minutes = static_cast<int>(env.time_of_day * 60.0f + 0.5f) % (24 * 60);
                 char clock[8];
                 std::snprintf(clock, sizeof(clock), "%02d:%02d", minutes / 60, minutes % 60);
-                edit |= ui::slider_labelled("##hour", env.time_of_day, 0.0f, 24.0f, clock);
+                edit |= ftk::ui::slider_labelled("##hour", env.time_of_day, 0.0f, 24.0f, clock);
             });
-            ui::row("Day length", [&] {
+            ftk::ui::row("Day length", [&] {
                 float minutes = env.day_length / 60.0f;
-                const ui::Edit e = ui::drag("##day_length", minutes,
+                const ftk::ui::Edit e = ftk::ui::drag("##day_length", minutes,
                                             {.speed = 0.5f, .min = 0.0f, .max = 24.0f * 60.0f,
-                                             .unit = ui::Unit::Minutes, .format = "%.1f"});
+                                             .unit = ftk::ui::Unit::Minutes, .format = "%.1f"});
                 if (e.changed) env.day_length = std::max(minutes, 0.0f) * 60.0f;
                 edit |= e;
             });
-            ui::row("Run in editor", [&] { edit |= ui::checkbox("##run", env.advance_in_editor); });
-            ui::row("Path tilt", [&] {
-                edit |= ui::slider("##tilt", env.sun_path_tilt, 0.0f, 90.0f, ui::Unit::Degrees, "%.0f");
+            ftk::ui::row("Run in editor", [&] { edit |= ftk::ui::checkbox("##run", env.advance_in_editor); });
+            ftk::ui::row("Path tilt", [&] {
+                edit |= ftk::ui::slider("##tilt", env.sun_path_tilt, 0.0f, 90.0f, ftk::ui::Unit::Degrees, "%.0f");
             });
-            ui::row("North", [&] {
-                edit |= ui::slider("##north", env.north_yaw, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+            ftk::ui::row("North", [&] {
+                edit |= ftk::ui::slider("##north", env.north_yaw, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
             });
-            ui::row("Noon hour", [&] { edit |= ui::slider("##noon", env.noon_hour, 0.0f, 24.0f, ui::Unit::None, "%.1f"); });
+            ftk::ui::row("Noon hour", [&] { edit |= ftk::ui::slider("##noon", env.noon_hour, 0.0f, 24.0f, ftk::ui::Unit::None, "%.1f"); });
         }
     }
     if (env.time_of_day_enabled) {
-        ui::subheading("Moon");
-        if (auto t = ui::PropertyTable("##moon")) {
-            ui::row("Phase",
+        ftk::ui::subheading("Moon");
+        if (auto t = ftk::ui::PropertyTable("##moon")) {
+            ftk::ui::row("Phase",
                     "Where the moon rides the sun's path, and so how much of it is lit: new at 0 "
                     "and 1, half at 0.25 and 0.75, full at 0.5.",
                     [&] {
-                        edit |= ui::slider_labelled("##phase", env.moon_phase, 0.0f, 1.0f,
+                        edit |= ftk::ui::slider_labelled("##phase", env.moon_phase, 0.0f, 1.0f,
                                                     moon_phase_name(env.moon_phase));
                     });
-            ui::row("Colour", [&] { edit |= ui::color("##colour", env.moon_color, ui::ColorSpace::Linear); });
-            ui::row("Intensity", [&] {
-                edit |= ui::drag("##intensity", env.moon_intensity,
+            ftk::ui::row("Colour", [&] { edit |= ftk::ui::color("##colour", env.moon_color, ftk::ui::ColorSpace::Linear); });
+            ftk::ui::row("Intensity", [&] {
+                edit |= ftk::ui::drag("##intensity", env.moon_intensity,
                                  {.speed = 0.005f, .min = 0.0f, .max = 2.0f, .format = "%.3f"});
             });
         }
     }
 
-    ui::subheading("Atmospheric scattering");
-    if (auto t = ui::PropertyTable("##atmosphere")) {
-        ui::row("Enabled", [&] { edit |= ui::checkbox("##enabled", env.atmosphere_enabled); });
+    ftk::ui::subheading("Atmospheric scattering");
+    if (auto t = ftk::ui::PropertyTable("##atmosphere")) {
+        ftk::ui::row("Enabled", [&] { edit |= ftk::ui::checkbox("##enabled", env.atmosphere_enabled); });
         if (env.atmosphere_enabled) {
-            ui::row("Sun intensity", [&] {
-                edit |= ui::slider("##sun", env.atmosphere_sun_intensity, 1.0f, 50.0f);
+            ftk::ui::row("Sun intensity", [&] {
+                edit |= ftk::ui::slider("##sun", env.atmosphere_sun_intensity, 1.0f, 50.0f);
             });
-            ui::row("Rayleigh height", [&] {
-                edit |= ui::slider("##rayleigh", env.atmosphere_rayleigh_scale, 1000.0f, 20000.0f,
-                                   ui::Unit::Metres, "%.0f");
+            ftk::ui::row("Rayleigh height", [&] {
+                edit |= ftk::ui::slider("##rayleigh", env.atmosphere_rayleigh_scale, 1000.0f, 20000.0f,
+                                   ftk::ui::Unit::Metres, "%.0f");
             });
-            ui::row("Mie height", [&] {
-                edit |= ui::slider("##mie_height", env.atmosphere_mie_scale, 100.0f, 5000.0f,
-                                   ui::Unit::Metres, "%.0f");
+            ftk::ui::row("Mie height", [&] {
+                edit |= ftk::ui::slider("##mie_height", env.atmosphere_mie_scale, 100.0f, 5000.0f,
+                                   ftk::ui::Unit::Metres, "%.0f");
             });
-            ui::row("Mie anisotropy", [&] { edit |= ui::slider("##mie_g", env.atmosphere_mie_g, 0.0f, 0.99f); });
-            ui::row("Mie coefficient", [&] {
-                edit |= ui::slider("##mie_coeff", env.atmosphere_mie_coeff, 1e-6f, 100e-6f,
-                                   ui::Unit::None, "%.1e");
+            ftk::ui::row("Mie anisotropy", [&] { edit |= ftk::ui::slider("##mie_g", env.atmosphere_mie_g, 0.0f, 0.99f); });
+            ftk::ui::row("Mie coefficient", [&] {
+                edit |= ftk::ui::slider("##mie_coeff", env.atmosphere_mie_coeff, 1e-6f, 100e-6f,
+                                   ftk::ui::Unit::None, "%.1e");
             });
-            ui::row("HDRI floor", [&] {
-                edit |= ui::slider("##hdri_floor", env.atmosphere_hdri_floor, 0.0f, 1.0f);
+            ftk::ui::row("HDRI floor", [&] {
+                edit |= ftk::ui::slider("##hdri_floor", env.atmosphere_hdri_floor, 0.0f, 1.0f);
             });
         }
     }
@@ -945,8 +945,8 @@ bool PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
     // control below, this is not an action: it decides what the first frame
     // of the scene looks like, in the editor and on launch alike.
     if (!env.weather.empty()) {
-        if (auto t = ui::PropertyTable("##weather_start")) {
-            ui::row("Start phase",
+        if (auto t = ftk::ui::PropertyTable("##weather_start")) {
+            ftk::ui::row("Start phase",
                     "Where the event is when the scene opens. Approach is weather arriving; "
                     "a later phase is weather that set in before the scene did.",
                     [&] {
@@ -955,7 +955,7 @@ bool PropertiesPanel::draw_weather_controls(WorldEnvironmentNode& env, const Ins
                             names[i] = weather_phase_name(static_cast<WeatherPhase>(i));
                         }
                         int index = static_cast<int>(env.weather_start_phase);
-                        if (!ui::choice("##start_phase", index, names).changed) return;
+                        if (!ftk::ui::choice("##start_phase", index, names).changed) return;
                         const auto phase = static_cast<WeatherPhase>(index);
                         env.weather_start_phase = phase;
                         changed = true;

@@ -44,7 +44,7 @@ constexpr const char* FALLBACK_WATER_SHADER = "shaders/water_default.fjsl";
 
 } // namespace
 
-Result<> WaterPass::create(const PassResources& resources) {
+ftk::Result<> WaterPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
 
@@ -56,11 +56,11 @@ Result<> WaterPass::create(const PassResources& resources) {
     // fragment stage, since nothing it would compute is kept. Tests and writes LESS against the seeded scene depth. Seen
     // from both sides, as the colour pipelines are. Set 0 the globals, set 2
     // the water set, which is the pass's own.
-    FJELL_TRY(depth_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(depth_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                    .task = "shaders/water.task",
                                    .mesh = "shaders/water_depth.mesh",
-                                   .raster = {.cull = gpu::Cull::none},
-                                   .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+                                   .raster = {.cull = ftk::gpu::Cull::none},
+                                   .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
                                    .depth_format = resources.scene_depth_format,
                                    .samples = resources.samples,
                                    .shared = {resources.globals},
@@ -71,35 +71,35 @@ Result<> WaterPass::create(const PassResources& resources) {
     // wave field, for each, whether the near plane's point lies on the other
     // side of the surface from the camera. Its set 2 is the water set the mesh
     // stage reads; set 3 is the mask it writes.
-    FJELL_TRY(line_pipeline_, device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(line_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                   .shader = "shaders/water_line.comp",
                                   .shared = {resources.globals},
                                   .name = "water_line",
                               }));
 
-    FJELL_TRY(no_medium_, device_->create(gpu::TextureDesc{
-                              .kind = gpu::TextureKind::tex3d,
-                              .format = gpu::Format::rgba16_float,
+    FTK_TRY(no_medium_, device_->create(ftk::gpu::TextureDesc{
+                              .kind = ftk::gpu::TextureKind::tex3d,
+                              .format = ftk::gpu::Format::rgba16_float,
                               .width = 1,
                               .height = 1,
-                              .use = gpu::TextureUse::sampled,
-                              .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
+                              .use = ftk::gpu::TextureUse::sampled,
+                              .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
                               .name = "water_no_medium",
                           }));
-    FJELL_TRY(no_bed_, device_->create(gpu::TextureDesc{
-                           .format = gpu::Format::r16_unorm,
+    FTK_TRY(no_bed_, device_->create(ftk::gpu::TextureDesc{
+                           .format = ftk::gpu::Format::r16_unorm,
                            .width = 1,
                            .height = 1,
-                           .use = gpu::TextureUse::sampled,
-                           .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                           .use = ftk::gpu::TextureUse::sampled,
+                           .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
                            .name = "water_no_bed",
                        }));
-    FJELL_TRY(no_exposure_, device_->create(gpu::TextureDesc{
-                                .format = gpu::Format::rg16_unorm,
+    FTK_TRY(no_exposure_, device_->create(ftk::gpu::TextureDesc{
+                                .format = ftk::gpu::Format::rg16_unorm,
                                 .width = 1,
                                 .height = 1,
-                                .use = gpu::TextureUse::sampled,
-                                .initial = gpu::Clear{1.0f, 1.0f, 0.0f, 0.0f},
+                                .use = ftk::gpu::TextureUse::sampled,
+                                .initial = ftk::gpu::Clear{1.0f, 1.0f, 0.0f, 0.0f},
                                 .name = "water_no_exposure",
                             }));
     return {};
@@ -123,7 +123,7 @@ void WaterPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     simulation_ = passes.try_get<WaterFftPass>("water_fft");
     fog_ = passes.try_get<FogCore>("fog_medium");
     if (simulation_ == nullptr) {
-        FJELL_CORE_ERROR("WaterPass: no water_fft pass in the render graph. Water samples the "
+        FTK_CORE_ERROR("WaterPass: no water_fft pass in the render graph. Water samples the "
                          "simulated sea's textures whether or not a field has one, so without "
                          "that pass it cannot draw.");
     }
@@ -184,7 +184,7 @@ void WaterPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         // the first one's: same textures, at the scale they were made for. Said
         // once, when it starts being true, rather than left to be puzzled over.
         if (asked_otherwise != nullptr && !warned_second_sea_) {
-            FJELL_CORE_WARN("Water: '{}' asks for a different simulated sea than '{}'. The world "
+            FTK_CORE_WARN("Water: '{}' asks for a different simulated sea than '{}'. The world "
                             "runs one simulation, so both are drawn with the sea '{}' describes.",
                             asked_otherwise->name, asked_first->name, asked_first->name);
         }
@@ -219,7 +219,7 @@ void WaterPass::ensure_fallback_material() {
 
     const uint32_t pid = pipeline_cache_->register_shader(FALLBACK_WATER_SHADER);
     if (pipeline_cache_->has_compile_error(pid)) {
-        FJELL_GFX_ERROR("WaterPass: '{}' failed to compile: {}", FALLBACK_WATER_SHADER,
+        FTK_GFX_ERROR("WaterPass: '{}' failed to compile: {}", FALLBACK_WATER_SHADER,
                         pipeline_cache_->compile_error(pid));
         return;
     }
@@ -251,7 +251,7 @@ void WaterPass::ensure_fallback_material() {
     fallback_ready_ = ensure_material_pipeline(pid).valid();
 }
 
-gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
+ftk::gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) {
     if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
         return {};
     }
@@ -264,23 +264,23 @@ gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) 
     const auto& meta = pipeline_cache_->metadata(pipeline_id);
     if (meta.shader_type != ShaderType::Water) {
         if (reported_entries_.insert(pipeline_id).second) {
-            FJELL_GFX_ERROR("WaterPass: '{}' is shader_type '{}', water needs "
+            FTK_GFX_ERROR("WaterPass: '{}' is shader_type '{}', water needs "
                             "shader_type water",
                             pipeline_cache_->shader_path(pipeline_id), shader_type_name(meta.shader_type));
         }
         return {};
     }
-    const auto kept = [&]() -> gpu::GraphicsPipeline {
-        return it != material_pipelines_.end() ? gpu::GraphicsPipeline(it->second.pipeline) : gpu::GraphicsPipeline{};
+    const auto kept = [&]() -> ftk::gpu::GraphicsPipeline {
+        return it != material_pipelines_.end() ? ftk::gpu::GraphicsPipeline(it->second.pipeline) : ftk::gpu::GraphicsPipeline{};
     };
     if (pipeline_cache_->has_compile_error(pipeline_id) || generation == 0) {
         // A failed recompile keeps the pipeline built from the last good one.
         return kept();
     }
 
-    auto fragment = gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
+    auto fragment = ftk::gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
     if (!fragment) {
-        FJELL_GFX_ERROR("WaterPass: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
+        FTK_GFX_ERROR("WaterPass: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
         return kept();
     }
 
@@ -310,14 +310,14 @@ gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) 
     //
     // A sea is seen from under it as well as over it, and a wave steep enough
     // to fold shows its own back face. Neither is a reason to drop a triangle.
-    const gpu::Blend over{true, gpu::BlendFactor::src_alpha, gpu::BlendFactor::one_minus_src_alpha,
-                          gpu::BlendFactor::one, gpu::BlendFactor::one_minus_src_alpha};
-    auto made = device_->create(gpu::GraphicsPipelineDesc{
+    const ftk::gpu::Blend over{true, ftk::gpu::BlendFactor::src_alpha, ftk::gpu::BlendFactor::one_minus_src_alpha,
+                          ftk::gpu::BlendFactor::one, ftk::gpu::BlendFactor::one_minus_src_alpha};
+    auto made = device_->create(ftk::gpu::GraphicsPipelineDesc{
         .task = "shaders/water.task",
         .mesh = "shaders/water.mesh",
         .fragment = std::span<const uint32_t>(*fragment),
-        .raster = {.cull = gpu::Cull::none},
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .raster = {.cull = ftk::gpu::Cull::none},
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
         .color = {{.format = resources_.scene_color_format, .blend = over},
                   {.format = resources_.scene_mr_format},
                   {.format = resources_.scene_normal_format},
@@ -328,7 +328,7 @@ gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) 
         .name = pipeline_cache_->shader_path(pipeline_id),
     });
     if (!made) {
-        FJELL_GFX_ERROR("WaterPass: failed to create pipeline for '{}': {}",
+        FTK_GFX_ERROR("WaterPass: failed to create pipeline for '{}': {}",
                         pipeline_cache_->shader_path(pipeline_id), made.error());
         return kept();
     }
@@ -341,7 +341,7 @@ gpu::GraphicsPipeline WaterPass::ensure_material_pipeline(uint32_t pipeline_id) 
     return slot.pipeline;
 }
 
-void WaterPass::resolve_node_material(const WaterComponent& comp, gpu::GraphicsPipeline& out_pipeline,
+void WaterPass::resolve_node_material(const WaterComponent& comp, ftk::gpu::GraphicsPipeline& out_pipeline,
                                        uint32_t& out_material_id) {
     out_pipeline = {};
     out_material_id = fallback_material_id_;
@@ -350,7 +350,7 @@ void WaterPass::resolve_node_material(const WaterComponent& comp, gpu::GraphicsP
         // The pipeline comes from the shared material either way: a script's
         // override clones the parent's params into its own SSBO row, it does
         // not change which shader draws the surface.
-        const gpu::GraphicsPipeline p = ensure_material_pipeline(comp.material->pipeline_id());
+        const ftk::gpu::GraphicsPipeline p = ensure_material_pipeline(comp.material->pipeline_id());
         if (p.valid()) {
             out_pipeline = p;
             out_material_id = comp.resolved_material_id();
@@ -380,7 +380,7 @@ void WaterPass::gather_fields(const FrameContext& ctx) {
         // until the next step says where it is.
         if (field.shore.present != 0) {
             const FjTerrainData* heights = wc->effective_water.shore->terrain.get();
-            gpu::Texture bed{};
+            ftk::gpu::Texture bed{};
             for (auto [terrain_node, tc] : ctx.scene->view<TerrainComponent>()) {
                 if (tc->terrain != nullptr && tc->terrain->shared_data().get() == heights) {
                     bed = tc->terrain->height_texture();
@@ -419,7 +419,7 @@ void WaterPass::gather_fields(const FrameContext& ctx) {
     });
 }
 
-void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
+void WaterPass::record_water_line(const FrameContext& ctx, ftk::gpu::Texture mask) {
     if (ctx.scene == nullptr || !line_pipeline_ || simulation_ == nullptr) return;
 
     // The body of water nearest the camera, if any is within reach of the
@@ -459,9 +459,9 @@ void WaterPass::record_water_line(const FrameContext& ctx, gpu::Texture mask) {
     // Set 2 is the water set the mesh stage reads, set 3 the mask written.
     cmd.bind(water_set(WaterSet::line, cmd.transient(line_field), {}, cmd.transient(wake_records()), {},
                        ground_of(water)));
-    cmd.bind({{"water_line", gpu::storage(mask)}});
+    cmd.bind({{"water_line", ftk::gpu::storage(mask)}});
     cmd.push(push);
-    const gpu::TextureInfo& size = device_->info(mask);
+    const ftk::gpu::TextureInfo& size = device_->info(mask);
     cmd.dispatch((size.width + 7) / 8, (size.height + 7) / 8, 1);
 }
 
@@ -491,52 +491,52 @@ WaterPass::Ground WaterPass::ground_of(const WaterComponent* water) const {
     return ground != grounds_.end() ? ground->second : Ground{};
 }
 
-gpu::Texture WaterPass::exposure_texture(const WaterComponent* water,
+ftk::gpu::Texture WaterPass::exposure_texture(const WaterComponent* water,
                                          const std::shared_ptr<const water::ShoreExposure>& exposure) {
     ExposureTexture& uploaded = exposures_[water];
     if (uploaded.from == exposure && uploaded.texture) return uploaded.texture.get();
 
-    auto made = device_->create(gpu::TextureDesc{
-        .format = gpu::Format::rg16_unorm,
+    auto made = device_->create(ftk::gpu::TextureDesc{
+        .format = ftk::gpu::Format::rg16_unorm,
         .width = exposure->samples,
         .height = exposure->samples,
-        .use = gpu::TextureUse::sampled,
+        .use = ftk::gpu::TextureUse::sampled,
         .name = "water_exposure",
     });
     if (!made) {
-        FJELL_GFX_ERROR("WaterPass: could not make an exposure texture: {}", made.error());
+        FTK_GFX_ERROR("WaterPass: could not make an exposure texture: {}", made.error());
         uploaded = {};
         return {};
     }
     // Read where the surface is placed: the mesh stages and the waterline.
     device_->upload().to_texture(*made, {}, std::as_bytes(std::span(exposure->shares)),
-                                 {.after = gpu::Access::sampled_mesh | gpu::Access::sampled_compute});
+                                 {.after = ftk::gpu::Access::sampled_mesh | ftk::gpu::Access::sampled_compute});
     uploaded = {exposure, std::move(*made)};
     return uploaded.texture.get();
 }
 
-std::vector<gpu::BindEntry> WaterPass::water_set(WaterSet use, gpu::BufferRange field,
-                                                 gpu::BufferRange clipmap, gpu::BufferRange wakes,
-                                                 gpu::Texture medium, Ground ground) const {
-    const gpu::Sampler sampler = simulation_->sampler();
+std::vector<ftk::gpu::BindEntry> WaterPass::water_set(WaterSet use, ftk::gpu::BufferRange field,
+                                                 ftk::gpu::BufferRange clipmap, ftk::gpu::BufferRange wakes,
+                                                 ftk::gpu::Texture medium, Ground ground) const {
+    const ftk::gpu::Sampler sampler = simulation_->sampler();
     // The bed is read a sample at a time, so the sampler never filters it.
-    std::vector<gpu::BindEntry> entries{
-        {"water", gpu::uniform(field)},
-        {"simulated_displacement", gpu::sampled(simulation_->displacement(), sampler)},
-        {"wakes", gpu::storage(wakes)},
-        {"bed_heights", gpu::sampled(ground.bed.valid() ? ground.bed : no_bed_.get(), sampler)},
+    std::vector<ftk::gpu::BindEntry> entries{
+        {"water", ftk::gpu::uniform(field)},
+        {"simulated_displacement", ftk::gpu::sampled(simulation_->displacement(), sampler)},
+        {"wakes", ftk::gpu::storage(wakes)},
+        {"bed_heights", ftk::gpu::sampled(ground.bed.valid() ? ground.bed : no_bed_.get(), sampler)},
         {"shore_exposure",
-         gpu::sampled(ground.exposure.valid() ? ground.exposure : no_exposure_.get(), sampler)},
+         ftk::gpu::sampled(ground.exposure.valid() ? ground.exposure : no_exposure_.get(), sampler)},
     };
     if (use == WaterSet::line) return entries;
-    entries.push_back({"clip", gpu::uniform(clipmap)});
+    entries.push_back({"clip", ftk::gpu::uniform(clipmap)});
     if (use == WaterSet::depth) return entries;
-    entries.push_back({"simulated_previous", gpu::sampled(simulation_->previous_displacement(), sampler)});
-    entries.push_back({"simulated_derivatives", gpu::sampled(simulation_->derivatives(), sampler)});
+    entries.push_back({"simulated_previous", ftk::gpu::sampled(simulation_->previous_displacement(), sampler)});
+    entries.push_back({"simulated_derivatives", ftk::gpu::sampled(simulation_->derivatives(), sampler)});
     if (use == WaterSet::colour) {
         entries.push_back({"medium_volume",
-                           medium.valid() ? gpu::sampled(medium, fog_->fog_sampler())
-                                          : gpu::sampled(no_medium_, sampler)});
+                           medium.valid() ? ftk::gpu::sampled(medium, fog_->fog_sampler())
+                                          : ftk::gpu::sampled(no_medium_, sampler)});
     }
     return entries;
 }
@@ -555,7 +555,7 @@ bool WaterPass::draws(const FrameContext& ctx) const {
 
 void WaterPass::seed_water_depth(const FrameContext& ctx) {
     if (!draws(ctx)) return;
-    FJELL_PROFILE_SCOPE_N("record_water_depth_seed");
+    FTK_PROFILE_SCOPE_N("record_water_depth_seed");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Water Depth Seed");
     cmd.copy(ctx.target->msaa_depth_texture(), ctx.target->water_depth_texture());
@@ -569,41 +569,41 @@ PassSetup WaterPass::setup() const {
     };
 }
 
-void WaterPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void WaterPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.water_draws) { return; }
     // The colour targets the transparent pass then loads, drawn over.
     for (const char* name : {"msaa_color", "msaa_mr", "msaa_normal", "msaa_velocity"}) {
-        builder.write(builder.import_named(ctx, name), gpu::Access::color_attachment);
+        builder.write(builder.import_named(ctx, name), ftk::gpu::Access::color_attachment);
     }
     // The depth the prepass wrote, tested and not written.
     builder.read(builder.import_named(ctx, "msaa_surface_depth"),
-                 gpu::Access::depth_attachment_read);
+                 ftk::gpu::Access::depth_attachment_read);
     // What the surface shader samples through the global set: the lighting,
     // the scene depth behind it for WATER_DEPTH, and the copy of the scene
     // it refracts.
     declare_lit_surface_reads(builder, ctx);
-    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_fragment);
-    builder.read(builder.import_named(ctx, "screen_color"), gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "depth"), ftk::gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "screen_color"), ftk::gpu::Access::sampled_fragment);
     // The simulated sea, which the mesh stage moves the surface by.
-    declare_simulation_reads(builder, ctx, gpu::Access::sampled_mesh);
+    declare_simulation_reads(builder, ctx, ftk::gpu::Access::sampled_mesh);
     // The fog integrated front to back, for the medium behind the surface.
     // A transient: read by re-creating it by name, which is also what keeps
     // it from being aliased before this reads it.
     if (ctx.volumetric_fog_enabled) {
         builder.read(builder.create(FogCore::INTEGRATED_NAME, FogCore::volume_desc()),
-                     gpu::Access::sampled_fragment);
+                     ftk::gpu::Access::sampled_fragment);
     }
 }
 
-void WaterPass::declare_displacement_read(PassBuilder& builder, const DeclareContext& ctx,
-                                          gpu::Access access) {
+void WaterPass::declare_displacement_read(ftk::PassBuilder& builder, const DeclareContext& ctx,
+                                          ftk::gpu::Access access) {
     if (auto image = builder.import_named_optional(ctx, "water_displacement"); image.valid()) {
         builder.read(image, access);
     }
 }
 
-void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareContext& ctx,
-                                         gpu::Access access) {
+void WaterPass::declare_simulation_reads(ftk::PassBuilder& builder, const DeclareContext& ctx,
+                                         ftk::gpu::Access access) {
     for (const char* name : {"water_displacement", "water_displacement_prev",
                              "water_derivatives"}) {
         if (auto image = builder.import_named_optional(ctx, name); image.valid()) {
@@ -612,11 +612,11 @@ void WaterPass::declare_simulation_reads(PassBuilder& builder, const DeclareCont
     }
 }
 
-void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
-                           gpu::GraphicsPipeline depth_only, gpu::Texture medium) {
+void WaterPass::draw_nodes(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass,
+                           ftk::gpu::GraphicsPipeline depth_only, ftk::gpu::Texture medium) {
     // The same clipmap and wakes for every node; each node its own field.
-    const gpu::BufferRange clipmap = pass.transient(clipmap_.gpu());
-    const gpu::BufferRange wakes = pass.transient(wake_records());
+    const ftk::gpu::BufferRange clipmap = pass.transient(clipmap_.gpu());
+    const ftk::gpu::BufferRange wakes = pass.transient(wake_records());
     const WaterSet use = depth_only.valid() ? WaterSet::depth : WaterSet::colour;
 
     for (auto [node, wc] : ctx.scene->view<WaterComponent>()) {
@@ -625,7 +625,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
 
         // A node without a usable colour pipeline is not drawn at all, its
         // depth included, so the surface depth never holds water nobody sees.
-        gpu::GraphicsPipeline pipeline{};
+        ftk::gpu::GraphicsPipeline pipeline{};
         uint32_t material_id = 0;
         resolve_node_material(*wc, pipeline, material_id);
         if (!pipeline.valid()) continue;
@@ -684,7 +684,7 @@ void WaterPass::draw_nodes(const FrameContext& ctx, gpu::RenderEncoder& pass,
 void WaterPass::record_depth(const FrameContext& ctx) {
     if (!draws(ctx) || !depth_pipeline_) return;
 
-    FJELL_PROFILE_SCOPE_N("record_water_depth");
+    FTK_PROFILE_SCOPE_N("record_water_depth");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Water Depth");
     auto* target = ctx.target;
@@ -693,12 +693,12 @@ void WaterPass::record_depth(const FrameContext& ctx) {
     // water behind the opaque scene; stored, because the colour draw tests
     // against it. Under MSAA it also resolves into the surface depth the
     // rest of the frame samples; at one sample it is that image.
-    const bool msaa = target->samples() != gpu::Samples::x1;
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{
+    const bool msaa = target->samples() != ftk::gpu::Samples::x1;
+    auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{
                                 .view = target->water_depth_texture(),
-                                .resolve = msaa ? gpu::TextureView(target->surface_depth_texture())
-                                                : gpu::TextureView{},
-                                .resolve_mode = gpu::DepthResolve::sample_zero,
+                                .resolve = msaa ? ftk::gpu::TextureView(target->surface_depth_texture())
+                                                : ftk::gpu::TextureView{},
+                                .resolve_mode = ftk::gpu::DepthResolve::sample_zero,
                             }});
     draw_nodes(ctx, pass, depth_pipeline_, {});
     depth_drawn_for_ = target;
@@ -711,7 +711,7 @@ void WaterPass::record(const FrameContext& ctx) {
     // water without it shows none.
     if (depth_drawn_for_ != ctx.target) {
         if (!warned_no_prepass_) {
-            FJELL_GFX_WARN("WaterPass: water_depth_prepass did not draw before the water, so "
+            FTK_GFX_WARN("WaterPass: water_depth_prepass did not draw before the water, so "
                            "the water is skipped. A render graph with the water node needs "
                            "water_depth_seed and water_depth_prepass too.");
             warned_no_prepass_ = true;
@@ -720,7 +720,7 @@ void WaterPass::record(const FrameContext& ctx) {
     }
     depth_drawn_for_ = nullptr;
 
-    FJELL_PROFILE_SCOPE_N("record_water");
+    FTK_PROFILE_SCOPE_N("record_water");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Water");
     auto* target = ctx.target;
@@ -741,8 +741,8 @@ void WaterPass::record(const FrameContext& ctx) {
                   {.view = target->msaa_mr_texture()},
                   {.view = target->msaa_normal_texture()},
                   {.view = target->msaa_velocity_texture()}},
-        .depth = gpu::DepthAttachment{.view = target->water_depth_texture(),
-                                      .access = gpu::Access::depth_attachment_read},
+        .depth = ftk::gpu::DepthAttachment{.view = target->water_depth_texture(),
+                                      .access = ftk::gpu::Access::depth_attachment_read},
     });
     // The fog integrated front to back, when this run built it.
     draw_nodes(ctx, pass, {}, ctx.texture(FogCore::INTEGRATED_NAME));
@@ -750,7 +750,7 @@ void WaterPass::record(const FrameContext& ctx) {
 
 // ── WaterDepthSeedPass ──────────────────────────────────────────────────────
 
-Result<> WaterDepthSeedPass::create(const PassResources& /*resources*/) {
+ftk::Result<> WaterDepthSeedPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -768,10 +768,10 @@ PassSetup WaterDepthSeedPass::setup() const {
     };
 }
 
-void WaterDepthSeedPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void WaterDepthSeedPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.water_draws) { return; }
-    builder.read(builder.import_named(ctx, "msaa_depth"), gpu::Access::copy_src);
-    builder.write(builder.import_named(ctx, "msaa_surface_depth"), gpu::Access::copy_dst);
+    builder.read(builder.import_named(ctx, "msaa_depth"), ftk::gpu::Access::copy_src);
+    builder.write(builder.import_named(ctx, "msaa_surface_depth"), ftk::gpu::Access::copy_dst);
 }
 
 void WaterDepthSeedPass::record(const FrameContext& ctx) {
@@ -780,7 +780,7 @@ void WaterDepthSeedPass::record(const FrameContext& ctx) {
 
 // ── WaterDepthPrepass ───────────────────────────────────────────────────────
 
-Result<> WaterDepthPrepass::create(const PassResources& /*resources*/) {
+ftk::Result<> WaterDepthPrepass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -798,19 +798,19 @@ PassSetup WaterDepthPrepass::setup() const {
     };
 }
 
-void WaterDepthPrepass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void WaterDepthPrepass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.water_draws) { return; }
     // The seeded attachment, tested and written; under MSAA it resolves into
     // the surface depth as the rendering ends, and without MSAA the two are
     // one image.
     builder.write(builder.import_named(ctx, "msaa_surface_depth"),
-                  gpu::Access::depth_attachment);
+                  ftk::gpu::Access::depth_attachment);
     builder.write(builder.import_named(ctx, "surface_depth"),
-                  ctx.msaa_samples != gpu::Samples::x1 ? gpu::Access::depth_resolve
-                                                            : gpu::Access::depth_attachment);
+                  ctx.msaa_samples != ftk::gpu::Samples::x1 ? ftk::gpu::Access::depth_resolve
+                                                            : ftk::gpu::Access::depth_attachment);
     // The simulated sea's displacement, which the mesh stage places the
     // surface by; its slopes and history are the colour draw's.
-    WaterPass::declare_displacement_read(builder, ctx, gpu::Access::sampled_mesh);
+    WaterPass::declare_displacement_read(builder, ctx, ftk::gpu::Access::sampled_mesh);
 }
 
 void WaterDepthPrepass::record(const FrameContext& ctx) {

@@ -23,33 +23,33 @@ struct CloudShadowPush {
 
 } // namespace
 
-Result<> CloudShadowPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> CloudShadowPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     // Linear sampling across the map: a texel is two metres of ground and
     // the shadow edge should not show it.
-    sampler_ = device.sampler({.filter = gpu::Filter::linear, .address = gpu::Address::clamp});
-    FJELL_TRY(pipeline_, device.create(gpu::ComputePipelineDesc{
+    sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear, .address = ftk::gpu::Address::clamp});
+    FTK_TRY(pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/cloud_shadow.comp",
                              .shared = {resources.globals},
                              .name = "cloud_shadow",
                          }));
     // Full transmittance until the first dispatch: graphs that never run
     // this pass still bind it.
-    FJELL_TRY(map_, device.create(gpu::TextureDesc{
-                        .format = gpu::Format::r8_unorm,
+    FTK_TRY(map_, device.create(ftk::gpu::TextureDesc{
+                        .format = ftk::gpu::Format::r8_unorm,
                         .width = RESOLUTION,
                         .height = RESOLUTION,
-                        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                        .initial = gpu::Clear{1.0f},
+                        .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                        .initial = ftk::gpu::Clear{1.0f},
                         .name = "cloud_shadow",
                     }));
     cleared_ = true;
-    FJELL_GFX_DEBUG("Cloud shadow pass created");
+    FTK_GFX_DEBUG("Cloud shadow pass created");
     return {};
 }
 
 void CloudShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    gpu.global_bindings().set("cloud_shadow", gpu::sampled(map_, sampler_));
+    gpu.global_bindings().set("cloud_shadow", ftk::gpu::sampled(map_, sampler_));
 }
 
 void CloudShadowPass::destroy() {
@@ -81,11 +81,11 @@ PassSetup CloudShadowPass::setup() const {
     };
 }
 
-void CloudShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void CloudShadowPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Nothing to do while the map already holds full transmittance.
     if (!active_ && cleared_) { return; }
     auto map = builder.import_named(ctx, "cloud_shadow");
-    builder.write(map, active_ ? gpu::Access::storage_write_compute : gpu::Access::clear);
+    builder.write(map, active_ ? ftk::gpu::Access::storage_write_compute : ftk::gpu::Access::clear);
 }
 
 void CloudShadowPass::collect_exports(DeclareContext& ctx) {
@@ -93,18 +93,18 @@ void CloudShadowPass::collect_exports(DeclareContext& ctx) {
     // Every surface, the fog light and the sun shafts sample it through the
     // global set, which the graph cannot see.
     ctx.export_texture("cloud_shadow", map_,
-                       {.resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute});
+                       {.resting = ftk::gpu::Access::sampled_fragment | ftk::gpu::Access::sampled_compute});
 }
 
 void CloudShadowPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_cloud_shadow");
+    FTK_PROFILE_SCOPE_N("record_cloud_shadow");
     auto& cmd = ctx.commands();
 
     if (!active_) {
         // No clouds or no sun: hold full transmittance. Once cleared the map
         // stays cleared until clouds return, so this costs nothing per frame.
         if (cleared_) return;
-        cmd.clear(map_, gpu::Clear{1.0f});
+        cmd.clear(map_, ftk::gpu::Clear{1.0f});
         cleared_ = true;
         return;
     }
@@ -112,7 +112,7 @@ void CloudShadowPass::record(const FrameContext& ctx) {
     auto zone = cmd.zone("Cloud Shadow");
     cmd.set_pipeline(pipeline_);
     cmd.bind(ctx.globals);
-    cmd.bind({{"shadow_out", gpu::storage(map_)}});
+    cmd.bind({{"shadow_out", ftk::gpu::storage(map_)}});
     cmd.push(CloudShadowPush{
         .min_xz = frame_.min_xz,
         .size = frame_.size,

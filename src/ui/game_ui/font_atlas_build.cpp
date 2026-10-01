@@ -70,21 +70,21 @@ uint32_t pack_shelves(std::vector<PackedGlyph>& boxes, uint32_t page_width) {
 
 } // namespace
 
-Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
+ftk::Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
                                        const std::filesystem::path& source_path,
                                        uint64_t source_hash,
                                        std::vector<uint32_t>* missing,
                                        std::vector<uint32_t>* unmerged) {
     auto codepoints = charset_codepoints(recipe);
-    if (codepoints.empty()) return make_error("the charset is empty");
+    if (codepoints.empty()) return ftk::make_error("the charset is empty");
 
     auto* ft = msdfgen::initializeFreetype();
-    if (!ft) return make_error("failed to initialize FreeType");
+    if (!ft) return ftk::make_error("failed to initialize FreeType");
 
     auto* font = msdfgen::loadFont(ft, source_path.string().c_str());
     if (!font) {
         msdfgen::deinitializeFreetype(ft);
-        return make_error("failed to load font " + source_path.string());
+        return ftk::make_error("failed to load font " + source_path.string());
     }
     struct FontCloser {
         msdfgen::FreetypeHandle* ft;
@@ -183,7 +183,7 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
         page_height = pack_shelves(boxes, page_width);
     }
     if (page_height == 0 || page_height > MAX_PAGE_SIZE) {
-        return make_error("a charset of " + std::to_string(count) + " glyphs at " +
+        return ftk::make_error("a charset of " + std::to_string(count) + " glyphs at " +
                           std::to_string(recipe.em_size) + " px per em does not fit one " +
                           std::to_string(MAX_PAGE_SIZE) + "x" + std::to_string(MAX_PAGE_SIZE) +
                           " page; use a smaller em size or a smaller charset");
@@ -320,37 +320,37 @@ Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
     return atlas;
 }
 
-Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path) {
+ftk::Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path) {
     std::vector<std::string> warnings;
     auto recipe = load_font_recipe(recipe_path, &warnings);
-    if (!recipe) return make_error(recipe.error());
+    if (!recipe) return ftk::make_error(recipe.error());
     auto source_path = font_source_path(recipe_path, *recipe);
     auto hash = font_source_hash(recipe_path, source_path);
-    if (!hash) return make_error(hash.error());
+    if (!hash) return ftk::make_error(hash.error());
     if (font_atlas_is_fresh(recipe_path, source_path, font_atlas_cache_path(recipe_path), *hash)) {
         return false;
     }
     auto bake = bake_font_recipe(recipe_path);
-    if (!bake) return make_error(bake.error());
+    if (!bake) return ftk::make_error(bake.error());
     return true;
 }
 
-Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path) {
+ftk::Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path) {
     FontBake bake;
     auto recipe = load_font_recipe(recipe_path, &bake.warnings);
-    if (!recipe) return make_error(recipe.error());
+    if (!recipe) return ftk::make_error(recipe.error());
 
     auto source_path = font_source_path(recipe_path, *recipe);
     auto hash = font_source_hash(recipe_path, source_path);
-    if (!hash) return make_error(hash.error());
+    if (!hash) return ftk::make_error(hash.error());
 
     auto atlas = bake_font_atlas(*recipe, source_path, *hash, &bake.missing, &bake.unmerged);
-    if (!atlas) return make_error(recipe_path.string() + ": " + atlas.error());
+    if (!atlas) return ftk::make_error(recipe_path.string() + ": " + atlas.error());
     bake.atlas = std::move(*atlas);
 
     bake.atlas_path = font_atlas_cache_path(recipe_path);
     if (auto written = write_font_atlas(bake.atlas_path, bake.atlas); !written) {
-        return make_error(written.error());
+        return ftk::make_error(written.error());
     }
     return bake;
 }

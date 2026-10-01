@@ -34,12 +34,12 @@ AudioEngine::AudioEngine() : impl_(std::make_unique<Impl>()) {
 
     ma_result result = ma_engine_init(&config, &impl_->engine);
     if (result != MA_SUCCESS) {
-        FJELL_CORE_ERROR("Failed to initialize audio engine: {}", static_cast<int>(result));
+        FTK_CORE_ERROR("Failed to initialize audio engine: {}", static_cast<int>(result));
         return;
     }
 
     impl_->initialized = true;
-    FJELL_CORE_INFO("Audio engine initialized");
+    FTK_CORE_INFO("Audio engine initialized");
 }
 
 AudioEngine::~AudioEngine() {
@@ -56,7 +56,7 @@ bool AudioEngine::is_initialized() const {
 
 void AudioEngine::update(Scene& scene, const glm::vec3& listener_pos,
                          const glm::vec3& listener_forward, const glm::vec3& listener_up) {
-    FJELL_PROFILE_SCOPE_N("audio_update");
+    FTK_PROFILE_SCOPE_N("audio_update");
     if (!is_initialized()) return;
 
     // Update listener
@@ -77,16 +77,16 @@ void AudioEngine::update(Scene& scene, const glm::vec3& listener_pos,
     }
 }
 
-Result<> AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
-    if (!is_initialized()) return make_error("Audio engine not initialized");
+ftk::Result<> AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
+    if (!is_initialized()) return ftk::make_error("Audio engine not initialized");
 
     auto* base_node = scene.find(node_id);
     auto* audio_ptr = base_node ? base_node->components.get<AudioSourceComponent>() : nullptr;
-    if (!audio_ptr) return make_error("Audio source component not found on node " + std::to_string(node_id));
+    if (!audio_ptr) return ftk::make_error("Audio source component not found on node " + std::to_string(node_id));
     auto* node = base_node->as_spatial();
 
     auto& audio = *audio_ptr;
-    if (audio.clip_path.empty()) return make_error("Audio clip path is empty");
+    if (audio.clip_path.empty()) return ftk::make_error("Audio clip path is empty");
 
     // Stop existing sound for this node
     stop(node_id);
@@ -100,7 +100,7 @@ Result<> AudioEngine::play(uint32_t node_id, Scene& scene, const Project* projec
 
     if (result != MA_SUCCESS) {
         impl_->sounds.erase(node_id);
-        return make_error("Failed to load audio clip: " + audio.clip_path + " (resolved: " + resolved + ")");
+        return ftk::make_error("Failed to load audio clip: " + audio.clip_path + " (resolved: " + resolved + ")");
     }
 
     ma_sound_set_volume(&entry.sound, audio.volume);
@@ -154,7 +154,7 @@ uint32_t AudioEngine::play_bed(const std::string& clip_path, float volume, const
     ma_result result = ma_sound_init_from_file(&impl_->engine, resolved.c_str(),
                                                MA_SOUND_FLAG_DECODE, nullptr, nullptr, bed.get());
     if (result != MA_SUCCESS) {
-        FJELL_CORE_WARN("Failed to play bed: {}", clip_path);
+        FTK_CORE_WARN("Failed to play bed: {}", clip_path);
         return 0;
     }
     ma_sound_set_volume(bed.get(), volume);
@@ -218,7 +218,7 @@ void AudioEngine::play_oneshot(const std::string& clip_path,
 
     if (result != MA_SUCCESS) {
         impl_->oneshots.pop_back();
-        FJELL_CORE_WARN("Failed to play oneshot: {}", clip_path);
+        FTK_CORE_WARN("Failed to play oneshot: {}", clip_path);
         return;
     }
 
@@ -234,7 +234,7 @@ void AudioEngine::start_play(Scene& scene, const Project* project) {
     for (auto [obj, au] : scene.view<AudioSourceComponent>()) {
         if (au->play_on_start) {
             if (auto r = play(obj->id, scene, project); !r) {
-                FJELL_CORE_WARN("Audio play failed for '{}': {}", obj->name, r.error());
+                FTK_CORE_WARN("Audio play failed for '{}': {}", obj->name, r.error());
             }
         }
     }

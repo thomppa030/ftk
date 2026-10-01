@@ -19,7 +19,7 @@ void UiInput::forget_tree() {
 bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
                       float viewport_width, float viewport_height,
                       glm::vec2 viewport_offset, float scale) {
-    FJELL_PROFILE_SCOPE_N("ui_input_process");
+    FTK_PROFILE_SCOPE_N("ui_input_process");
     dirty_nodes_.clear();
 
     auto mouse = input.mouse_position();
@@ -165,7 +165,7 @@ void UiInput::dispatch_action(const std::string& expr, UiNode& node, UiContext& 
     args.reserve(call.args.size());
     for (const auto& arg : call.args) args.push_back(UiDataBind::resolve_value(arg, *scope));
     if (!scope->dispatch(call.name, args) && unanswered_.insert(expr).second) {
-        FJELL_CORE_WARN("Game UI: nothing answers on:click \"{}\"", expr);
+        FTK_CORE_WARN("Game UI: nothing answers on:click \"{}\"", expr);
     }
 }
 

@@ -19,7 +19,7 @@ namespace fjell {
 // second cull finds through draw_found().
 class MeshShaderDepthPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 
@@ -28,12 +28,12 @@ public:
     /// of materials with a mesh stage of their own, which the prepass draws
     /// whole from the batch's per-draw commands. Needs the cull's commands
     /// and the meshlet set in `ctx`.
-    void draw_found(gpu::RenderEncoder& pass, const FrameContext& ctx, MeshletInstancePass::Cull which) const;
+    void draw_found(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx, MeshletInstancePass::Cull which) const;
 
     /// Create a custom depth pipeline for a specific shader pipeline ID
     /// using a custom mesh shader SPV, on the default pipeline's state,
     /// culling what its material culls.
-    void register_custom_depth(uint32_t pipeline_id, const std::string& mesh_spv_path, gpu::Cull cull) {
+    void register_custom_depth(uint32_t pipeline_id, const std::string& mesh_spv_path, ftk::gpu::Cull cull) {
         meshes_.register_custom(pipeline_id, mesh_spv_path, cull);
     }
     /// Forget every custom depth pipeline.
@@ -45,10 +45,10 @@ private:
     DepthVariants meshes_;
     /// What the meshlet cull found visible, one bin at a time; one per
     /// gpu::Cull, each bin culling what its material culls.
-    std::array<gpu::Owned<gpu::GraphicsPipeline>, 3> gpu_driven_pipelines_;
+    std::array<ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>, 3> gpu_driven_pipelines_;
 
     // TODO(compute-pre-skin): Remove once skinned meshes go through mesh shader path.
-    gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_pipeline_;
 };
 
 } // namespace fjell

@@ -16,11 +16,11 @@ namespace fjell {
 // Mesh-shader path is unaffected — it culls per meshlet in meshlet_cull.comp.
 class InstanceCullPass : public RenderPass {
 public:
-    [[nodiscard]] Result<> create(const PassResources& resources) override;
+    [[nodiscard]] ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void collect_exports(DeclareContext& ctx) override;
 
@@ -28,10 +28,10 @@ private:
     /// This frame slot's compacted transforms and the camera batch's indirect
     /// commands whose instance counts the pass patches. Empty when the frame
     /// has no instanced draws, which is also when the pass writes nothing.
-    BufferImport transforms_{};
-    BufferImport commands_{};
+    ftk::BufferImport transforms_{};
+    ftk::BufferImport commands_{};
 
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
 };
 
 } // namespace fjell

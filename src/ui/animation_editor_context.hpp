@@ -19,12 +19,15 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class AnimationClip;
 class AnimationSubsystem;
 class Clock;
-class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
@@ -38,7 +41,7 @@ struct AnimationEditorDeps {
     Clock* clock;
     AnimationSubsystem* animation_subsystem;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
 };
 
 class AnimationEditorContext final : public EngineEditorContext {
@@ -59,9 +62,9 @@ public:
     void draw(float dt) override;
     bool handle_shortcuts() override;
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
+    [[nodiscard]] ftk::Result<> write() override;
     [[nodiscard]] std::string saved_files() const override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     // Viewport
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
@@ -148,7 +151,7 @@ private:
     TimelineWidget timeline_;
 
     // Delegate connections
-    std::vector<Connection> connections_;
+    std::vector<ftk::Connection> connections_;
 };
 
 } // namespace fjell

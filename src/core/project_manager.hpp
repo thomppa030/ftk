@@ -47,8 +47,8 @@ public:
     [[nodiscard]] bool is_building() const { return build_future_.valid(); }
 
     // Events
-    Delegate<void(const std::string&)> on_opened;   // project name
-    Delegate<void()> on_closed;
+    ftk::Delegate<void(const std::string&)> on_opened;   // project name
+    ftk::Delegate<void()> on_closed;
 
 private:
     std::optional<Project> project_;
@@ -65,7 +65,7 @@ private:
 
 #ifndef NDEBUG
     // ── Source file watcher (auto-build on .cpp/.hpp change) ─────────────
-    platform::FileWatcher script_watcher_;
+    ftk::platform::FileWatcher script_watcher_;
     bool source_changed_{false};
     std::chrono::steady_clock::time_point last_source_change_{};
     void setup_script_watcher();

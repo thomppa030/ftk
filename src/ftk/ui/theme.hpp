@@ -9,7 +9,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace fjell::theme {
+namespace ftk::theme {
 
 // Every ImGui colour is sRGB, the way ImGui itself assumes; the ImGui
 // fragment stage (shaders/imgui.frag) decodes it for the sRGB swapchain.
@@ -428,4 +428,4 @@ inline void apply(ImGuiStyle& style) {
     style.HoverDelayShort = 0.15f;
 }
 
-} // namespace fjell::theme
+} // namespace ftk::theme

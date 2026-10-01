@@ -11,6 +11,10 @@
 #include <cstdint>
 #include <memory>
 
+namespace ftk {
+class Window;
+} // namespace ftk
+
 namespace fjell {
 
 class AudioSubsystem;
@@ -31,7 +35,6 @@ class SpriteAnimSubsystem;
 class UiSubsystem;
 class VfxSubsystem;
 class VulkanContext;
-class Window;
 
 enum class PlayState : uint8_t { stopped, playing };
 enum class PlayPresentation : uint8_t { docked, fullscreen };
@@ -46,7 +49,7 @@ struct PlayServices {
     ProjectManager* project_mgr{nullptr};
     ResourceManager* resources{nullptr};
     VulkanContext* vulkan{nullptr};
-    Window* window{nullptr};
+    ftk::Window* window{nullptr};
     ScreenDebugQueue* screen_debug{nullptr};
     ScriptSubsystem* scripts{nullptr};
     PhysicsSubsystem* physics{nullptr};
@@ -211,13 +214,13 @@ public:
     [[nodiscard]] ImTextureID hud_texture();
 
     /// Fires after every subsystem has started and the scene is live.
-    Delegate<void()> on_started;
+    ftk::Delegate<void()> on_started;
     /// Fires before subsystems stop, while the play scene is still intact.
-    Delegate<void()> on_stopping;
+    ftk::Delegate<void()> on_stopping;
     /// Fires after the editor scene has been restored.
-    Delegate<void()> on_stopped;
-    Delegate<void()> on_paused;
-    Delegate<void()> on_resumed;
+    ftk::Delegate<void()> on_stopped;
+    ftk::Delegate<void()> on_paused;
+    ftk::Delegate<void()> on_resumed;
 
 private:
     void check_component_serialization() const;

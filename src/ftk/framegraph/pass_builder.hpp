@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// A named image made available to pass declare() bodies. The pipeline
 /// registers target framebuffer images up front; producer passes add
@@ -290,4 +290,4 @@ private:
     uint32_t next_buffer_id_{0};
 };
 
-} // namespace fjell
+} // namespace ftk

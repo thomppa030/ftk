@@ -12,13 +12,16 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class CommandHistory;
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class BindlessTextures;
-class CommandHistory;
 class EnvironmentSubsystem;
 class ContentBrowser;
-class IconCache;
 class Material;
 class PipelineCache;
 class ProjectManager;
@@ -43,13 +46,13 @@ class PropertiesPanel {
 public:
     void init(Scene* scene, uint32_t* selected_id,
               ScriptManager* scripts,
-              CommandHistory* history, GridSettings* grid_settings = nullptr,
+              ftk::CommandHistory* history, GridSettings* grid_settings = nullptr,
               PipelineCache* pipeline_cache = nullptr,
               BindlessTextures* bindless = nullptr,
               ResourceManager* resource_manager = nullptr,
               ProjectManager* project_mgr = nullptr,
               ContentBrowser* content_browser = nullptr,
-              IconCache* icons = nullptr,
+              ftk::IconCache* icons = nullptr,
               TerrainSculptTool* sculpt = nullptr);
 
     void draw();
@@ -72,7 +75,7 @@ private:
     [[nodiscard]] static std::string edit_description(const std::string& subject, const std::string& scope);
     // The one Add component button and its picker of components and scripts.
     void draw_add(Node3D& node, const InspectorContext& ictx);
-    [[nodiscard]] std::vector<ui::grouped_picker::Group> addable_groups(const Node3D& node) const;
+    [[nodiscard]] std::vector<ftk::ui::grouped_picker::Group> addable_groups(const Node3D& node) const;
     void add_to_node(Node3D& node, const std::string& value, const InspectorContext& ictx);
 
     // A node type's own section (properties_node_sections.cpp). Each
@@ -90,7 +93,6 @@ private:
     void draw_material_inspector_for(Material* mat);
     void commit_name();
 
-
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
     EnvironmentSubsystem* environment_{nullptr};
@@ -98,18 +100,18 @@ private:
     std::vector<std::string> weather_files_;
     double weather_files_scanned_at_{0.0};
     ScriptManager* scripts_{nullptr};
-    CommandHistory* history_{nullptr};
+    ftk::CommandHistory* history_{nullptr};
     GridSettings* grid_settings_{nullptr};
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
     ResourceManager* resource_manager_{nullptr};
     ProjectManager* project_mgr_{nullptr};
     ContentBrowser* content_browser_{nullptr};
-    IconCache* icons_{nullptr};
+    ftk::IconCache* icons_{nullptr};
     TerrainSculptTool* sculpt_{nullptr};
 
     // The node name field and the node its current edit belongs to.
-    ui::TextField name_field_;
+    ftk::ui::TextField name_field_;
     uint32_t name_node_id_{0};
 
     // Undo steps for edits made in the component blocks and in the node's

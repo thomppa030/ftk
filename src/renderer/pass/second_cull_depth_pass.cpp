@@ -23,21 +23,21 @@ PassSetup SecondCullDepthPass::setup() const {
     };
 }
 
-void SecondCullDepthPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SecondCullDepthPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
-                 gpu::Access::storage_buffer_read_mesh);
+                 ftk::gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                 gpu::Access::indirect_read);
+                 ftk::gpu::Access::indirect_read);
     // Tested against and added to what the prepass drew, which
     // DepthResolvePass resolves afterwards; without MSAA the two names are
     // one attachment.
-    const bool has_msaa = ctx.msaa_samples != gpu::Samples::x1;
+    const bool has_msaa = ctx.msaa_samples != ftk::gpu::Samples::x1;
     builder.write(builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth"),
-                  gpu::Access::depth_attachment);
+                  ftk::gpu::Access::depth_attachment);
 }
 
 void SecondCullDepthPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_second_cull_depth");
+    FTK_PROFILE_SCOPE_N("record_second_cull_depth");
     if (depth_pass_ == nullptr || ctx.target == nullptr || ctx.indirect_batch == nullptr) return;
     // Meshlets read the meshlet set and the cull's commands, which a
     // viewport graph without the meshlet cull does not have.
@@ -46,7 +46,7 @@ void SecondCullDepthPass::record(const FrameContext& ctx) {
 
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Second Cull Depth");
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture()}});
+    auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture()}});
     depth_pass_->draw_found(pass, ctx, MeshletInstancePass::Cull::second);
 }
 

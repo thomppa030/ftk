@@ -63,13 +63,13 @@ static void jolt_trace(const char* fmt, ...) {
     char buffer[1024];
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
-    fjell::log::core()->info("[Jolt] {}", buffer);
+    ftk::log::core()->info("[Jolt] {}", buffer);
 }
 
 #ifdef JPH_ENABLE_ASSERTS
 static bool jolt_assert_failed(const char* expression, const char* message,
                                const char* file, unsigned int line) {
-    fjell::log::core()->error("[Jolt] Assert failed: {} : {} ({}:{})",
+    ftk::log::core()->error("[Jolt] Assert failed: {} : {} ({}:{})",
                               expression, message ? message : "", file, line);
     return true; // break into debugger
 }
@@ -437,7 +437,6 @@ struct CharacterEntry {
     glm::vec3 synced_position{0.0f};
 };
 
-
 struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::TempAllocatorImpl> temp_allocator;
     std::unique_ptr<JPH::JobSystemThreadPool> job_system;
@@ -521,7 +520,7 @@ static void ensure_jolt_init() {
     JPH::RegisterTypes();
 
     s_jolt_initialized = true;
-    FJELL_CORE_INFO("Jolt Physics initialized");
+    FTK_CORE_INFO("Jolt Physics initialized");
 }
 
 PhysicsWorld::PhysicsWorld(std::optional<int> worker_threads) : impl_(std::make_unique<Impl>()) {
@@ -626,7 +625,7 @@ static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
             auto result = JPH::ConvexHullShapeSettings(points, JPH::cDefaultConvexRadius, material)
                               .Create();
             if (result.HasError()) {
-                FJELL_CORE_ERROR("Failed to create hull collider for '{}': {}",
+                FTK_CORE_ERROR("Failed to create hull collider for '{}': {}",
                                  owner, result.GetError().c_str());
                 return {};
             }
@@ -655,7 +654,7 @@ static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
             if (material != nullptr) materials.push_back(material);
             auto result = JPH::MeshShapeSettings(triangles, std::move(materials)).Create();
             if (result.HasError()) {
-                FJELL_CORE_ERROR("Failed to create mesh collider for '{}': {}",
+                FTK_CORE_ERROR("Failed to create mesh collider for '{}': {}",
                                  owner, result.GetError().c_str());
                 return {};
             }
@@ -706,7 +705,7 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 
     auto result = settings.Create();
     if (result.HasError()) {
-        FJELL_CORE_ERROR("Failed to create compound collider for '{}': {}",
+        FTK_CORE_ERROR("Failed to create compound collider for '{}': {}",
                          owner, result.GetError().c_str());
         return {};
     }
@@ -775,7 +774,7 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
 
     auto shape_result = settings.Create();
     if (shape_result.HasError()) {
-        FJELL_CORE_ERROR("Failed to create terrain collision shape: {}",
+        FTK_CORE_ERROR("Failed to create terrain collision shape: {}",
                          shape_result.GetError().c_str());
         return {};
     }
@@ -939,7 +938,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
             impl_->object_to_body[node.id] = body_id;
             impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;
         } else {
-            FJELL_CORE_ERROR("Failed to create terrain body for '{}'", node.name);
+            FTK_CORE_ERROR("Failed to create terrain body for '{}'", node.name);
         }
         return;
     }
@@ -1002,13 +1001,13 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
         case ColliderShape::Mesh: {
             auto* mesh = node.components.get<MeshComponent>();
             if (!mesh || !mesh->model) {
-                FJELL_CORE_WARN("Object '{}' has Mesh collider but no mesh", node.name);
+                FTK_CORE_WARN("Object '{}' has Mesh collider but no mesh", node.name);
                 return;
             }
             auto collision = collision_mesh_of(*mesh->model);
             const auto& primitives = mesh->model->collision_primitives();
             if (primitives.empty() || !collision.valid()) {
-                FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
+                FTK_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
                                 node.name);
                 return;
             }
@@ -1019,7 +1018,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
 
             // Triangle meshes can't back a moving body in Jolt.
             if (!mesh_supports_dynamic && rb.body_type != BodyType::Static) {
-                FJELL_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
+                FTK_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
                                 "body — forcing static. Use a convex hull to keep it moving.",
                                 node.name);
             }
@@ -1124,7 +1123,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
                                           : JPH::EActivation::Activate);
 
     if (body_id.IsInvalid()) {
-        FJELL_CORE_ERROR("Failed to create physics body for '{}'", node.name);
+        FTK_CORE_ERROR("Failed to create physics body for '{}'", node.name);
         return;
     }
 
@@ -1138,7 +1137,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         create_body(scene, *obj);
     }
 
-    FJELL_CORE_INFO("Physics: created {} bodies, {} characters",
+    FTK_CORE_INFO("Physics: created {} bodies, {} characters",
                      impl_->object_to_body.size(), impl_->characters.size());
 }
 
@@ -1244,7 +1243,7 @@ void sort_events(std::vector<std::pair<uint32_t, CollisionEvent>>& events) {
 } // namespace
 
 void PhysicsWorld::step(float dt, Scene& scene, int steps_left) {
-    FJELL_PROFILE_SCOPE_N("physics_step");
+    FTK_PROFILE_SCOPE_N("physics_step");
     if (dt <= 0.0f) return;
     impl_->contact_listener.clear();
     auto& bi = impl_->physics_system->GetBodyInterface();

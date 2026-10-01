@@ -55,7 +55,7 @@ VfxEffect VfxSubsystem::build_effect(const std::string& path,
     if (it == json_cache_.end() || it->second.written != written) {
         std::ifstream f(path);
         if (!f.is_open()) {
-            FJELL_CORE_ERROR("VFX: failed to open {}", path);
+            FTK_CORE_ERROR("VFX: failed to open {}", path);
             return {};
         }
         nlohmann::json j;
@@ -91,7 +91,7 @@ void VfxSubsystem::spawn(VfxAssetHandle asset_handle, const glm::vec3& position,
                           Scene& scene, ResourceManager& resources, const Project* project) {
     auto* raw_effect = resources.get(asset_handle);
     if (!raw_effect) {
-        FJELL_CORE_ERROR("VFX: invalid asset handle");
+        FTK_CORE_ERROR("VFX: invalid asset handle");
         return;
     }
 

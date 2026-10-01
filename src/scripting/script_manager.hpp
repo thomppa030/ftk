@@ -96,12 +96,12 @@ public:
     ScriptManager(ScriptManager&&) = delete;
     ScriptManager& operator=(ScriptManager&&) = delete;
 
-    Result<> load(const std::filesystem::path& so_path);
+    ftk::Result<> load(const std::filesystem::path& so_path);
     void unload(Scene& scene);
     /// Swap in a rebuilt game library. While the game is running, the scripts
     /// it replaces get their end_play first and the new ones their
     /// begin_play after, so a reload is the same whichever path asked for it.
-    Result<> reload(Scene& scene, const std::filesystem::path& so_path);
+    ftk::Result<> reload(Scene& scene, const std::filesystem::path& so_path);
 
     void prepare(Scene& scene, const Input& input, const Clock& clock,
                  PhysicsWorld* physics = nullptr);
@@ -264,13 +264,13 @@ public:
     /// Raised just before a game library is unloaded, a reload included:
     /// whatever holds objects the library built, or calls into its code,
     /// lets go of them here, while the library is still there.
-    Delegate<void()> on_unloading;
+    ftk::Delegate<void()> on_unloading;
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
     [[nodiscard]] TimerManager& timers() { return timers_; }
 
 #ifndef NDEBUG
-    Result<> poll_reload(Scene& scene);
+    ftk::Result<> poll_reload(Scene& scene);
     void watch(const std::filesystem::path& so_path);
 #endif
 
@@ -327,7 +327,7 @@ private:
     void auto_deserialize_fields(const std::vector<OwnedFieldDesc>& fields,
                                  void* base, const nlohmann::json& in) const;
 
-    platform::SharedLibrary library_;
+    ftk::platform::SharedLibrary library_;
     std::filesystem::path so_path_;
     std::filesystem::path loaded_temp_path_;
 
@@ -359,7 +359,7 @@ private:
     std::unordered_set<std::string> blamed_writes_;
 
 #ifndef NDEBUG
-    platform::FileWatcher watcher_;
+    ftk::platform::FileWatcher watcher_;
     bool reload_pending_{false};
     std::chrono::steady_clock::time_point last_reload_time_{};
 #endif

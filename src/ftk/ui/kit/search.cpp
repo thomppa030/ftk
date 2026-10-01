@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -120,4 +120,4 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     return changed;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

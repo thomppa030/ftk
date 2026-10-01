@@ -160,6 +160,7 @@ add_executable(fjell-tests
     test_resource_handle.cpp
     test_collision_channel.cpp
     test_delegate.cpp
+    test_sdk_delegate.cpp
     test_thread_pool.cpp
     test_fjui_parser.cpp
     test_fjss_parser.cpp
@@ -310,7 +311,8 @@ target_link_libraries(fjell-tests PRIVATE Vulkan::Headers)
 target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 # Tests that need a real font bake the engine's own.
 target_compile_definitions(fjell-tests PRIVATE
-    FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts")
+    FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts"
+    FJELL_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 # Tests that read SPIR-V compile shaders of their own from tests/shaders/.
 compile_shaders(fjell-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 target_compile_definitions(fjell-tests PRIVATE

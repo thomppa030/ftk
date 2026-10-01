@@ -6,10 +6,13 @@
 #include <string_view>
 #include <string>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class Project;
-class ThreadPool;
 
 /// The drop-down an asset field opens when it is clicked: every asset the
 /// field accepts, grouped under the project and the engine, each with the
@@ -23,7 +26,7 @@ namespace asset_picker {
 /// The pool the directory walk runs on. Called once at startup; without it
 /// the walk runs on the calling thread and stalls the frame that opens a
 /// picker, which a project of any size is felt as a hitch.
-void set_thread_pool(ThreadPool* pool);
+void set_thread_pool(ftk::ThreadPool* pool);
 
 /// Open the picker for `widget_id` on the next draw. The caller has already
 /// pushed its ImGui ID, so `widget_id` only has to tell two fields apart.

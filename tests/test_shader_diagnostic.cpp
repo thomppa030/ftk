@@ -2,7 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using fjell::first_shader_error;
+using ftk::first_shader_error;
 
 TEST_CASE("A compile error names its file, line and message", "[shader]") {
     const auto d = first_shader_error(

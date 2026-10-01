@@ -93,7 +93,7 @@ namespace {
 // the Properties panel would report for it.
 struct Fixture {
     Scene scene;
-    CommandHistory history;
+    ftk::CommandHistory history;
     EditTracker<ComponentState> tracker;
     uint32_t id{scene.add_empty({}, "crate")};
     Node& node{*scene.find(id)};

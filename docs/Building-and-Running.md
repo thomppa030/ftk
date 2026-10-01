@@ -56,7 +56,7 @@ The log shows `info` and above by default. When chasing something, raise it
 for one run without rebuilding:
 
 ```bash
-FJELL_LOG_LEVEL=debug ./build/src/fjell /path/to/project   # or trace
+FTK_LOG_LEVEL=debug ./build/src/fjell /path/to/project   # or trace
 ```
 
 ## Tests

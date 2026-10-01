@@ -70,7 +70,7 @@ TEST_CASE("Quotes inside attribute values are escaped and read back", "[fjui-ser
 struct WidgetDir {
     fs::path base;
     WidgetDir() {
-        base = fs::temp_directory_path() / ("fjell_serialize_test_" + std::to_string(platform::process_id()));
+        base = fs::temp_directory_path() / ("fjell_serialize_test_" + std::to_string(ftk::platform::process_id()));
         fs::create_directories(base / "widgets");
         std::ofstream(base / "widgets/item_slot.fjwidget") <<
             "<widget style=\"slot.fjss\">\n"

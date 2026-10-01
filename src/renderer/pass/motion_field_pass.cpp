@@ -14,25 +14,25 @@
 
 namespace fjell {
 
-Result<> MotionFieldPass::create(const PassResources& resources) {
+ftk::Result<> MotionFieldPass::create(const PassResources& resources) {
     device_ = resources.device;
-    FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/motion_field.comp",
                              .name = "motion_field",
                          }));
     // Outside the map nothing has moved, which is what a zero border says.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .address = gpu::Address::border,
-                                 .border = gpu::Border::transparent_black});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .address = ftk::gpu::Address::border,
+                                 .border = ftk::gpu::Border::transparent_black});
     // Both maps start still, so anything reading before the pass has run
     // reads that nothing has moved.
     for (auto& map : maps_) {
-        FJELL_TRY(map, device_->create(gpu::TextureDesc{
+        FTK_TRY(map, device_->create(ftk::gpu::TextureDesc{
                            .format = FIELD_FORMAT,
                            .width = RESOLUTION,
                            .height = RESOLUTION,
-                           .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                           .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                           .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                           .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
                            .name = "motion_field",
                        }));
     }
@@ -49,7 +49,7 @@ void MotionFieldPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
     // of the two a reader should see changes every frame, so the binding is
     // rewritten in prepare_frame(); this only makes the very first frame's
     // descriptor point at a real image rather than nothing.
-    gpu.global_bindings().set("motion_field", gpu::sampled(maps_[cur_], sampler_));
+    gpu.global_bindings().set("motion_field", ftk::gpu::sampled(maps_[cur_], sampler_));
 }
 
 void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
@@ -118,7 +118,7 @@ void MotionFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     // Everything that reads it runs later in the same command buffer, behind
     // the barrier record() ends with, so what they sample is this frame's
     // finished map rather than a frame-old one.
-    gpu.global_bindings().set(ctx.frame_index, "motion_field", gpu::sampled(maps_[cur_], sampler_));
+    gpu.global_bindings().set(ctx.frame_index, "motion_field", ftk::gpu::sampled(maps_[cur_], sampler_));
 }
 
 PassSetup MotionFieldPass::setup() const {
@@ -132,30 +132,30 @@ PassSetup MotionFieldPass::setup() const {
 // Where the map is read: the surfaces and the editor's debug view in the
 // fragment shader, the fog in compute. A reader at any other stage declares
 // its read and gets its own barrier from the graph.
-constexpr gpu::AccessSet READERS = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
+constexpr ftk::gpu::AccessSet READERS = ftk::gpu::Access::sampled_fragment | ftk::gpu::Access::sampled_compute;
 
-void MotionFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void MotionFieldPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Nothing moves and the marks have faded: the map is left as it is.
     if (moving_count_ == 0 && settled_) { return; }
     // Last frame's map carried forward into this frame's. The graph moves
     // the one written into GENERAL, and back to rest afterwards.
     builder.read(builder.import_named(ctx, "motion_field_prev"),
-                 gpu::Access::sampled_compute);
-    builder.write(builder.import_named(ctx, "motion_field"), gpu::Access::storage_write_compute);
+                 ftk::gpu::Access::sampled_compute);
+    builder.write(builder.import_named(ctx, "motion_field"), ftk::gpu::Access::storage_write_compute);
 }
 
 void MotionFieldPass::collect_exports(DeclareContext& ctx) {
     if (!maps_[cur_]) { return; }
     // Both maps rest where their readers sample them, and are carried into
     // the next frame's map.
-    const TextureExport how{.persistent = true, .resting = READERS};
+    const ftk::TextureExport how{.persistent = true, .resting = READERS};
     // The map this frame writes is the one the global set binds.
     ctx.export_texture("motion_field", maps_[cur_], how);
     ctx.export_texture("motion_field_prev", maps_[prev_index()], how);
 }
 
 void MotionFieldPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_motion_field");
+    FTK_PROFILE_SCOPE_N("record_motion_field");
     if (moving_count_ == 0 && settled_) return;
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Motion Field");
@@ -175,9 +175,9 @@ void MotionFieldPass::record(const FrameContext& ctx) {
     // A storage buffer holds at least one source, even in a frame with none.
     const auto sources = cmd.transient(std::span(sources_.data(), std::max(source_count_, 1U)));
     cmd.set_pipeline(pipeline_);
-    cmd.bind({{"SourceBuffer", gpu::storage(sources)},
-              {"motion_prev", gpu::sampled(maps_[read], sampler_)},
-              {"motion_out", gpu::storage(maps_[write])}});
+    cmd.bind({{"SourceBuffer", ftk::gpu::storage(sources)},
+              {"motion_prev", ftk::gpu::sampled(maps_[read], sampler_)},
+              {"motion_out", ftk::gpu::storage(maps_[write])}});
     cmd.push(PushConstants{
         .map_origin_extent = glm::vec4(origin_.x, origin_.y, EXTENT_METRES, texel),
         .scroll_decay = glm::vec4(scroll.x, scroll.y, 1.0f / MEMORY_SECONDS, ctx.delta_time),

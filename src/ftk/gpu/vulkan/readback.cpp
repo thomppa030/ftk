@@ -20,7 +20,7 @@
 // on the upload context's image lane, whose timeline says when it is done, or
 // into a frame's list, done with that frame.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -236,4 +236,4 @@ Result<Readback> CommandList::read_back(const TextureView& view, const ReadbackD
     return Readback(std::move(*impl));
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

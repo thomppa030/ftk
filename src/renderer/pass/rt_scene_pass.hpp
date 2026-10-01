@@ -18,11 +18,11 @@ class AccelStructureManager;
 /// orders every trace after the build and keeps this pass while one reads.
 class RtScenePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// Null on a device without ray tracing, and then the pass does nothing.

@@ -46,7 +46,7 @@ PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
     return cfg;
 }
 
-PostProcessResources::PostProcessResources(gpu::Device& gpu, uint32_t width, uint32_t height,
+PostProcessResources::PostProcessResources(ftk::gpu::Device& gpu, uint32_t width, uint32_t height,
                                             const PostProcessConfig& config, const PassRefs& passes)
     : gpu_(&gpu), config_(config), passes_(passes) {
     if (config_.hiz && width > 0 && height > 0) {

@@ -7,17 +7,20 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class MegaBuffer;
 class MeshletBuffer;
 class ResourceManager;
-class ThreadPool;
 
 class AssetLoader {
 public:
     /// Loaded models add their geometry to `mega` and `meshlets`.
-    AssetLoader(ThreadPool& pool, ResourceManager& resources, MegaBuffer& mega,
+    AssetLoader(ftk::ThreadPool& pool, ResourceManager& resources, MegaBuffer& mega,
                 MeshletBuffer& meshlets);
 
     // Request async model load. Returns handle immediately (Loading state).
@@ -39,7 +42,7 @@ private:
         FjMeshData data;
     };
 
-    ThreadPool& pool_;
+    ftk::ThreadPool& pool_;
     ResourceManager& resources_;
     MegaBuffer& mega_;
     MeshletBuffer& meshlets_;

@@ -21,22 +21,22 @@ namespace fjell {
 
 void SpriteRenderer::create(const PassResources& resources) {
     gpu_ = resources.device;
-    gpu::Device& gpu = *gpu_;
+    ftk::gpu::Device& gpu = *gpu_;
 
     // The scene's four colour targets: colour, metallic/roughness, normal and
     // motion. Lit sprites write the surface beside the colour; unlit ones
     // leave it alone, and nothing writes motion.
-    auto targets = [&](gpu::Blend colour_blend, bool surface) {
-        const gpu::ChannelMask surface_channels =
-            surface ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
-        return std::vector<gpu::ColorTarget>{
+    auto targets = [&](ftk::gpu::Blend colour_blend, bool surface) {
+        const ftk::gpu::ChannelMask surface_channels =
+            surface ? ftk::gpu::ChannelMask{ftk::gpu::Channel::r | ftk::gpu::Channel::g} : ftk::gpu::ChannelMask{};
+        return std::vector<ftk::gpu::ColorTarget>{
             {resources.scene_color_format, colour_blend},
-            {resources.scene_mr_format, gpu::Blend::none, surface_channels},
-            {resources.scene_normal_format, gpu::Blend::none, surface_channels},
-            {resources.scene_velocity_format, gpu::Blend::none, gpu::ChannelMask{}},
+            {resources.scene_mr_format, ftk::gpu::Blend::none, surface_channels},
+            {resources.scene_normal_format, ftk::gpu::Blend::none, surface_channels},
+            {resources.scene_velocity_format, ftk::gpu::Blend::none, ftk::gpu::ChannelMask{}},
         };
     };
-    auto make = [&](gpu::GraphicsPipelineDesc desc) {
+    auto make = [&](ftk::gpu::GraphicsPipelineDesc desc) {
         desc.depth_format = resources.scene_depth_format;
         desc.samples = resources.samples;
         desc.shared = {resources.globals, resources.bindless};
@@ -49,33 +49,33 @@ void SpriteRenderer::create(const PassResources& resources) {
     pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)] = make({
         .vertex = "shaders/sprite.vert",
         .fragment = "shaders/sprite.frag",
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
-        .color = targets(gpu::Blend::alpha, false),
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
+        .color = targets(ftk::gpu::Blend::alpha, false),
         .name = "sprite",
     });
     pipelines_[static_cast<size_t>(Bucket::LitTransparent)] = make({
         .vertex = "shaders/sprite_lit.vert",
         .fragment = "shaders/sprite_lit.frag",
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
-        .color = targets(gpu::Blend::alpha, true),
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
+        .color = targets(ftk::gpu::Blend::alpha, true),
         .name = "sprite_lit_billboard",
     });
     pipelines_[static_cast<size_t>(Bucket::LitOpaque)] = make({
         .vertex = "shaders/sprite_lit.vert",
         .fragment = "shaders/sprite_lit.frag",
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
-        .color = targets(gpu::Blend::none, true),
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less_equal},
+        .color = targets(ftk::gpu::Blend::none, true),
         .name = "sprite_lit_flat",
     });
     // The lit vertex shader with a tiny alpha-discard fragment, depth only.
     depth_pipeline_ = make({
         .vertex = "shaders/sprite_lit.vert",
         .fragment = "shaders/sprite_depth.frag",
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
         .name = "sprite_depth",
     });
 
-    FJELL_GFX_DEBUG("Sprite renderer created");
+    FTK_GFX_DEBUG("Sprite renderer created");
 }
 
 void SpriteRenderer::destroy() {
@@ -84,7 +84,7 @@ void SpriteRenderer::destroy() {
 }
 
 void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
-    FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
+    FTK_PROFILE_SCOPE_N("sprite_sync_textures");
     for (auto [obj, sprite_ptr] : scene.view<SpriteComponent>()) {
 
         auto& sprite = *sprite_ptr;
@@ -125,36 +125,36 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void SpriteRenderer::use(const FrameContext& ctx, gpu::RenderEncoder& pass,
-                         gpu::GraphicsPipeline pipeline) {
+void SpriteRenderer::use(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass,
+                         ftk::gpu::GraphicsPipeline pipeline) {
     pass.set_pipeline(pipeline);
     pass.bind(ctx.globals);
     pass.bind(ctx.bindless);
-    pass.bind({{"SpriteBuffer", gpu::storage(sprite_ranges_[ctx.frame_index])}});
+    pass.bind({{"SpriteBuffer", ftk::gpu::storage(sprite_ranges_[ctx.frame_index])}});
 }
 
-void SpriteRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) {
-    FJELL_PROFILE_SCOPE_N("sprite_record_depth");
+void SpriteRenderer::record_depth(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
+    FTK_PROFILE_SCOPE_N("sprite_record_depth");
     const SpriteRun& range = opaque_range_[ctx.frame_index];
     if (range.count == 0) return;
     use(ctx, pass, depth_pipeline_);
     pass.draw(range.count * 6, 1, range.first * 6, 0);
 }
 
-void SpriteRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void SpriteRenderer::record_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     record_runs(ctx, pass, std::span(&opaque_range_[ctx.frame_index], 1));
 }
 
-void SpriteRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void SpriteRenderer::record_transparent(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     // Unlit sprites and lit billboards blend in one list in layer order,
     // switching pipeline where one kind follows the other.
     record_runs(ctx, pass, transparent_runs_[ctx.frame_index]);
 }
 
 void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
-                                  const glm::vec3& camera_position, gpu::Frame& frame,
+                                  const glm::vec3& camera_position, ftk::gpu::Frame& frame,
                                   bool playing) {
-    FJELL_PROFILE_SCOPE_N("sprite_update");
+    FTK_PROFILE_SCOPE_N("sprite_update");
     const uint32_t frame_index = frame.slot();
     Frustum frustum = Frustum::from_vp_matrix(view_projection);
 
@@ -270,13 +270,13 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
     }
 }
 
-void SpriteRenderer::record_runs(const FrameContext& ctx, gpu::RenderEncoder& pass,
+void SpriteRenderer::record_runs(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass,
                                  std::span<const SpriteRun> runs) {
-    FJELL_PROFILE_SCOPE_N("sprite_record_runs");
-    gpu::GraphicsPipeline bound{};
+    FTK_PROFILE_SCOPE_N("sprite_record_runs");
+    ftk::gpu::GraphicsPipeline bound{};
     for (const SpriteRun& run : runs) {
         if (run.count == 0) continue;
-        const gpu::GraphicsPipeline wanted = pipelines_[static_cast<size_t>(run.bucket)];
+        const ftk::gpu::GraphicsPipeline wanted = pipelines_[static_cast<size_t>(run.bucket)];
         if (wanted != bound) {
             use(ctx, pass, wanted);
             bound = wanted;

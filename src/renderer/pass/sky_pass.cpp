@@ -118,13 +118,13 @@ namespace {
 // so it only fills pixels no geometry reached, writing colour there and
 // clearing metallic/roughness and normal, which the lit screen-space passes
 // read.
-gpu::GraphicsPipelineDesc sky_pipeline(const PassResources& resources, gpu::ShaderCode fragment,
-                                       std::vector<gpu::SharedLayout> shared, std::string_view name) {
-    constexpr gpu::ChannelMask TWO_CHANNELS = gpu::Channel::r | gpu::Channel::g;
-    return gpu::GraphicsPipelineDesc{
+ftk::gpu::GraphicsPipelineDesc sky_pipeline(const PassResources& resources, ftk::gpu::ShaderCode fragment,
+                                       std::vector<ftk::gpu::SharedLayout> shared, std::string_view name) {
+    constexpr ftk::gpu::ChannelMask TWO_CHANNELS = ftk::gpu::Channel::r | ftk::gpu::Channel::g;
+    return ftk::gpu::GraphicsPipelineDesc{
         .vertex = "shaders/sky.vert",
         .fragment = fragment,
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
         .color = {{.format = resources.scene_color_format},
                   {.format = resources.scene_mr_format, .write = TWO_CHANNELS},
                   {.format = resources.scene_normal_format, .write = TWO_CHANNELS}},
@@ -137,11 +137,11 @@ gpu::GraphicsPipelineDesc sky_pipeline(const PassResources& resources, gpu::Shad
 
 } // namespace
 
-Result<> SkyPass::create(const PassResources& resources) {
+ftk::Result<> SkyPass::create(const PassResources& resources) {
     cached_resources_ = resources;
-    FJELL_TRY(pipeline_, resources.device->create(
+    FTK_TRY(pipeline_, resources.device->create(
                              sky_pipeline(resources, "shaders/sky.frag", {resources.globals}, "sky")));
-    FJELL_GFX_DEBUG("Sky pass created");
+    FTK_GFX_DEBUG("Sky pass created");
     return {};
 }
 
@@ -165,7 +165,7 @@ PassSetup SkyPass::setup() const {
     };
 }
 
-void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SkyPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto msaa_color = builder.import_named(ctx, "msaa_color");
     auto msaa_mr = builder.import_named(ctx, "msaa_mr");
     auto msaa_normal = builder.import_named(ctx, "msaa_normal");
@@ -173,12 +173,12 @@ void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // The sky clears metallic-roughness and normal on background pixels.
     // GTAO, SS-GI and RT reflections all sample those targets, so dropping
     // the writes would leave them reading whatever the opaque clear left.
-    builder.write(msaa_color, gpu::Access::color_attachment);
-    builder.write(msaa_mr, gpu::Access::color_attachment);
-    builder.write(msaa_normal, gpu::Access::color_attachment);
+    builder.write(msaa_color, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_mr, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_normal, ftk::gpu::Access::color_attachment);
     // Depth-tested so the sky only fills pixels no geometry reached, but
     // never written.
-    builder.read(msaa_depth, gpu::Access::depth_attachment_read);
+    builder.read(msaa_depth, ftk::gpu::Access::depth_attachment_read);
     // The backward cull walk starts at the post pass and follows readers of the
     // resolved `color`. With MSAA on, `msaa_color` is a separate image
     // nothing samples, so without this anchor the sky is culled entirely.
@@ -188,7 +188,7 @@ void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void SkyPass::record(const FrameContext& ctx) {
     if (!ctx.target) return;
 
-    FJELL_PROFILE_SCOPE_N("record_sky");
+    FTK_PROFILE_SCOPE_N("record_sky");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Sky");
 
@@ -199,8 +199,8 @@ void SkyPass::record(const FrameContext& ctx) {
         .color = {{.view = target->msaa_color_texture()},
                   {.view = target->msaa_mr_texture()},
                   {.view = target->msaa_normal_texture()}},
-        .depth = gpu::DepthAttachment{.view = target->msaa_depth_texture(),
-                                      .access = gpu::Access::depth_attachment_read},
+        .depth = ftk::gpu::DepthAttachment{.view = target->msaa_depth_texture(),
+                                      .access = ftk::gpu::Access::depth_attachment_read},
     });
 
     // A backdrop replaces whatever sky is configured, custom shader included;
@@ -285,13 +285,13 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     // glslc, doesn't create any spatial pipelines for shader_type sky).
     uint32_t pid = fjsl_pipeline_cache_->register_shader(canonical);
     if (fjsl_pipeline_cache_->has_compile_error(pid)) {
-        FJELL_GFX_ERROR("SkyPass: FJSL '{}' failed to compile: {}",
+        FTK_GFX_ERROR("SkyPass: FJSL '{}' failed to compile: {}",
                         sky_shader_, fjsl_pipeline_cache_->compile_error(pid));
         return;
     }
     const auto& meta = fjsl_pipeline_cache_->metadata(pid);
     if (meta.shader_type != ShaderType::Sky) {
-        FJELL_GFX_ERROR("SkyPass: '{}' is shader_type '{}', expected 'sky'",
+        FTK_GFX_ERROR("SkyPass: '{}' is shader_type '{}', expected 'sky'",
                         sky_shader_, shader_type_name(meta.shader_type));
         return;
     }
@@ -327,21 +327,21 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
 
     // The built-in sky's triangle with the FJSL fragment; set 0 the globals,
     // set 1 the bindless material set.
-    auto fragment = gpu::read_spirv(frag_spv);
+    auto fragment = ftk::gpu::read_spirv(frag_spv);
     if (!fragment) {
-        FJELL_GFX_ERROR("SkyPass: '{}': {}", sky_shader_, fragment.error());
+        FTK_GFX_ERROR("SkyPass: '{}': {}", sky_shader_, fragment.error());
         return;
     }
     auto made = resources.device->create(sky_pipeline(resources, std::span<const uint32_t>(*fragment),
                                                       {resources.globals, resources.bindless}, sky_shader_));
     if (!made) {
-        FJELL_GFX_ERROR("SkyPass: failed to create FJSL sky pipeline for '{}': {}", sky_shader_, made.error());
+        FTK_GFX_ERROR("SkyPass: failed to create FJSL sky pipeline for '{}': {}", sky_shader_, made.error());
         return;
     }
     fjsl_pipeline_ = std::move(*made);
 
     fjsl_pipeline_shader_ = sky_shader_;
-    FJELL_GFX_INFO("SkyPass: built FJSL sky pipeline for '{}' (material_id={})",
+    FTK_GFX_INFO("SkyPass: built FJSL sky pipeline for '{}' (material_id={})",
                    sky_shader_, fjsl_material_id_);
 }
 

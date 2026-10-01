@@ -4,7 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 
 TEST_CASE("A shape's card line names its kind and size", "[ui][collision]") {
     fjell::CollisionPrimitive box;
@@ -24,7 +24,7 @@ TEST_CASE("A shape shows the size fields its kind has", "[ui][collision]") {
     fjell::CollisionPrimitive shape;
     int rows = 0;
     h.set_ui([&] {
-        if (auto t = fjell::ui::PropertyTable("##shape")) {
+        if (auto t = ftk::ui::PropertyTable("##shape")) {
             (void)fjell::collision_shape_rows(shape, "Relative to the mesh");
             rows = ImGui::TableGetRowIndex() + 1;
         }

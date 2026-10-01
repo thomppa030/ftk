@@ -25,7 +25,7 @@ void ShaderWatcher::rewatch() {
     watcher_.watch(source_dir_, [this](const std::filesystem::path& path) {
         auto ext = path.extension().string();
         if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".fjsl") {
-            FJELL_GFX_INFO("Shader changed: {}", path.filename().string());
+            FTK_GFX_INFO("Shader changed: {}", path.filename().string());
             if (ext == ".fjsl") {
                 if (mirror(path, "")) changes_.fjsl_paths.push_back(path.string());
             } else if (recompile(path.filename().string())) {
@@ -35,7 +35,7 @@ void ShaderWatcher::rewatch() {
             }
         }
     });
-    FJELL_GFX_INFO("Shader hot-reload watching: {}", source_dir_);
+    FTK_GFX_INFO("Shader hot-reload watching: {}", source_dir_);
 
     // Includes sit in their own directory and inotify does not recurse, so
     // they need a watch of their own. What an include reaches is not written
@@ -45,10 +45,10 @@ void ShaderWatcher::rewatch() {
     if (std::filesystem::is_directory(include_dir)) {
         watcher_.watch(include_dir, [this](const std::filesystem::path& path) {
             if (path.extension() != ".glsl") return;
-            FJELL_GFX_INFO("Shader include changed: {}", path.filename().string());
+            FTK_GFX_INFO("Shader include changed: {}", path.filename().string());
             if (mirror(path, "include")) changes_.rebuild_everything = true;
         });
-        FJELL_GFX_INFO("Shader hot-reload watching includes: {}", include_dir);
+        FTK_GFX_INFO("Shader hot-reload watching includes: {}", include_dir);
     }
 
     // Composable functions sit in lib/, and inotify does not recurse here
@@ -59,10 +59,10 @@ void ShaderWatcher::rewatch() {
     if (std::filesystem::is_directory(lib_dir)) {
         watcher_.watch(lib_dir, [this](const std::filesystem::path& path) {
             if (path.extension() != ".fjsl") return;
-            FJELL_GFX_INFO("Shader function changed: {}", path.filename().string());
+            FTK_GFX_INFO("Shader function changed: {}", path.filename().string());
             if (mirror(path, "lib")) changes_.fjsl_paths.push_back(path.string());
         });
-        FJELL_GFX_INFO("Shader hot-reload watching functions: {}", lib_dir);
+        FTK_GFX_INFO("Shader hot-reload watching functions: {}", lib_dir);
     }
 
     if (project_dir_.empty() || !std::filesystem::is_directory(project_dir_)) return;
@@ -73,10 +73,10 @@ void ShaderWatcher::rewatch() {
         // project file of that extension would be recompiled with the wrong
         // includes and silently overwrite an engine .spv — skip them.
         if (path.extension() != ".fjsl") return;
-        FJELL_GFX_INFO("Project shader changed: {}", path.filename().string());
+        FTK_GFX_INFO("Project shader changed: {}", path.filename().string());
         changes_.fjsl_paths.push_back(path.string());
     });
-    FJELL_GFX_INFO("Shader hot-reload also watching project: {}", project_dir_);
+    FTK_GFX_INFO("Shader hot-reload also watching project: {}", project_dir_);
 }
 
 ShaderWatcher::Changes ShaderWatcher::poll() {
@@ -98,7 +98,7 @@ bool ShaderWatcher::mirror(const std::filesystem::path& changed, const std::stri
     std::filesystem::copy_file(changed, dst,
                                std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-        FJELL_GFX_ERROR("Shader hot-reload could not copy {} to {}: {}",
+        FTK_GFX_ERROR("Shader hot-reload could not copy {} to {}: {}",
                         changed.string(), dst.string(), ec.message());
         return false;
     }
@@ -112,13 +112,13 @@ bool ShaderWatcher::recompile(const std::string& filename) {
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + source_dir_ + "/include " + src + " -o " + dst + " 2>&1";
 
     std::string output;
-    int status = platform::run_command(cmd, output);
+    int status = ftk::platform::run_command(cmd, output);
     if (status != 0) {
-        FJELL_GFX_ERROR("Shader compilation failed:\n{}", output);
+        FTK_GFX_ERROR("Shader compilation failed:\n{}", output);
         return false;
     }
 
-    FJELL_GFX_INFO("Shader recompiled: {} -> {}", src, dst);
+    FTK_GFX_INFO("Shader recompiled: {} -> {}", src, dst);
     return true;
 }
 

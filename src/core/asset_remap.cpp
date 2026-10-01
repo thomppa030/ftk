@@ -13,19 +13,19 @@ namespace fs = std::filesystem;
 AssetRemap::AssetRemap(fs::path project_root)
     : db_path_{project_root / ".fjell" / "asset_remap.json"} {}
 
-Result<> AssetRemap::load() {
+ftk::Result<> AssetRemap::load() {
     if (!fs::exists(db_path_)) return {};
 
     std::ifstream file(db_path_);
     if (!file.is_open()) {
-        return make_error("Failed to open asset remap: " + db_path_.string());
+        return ftk::make_error("Failed to open asset remap: " + db_path_.string());
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error("Asset remap parse error: " + std::string(e.what()));
+        return ftk::make_error("Asset remap parse error: " + std::string(e.what()));
     }
 
     entries_.clear();
@@ -44,7 +44,7 @@ Result<> AssetRemap::load() {
     return {};
 }
 
-Result<> AssetRemap::save() const {
+ftk::Result<> AssetRemap::save() const {
     if (entries_.empty() && !fs::exists(db_path_)) {
         dirty_ = false;
         return {};
@@ -53,7 +53,7 @@ Result<> AssetRemap::save() const {
     std::error_code ec;
     fs::create_directories(db_path_.parent_path(), ec);
     if (ec) {
-        return make_error("Failed to create .fjell directory: " + ec.message());
+        return ftk::make_error("Failed to create .fjell directory: " + ec.message());
     }
 
     nlohmann::json j;
@@ -69,18 +69,18 @@ Result<> AssetRemap::save() const {
     {
         std::ofstream file(tmp);
         if (!file.is_open()) {
-            return make_error("Failed to write asset remap: " + tmp.string());
+            return ftk::make_error("Failed to write asset remap: " + tmp.string());
         }
         file << j.dump(2) << "\n";
         if (!file) {
-            return make_error("Failed to write asset remap: " + tmp.string());
+            return ftk::make_error("Failed to write asset remap: " + tmp.string());
         }
     }
 
     fs::rename(tmp, db_path_, ec);
     if (ec) {
         fs::remove(tmp, ec);
-        return make_error("Failed to replace asset remap: " + ec.message());
+        return ftk::make_error("Failed to replace asset remap: " + ec.message());
     }
 
     dirty_ = false;

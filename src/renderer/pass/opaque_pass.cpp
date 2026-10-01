@@ -24,7 +24,7 @@
 
 namespace fjell {
 
-Result<> OpaquePass::create(const PassResources& /*resources*/) {
+ftk::Result<> OpaquePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -38,7 +38,7 @@ PassSetup OpaquePass::setup() const {
     };
 }
 
-void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void OpaquePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // G-buffer writes. In non-MSAA mode the msaa_* names alias the
     // non-MSAA images in the catalog so both handles point at the
     // same VkImage — FrameGraph dedups them.
@@ -53,32 +53,32 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto msaa_depth = builder.import_named(ctx, "msaa_depth");
     auto depth = builder.import_named(ctx, "depth");
 
-    builder.write(msaa_color, gpu::Access::color_attachment);
-    builder.write(color, gpu::Access::color_attachment);
-    builder.write(msaa_mr, gpu::Access::color_attachment);
-    builder.write(mr, gpu::Access::color_attachment);
-    builder.write(msaa_normal, gpu::Access::color_attachment);
-    builder.write(normal, gpu::Access::color_attachment);
-    builder.write(msaa_velocity, gpu::Access::color_attachment);
-    builder.write(velocity, gpu::Access::color_attachment);
-    builder.write(msaa_depth, gpu::Access::depth_attachment);
+    builder.write(msaa_color, ftk::gpu::Access::color_attachment);
+    builder.write(color, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_mr, ftk::gpu::Access::color_attachment);
+    builder.write(mr, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_normal, ftk::gpu::Access::color_attachment);
+    builder.write(normal, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_velocity, ftk::gpu::Access::color_attachment);
+    builder.write(velocity, ftk::gpu::Access::color_attachment);
+    builder.write(msaa_depth, ftk::gpu::Access::depth_attachment);
     // Under MSAA the depth attachment resolves into `depth` as rendering
     // ends; without it the two names are one attachment.
-    builder.write(depth, ctx.msaa_samples != gpu::Samples::x1
-                             ? gpu::Access::depth_resolve
-                             : gpu::Access::depth_attachment);
+    builder.write(depth, ctx.msaa_samples != ftk::gpu::Samples::x1
+                             ? ftk::gpu::Access::depth_resolve
+                             : ftk::gpu::Access::depth_attachment);
 
     declare_lit_surface_reads(builder, ctx);
     // The GPU-driven draws: every meshlet both culls found visible.
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
-                 gpu::Access::storage_buffer_read_mesh);
+                 ftk::gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                 gpu::Access::indirect_read);
+                 ftk::gpu::Access::indirect_read);
     // The selection outline is drawn through the vertex path, from the
     // batch's indirect commands, with the transforms the instance cull kept.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                 gpu::Access::storage_buffer_read_vertex);
-    builder.read(builder.import_named_buffer(ctx, "batch_indirect"), gpu::Access::indirect_read);
+                 ftk::gpu::Access::storage_buffer_read_vertex);
+    builder.read(builder.import_named_buffer(ctx, "batch_indirect"), ftk::gpu::Access::indirect_read);
     // What the subsystems' compute step wrote for the draws their hooks
     // record here.
     for (const auto& input : ctx.subsystem_draw_inputs) {
@@ -89,7 +89,7 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void OpaquePass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_opaque");
+    FTK_PROFILE_SCOPE_N("record_opaque");
     auto* target = ctx.target;
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Color Opaque");
@@ -97,24 +97,24 @@ void OpaquePass::record(const FrameContext& ctx) {
     // The four scene targets cleared, each resolved into its single-sample
     // image under MSAA; the prepass's depth tested, and resolved as
     // rendering ends.
-    const bool msaa = target->samples() != gpu::Samples::x1;
-    const auto scene_target = [&](gpu::Texture drawn, gpu::Texture resolved, gpu::Clear clear) {
-        return gpu::ColorAttachment{.view = drawn,
-                                    .load = gpu::Load::clear,
+    const bool msaa = target->samples() != ftk::gpu::Samples::x1;
+    const auto scene_target = [&](ftk::gpu::Texture drawn, ftk::gpu::Texture resolved, ftk::gpu::Clear clear) {
+        return ftk::gpu::ColorAttachment{.view = drawn,
+                                    .load = ftk::gpu::Load::clear,
                                     .clear = clear,
-                                    .resolve = msaa ? gpu::TextureView(resolved) : gpu::TextureView{}};
+                                    .resolve = msaa ? ftk::gpu::TextureView(resolved) : ftk::gpu::TextureView{}};
     };
-    const gpu::Clear zero{0.0f, 0.0f, 0.0f, 0.0f};
+    const ftk::gpu::Clear zero{0.0f, 0.0f, 0.0f, 0.0f};
     auto pass = cmd.render({
         .color = {scene_target(target->msaa_color_texture(), target->color_texture(),
-                               gpu::Clear{0.1f, 0.1f, 0.12f, 1.0f}),
+                               ftk::gpu::Clear{0.1f, 0.1f, 0.12f, 1.0f}),
                   scene_target(target->msaa_mr_texture(), target->mr_texture(), zero),
                   scene_target(target->msaa_normal_texture(), target->normal_texture(), zero),
                   scene_target(target->msaa_velocity_texture(), target->velocity_texture(), zero)},
-        .depth = gpu::DepthAttachment{.view = target->msaa_depth_texture(),
-                                      .resolve = msaa ? gpu::TextureView(target->depth_texture())
-                                                      : gpu::TextureView{},
-                                      .resolve_mode = gpu::DepthResolve::sample_zero},
+        .depth = ftk::gpu::DepthAttachment{.view = target->msaa_depth_texture(),
+                                      .resolve = msaa ? ftk::gpu::TextureView(target->depth_texture())
+                                                      : ftk::gpu::TextureView{},
+                                      .resolve_mode = ftk::gpu::DepthResolve::sample_zero},
     });
 
     if (ctx.scene && ctx.indirect_batch) {
@@ -172,7 +172,7 @@ void OpaquePass::record(const FrameContext& ctx) {
     draw_outline(ctx, pass);
 }
 
-void OpaquePass::draw_outline(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void OpaquePass::draw_outline(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (ctx.selected_id == 0 || !ctx.scene || !ctx.indirect_batch || !ctx.mega_buffer) return;
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
@@ -207,7 +207,7 @@ void OpaquePass::draw_outline(const FrameContext& ctx, gpu::RenderEncoder& pass)
     for (const auto& draws : batch.node_draws(ctx.frame_index)) {
         if (draws.node_id != ctx.selected_id) continue;
         pass.draw_indexed_indirect(batch.indirect_commands(ctx.frame_index, draws.first_draw, draws.draw_count),
-                                   draws.draw_count, sizeof(gpu::DrawIndexedArgs));
+                                   draws.draw_count, sizeof(ftk::gpu::DrawIndexedArgs));
     }
 }
 

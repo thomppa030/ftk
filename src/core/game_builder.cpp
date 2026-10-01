@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-Result<> GameBuilder::build(const Project& project,
+ftk::Result<> GameBuilder::build(const Project& project,
                             const std::filesystem::path& output_dir) {
     namespace fs = std::filesystem;
 
@@ -19,7 +19,7 @@ Result<> GameBuilder::build(const Project& project,
         fs::create_directories(output_dir);
 
         // Copy engine binary
-        auto exe_path = platform::executable_path();
+        auto exe_path = ftk::platform::executable_path();
         auto dest_exe = output_dir / project.config().name;
         fs::copy_file(exe_path, dest_exe,
                       fs::copy_options::overwrite_existing);
@@ -52,7 +52,7 @@ Result<> GameBuilder::build(const Project& project,
         }
 
         // Copy game scripts library if available
-        auto lib_name = std::string("game") + platform::SHARED_LIB_EXT;
+        auto lib_name = std::string("game") + ftk::platform::SHARED_LIB_EXT;
         auto game_so = project.root() / lib_name;
         if (fs::exists(game_so)) {
             fs::copy_file(game_so, output_dir / lib_name,
@@ -73,11 +73,11 @@ Result<> GameBuilder::build(const Project& project,
         std::ofstream game_file(output_dir / "game.fjell");
         game_file << j.dump(2);
 
-        FJELL_CORE_INFO("Game built: {}", output_dir.string());
+        FTK_CORE_INFO("Game built: {}", output_dir.string());
         return {};
 
     } catch (const fs::filesystem_error& e) {
-        return make_error(std::string("Build failed: ") + e.what());
+        return ftk::make_error(std::string("Build failed: ") + e.what());
     }
 }
 

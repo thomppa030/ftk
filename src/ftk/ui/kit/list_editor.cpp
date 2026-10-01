@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -282,4 +282,4 @@ bool ListEditor::add_button(const char* label) {
     return button(text.c_str(), ButtonKind::Ghost);
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

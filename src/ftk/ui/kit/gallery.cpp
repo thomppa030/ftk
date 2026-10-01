@@ -32,7 +32,7 @@
 #include <string_view>
 #include <vector>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -562,4 +562,4 @@ void KitGallery::draw(bool* open) {
     }
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

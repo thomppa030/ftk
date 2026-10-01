@@ -70,7 +70,7 @@ public:
     [[nodiscard]] const std::string& selected() const { return selected_; }
 
     /// The playhead moved, by a scrub or by playback.
-    Delegate<void(float)> on_scrub;
+    ftk::Delegate<void(float)> on_scrub;
 
     /// Draws the Timeline panel called `title` for `set`. Returns true when
     /// the set changed.
@@ -127,7 +127,7 @@ private:
 
     // The visible part of the domain, as a share of it: the wheel zooms it,
     // a middle drag pans it, F shows all of it.
-    ui::CanvasView view_{{.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
+    ftk::ui::CanvasView view_{{.zoom = ftk::ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
                           .min_span = 1.0f / 96.0f}};
 
     std::string selected_;

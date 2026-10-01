@@ -8,7 +8,7 @@
 // splash show while something loads. One function each, so the hub, the
 // splash and anything after them draw the same thing.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The Fjell logo: a ridge of mountains over its reflection, the peak in the
 /// accent. `top_centre` is the middle of its top edge.
@@ -29,4 +29,4 @@ void spinner(ImDrawList* draw_list, ImVec2 centre, float radius, float seconds);
 /// `top_centre`, the middle of the spinner's top edge.
 void loading(ImDrawList* draw_list, ImVec2 top_centre, std::string_view what, float seconds);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

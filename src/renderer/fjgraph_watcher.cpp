@@ -11,7 +11,7 @@ FjGraphWatcher::FjGraphWatcher(std::string graph_path, ReloadCallback callback)
     watcher_.watch(graph_path_, [this](const std::filesystem::path&) {
         changed_ = true;
     });
-    FJELL_GFX_DEBUG("FjGraphWatcher: watching {}", graph_path_);
+    FTK_GFX_DEBUG("FjGraphWatcher: watching {}", graph_path_);
 }
 
 bool FjGraphWatcher::poll() {
@@ -20,7 +20,7 @@ bool FjGraphWatcher::poll() {
 
     if (!changed_ || !callback_) { return false; }
 
-    FJELL_CORE_INFO("FjGraphWatcher: {} changed, reloading", graph_path_);
+    FTK_CORE_INFO("FjGraphWatcher: {} changed, reloading", graph_path_);
     callback_(graph_path_);
     return true;
 }

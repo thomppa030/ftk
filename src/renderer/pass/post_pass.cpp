@@ -23,17 +23,17 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void PostPass::Images::create(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void PostPass::Images::create(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     written = false;
-    auto made = gpu.create(gpu::TextureDesc{
+    auto made = gpu.create(ftk::gpu::TextureDesc{
         .format = OUTPUT_FORMAT,
         .width = width,
         .height = height,
-        .use = gpu::TextureUse::color_target | gpu::TextureUse::sampled,
+        .use = ftk::gpu::TextureUse::color_target | ftk::gpu::TextureUse::sampled,
         .name = "post_output",
     });
     if (!made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
         return;
     }
     texture = std::move(*made);
@@ -45,7 +45,7 @@ void PostPass::Images::destroy() {
     extent = {0, 0};
 }
 
-void PostPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void PostPass::Images::resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (texture && extent.x == width && extent.y == height) return;
     texture.reset();
     extent = {0, 0};
@@ -68,17 +68,17 @@ struct PostPush {
 
 } // namespace
 
-Result<> PostPass::create(const PassResources& resources) {
+ftk::Result<> PostPass::create(const PassResources& resources) {
     device_ = resources.device;
     globals_ = resources.globals;
     bindless_layout_ = resources.bindless;
-    linear_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                        .mip_filter = gpu::Filter::nearest,
-                                        .address = gpu::Address::clamp});
-    nearest_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
-                                         .mip_filter = gpu::Filter::nearest,
-                                         .address = gpu::Address::clamp});
-    FJELL_GFX_DEBUG("Post pass created");
+    linear_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                        .mip_filter = ftk::gpu::Filter::nearest,
+                                        .address = ftk::gpu::Address::clamp});
+    nearest_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::nearest,
+                                         .mip_filter = ftk::gpu::Filter::nearest,
+                                         .address = ftk::gpu::Address::clamp});
+    FTK_GFX_DEBUG("Post pass created");
     return {};
 }
 
@@ -149,7 +149,7 @@ void PostPass::ensure_default() {
         // compiles, and the cache has already logged the compiler's output.
         // A recompile that fails keeps the layer built from the last good one.
         if (reported_entries_.insert(pid).second && !default_.ready) {
-            FJELL_GFX_ERROR("Post: '{}' failed to compile; the viewport stays black until it does",
+            FTK_GFX_ERROR("Post: '{}' failed to compile; the viewport stays black until it does",
                             DEFAULT_POST_SHADER);
         }
         return;
@@ -232,7 +232,7 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
     const auto& meta = pipeline_cache_->metadata(pipeline_id);
     if (meta.shader_type != ShaderType::Post) {
         if (reported_entries_.insert(pipeline_id).second) {
-            FJELL_GFX_ERROR("Post: '{}' is shader_type '{}', a post process volume needs shader_type post",
+            FTK_GFX_ERROR("Post: '{}' is shader_type '{}', a post process volume needs shader_type post",
                             pipeline_cache_->shader_path(pipeline_id),
                             shader_type_name(meta.shader_type));
         }
@@ -243,17 +243,17 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
         return it != material_pipelines_.end() ? &it->second : nullptr;
     }
 
-    auto fragment = gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
+    auto fragment = ftk::gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
     if (!fragment) {
-        FJELL_GFX_ERROR("Post: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
+        FTK_GFX_ERROR("Post: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
         return it != material_pipelines_.end() ? &it->second : nullptr;
     }
     // Set 0 the global UBOs, set 1 the bindless material set, as the sky
     // and fog templates bind them; set 2 the pass inputs.
-    gpu::GraphicsPipelineDesc desc{
+    ftk::gpu::GraphicsPipelineDesc desc{
         .vertex = "shaders/depth_viz.vert",
         .fragment = std::span<const uint32_t>(*fragment),
-        .color = {{OUTPUT_FORMAT, gpu::Blend::none}},
+        .color = {{OUTPUT_FORMAT, ftk::gpu::Blend::none}},
         .shared = {globals_, bindless_layout_},
         .name = pipeline_cache_->shader_path(pipeline_id),
     };
@@ -262,10 +262,10 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
     // blends as "over", which keeps the opaque image opaque: ImGui draws the
     // viewport with alpha blending, so anything less would let the dock show
     // through.
-    desc.color = {{OUTPUT_FORMAT, gpu::Blend::alpha}};
+    desc.color = {{OUTPUT_FORMAT, ftk::gpu::Blend::alpha}};
     auto over = device_->create(desc);
     if (!base || !over) {
-        FJELL_GFX_ERROR("Post: '{}': {}", pipeline_cache_->shader_path(pipeline_id),
+        FTK_GFX_ERROR("Post: '{}': {}", pipeline_cache_->shader_path(pipeline_id),
                         !base ? base.error() : over.error());
         return it != material_pipelines_.end() ? &it->second : nullptr;
     }
@@ -276,7 +276,7 @@ const PostPass::MaterialPipeline* PostPass::ensure_material_pipeline(uint32_t pi
     slot.base = std::move(*base);
     slot.over = std::move(*over);
     slot.generation = generation;
-    FJELL_GFX_DEBUG("Post: built the pipeline for '{}'", pipeline_cache_->shader_path(pipeline_id));
+    FTK_GFX_DEBUG("Post: built the pipeline for '{}'", pipeline_cache_->shader_path(pipeline_id));
     return &slot;
 }
 
@@ -288,13 +288,13 @@ std::vector<float> PostPass::layer_values(const PostLayer& layer) const {
 }
 
 void PostPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_post");
+    FTK_PROFILE_SCOPE_N("record_post");
 
     auto* output = ctx.pp_resources != nullptr ? ctx.pp_resources->post() : nullptr;
     if (output == nullptr || ctx.target == nullptr) return;
 
     // Use TAA-resolved color when available, otherwise raw scene color.
-    gpu::Texture color_source = ctx.target->color_texture();
+    ftk::gpu::Texture color_source = ctx.target->color_texture();
     if (auto* taa_imgs = ctx.pp_resources->taa()) {
         uint32_t output_idx = 1 - taa_imgs->write_index;
         if (taa_imgs->history[output_idx]) {
@@ -353,31 +353,31 @@ void PostPass::record_into(const FrameContext& ctx, Images& imgs, const Inputs& 
 
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Post");
-    const gpu::BufferRange params = cmd.transient(values);
+    const ftk::gpu::BufferRange params = cmd.transient(values);
 
     // The base layer covers every pixel, so what was there does not matter.
     // Without one the image is cleared to opaque black, and anything laid
     // over lands on that.
     const bool has_base = !layers.empty() && material_pipelines_.contains(layers.front().look.pipeline_id);
     auto pass = cmd.render({.color = {{.view = imgs.texture,
-                                       .load = has_base ? gpu::Load::discard : gpu::Load::clear,
-                                       .clear = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f}}}});
+                                       .load = has_base ? ftk::gpu::Load::discard : ftk::gpu::Load::clear,
+                                       .clear = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f}}}});
 
     // With no bloom the scene colour stands in, so the set is complete; the
     // shader reads zero bloom either way.
-    const gpu::Texture bloom = inputs.bloom.valid() ? inputs.bloom : inputs.color;
+    const ftk::gpu::Texture bloom = inputs.bloom.valid() ? inputs.bloom : inputs.color;
     for (size_t i = 0; i < layers.size(); ++i) {
         const auto built = material_pipelines_.find(layers[i].look.pipeline_id);
         if (built == material_pipelines_.end()) continue;
         pass.set_pipeline(i == 0 ? built->second.base : built->second.over);
         pass.bind(ctx.globals);
         pass.bind(ctx.bindless);
-        pass.bind({{"scene_color", gpu::sampled(inputs.color, linear_sampler_)},
-                   {"bloom_color", gpu::sampled(bloom, linear_sampler_)},
-                   {"surface_depth", gpu::sampled(inputs.depth, nearest_sampler_)},
-                   {"PostParams", gpu::storage(params)},
-                   {"scene_normal", gpu::sampled(inputs.normal, nearest_sampler_)},
-                   {"scene_velocity", gpu::sampled(inputs.velocity, nearest_sampler_)}});
+        pass.bind({{"scene_color", ftk::gpu::sampled(inputs.color, linear_sampler_)},
+                   {"bloom_color", ftk::gpu::sampled(bloom, linear_sampler_)},
+                   {"surface_depth", ftk::gpu::sampled(inputs.depth, nearest_sampler_)},
+                   {"PostParams", ftk::gpu::storage(params)},
+                   {"scene_normal", ftk::gpu::sampled(inputs.normal, nearest_sampler_)},
+                   {"scene_velocity", ftk::gpu::sampled(inputs.velocity, nearest_sampler_)}});
         pass.push(PostPush{
             .material_id = layers[i].look.material_id,
             .param_base = bases[i],
@@ -399,25 +399,25 @@ PassSetup PostPass::setup() const {
     };
 }
 
-void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void PostPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
-    builder.read(color, gpu::Access::sampled_fragment);
+    builder.read(color, ftk::gpu::Access::sampled_fragment);
 
     // DEPTH in a post shader: the opaque scene with the water laid over it.
     auto depth = builder.import_named(ctx, "surface_depth");
-    builder.read(depth, gpu::Access::sampled_fragment);
+    builder.read(depth, ftk::gpu::Access::sampled_fragment);
 
     // normal_at() and velocity_at(): the resolved G-buffer.
-    builder.read(builder.import_named(ctx, "normal"), gpu::Access::sampled_fragment);
-    builder.read(builder.import_named(ctx, "velocity"), gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "normal"), ftk::gpu::Access::sampled_fragment);
+    builder.read(builder.import_named(ctx, "velocity"), ftk::gpu::Access::sampled_fragment);
 
     // What the viewport shows, handed to ImGui after the graph.
     if (auto output = builder.import_named_optional(ctx, "post_output"); output.valid()) {
-        builder.write(output, gpu::Access::color_attachment);
+        builder.write(output, ftk::gpu::Access::color_attachment);
     }
     // With TAA on, what the post pass reads is the history slot TAA just wrote.
     if (auto taa = builder.import_named_optional(ctx, "taa_history_write"); taa.valid()) {
-        builder.read(taa, gpu::Access::sampled_fragment);
+        builder.read(taa, ftk::gpu::Access::sampled_fragment);
     }
 
     // Declared read on bloom_mip0 so the DAG sees the post ← bloom_us_0
@@ -428,12 +428,12 @@ void PostPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // name, so this create() resolves to the same TrackedImage bloom_us_0
     // writes into.
     if (ctx.bloom_enabled) {
-        TextureDesc bloom_desc{};
-        bloom_desc.format = gpu::Format::rgba16_float;
-        bloom_desc.size_class = SizeClass::viewport;
+        ftk::TextureDesc bloom_desc{};
+        bloom_desc.format = ftk::gpu::Format::rgba16_float;
+        bloom_desc.size_class = ftk::SizeClass::viewport;
         bloom_desc.viewport_divisor = 2;
         auto bloom_mip0 = builder.create("bloom_mip0", bloom_desc);
-        builder.read(bloom_mip0, gpu::Access::sampled_fragment);
+        builder.read(bloom_mip0, ftk::gpu::Access::sampled_fragment);
     }
 
     // The post pass is the frame terminator: its output (the post pp

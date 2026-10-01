@@ -42,7 +42,7 @@ struct TestReport {
 /// Finds the `.fjell` scenes under a project's `Tests/` directory, in a stable
 /// order so two runs report the same list. Returns an error when the directory
 /// is missing, so a typo'd project does not read as "no tests".
-[[nodiscard]] Result<std::vector<std::string>> discover_test_scenes(
+[[nodiscard]] ftk::Result<std::vector<std::string>> discover_test_scenes(
     const std::string& project_root, const std::string& filter = {});
 
 /// Drives one FunctionalTest through its lifecycle. It finds the test again

@@ -62,7 +62,7 @@ public:
     /// name. Screen UI draws to one target of `output_format`, the scene
     /// colour's when undefined.
     void create(const PassResources& resources, FontLibrary& fonts, PipelineCache* fjsl_pipelines,
-                gpu::Format output_format = gpu::Format::undefined);
+                ftk::gpu::Format output_format = ftk::gpu::Format::undefined);
 
     void destroy();
 
@@ -99,7 +99,7 @@ public:
 
     /// Draws the UI into `pass`, a scope with one colour target and no
     /// depth, `extent` pixels large.
-    void record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+    void record(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                 glm::uvec2 extent, uint32_t frame_index);
 
     /// Create worldspace pipelines (HDR + scene MSAA). Call after create().
@@ -107,7 +107,7 @@ public:
 
     /// Record worldspace draw commands with push constants. prev_mvp is last
     /// frame's mvp for this same widget, for the velocity attachment.
-    void record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+    void record_world(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                       glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                       const glm::mat4& prev_mvp);
 

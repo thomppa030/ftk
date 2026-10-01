@@ -11,7 +11,7 @@
 namespace fjell {
 
 void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
-    FJELL_PROFILE_SCOPE_N("style_resolve");
+    FTK_PROFILE_SCOPE_N("style_resolve");
     active_sheet_ = &sheet;
     resolve_node(root, sheet, nullptr);
 }

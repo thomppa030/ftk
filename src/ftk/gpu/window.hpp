@@ -12,7 +12,7 @@
 struct SDL_Window;
 union SDL_Event;
 
-namespace fjell {
+namespace ftk {
 
 /// An OS window on SDL. SDL has one event queue for the whole program, so
 /// whichever window's poll_events() runs hands every waiting event to the
@@ -85,4 +85,4 @@ private:
     std::vector<std::string> dropping_;
 };
 
-} // namespace fjell
+} // namespace ftk

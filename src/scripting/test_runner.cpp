@@ -24,13 +24,13 @@ const char* outcome_label(TestOutcome outcome) {
     return "????";
 }
 
-Result<std::vector<std::string>> discover_test_scenes(const std::string& project_root,
+ftk::Result<std::vector<std::string>> discover_test_scenes(const std::string& project_root,
                                                       const std::string& filter) {
     const auto dir = fs::path(project_root) / "Tests";
 
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) {
-        return make_error("No Tests directory in the project: " + dir.string());
+        return ftk::make_error("No Tests directory in the project: " + dir.string());
     }
 
     std::vector<std::string> scenes;

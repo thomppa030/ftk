@@ -1,6 +1,6 @@
 #pragma once
 
-namespace fjell {
+namespace ftk {
 
 class CommandHistory;
 
@@ -13,4 +13,4 @@ private:
     CommandHistory* history_{nullptr};
 };
 
-} // namespace fjell
+} // namespace ftk

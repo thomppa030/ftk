@@ -38,7 +38,6 @@ bool call_controller(const std::string& type_name, const void* widget, const cha
 
 } // namespace
 
-
 UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_manager)
     : vulkan_context_{vulkan_context}, script_manager_{&script_manager} {
     library_unloading_ = script_manager.on_unloading.bind([this] { library_unloading(); });
@@ -46,10 +45,10 @@ UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, ScriptManager& script_ma
 
 /// Loads the .fjwidget an instance was placed with, rejecting one that
 /// parsed but carries no markup — there would be nothing to show for it.
-static Result<WidgetAsset> load_instance_widget(const std::string& path) {
+static ftk::Result<WidgetAsset> load_instance_widget(const std::string& path) {
     auto result = load_widget_asset(path);
     if (result && !result->markup_root) {
-        return make_error("widget has no markup: " + path);
+        return ftk::make_error("widget has no markup: " + path);
     }
     return result;
 }
@@ -91,7 +90,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
 
         auto widget_result = load_instance_widget(widget_resolved);
         if (!widget_result) {
-            FJELL_CORE_WARN("UiSubsystem: {}", widget_result.error());
+            FTK_CORE_WARN("UiSubsystem: {}", widget_result.error());
             continue;
         }
 
@@ -126,7 +125,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
 
         std::string classes;
         for (const auto& cls : placed.style_classes) classes += " ." + cls;
-        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{}, {})",
+        FTK_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{}, {})",
                         wc->widget_path, obj->id, placed.widgets.size(),
                         classes.empty() ? "" : ", classes:", classes,
                         design_frame.height > 0.0f
@@ -203,7 +202,7 @@ void UiSubsystem::read_controller_in_place(WidgetInstance& wi) {
     for (const auto& field : wi.type->fields) {
         if (field.is_prop()) continue; // filled from the prop, which is what markup reads
         if (scope.find(field.name) != nullptr) {
-            FJELL_CORE_WARN("Widget '{}': the prop '{}' hides the controller's field of that name; "
+            FTK_CORE_WARN("Widget '{}': the prop '{}' hides the controller's field of that name; "
                             "markup reads the prop",
                             wi.type->name, field.name);
         }
@@ -248,11 +247,11 @@ void UiSubsystem::rebuild_after_reload() {
         if (auto fresh = load_instance_widget(inst.widget_path)) inst.widget = std::move(*fresh);
         apply_widget(inst, inst.widget);
     }
-    FJELL_CORE_INFO("UiSubsystem: rebuilt {} UI(s) after the scripts reloaded", instances_.size());
+    FTK_CORE_INFO("UiSubsystem: rebuilt {} UI(s) after the scripts reloaded", instances_.size());
 }
 
 void UiSubsystem::bind_models(const TickContext& /*ctx*/) {
-    FJELL_PROFILE_SCOPE_N("ui_bind_models");
+    FTK_PROFILE_SCOPE_N("ui_bind_models");
     // A reload happens after the frame's ticks and before this, the first
     // thing to read the UI afterwards.
     rebuild_after_reload();
@@ -268,7 +267,7 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
     if (!widget_asset.class_name.empty()) {
         auto* wt = script_manager_->find_ui_widget_type(widget_asset.class_name);
         if (!wt) {
-            FJELL_CORE_WARN("UiSubsystem: widget class '{}' not found in script types",
+            FTK_CORE_WARN("UiSubsystem: widget class '{}' not found in script types",
                             widget_asset.class_name);
         }
         if (wt && wt->create) {
@@ -278,7 +277,7 @@ void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget
             call_controller(wt->name, nullptr, "create", [&] { wi.widget.reset(wt->create()); });
             if (wi.widget) {
                 inst.widgets.push_back(std::move(wi));
-                FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
+                FTK_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
             }
         }
     }
@@ -332,7 +331,7 @@ void UiSubsystem::end_controller(WidgetInstance& wi) {
 }
 
 void UiSubsystem::report_once(const std::string& message) {
-    if (reported_.insert(message).second) FJELL_CORE_WARN("{}", message);
+    if (reported_.insert(message).second) FTK_CORE_WARN("{}", message);
 }
 
 void UiSubsystem::check_actions(UiInstance& inst) {
@@ -352,12 +351,12 @@ void UiSubsystem::check_actions(UiInstance& inst) {
             for (const auto& declared : it->second->actions) {
                 if (declared.name != call.name) continue;
                 if (const std::string why = check_action_call(declared, call); !why.empty()) {
-                    FJELL_CORE_WARN("{}:{}: \"{}\": {}", node.source_file, node.source_line, text, why);
+                    FTK_CORE_WARN("{}:{}: \"{}\": {}", node.source_file, node.source_line, text, why);
                 }
                 return;
             }
         }
-        FJELL_CORE_WARN("{}:{}: \"{}\": no controller around it has an [[fj::action]] named {}",
+        FTK_CORE_WARN("{}:{}: \"{}\": no controller around it has an [[fj::action]] named {}",
                         node.source_file, node.source_line, text, call.name);
     };
     // `scope` is what the node's calls are raised in; `widget` the nearest
@@ -433,12 +432,12 @@ void UiSubsystem::reload_instance(UiInstance& inst) {
     if (!widget_result) {
         // A half-typed edit is the usual reason a reload fails; the last
         // good tree stays up and the next save gets another chance.
-        FJELL_CORE_WARN("UiSubsystem: reload skipped, {}", widget_result.error());
+        FTK_CORE_WARN("UiSubsystem: reload skipped, {}", widget_result.error());
         return;
     }
     apply_widget(inst, *widget_result);
     inst.widget = std::move(*widget_result);
-    FJELL_CORE_INFO("UiSubsystem: reloaded widget '{}' ({} sub-widgets)",
+    FTK_CORE_INFO("UiSubsystem: reloaded widget '{}' ({} sub-widgets)",
                     inst.widget_path, inst.widgets.size());
 }
 
@@ -464,7 +463,7 @@ UiSubsystem::WidgetInstance* UiSubsystem::add_controller(UiInstance& inst, UiNod
     call_controller(ui_type->name, nullptr, "create", [&] { wi.widget.reset(ui_type->create()); });
     if (!wi.widget) return nullptr;
     node.has_controller = true;
-    FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>", ui_type->name, node.widget_tag);
+    FTK_CORE_INFO("UiSubsystem: created widget '{}' for <{}>", ui_type->name, node.widget_tag);
     return &inst.widgets.emplace_back(std::move(wi));
 }
 

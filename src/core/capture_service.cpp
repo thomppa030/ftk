@@ -31,10 +31,10 @@ bool write_png(const std::filesystem::path& path, uint32_t w, uint32_t h,
     int ok = stbi_write_png(path.string().c_str(), static_cast<int>(w),
                             static_cast<int>(h), 4, rgba_data, row_stride);
     if (ok == 0) {
-        FJELL_CORE_ERROR("Capture: failed to write PNG");
+        FTK_CORE_ERROR("Capture: failed to write PNG");
         return false;
     }
-    FJELL_CORE_INFO("Capture: wrote {}", path.string());
+    FTK_CORE_INFO("Capture: wrote {}", path.string());
     return true;
 }
 
@@ -70,7 +70,7 @@ std::filesystem::path CaptureService::next_output_path(const std::string& tag) c
 
 void CaptureService::request(const Request& r) {
     if (r.width == 0 || r.height == 0) {
-        FJELL_CORE_ERROR("Capture: zero dimensions");
+        FTK_CORE_ERROR("Capture: zero dimensions");
         return;
     }
     request_ = r;
@@ -91,7 +91,7 @@ void CaptureService::resize_for_capture(VulkanContext& vk,
     auto* panel = viewports.active_panel();
     if (panel == nullptr) {
         if (state_ == State::armed) {
-            FJELL_CORE_ERROR("Capture: no active editor viewport");
+            FTK_CORE_ERROR("Capture: no active editor viewport");
         }
         state_ = State::idle;
         return;
@@ -164,7 +164,7 @@ void CaptureService::finish_after_present(VulkanContext& /*vk*/, ViewportManager
 void CaptureService::read_scene(VulkanContext& vk, ViewportManager& viewports) {
     auto* panel = viewports.active_panel();
     if (panel == nullptr || !panel->offscreen) {
-        FJELL_CORE_ERROR("Capture: panel/offscreen vanished mid-capture");
+        FTK_CORE_ERROR("Capture: panel/offscreen vanished mid-capture");
         return;
     }
 
@@ -172,14 +172,14 @@ void CaptureService::read_scene(VulkanContext& vk, ViewportManager& viewports) {
     // renders it at that resolution into the post output.
     auto* output = panel->pp ? panel->pp->post() : nullptr;
     if (output == nullptr || !output->texture) {
-        FJELL_CORE_ERROR("Capture: post output unavailable");
+        FTK_CORE_ERROR("Capture: post output unavailable");
         return;
     }
 
     // The editor's viewport samples the post output.
-    auto readback = vk.read_back_in_frame(output->texture, {.use = gpu::Access::sampled_fragment});
+    auto readback = vk.read_back_in_frame(output->texture, {.use = ftk::gpu::Access::sampled_fragment});
     if (!readback) {
-        FJELL_CORE_ERROR("Capture: {}", readback.error());
+        FTK_CORE_ERROR("Capture: {}", readback.error());
         return;
     }
     read_ = std::move(*readback);
@@ -197,11 +197,11 @@ void CaptureService::read_scene(VulkanContext& vk, ViewportManager& viewports) {
 void CaptureService::read_pane(VulkanContext& vk) {
     ImGuiWindow* win = ImGui::FindWindowByName(request_.pane_name.c_str());
     if (win == nullptr) {
-        FJELL_CORE_ERROR("Capture: pane not found");
+        FTK_CORE_ERROR("Capture: pane not found");
         return;
     }
 
-    const gpu::Swapchain& swapchain = vk.gpu().swapchain();
+    const ftk::gpu::Swapchain& swapchain = vk.gpu().swapchain();
     int x0 = std::max(0, static_cast<int>(win->Pos.x));
     int y0 = std::max(0, static_cast<int>(win->Pos.y));
     int x1 = std::min(static_cast<int>(swapchain.width()),
@@ -211,7 +211,7 @@ void CaptureService::read_pane(VulkanContext& vk) {
     int w = x1 - x0;
     int h = y1 - y0;
     if (w <= 0 || h <= 0) {
-        FJELL_CORE_ERROR("Capture: pane has zero on-screen area");
+        FTK_CORE_ERROR("Capture: pane has zero on-screen area");
         return;
     }
 
@@ -223,9 +223,9 @@ void CaptureService::read_pane(VulkanContext& vk) {
                     .y = static_cast<uint32_t>(y0),
                     .width = static_cast<uint32_t>(w),
                     .height = static_cast<uint32_t>(h)},
-         .use = gpu::Access::present});
+         .use = ftk::gpu::Access::present});
     if (!readback) {
-        FJELL_CORE_ERROR("Capture: {}", readback.error());
+        FTK_CORE_ERROR("Capture: {}", readback.error());
         return;
     }
     read_ = std::move(*readback);

@@ -15,7 +15,7 @@ struct ProjectDir {
     fs::path root;
     ProjectDir() {
         root = fs::temp_directory_path() /
-               ("fjell_folder_colors_test_" + std::to_string(platform::process_id()));
+               ("fjell_folder_colors_test_" + std::to_string(ftk::platform::process_id()));
         fs::remove_all(root);
         fs::create_directories(root / "Art" / "Characters");
         fs::create_directories(root / "Artwork");

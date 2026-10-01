@@ -46,9 +46,9 @@
 
 namespace fjell {
 
-VulkanContext::VulkanContext(Window& window)
+VulkanContext::VulkanContext(ftk::Window& window)
     : gpu_{window} {
-    FJELL_GFX_INFO("Initializing Vulkan context");
+    FTK_GFX_INFO("Initializing Vulkan context");
 
     // Finalize global descriptor layout/pool/sets (builtins already declared
     // by GpuContext constructor; additional bindings could be declared here)
@@ -123,8 +123,8 @@ VulkanContext::VulkanContext(Window& window)
         subsystem_ptrs_.push_back(s.get());
     }
 
-    FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
-    FJELL_GFX_DEBUG("Creating debug draw");
+    FTK_GFX_DEBUG("Outline pipelines managed by PipelineCache");
+    FTK_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>();
 
     // The engine's own font is the one every UI falls back to.
@@ -141,7 +141,7 @@ VulkanContext::VulkanContext(Window& window)
     view_config_.taa = true;
     view_config_.rt_reflection = gpu_.ray_tracing_supported();
 
-    FJELL_GFX_INFO("Vulkan context ready");
+    FTK_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
@@ -260,12 +260,12 @@ const FjGraph* VulkanContext::get_or_load_graph(const std::string& path) {
     auto resolved = base_path::resolve(path);
     auto loaded = FjGraphParser::load(resolved);
     if (!loaded) {
-        FJELL_GFX_ERROR("Failed to load .fjgraph '{}': {}", path, loaded.error());
+        FTK_GFX_ERROR("Failed to load .fjgraph '{}': {}", path, loaded.error());
         return nullptr;
     }
 
     auto [inserted_it, _] = graph_cache_.emplace(path, std::move(*loaded));
-    FJELL_GFX_DEBUG("VulkanContext: cached .fjgraph '{}'", path);
+    FTK_GFX_DEBUG("VulkanContext: cached .fjgraph '{}'", path);
     return &inserted_it->second;
 }
 
@@ -312,7 +312,7 @@ bool entries_shape_equal(const FjGraphPass& a, const FjGraphPass& b) {
 void VulkanContext::reload_fjgraph(const std::string& path) {
     auto reparsed = FjGraphParser::load(path);
     if (!reparsed) {
-        FJELL_GFX_ERROR("FjGraphWatcher: parse failed: {}", reparsed.error());
+        FTK_GFX_ERROR("FjGraphWatcher: parse failed: {}", reparsed.error());
         return;
     }
 
@@ -330,7 +330,7 @@ void VulkanContext::reload_fjgraph(const std::string& path) {
     }
 
     if (!shape_ok) {
-        FJELL_GFX_WARN(
+        FTK_GFX_WARN(
             "FjGraphWatcher: pass shape changed (adds/removes/params/queue) — "
             "restart the engine to apply. Saved graph remains parsed; only "
             "'enabled' flag changes are honored live in v1.");
@@ -339,7 +339,7 @@ void VulkanContext::reload_fjgraph(const std::string& path) {
 
     apply_enabled_flags(*reparsed, render_pipeline_);
     loaded_graph_ = std::move(*reparsed);
-    FJELL_GFX_INFO("FjGraphWatcher: applied enable-flag changes from {}", path);
+    FTK_GFX_INFO("FjGraphWatcher: applied enable-flag changes from {}", path);
 }
 
 // ── Command buffer recording ────────────────────────────────────────────
@@ -448,10 +448,10 @@ void VulkanContext::prepare_ray_tracing(const std::vector<ViewportRenderRequest>
                                   particle_system_, *gpu_.mega_buffer(), current_frame_);
 }
 
-void VulkanContext::render_scene_to(gpu::CommandList& cmd, const ViewportRenderRequest& view,
+void VulkanContext::render_scene_to(ftk::gpu::CommandList& cmd, const ViewportRenderRequest& view,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool, PostProcessResources* pp, bool main_view) {
-    FJELL_PROFILE_SCOPE_N("render_scene_to");
+                                    ftk::ThreadPool& pool, PostProcessResources* pp, bool main_view) {
+    FTK_PROFILE_SCOPE_N("render_scene_to");
     OffscreenPass& target = *view.target;
     const FjGraph* viewport_graph = view.viewport_graph;
 
@@ -562,7 +562,7 @@ void VulkanContext::render_scene_to(gpu::CommandList& cmd, const ViewportRenderR
 bool VulkanContext::preview_complete(const ViewportRenderRequest& req) const {
     if (!req.target) return false;
     if (req.pp_resources == nullptr) {
-        FJELL_GFX_ERROR("A preview needs post-process resources of its own; it is not drawn");
+        FTK_GFX_ERROR("A preview needs post-process resources of its own; it is not drawn");
         return false;
     }
     return true;
@@ -570,11 +570,11 @@ bool VulkanContext::preview_complete(const ViewportRenderRequest& req) const {
 
 void VulkanContext::render_preview(const ViewportRenderRequest& req,
                                     const EnvironmentState& environment, Scene* scene,
-                                    float dt, uint32_t selected_id, ThreadPool& pool) {
-    FJELL_PROFILE_SCOPE_N("render_preview");
+                                    float dt, uint32_t selected_id, ftk::ThreadPool& pool) {
+    FTK_PROFILE_SCOPE_N("render_preview");
     if (!preview_complete(req)) return;
     if (pre_list_ == nullptr) {
-        FJELL_GFX_ERROR("A preview records into the frame, and none is recording; it is not drawn");
+        FTK_GFX_ERROR("A preview records into the frame, and none is recording; it is not drawn");
         return;
     }
     current_environment_ = &environment;
@@ -582,23 +582,23 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     render_scene_to(*pre_list_, req, scene, dt, selected_id, pool, req.pp_resources, false);
 }
 
-Result<gpu::Readback> VulkanContext::read_back_in_frame(const gpu::TextureView& view,
-                                                       const gpu::ReadbackDesc& desc) {
+ftk::Result<ftk::gpu::Readback> VulkanContext::read_back_in_frame(const ftk::gpu::TextureView& view,
+                                                       const ftk::gpu::ReadbackDesc& desc) {
     if (pre_list_ == nullptr) {
-        return make_error("A readback in the frame needs a frame recording");
+        return ftk::make_error("A readback in the frame needs a frame recording");
     }
     // The list that runs last so far: the one after the compute list once
     // the main view has used it.
-    gpu::CommandList& list = post_list_ != nullptr && recorded_async_this_frame_ ? *post_list_ : *pre_list_;
+    ftk::gpu::CommandList& list = post_list_ != nullptr && recorded_async_this_frame_ ? *post_list_ : *pre_list_;
     return list.read_back(view, desc);
 }
 
-void VulkanContext::record_command_buffer(gpu::CommandList& cmd, const gpu::SwapchainImage& image,
+void VulkanContext::record_command_buffer(ftk::gpu::CommandList& cmd, const ftk::gpu::SwapchainImage& image,
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const EnvironmentState& environment,
                                           Scene* scene, float dt,
-                                          uint32_t selected_id, ThreadPool& pool) {
-    FJELL_PROFILE_SCOPE_N("record_command_buffer");
+                                          uint32_t selected_id, ftk::ThreadPool& pool) {
+    FTK_PROFILE_SCOPE_N("record_command_buffer");
     current_environment_ = &environment;
 
     // Once-per-frame pass preparation: each pass scans the scene for the
@@ -627,7 +627,6 @@ void VulkanContext::record_command_buffer(gpu::CommandList& cmd, const gpu::Swap
         passes_.prepare_frame_all(prep_ctx, gpu_);
     }
 
-
     prepare_ray_tracing(viewports, scene);
 
     // --- Render scene once per viewport ---
@@ -638,11 +637,11 @@ void VulkanContext::record_command_buffer(gpu::CommandList& cmd, const gpu::Swap
         if (!vp.target) continue;
         auto* pp = vp.pp_resources;
         if (pp == nullptr) {
-            FJELL_GFX_ERROR("A view needs post-process resources of its own; it is not drawn");
+            FTK_GFX_ERROR("A view needs post-process resources of its own; it is not drawn");
             continue;
         }
         write_view_globals(vp, environment, scene, *pp);
-        gpu::CommandList& view_list = main_view || !recorded_async_this_frame_ ? cmd : *post_list_;
+        ftk::gpu::CommandList& view_list = main_view || !recorded_async_this_frame_ ? cmd : *post_list_;
         render_scene_to(view_list, vp, scene, dt, selected_id, pool, pp, main_view);
         main_view = false;
     }
@@ -660,22 +659,22 @@ void VulkanContext::record_command_buffer(gpu::CommandList& cmd, const gpu::Swap
     // ImGui draws into the swapchain image in the list that runs last: the
     // one after the compute list on frames that used it, so it follows the
     // views' compute work too.
-    gpu::CommandList& swap_list = (post_list_ != nullptr && recorded_async_this_frame_)
+    ftk::gpu::CommandList& swap_list = (post_list_ != nullptr && recorded_async_this_frame_)
         ? *post_list_ : *pre_list_;
 
     // --- Render ImGui to swapchain ---
     {
-        const gpu::Transition draw = image.to_draw();
+        const ftk::gpu::Transition draw = image.to_draw();
         swap_list.transition({&draw, 1});
         {
             auto target = swap_list.render({.color = {{.view = image.texture,
-                                                       .load = gpu::Load::clear,
-                                                       .clear = gpu::Clear{0.012f, 0.012f, 0.015f, 1.0f}}}});
+                                                       .load = ftk::gpu::Load::clear,
+                                                       .clear = ftk::gpu::Clear{0.012f, 0.012f, 0.015f, 1.0f}}}});
             if (overlay_callback_) {
                 overlay_callback_(target);
             }
         }
-        const gpu::Transition show = image.to_present();
+        const ftk::gpu::Transition show = image.to_present();
         swap_list.transition({&show, 1});
     }
 }
@@ -694,9 +693,9 @@ static float halton(int index, int base) {
 
 void VulkanContext::write_view_globals(const ViewportRenderRequest& view, const EnvironmentState& environment,
                                        Scene* scene, PostProcessResources& pp) {
-    FJELL_PROFILE_SCOPE_N("write_view_globals");
+    FTK_PROFILE_SCOPE_N("write_view_globals");
     if (frame_ == nullptr) {
-        FJELL_GFX_ERROR("A view's globals are written while a frame records; none is");
+        FTK_GFX_ERROR("A view's globals are written while a frame records; none is");
         return;
     }
     const OffscreenPass& target = *view.target;
@@ -734,30 +733,30 @@ void VulkanContext::write_view_globals(const ViewportRenderRequest& view, const 
     if (const auto* ss_gi = pp.ss_gi(); ss_gi_pass().config().enabled && ss_gi != nullptr && ss_gi->written) {
         bound_ss_gi_emissive_ = ss_gi->indirect;
     }
-    const auto gi = [&](gpu::Texture texture) {
-        return gpu::sampled(texture.valid() ? texture : gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
+    const auto gi = [&](ftk::gpu::Texture texture) {
+        return ftk::gpu::sampled(texture.valid() ? texture : gpu_.gi_fallback(), gpu_.gi_fallback_sampler());
     };
 
     // AO and contact shadows are what this view's run computes: its own AO
     // image, and the shared contact shadow image once its run has traced it.
     // A view that runs neither reads nothing occluding, not another view's,
     // which lie over other pixels.
-    const gpu::BindResource unoccluded = gpu::sampled(gpu_.unoccluded(), gpu_.gi_fallback_sampler());
+    const ftk::gpu::BindResource unoccluded = ftk::gpu::sampled(gpu_.unoccluded(), gpu_.gi_fallback_sampler());
     const auto* ao = pp.gtao();
     const bool traces_contact = view.viewport_graph != nullptr ? runs_pass(view.viewport_graph, "contact_shadow")
                                                                : render_pipeline_.is_pass_enabled("contact_shadow");
 
-    const gpu::BindEntry entries[] = {
-        {"global_ubo", gpu::uniform(frame_->transient(ubo))},
-        {"environment_ubo", gpu::uniform(frame_->transient(env_ubo))},
-        {"light_ssbo", gpu::storage(write_lights(scene))},
-        {"fog_volume_ssbo", gpu::storage(write_fog_volumes(environment))},
-        {"depth_texture", gpu::sampled(target.depth_texture(), gpu_.depth_sampler())},
-        {"ao_texture", ao != nullptr && ao->ao ? gpu::sampled(ao->ao, gtao_pass().ao_sampler()) : unoccluded},
-        {"screen_color", gpu::sampled(target.screen_color_texture(), post_pass().output_sampler())},
+    const ftk::gpu::BindEntry entries[] = {
+        {"global_ubo", ftk::gpu::uniform(frame_->transient(ubo))},
+        {"environment_ubo", ftk::gpu::uniform(frame_->transient(env_ubo))},
+        {"light_ssbo", ftk::gpu::storage(write_lights(scene))},
+        {"fog_volume_ssbo", ftk::gpu::storage(write_fog_volumes(environment))},
+        {"depth_texture", ftk::gpu::sampled(target.depth_texture(), gpu_.depth_sampler())},
+        {"ao_texture", ao != nullptr && ao->ao ? ftk::gpu::sampled(ao->ao, gtao_pass().ao_sampler()) : unoccluded},
+        {"screen_color", ftk::gpu::sampled(target.screen_color_texture(), post_pass().output_sampler())},
         {"gi_indirect", gi(bound_gi_indirect_)},
         {"ss_gi_emissive", gi(bound_ss_gi_emissive_)},
-        {"contact_shadow", traces_contact ? gpu::sampled(contact_shadow_pass().shadow(),
+        {"contact_shadow", traces_contact ? ftk::gpu::sampled(contact_shadow_pass().shadow(),
                                                          contact_shadow_pass().shadow_sampler())
                                           : unoccluded},
     };
@@ -814,11 +813,11 @@ GlobalUbo VulkanContext::view_uniforms(const glm::mat4& view, const glm::mat4& p
         spot_count += static_cast<uint32_t>(scene->spot_lights().size());
     }
     if (point_count > MAX_POINT_LIGHTS) {
-        FJELL_GFX_WARN("Point light overflow: {} lights, max {} — extras ignored", point_count, MAX_POINT_LIGHTS);
+        FTK_GFX_WARN("Point light overflow: {} lights, max {} — extras ignored", point_count, MAX_POINT_LIGHTS);
         point_count = MAX_POINT_LIGHTS;
     }
     if (spot_count > MAX_SPOT_LIGHTS) {
-        FJELL_GFX_WARN("Spot light overflow: {} lights, max {} — extras ignored", spot_count, MAX_SPOT_LIGHTS);
+        FTK_GFX_WARN("Spot light overflow: {} lights, max {} — extras ignored", spot_count, MAX_SPOT_LIGHTS);
         spot_count = MAX_SPOT_LIGHTS;
     }
 
@@ -871,11 +870,11 @@ GlobalUbo VulkanContext::view_uniforms(const glm::mat4& view, const glm::mat4& p
     return ubo;
 }
 
-gpu::BufferRange VulkanContext::write_lights(Scene* scene) {
-    FJELL_PROFILE_SCOPE_N("write_lights");
+ftk::gpu::BufferRange VulkanContext::write_lights(Scene* scene) {
+    FTK_PROFILE_SCOPE_N("write_lights");
     // Past the counts the view's UBO carries nothing is read, so only the
     // lights there are written.
-    const gpu::TransientSlice slice = frame_->transient_slice(LIGHT_SSBO_SIZE);
+    const ftk::gpu::TransientSlice slice = frame_->transient_slice(LIGHT_SSBO_SIZE);
     if (scene == nullptr || slice.bytes.empty()) return slice.range;
 
     // Build lookup from light index → shadow tile/block
@@ -982,11 +981,11 @@ gpu::BufferRange VulkanContext::write_lights(Scene* scene) {
     return slice.range;
 }
 
-gpu::BufferRange VulkanContext::write_fog_volumes(const EnvironmentState& environment) {
-    FJELL_PROFILE_SCOPE_N("write_fog_volumes");
+ftk::gpu::BufferRange VulkanContext::write_fog_volumes(const EnvironmentState& environment) {
+    FTK_PROFILE_SCOPE_N("write_fog_volumes");
     // The block is the whole array; the fog template reads the volume each
     // of its sources names.
-    const gpu::TransientSlice slice = frame_->transient_slice(uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume));
+    const ftk::gpu::TransientSlice slice = frame_->transient_slice(uint64_t{MAX_FOG_VOLUMES} * sizeof(GpuFogVolume));
     if (slice.bytes.empty()) return slice.range;
     const auto& volumes = environment.fog_volumes;
     auto* dst = reinterpret_cast<GpuFogVolume*>(slice.bytes.data());
@@ -1008,7 +1007,7 @@ gpu::BufferRange VulkanContext::write_fog_volumes(const EnvironmentState& enviro
     return slice.range;
 }
 
-void VulkanContext::init_game_ui(GameUi& ui, gpu::Format output_format, bool world) {
+void VulkanContext::init_game_ui(GameUi& ui, ftk::gpu::Format output_format, bool world) {
     const PassResources res = gpu_.pass_resources();
     ui.create(res, *font_library_, gpu_.pipeline_cache(), output_format);
     if (world) ui.create_world_pipelines(res);
@@ -1018,7 +1017,7 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
                                               uint32_t frame_index) {
     if (!ui.loaded()) return;
     record_game_ui_offscreen_multi(
-        [&ui](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+        [&ui](ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
               glm::uvec2 extent, uint32_t idx) { ui.record(pass, globals, bindless, extent, idx); },
         target, frame_index);
 }
@@ -1041,45 +1040,45 @@ void VulkanContext::advance_scene_particles(const Scene& scene, float dt) {
     if (particle_system_) particle_system_->advance(scene.id(), dt);
 }
 
-void VulkanContext::record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
+void VulkanContext::record_game_ui_into(ftk::gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                                         OffscreenPass& target, uint32_t frame_index) {
     const glm::uvec2 extent = target.extent();
-    const bool msaa = target.samples() != gpu::Samples::x1;
+    const bool msaa = target.samples() != ftk::gpu::Samples::x1;
 
     // Whatever the target held is cleared: nothing of it is kept.
-    cmd.barrier(target.msaa_color_texture(), {}, gpu::Access::color_attachment);
-    if (msaa) cmd.barrier(target.color_texture(), {}, gpu::Access::color_attachment);
+    cmd.barrier(target.msaa_color_texture(), {}, ftk::gpu::Access::color_attachment);
+    if (msaa) cmd.barrier(target.color_texture(), {}, ftk::gpu::Access::color_attachment);
 
     // UI materials read TIME from the global UBO, and nothing else of it:
     // the UI is no view, so it binds one of its own holding the time.
     if (frame_ != nullptr) {
         GlobalUbo ubo{};
         ubo.time = elapsed_time_;
-        gpu_.global_bindings().set(frame_index, "global_ubo", gpu::uniform(frame_->transient(ubo)));
+        gpu_.global_bindings().set(frame_index, "global_ubo", ftk::gpu::uniform(frame_->transient(ubo)));
     }
     gpu_.bindless_textures().flush(frame_index);
     {
         auto pass = cmd.render({.color = {{.view = target.msaa_color_texture(),
-                                           .load = gpu::Load::clear,
-                                           .clear = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
-                                           .resolve = msaa ? gpu::TextureView(target.color_texture())
-                                                           : gpu::TextureView{}}}});
+                                           .load = ftk::gpu::Load::clear,
+                                           .clear = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                                           .resolve = msaa ? ftk::gpu::TextureView(target.color_texture())
+                                                           : ftk::gpu::TextureView{}}}});
         record_fn(pass, gpu_.global_bindings().group(frame_index), gpu_.bindless_textures().group(frame_index),
                   extent, frame_index);
     }
 
     // ImGui shows it.
-    cmd.barrier(target.color_texture(), gpu::Access::color_attachment, gpu::Access::sampled_fragment);
+    cmd.barrier(target.color_texture(), ftk::gpu::Access::color_attachment, ftk::gpu::Access::sampled_fragment);
 }
 
-gpu::Format VulkanContext::swapchain_format() const {
+ftk::gpu::Format VulkanContext::swapchain_format() const {
     return gpu_.swapchain().format();
 }
 
 void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
     has_recorded_frame_ = false;
-    gpu::Frame& frame = *recorded_gpu_frame_;
+    ftk::gpu::Frame& frame = *recorded_gpu_frame_;
 
     // Without async work the frame is its pre list alone. With it, three
     // lists chained across the queues: the compute list runs once pre is
@@ -1095,12 +1094,12 @@ void VulkanContext::submit_and_present() {
     recorded_gpu_frame_ = nullptr;
     pre_list_ = async_list_ = post_list_ = nullptr;
     if (auto shown = gpu_.swapchain().present(frame, recorded_image_); !shown) {
-        FJELL_GFX_CRITICAL("{}", shown.error());
+        FTK_GFX_CRITICAL("{}", shown.error());
     }
 }
 
 bool VulkanContext::begin_frame() {
-    FJELL_PROFILE_SCOPE_N("begin_frame");
+    FTK_PROFILE_SCOPE_N("begin_frame");
 
     // Clean slate for async tracking. render_scene_to sets this when
     // any viewport actually records into the async CB.
@@ -1143,12 +1142,12 @@ bool VulkanContext::begin_frame() {
     // Made here, so what renders before the frame's views (previews, UI
     // targets) records into pre ahead of them. The last two stay empty on
     // frames without compute work, and are then never submitted.
-    pre_list_ = &frame_->commands(gpu::Queue::graphics);
+    pre_list_ = &frame_->commands(ftk::gpu::Queue::graphics);
     async_list_ = nullptr;
     post_list_ = nullptr;
     if (gpu_device().caps().async_compute) {
-        async_list_ = &frame_->commands(gpu::Queue::compute);
-        post_list_ = &frame_->commands(gpu::Queue::graphics);
+        async_list_ = &frame_->commands(ftk::gpu::Queue::compute);
+        post_list_ = &frame_->commands(ftk::gpu::Queue::graphics);
     }
     return true;
 }
@@ -1156,8 +1155,8 @@ bool VulkanContext::begin_frame() {
 void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewports,
                                  const EnvironmentState& environment,
                                  Scene* scene, float dt,
-                                 uint32_t selected_id, ThreadPool& pool) {
-    FJELL_PROFILE_SCOPE_N("record_frame");
+                                 uint32_t selected_id, ftk::ThreadPool& pool) {
+    FTK_PROFILE_SCOPE_N("record_frame");
 
     gpu_.render_stats().reset();
     // Always rebuild when there's a scene: update() is what clears the vertex
@@ -1181,7 +1180,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         sub_ctx.frame_index = current_frame_;
         for (auto& sys : render_subsystems_) sys->sync(sub_ctx);
     }
-
 
     // Update scene SDF — register mesh SDFs, auto-fit volume, hand every
     // placed mesh to the pass so it can rebuild only what moved
@@ -1382,7 +1380,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                     ddgi_grid_min_ = padded_min;
                     ddgi_grid_max_ = padded_min
                         + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
-                    FJELL_GFX_DEBUG("DDGI grid re-fitted to ({:.1f},{:.1f},{:.1f})..({:.1f},{:.1f},{:.1f})",
+                    FTK_GFX_DEBUG("DDGI grid re-fitted to ({:.1f},{:.1f},{:.1f})..({:.1f},{:.1f},{:.1f})",
                                     padded_min.x, padded_min.y, padded_min.z,
                                     ddgi_grid_max_.x, ddgi_grid_max_.y, ddgi_grid_max_.z);
                 }
@@ -1497,7 +1495,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     if (scene_viewports_.contains(config.name)) destroy_scene_viewport(config.name);
 
     uint32_t bindless_idx =
-        gpu_.bindless_textures().reserve_index(gpu_device().sampler({.address = gpu::Address::clamp}));
+        gpu_.bindless_textures().reserve_index(gpu_device().sampler({.address = ftk::gpu::Address::clamp}));
 
     const PostProcessResources::PassRefs refs{ddgi_pass(), ss_gi_pass()};
 
@@ -1535,7 +1533,7 @@ uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) c
 }
 
 void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
-                                            const EnvironmentState& environment, ThreadPool& pool) {
+                                            const EnvironmentState& environment, ftk::ThreadPool& pool) {
     for (auto& [name, viewport] : scene_viewports_) {
         render_preview(viewport->build_request(), environment, scene, dt, selected_id, pool);
         viewport->sync_bindless(gpu_.bindless_textures());

@@ -5,7 +5,7 @@
 #include <memory>
 #include <utility>
 
-namespace fjell {
+namespace ftk {
 
 /// One edit made directly to a document, undone and redone by putting the
 /// text before or after it back.
@@ -66,10 +66,10 @@ void DocumentHistory::change_to(const std::string& text, const std::string& what
 
 void DocumentHistory::apply(const std::string& text) {
     if (auto restored = restore_(text); !restored) {
-        FJELL_CORE_ERROR("Couldn't put the document back: {}", restored.error());
+        FTK_CORE_ERROR("Couldn't put the document back: {}", restored.error());
     }
     // The history's position moves once this returns; frame() follows it.
     recorded_ = document_();
 }
 
-} // namespace fjell
+} // namespace ftk

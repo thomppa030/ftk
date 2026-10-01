@@ -46,7 +46,7 @@ ImVec2 TimelineWidget::screen_position(float time, int lane) const {
 }
 
 void TimelineWidget::draw(float dt) {
-    if (auto panel = ui::Panel(ui::icon::play, title_.c_str())) {
+    if (auto panel = ftk::ui::Panel(ftk::ui::icon::play, title_.c_str())) {
         draw_transport();
         draw_canvas();
     }
@@ -67,7 +67,7 @@ void TimelineWidget::draw(float dt) {
 }
 
 void TimelineWidget::draw_transport() {
-    if (ui::icon_button("##play", playing_ ? ui::icon::pause : ui::icon::play, playing_ ? "Pause" : "Play")) {
+    if (ftk::ui::icon_button("##play", playing_ ? ftk::ui::icon::pause : ftk::ui::icon::play, playing_ ? "Pause" : "Play")) {
         playing_ = !playing_;
         if (playing_) {
             on_play.broadcast();
@@ -76,33 +76,33 @@ void TimelineWidget::draw_transport() {
         }
     }
     ImGui::SameLine();
-    if (ui::icon_button("##stop", ui::icon::stop, "Stop: back to the start")) {
+    if (ftk::ui::icon_button("##stop", ftk::ui::icon::stop, "Stop: back to the start")) {
         playing_ = false;
         time_ = 0.0f;
         on_stop.broadcast();
         on_scrub.broadcast(0.0f);
     }
     ImGui::SameLine();
-    if (ui::toggle_button("##loop", ui::icon::loop, looping_, "Loop: start over at the end")) looping_ = !looping_;
+    if (ftk::ui::toggle_button("##loop", ftk::ui::icon::loop, looping_, "Loop: start over at the end")) looping_ = !looping_;
     ImGui::SameLine();
 
     // Where the playhead is, and of how long.
     ImGui::AlignTextToFramePadding();
-    ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
+    ImGui::PushFont(ftk::theme::mono_font(), ftk::theme::SMALL_TEXT);
     char now[24];
     char of[32];
     std::snprintf(now, sizeof(now), "%.2f", time_);
     std::snprintf(of, sizeof(of), "/ %.2f s", duration_);
     ImGui::TextUnformatted(now);
     ImGui::SameLine(0.0f, 4.0f);
-    ImGui::TextColored(theme::text_disabled(), "%s", of);
+    ImGui::TextColored(ftk::theme::text_disabled(), "%s", of);
     ImGui::PopFont();
 
     ImGui::SameLine();
     const float speed_w = 90.0f;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - speed_w, 0.0f));
     ImGui::SetNextItemWidth(speed_w);
-    (void)ui::drag("##speed", speed_, {.speed = 0.05f, .min = 0.05f, .max = 4.0f, .unit = ui::Unit::Times,
+    (void)ftk::ui::drag("##speed", speed_, {.speed = 0.05f, .min = 0.05f, .max = 4.0f, .unit = ftk::ui::Unit::Times,
                                        .format = "%.2f"});
     ImGui::SetItemTooltip("Playback speed");
 }
@@ -140,7 +140,7 @@ void TimelineWidget::draw_canvas() {
     for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
         const float dx = mouse.x - view_.to_screen_x(markers_[static_cast<size_t>(i)].time);
         const float dy = mouse.y - marker_y;
-        if (ruler_hovered && dx * dx + dy * dy <= ui::CANVAS_HIT_RADIUS * ui::CANVAS_HIT_RADIUS) hot_marker = i;
+        if (ruler_hovered && dx * dx + dy * dy <= ftk::ui::CANVAS_HIT_RADIUS * ftk::ui::CANVAS_HIT_RADIUS) hot_marker = i;
     }
     if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !view_.panning()) {
         if (hot_marker >= 0) {
@@ -204,58 +204,58 @@ void TimelineWidget::draw_canvas() {
             }
         }
     }
-    if (ui::canvas_has_keys() && (ruler_hovered || body_hovered) && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+    if (ftk::ui::canvas_has_keys() && (ruler_hovered || body_hovered) && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
         view_.frame({0.0f, 0.0f}, {duration_, 0.0f});
     }
 
     // ── Drawing ───────────────────────────────────────────────────────
-    ui::canvas_ruler(dl, view_, RULER_H);
-    dl->AddRectFilled({origin.x, body_top}, end, colour(theme::surface_sunken()));
+    ftk::ui::canvas_ruler(dl, view_, RULER_H);
+    dl->AddRectFilled({origin.x, body_top}, end, colour(ftk::theme::surface_sunken()));
     dl->PushClipRect(origin, end, true);
     // Past the end is outside the timeline.
     const float stop_x = view_.to_screen_x(duration_);
-    if (stop_x < end.x) dl->AddRectFilled({stop_x, body_top}, end, colour(theme::surface_base()));
+    if (stop_x < end.x) dl->AddRectFilled({stop_x, body_top}, end, colour(ftk::theme::surface_base()));
 
-    const ImVec4 fill = mix(theme::surface_raised(), theme::category(category_), 0.3f);
+    const ImVec4 fill = mix(ftk::theme::surface_raised(), ftk::theme::category(category_), 0.3f);
     for (int i = 0; i < static_cast<int>(lanes_.size()); ++i) {
         const auto& lane = lanes_[static_cast<size_t>(i)];
         ImVec2 lo;
         ImVec2 hi;
         lane_rect(i, lo, hi);
         const float rounding = ImGui::GetStyle().FrameRounding;
-        dl->AddRectFilled(lo, hi, colour(i == hot_lane ? mix(fill, theme::text(), 0.08f) : fill), rounding);
+        dl->AddRectFilled(lo, hi, colour(i == hot_lane ? mix(fill, ftk::theme::text(), 0.08f) : fill), rounding);
         if (lane.selected) {
-            dl->AddRect(lo, hi, colour(theme::accent()), rounding, 0, 2.0f);
+            dl->AddRect(lo, hi, colour(ftk::theme::accent()), rounding, 0, 2.0f);
         } else {
-            dl->AddRect(lo, hi, colour(theme::border()), rounding);
+            dl->AddRect(lo, hi, colour(ftk::theme::border()), rounding);
         }
         dl->PushClipRect({std::max(lo.x, origin.x), lo.y}, {std::min(hi.x, end.x), hi.y}, true);
-        dl->AddText({lo.x + 6.0f, lo.y + (LANE_BAR - ImGui::GetTextLineHeight()) * 0.5f}, colour(theme::text()),
+        dl->AddText({lo.x + 6.0f, lo.y + (LANE_BAR - ImGui::GetTextLineHeight()) * 0.5f}, colour(ftk::theme::text()),
                     lane.name.c_str());
         dl->PopClipRect();
     }
 
     for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
-        ui::canvas_handle(dl, {view_.to_screen_x(markers_[static_cast<size_t>(i)].time), marker_y}, i == hot_marker,
-                          i == selected_marker_, {.shape = ui::HandleShape::Diamond, .radius = MARKER_RADIUS});
+        ftk::ui::canvas_handle(dl, {view_.to_screen_x(markers_[static_cast<size_t>(i)].time), marker_y}, i == hot_marker,
+                          i == selected_marker_, {.shape = ftk::ui::HandleShape::Diamond, .radius = MARKER_RADIUS});
     }
     if (hot_marker >= 0 && drag_ == Drag::None) {
         ImGui::SetTooltip("%s", markers_[static_cast<size_t>(hot_marker)].name.c_str());
     }
-    ui::canvas_playhead(dl, view_.to_screen_x(time_), origin.y, end.y, true);
+    ftk::ui::canvas_playhead(dl, view_.to_screen_x(time_), origin.y, end.y, true);
 
     // While something moves, when it is reads beside it.
     char readout[32];
     if (drag_ == Drag::Marker && drag_index_ >= 0 && drag_index_ < static_cast<int>(markers_.size())) {
         const float t = markers_[static_cast<size_t>(drag_index_)].time;
         std::snprintf(readout, sizeof(readout), "%.2f s", t);
-        ui::canvas_readout(dl, {view_.to_screen_x(t), marker_y}, readout, origin, end);
+        ftk::ui::canvas_readout(dl, {view_.to_screen_x(t), marker_y}, readout, origin, end);
     } else if (drag_ == Drag::Lane && drag_index_ >= 0 && drag_index_ < static_cast<int>(lanes_.size())) {
         ImVec2 lo;
         ImVec2 hi;
         lane_rect(drag_index_, lo, hi);
         std::snprintf(readout, sizeof(readout), "starts %.2f s", lanes_[static_cast<size_t>(drag_index_)].start);
-        ui::canvas_readout(dl, {lo.x, lo.y + LANE_BAR * 0.5f}, readout, origin, end);
+        ftk::ui::canvas_readout(dl, {lo.x, lo.y + LANE_BAR * 0.5f}, readout, origin, end);
     }
     dl->PopClipRect();
 

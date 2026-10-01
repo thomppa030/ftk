@@ -31,7 +31,7 @@ bool load_mapping_file(const std::string& relative) {
     if (!SDL_GetPathInfo(path.c_str(), nullptr)) return false;
 
     if (SDL_AddGamepadMappingsFromFile(path.c_str()) < 0) {
-        FJELL_CORE_WARN("Gamepad mappings rejected by SDL: {} ({})", path, SDL_GetError());
+        FTK_CORE_WARN("Gamepad mappings rejected by SDL: {} ({})", path, SDL_GetError());
         return false;
     }
     return true;
@@ -46,7 +46,7 @@ std::string guid_text(SDL_JoystickID id) {
 
 } // namespace
 
-void Input::attach(Window& window) {
+void Input::attach(ftk::Window& window) {
     window_ = &window;
     event_connection_ = window.on_event.bind([this](const SDL_Event& event) {
         receive(event);
@@ -56,7 +56,7 @@ void Input::attach(Window& window) {
 
 void Input::start_gamepads() {
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
-        FJELL_CORE_WARN("Gamepads are unavailable: {}", SDL_GetError());
+        FTK_CORE_WARN("Gamepads are unavailable: {}", SDL_GetError());
         return;
     }
     gamepads_started_ = true;
@@ -70,7 +70,7 @@ void Input::start_gamepads() {
     // SDL's own mappings, then the upstream database, then local additions,
     // so a GUID present in more than one resolves to the last.
     if (!load_mapping_file("engine_assets/input/gamecontrollerdb.txt")) {
-        FJELL_CORE_WARN("Gamepad database missing — only SDL's built-in "
+        FTK_CORE_WARN("Gamepad database missing — only SDL's built-in "
                         "mappings are available");
     }
     load_mapping_file("engine_assets/input/gamecontrollerdb_extra.txt");
@@ -134,7 +134,7 @@ void Input::resolve_pad() {
     if (current != nullptr && SDL_GamepadConnected(current)) return;
 
     if (current != nullptr) {
-        FJELL_CORE_INFO("Gamepad disconnected: {}",
+        FTK_CORE_INFO("Gamepad disconnected: {}",
                         pad_name_.empty() ? "?" : pad_name_);
         SDL_CloseGamepad(current);
         pad_id_ = 0;
@@ -161,7 +161,7 @@ void Input::resolve_pad() {
             if (std::ranges::find(reported_unmapped_, id) != reported_unmapped_.end()) continue;
             reported_unmapped_.push_back(id);
             const char* name = SDL_GetJoystickNameForID(id);
-            FJELL_CORE_WARN("Joystick '{}' has no gamepad mapping (GUID {}) — add "
+            FTK_CORE_WARN("Joystick '{}' has no gamepad mapping (GUID {}) — add "
                             "one to engine_assets/input/gamecontrollerdb_extra.txt",
                             name != nullptr ? name : "?", guid_text(id));
             continue;
@@ -170,13 +170,13 @@ void Input::resolve_pad() {
 
         SDL_Gamepad* pad = SDL_OpenGamepad(id);
         if (pad == nullptr) {
-            FJELL_CORE_WARN("Could not open gamepad {}: {}", id, SDL_GetError());
+            FTK_CORE_WARN("Could not open gamepad {}: {}", id, SDL_GetError());
             continue;
         }
         pad_id_ = id;
         const char* name = SDL_GetGamepadName(pad);
         pad_name_ = name != nullptr ? name : "?";
-        FJELL_CORE_INFO("Gamepad connected: {}", pad_name_);
+        FTK_CORE_INFO("Gamepad connected: {}", pad_name_);
     }
     SDL_free(joysticks);
 }
@@ -242,7 +242,7 @@ void Input::detect_active_device() {
 }
 
 void Input::update() {
-    FJELL_PROFILE_SCOPE_N("input_update");
+    FTK_PROFILE_SCOPE_N("input_update");
     for (auto& key : keys_) {
         if (key == KeyState::Pressed) {
             key = KeyState::Held;

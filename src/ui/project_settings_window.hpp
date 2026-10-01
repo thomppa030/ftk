@@ -26,7 +26,7 @@ public:
     void toggle() { visible_ = !visible_; }
 
     /// Save pressed: the project is saved the way Save project saves it.
-    Delegate<void()> on_save;
+    ftk::Delegate<void()> on_save;
 
 private:
     enum class Page { Rendering, GameUi, Environment, Simulation };

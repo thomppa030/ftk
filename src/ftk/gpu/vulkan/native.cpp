@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 VkBuffer native_buffer(Device& device, Buffer buffer) {
     const auto* record = device.impl().buffers.get(buffer);
@@ -67,7 +67,7 @@ VkCommandBuffer native_command_buffer(CommandList& list) {
 }
 
 void collect_zones([[maybe_unused]] Device& device, [[maybe_unused]] VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     if (device.impl().profiler != nullptr) TracyVkCollect(device.impl().profiler, cb);
 #endif
 }
@@ -80,4 +80,4 @@ const FrameDescriptorCache& frame_cache(const Device& device) {
     return device.impl().frame_sets;
 }
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

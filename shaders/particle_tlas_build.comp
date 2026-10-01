@@ -2,7 +2,7 @@
 
 #include "include/particle_common.glsl"
 // The instance records' layout is the GPU backend's.
-#include "fjell_instance_record.glsl"
+#include "ftk_instance_record.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 

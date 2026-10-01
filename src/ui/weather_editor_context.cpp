@@ -53,7 +53,7 @@ std::vector<TrackLanes::Preset> weather_presets() {
     };
 }
 
-inline constexpr ui::Choice<PrecipitationType> PRECIPITATION_TYPES[] = {
+inline constexpr ftk::ui::Choice<PrecipitationType> PRECIPITATION_TYPES[] = {
     {PrecipitationType::None, "None"},
     {PrecipitationType::Rain, "Rain"},
     {PrecipitationType::Snow, "Snow"},
@@ -72,7 +72,7 @@ WeatherEditorContext::WeatherEditorContext(TrackAssetEditorDeps deps)
 bool WeatherEditorContext::load() {
     auto loaded = load_weather_asset_file(abs_path());
     if (!loaded) {
-        FJELL_CORE_ERROR("Weather editor: {}", loaded.error());
+        FTK_CORE_ERROR("Weather editor: {}", loaded.error());
         return false;
     }
     event_ = std::move(*loaded);
@@ -85,20 +85,20 @@ std::string WeatherEditorContext::document() const {
     return loaded() ? weather_asset_text(event_) : std::string{};
 }
 
-Result<> WeatherEditorContext::write() {
-    if (!loaded()) return make_error("no weather event is open");
+ftk::Result<> WeatherEditorContext::write() {
+    if (!loaded()) return ftk::make_error("no weather event is open");
     if (auto written = save_weather_asset_file(abs_path(), event_); !written) return written;
     if (deps_.resource_manager != nullptr) {
         if (auto reloaded = deps_.resource_manager->reload_weather_asset(path()); !reloaded) {
-            FJELL_CORE_ERROR("Weather editor: {}", reloaded.error());
+            FTK_CORE_ERROR("Weather editor: {}", reloaded.error());
         }
     }
     return {};
 }
 
-Result<> WeatherEditorContext::restore(const std::string& text) {
+ftk::Result<> WeatherEditorContext::restore(const std::string& text) {
     auto event = weather_asset_from_text(text, abs_path());
-    if (!event) return make_error(event.error());
+    if (!event) return ftk::make_error(event.error());
     event_ = std::move(*event);
     push_live();
     return {};
@@ -108,7 +108,7 @@ WeatherAssetHandle WeatherEditorContext::live_handle() {
     if (deps_.resource_manager == nullptr) return {};
     auto handle = deps_.resource_manager->load_weather_asset(path());
     if (!handle) {
-        FJELL_CORE_ERROR("Weather editor: {}", handle.error());
+        FTK_CORE_ERROR("Weather editor: {}", handle.error());
         return {};
     }
     return *handle;
@@ -153,24 +153,24 @@ void WeatherEditorContext::draw_header_actions() {
     if (!loaded() || deps_.environment == nullptr) return;
     ImGui::SameLine();
     if (is_playing_here()) {
-        if (ui::action(ui::icon::stop, "Stop", ui::ButtonKind::Ghost)) deps_.environment->play_weather({});
+        if (ftk::ui::action(ftk::ui::icon::stop, "Stop", ftk::ui::ButtonKind::Ghost)) deps_.environment->play_weather({});
         ImGui::SetItemTooltip("End the event over the scene");
         return;
     }
     // The button plays from the start; the arrow beside it plays from a
     // phase. Picking one starts the event, rather than arming a choice for
     // a second press.
-    if (ui::action(ui::icon::play, "Play in scene", ui::ButtonKind::Ghost)) play_from(WeatherPhase::Approach);
+    if (ftk::ui::action(ftk::ui::icon::play, "Play in scene", ftk::ui::ButtonKind::Ghost)) play_from(WeatherPhase::Approach);
     ImGui::SetItemTooltip("Start this event over the open scene; the preview and the timeline follow it");
     ImGui::SameLine(0.0f, 2.0f);
-    if (ui::icon_button("##play_from", ui::icon::dropdown, "Play from a later phase")) {
+    if (ftk::ui::icon_button("##play_from", ftk::ui::icon::dropdown, "Play from a later phase")) {
         ImGui::OpenPopup("##play_from_menu");
     }
     if (ImGui::BeginPopup("##play_from_menu")) {
         for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
             const auto phase = static_cast<WeatherPhase>(i);
             const std::string label = std::string("Play from ") + weather_phase_name(phase);
-            if (ui::menu_item({.icon = ui::icon::play, .label = label.c_str()})) play_from(phase);
+            if (ftk::ui::menu_item({.icon = ftk::ui::icon::play, .label = label.c_str()})) play_from(phase);
         }
         ImGui::EndPopup();
     }
@@ -178,29 +178,29 @@ void WeatherEditorContext::draw_header_actions() {
 
 void WeatherEditorContext::draw_properties() {
     auto& e = event_;
-    ui::Edit edit;
+    ftk::ui::Edit edit;
     InspectorContext ictx{};
     ictx.project_mgr = deps_.project_mgr;
 
-    if (auto t = ui::PropertyTable("##event")) {
-        ui::row("Name", "What the event is called where it is listed, apart from its file name.", [&] {
-            edit |= ui::text_field("##name", e.name);
+    if (auto t = ftk::ui::PropertyTable("##event")) {
+        ftk::ui::row("Name", "What the event is called where it is listed, apart from its file name.", [&] {
+            edit |= ftk::ui::text_field("##name", e.name);
         });
     }
 
-    if (ui::section_foldable("Phases", ui::icon::weather)) {
-        if (auto t = ui::PropertyTable("##phases")) {
+    if (ftk::ui::section_foldable("Phases", ftk::ui::icon::weather)) {
+        if (auto t = ftk::ui::PropertyTable("##phases")) {
             for (uint32_t i = 0; i < WEATHER_PHASE_COUNT; ++i) {
                 PhaseDuration& d = e.phases[i];
                 ImGui::PushID(static_cast<int>(i));
-                ui::row(weather_phase_name(static_cast<WeatherPhase>(i)),
+                ftk::ui::row(weather_phase_name(static_cast<WeatherPhase>(i)),
                         "Shortest and longest it lasts; each time the event plays it picks a length between them.",
                         [&] {
                     ImGui::BeginDisabled(d.indefinite);
                     glm::vec2 range{d.min_seconds, d.max_seconds};
-                    const auto moved = ui::vec2("##length", range,
+                    const auto moved = ftk::ui::vec2("##length", range,
                                                 {.speed = 1.0f, .min = 0.0f, .max = 36000.0f,
-                                                 .unit = ui::Unit::Seconds, .format = "%.0f"});
+                                                 .unit = ftk::ui::Unit::Seconds, .format = "%.0f"});
                     if (moved.changed) {
                         d.min_seconds = std::min(range.x, range.y);
                         d.max_seconds = std::max(range.x, range.y);
@@ -209,8 +209,8 @@ void WeatherEditorContext::draw_properties() {
                     ImGui::EndDisabled();
                 });
                 if (i == static_cast<uint32_t>(WeatherPhase::Sustain)) {
-                    ui::row("Hold sustain", "Sustain lasts until another event is played.", [&] {
-                        edit |= ui::checkbox("##indefinite", d.indefinite);
+                    ftk::ui::row("Hold sustain", "Sustain lasts until another event is played.", [&] {
+                        edit |= ftk::ui::checkbox("##indefinite", d.indefinite);
                     });
                 }
                 ImGui::PopID();
@@ -218,37 +218,37 @@ void WeatherEditorContext::draw_properties() {
         }
     }
 
-    if (ui::section_foldable("Precipitation", ui::icon::weather)) {
-        if (auto t = ui::PropertyTable("##precipitation")) {
-            ui::row("Type", [&] { edit |= ui::choice("##type", e.precipitation_type, PRECIPITATION_TYPES); });
-            ui::row("Wetness", "How wet surfaces get by the sustain.", [&] {
-                edit |= ui::slider("##wetness", e.wetness_target, 0.0f, 1.0f);
+    if (ftk::ui::section_foldable("Precipitation", ftk::ui::icon::weather)) {
+        if (auto t = ftk::ui::PropertyTable("##precipitation")) {
+            ftk::ui::row("Type", [&] { edit |= ftk::ui::choice("##type", e.precipitation_type, PRECIPITATION_TYPES); });
+            ftk::ui::row("Wetness", "How wet surfaces get by the sustain.", [&] {
+                edit |= ftk::ui::slider("##wetness", e.wetness_target, 0.0f, 1.0f);
             });
-            ui::row("Snow cover", "How much snow settles by the sustain.", [&] {
-                edit |= ui::slider("##snow", e.snow_target, 0.0f, 1.0f);
+            ftk::ui::row("Snow cover", "How much snow settles by the sustain.", [&] {
+                edit |= ftk::ui::slider("##snow", e.snow_target, 0.0f, 1.0f);
             });
         }
     }
 
-    if (ui::section_foldable("Wind", ui::icon::weather)) {
-        if (auto t = ui::PropertyTable("##wind")) {
-            ui::row("Heading", "Where the wind blows toward, about the up axis; 0 is +Z. The front comes from upwind.",
+    if (ftk::ui::section_foldable("Wind", ftk::ui::icon::weather)) {
+        if (auto t = ftk::ui::PropertyTable("##wind")) {
+            ftk::ui::row("Heading", "Where the wind blows toward, about the up axis; 0 is +Z. The front comes from upwind.",
                     [&] {
-                edit |= ui::slider("##heading", e.wind_heading, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+                edit |= ftk::ui::slider("##heading", e.wind_heading, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
             });
         }
     }
 
-    if (ui::section_foldable("Sky", ui::icon::world_environment)) {
-        if (auto t = ui::PropertyTable("##sky")) {
+    if (ftk::ui::section_foldable("Sky", ftk::ui::icon::world_environment)) {
+        if (auto t = ftk::ui::PropertyTable("##sky")) {
             static const std::string sky_exts[] = {".fjsl"};
-            ui::row("Sky shader", "A sky of the event's own, blended in by the sky_blend track. Optional.", [&] {
+            ftk::ui::row("Sky shader", "A sky of the event's own, blended in by the sky_blend track. Optional.", [&] {
                 edit.committed |= asset_slot({.label = "Sky shader", .id = "##sky", .extensions = sky_exts,
                                               .ctx = &ictx, .shader_types = only_shader_type(ShaderType::Sky)},
                                              e.sky_shader);
             });
             static const std::string day_exts[] = {".fjday"};
-            ui::row("Day profile", "A day profile the event brings while it plays. Optional.", [&] {
+            ftk::ui::row("Day profile", "A day profile the event brings while it plays. Optional.", [&] {
                 edit.committed |= asset_slot({.label = "Day profile", .id = "##day", .extensions = day_exts,
                                               .ctx = &ictx},
                                              e.day_profile);
@@ -256,30 +256,30 @@ void WeatherEditorContext::draw_properties() {
         }
     }
 
-    if (ui::section_foldable("Lightning", ui::icon::weather)) {
+    if (ftk::ui::section_foldable("Lightning", ftk::ui::icon::weather)) {
         auto& l = e.lightning;
-        if (auto t = ui::PropertyTable("##lightning")) {
-            ui::row("Rate", "How many strikes a minute, keyed over the event's phases.",
-                    [&] { ui::readout("From the lightning_rate track"); });
-            ui::row("Color", [&] { edit |= ui::color("##color", l.color, ui::ColorSpace::Linear); });
-            ui::row("Intensity", [&] {
-                edit |= ui::drag("##intensity", l.intensity,
+        if (auto t = ftk::ui::PropertyTable("##lightning")) {
+            ftk::ui::row("Rate", "How many strikes a minute, keyed over the event's phases.",
+                    [&] { ftk::ui::readout("From the lightning_rate track"); });
+            ftk::ui::row("Color", [&] { edit |= ftk::ui::color("##color", l.color, ftk::ui::ColorSpace::Linear); });
+            ftk::ui::row("Intensity", [&] {
+                edit |= ftk::ui::drag("##intensity", l.intensity,
                                  {.speed = 25.0f, .min = 0.0f, .max = 100000.0f, .format = "%.0f"});
             });
-            ui::row("Radius", "How far the flash lights the scene around the strike.", [&] {
-                edit |= ui::drag("##radius", l.radius,
-                                 {.speed = 5.0f, .min = 1.0f, .max = 5000.0f, .unit = ui::Unit::Metres,
+            ftk::ui::row("Radius", "How far the flash lights the scene around the strike.", [&] {
+                edit |= ftk::ui::drag("##radius", l.radius,
+                                 {.speed = 5.0f, .min = 1.0f, .max = 5000.0f, .unit = ftk::ui::Unit::Metres,
                                   .format = "%.0f"});
             });
-            ui::row("Flash length", [&] {
-                edit |= ui::drag("##duration", l.duration,
-                                 {.speed = 0.01f, .min = 0.02f, .max = 5.0f, .unit = ui::Unit::Seconds});
+            ftk::ui::row("Flash length", [&] {
+                edit |= ftk::ui::drag("##duration", l.duration,
+                                 {.speed = 0.01f, .min = 0.02f, .max = 5.0f, .unit = ftk::ui::Unit::Seconds});
             });
-            ui::row("Distance", "How near and how far strikes land from the listener.", [&] {
+            ftk::ui::row("Distance", "How near and how far strikes land from the listener.", [&] {
                 glm::vec2 range{l.min_distance, l.max_distance};
-                const auto moved = ui::vec2("##distance", range,
+                const auto moved = ftk::ui::vec2("##distance", range,
                                             {.speed = 5.0f, .min = 1.0f, .max = 20000.0f,
-                                             .unit = ui::Unit::Metres, .format = "%.0f"});
+                                             .unit = ftk::ui::Unit::Metres, .format = "%.0f"});
                 if (moved.changed) {
                     l.min_distance = std::min(range.x, range.y);
                     l.max_distance = std::max(range.x, range.y);
@@ -287,7 +287,7 @@ void WeatherEditorContext::draw_properties() {
                 edit |= moved;
             });
             static const std::string bolt_exts[] = {".fjvfx"};
-            ui::row("Bolt", [&] {
+            ftk::ui::row("Bolt", [&] {
                 edit.committed |= asset_slot({.label = "Bolt", .id = "##bolt", .extensions = bolt_exts, .ctx = &ictx},
                                              l.vfx);
             });
@@ -295,35 +295,35 @@ void WeatherEditorContext::draw_properties() {
 
         // The flash's shape over its own length: a strike is a stutter, and
         // that is what this curve is for.
-        if (auto t = ui::PropertyTable("##flash_shape")) {
-            ui::row("Flash shape", [&] {
+        if (auto t = ftk::ui::PropertyTable("##flash_shape")) {
+            ftk::ui::row("Flash shape", [&] {
                 if (l.flash.keyframes.empty()) {
-                    if (ui::action(ui::icon::add, "Add curve")) {
-                        l.flash = Curve::linear(1.0f, 0.0f);
+                    if (ftk::ui::action(ftk::ui::icon::add, "Add curve")) {
+                        l.flash = ftk::Curve::linear(1.0f, 0.0f);
                         edit.committed = true;
                     }
-                } else if (ui::action(ui::icon::clear, "Clear curve", ui::ButtonKind::Ghost)) {
+                } else if (ftk::ui::action(ftk::ui::icon::clear, "Clear curve", ftk::ui::ButtonKind::Ghost)) {
                     l.flash.keyframes.clear();
                     edit.committed = true;
                 }
             });
-            if (l.flash.keyframes.empty()) ui::hint("A single pulse until a curve shapes the stutter");
+            if (l.flash.keyframes.empty()) ftk::ui::hint("A single pulse until a curve shapes the stutter");
         }
         if (!l.flash.keyframes.empty()) {
-            edit |= ui::curve_editor("##flash", l.flash,
-                                     {.size = {-1.0f, 110.0f}, .category = theme::Category::Environment});
+            edit |= ftk::ui::curve_editor("##flash", l.flash,
+                                     {.size = {-1.0f, 110.0f}, .category = ftk::theme::Category::Environment});
         }
         if (deps_.environment != nullptr && is_playing_here()) {
-            if (ui::action(ui::icon::play, "Strike now")) deps_.environment->strike_lightning();
+            if (ftk::ui::action(ftk::ui::icon::play, "Strike now")) deps_.environment->strike_lightning();
             ImGui::SetItemTooltip("Fire one strike of this event's lightning in the scene");
         }
     }
 
-    if (ui::section_foldable("Effects", ui::icon::vfx)) {
-        if (auto t = ui::PropertyTable("##effects")) {
+    if (ftk::ui::section_foldable("Effects", ftk::ui::icon::vfx)) {
+        if (auto t = ftk::ui::PropertyTable("##effects")) {
             static const std::string vfx_exts[] = {".fjvfx"};
             const auto slot = [&](const char* label, const char* id, std::string& path) {
-                ui::row(label, [&] {
+                ftk::ui::row(label, [&] {
                     edit.committed |= asset_slot({.label = label, .id = id, .extensions = vfx_exts, .ctx = &ictx},
                                                  path);
                 });
@@ -334,11 +334,11 @@ void WeatherEditorContext::draw_properties() {
         }
     }
 
-    if (ui::section_foldable("Sounds", ui::icon::audio)) {
-        if (auto t = ui::PropertyTable("##sounds")) {
+    if (ftk::ui::section_foldable("Sounds", ftk::ui::icon::audio)) {
+        if (auto t = ftk::ui::PropertyTable("##sounds")) {
             static const std::string audio_exts[] = {".fjaudio", ".wav", ".ogg", ".mp3"};
             const auto slot = [&](const char* label, const char* id, std::string& path) {
-                ui::row(label, [&] {
+                ftk::ui::row(label, [&] {
                     edit.committed |= asset_slot({.label = label, .id = id, .extensions = audio_exts, .ctx = &ictx},
                                                  path);
                 });

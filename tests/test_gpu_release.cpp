@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-using namespace fjell;
-using namespace fjell::gpu;
+using namespace ftk;
+using namespace ftk::gpu;
 
 namespace {
 

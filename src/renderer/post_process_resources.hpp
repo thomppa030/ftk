@@ -58,7 +58,7 @@ public:
     };
 
     /// `gpu` is the GPU interface's device, which makes the images.
-    PostProcessResources(gpu::Device& gpu, uint32_t width, uint32_t height,
+    PostProcessResources(ftk::gpu::Device& gpu, uint32_t width, uint32_t height,
                          const PostProcessConfig& config, const PassRefs& passes);
     ~PostProcessResources();
 
@@ -84,7 +84,7 @@ public:
     [[nodiscard]] ViewHistory& view_history() { return view_history_; }
 
 private:
-    gpu::Device* gpu_{nullptr};
+    ftk::gpu::Device* gpu_{nullptr};
     PostProcessConfig config_;
     PassRefs passes_;
 

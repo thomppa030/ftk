@@ -5,17 +5,17 @@
 #include <cstdlib>
 #include <string_view>
 
-namespace fjell::log {
+namespace ftk::log {
 
 static std::shared_ptr<spdlog::logger> s_core;
 static std::shared_ptr<spdlog::logger> s_renderer;
 static std::shared_ptr<spdlog::logger> s_app;
 
 // Debug and trace lines are diagnostics for chasing a specific problem, so
-// they stay off until asked for. FJELL_LOG_LEVEL raises (or lowers) the
+// they stay off until asked for. FTK_LOG_LEVEL raises (or lowers) the
 // floor for one run without a rebuild.
 static spdlog::level::level_enum initial_level() {
-    if (const char* env = std::getenv("FJELL_LOG_LEVEL")) {
+    if (const char* env = std::getenv("FTK_LOG_LEVEL")) {
         std::string_view v = env;
         if (v == "trace") return spdlog::level::trace;
         if (v == "debug") return spdlog::level::debug;
@@ -69,4 +69,4 @@ std::shared_ptr<spdlog::logger>& core() { return s_core; }
 std::shared_ptr<spdlog::logger>& renderer() { return s_renderer; }
 std::shared_ptr<spdlog::logger>& app() { return s_app; }
 
-} // namespace fjell::log
+} // namespace ftk::log

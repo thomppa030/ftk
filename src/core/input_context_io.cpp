@@ -21,7 +21,7 @@ static ModifierType parse_modifier_type(const std::string& s) {
 InputMappingContext parse_input_context(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        FJELL_CORE_WARN("parse_input_context: failed to open {}", path);
+        FTK_CORE_WARN("parse_input_context: failed to open {}", path);
         return {};
     }
     std::stringstream text;
@@ -33,7 +33,7 @@ InputMappingContext input_context_from_text(std::string_view text, const std::st
     InputMappingContext ctx;
     auto j = nlohmann::json::parse(text, nullptr, false);
     if (!j.is_object()) {
-        FJELL_CORE_WARN("parse_input_context: invalid JSON in {}", where);
+        FTK_CORE_WARN("parse_input_context: invalid JSON in {}", where);
         return ctx;
     }
 

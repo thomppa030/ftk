@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstdio>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -267,4 +267,4 @@ ImVec2 curve_editor_point(const char* id, glm::vec2 at) {
     return view.to_screen(at);
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

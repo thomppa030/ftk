@@ -11,25 +11,25 @@ namespace {
 
 // Vertices and indices are drawn from, read by the meshlet and ray-tracing
 // shaders as storage, and built into acceleration structures by address.
-constexpr gpu::BufferUses MEGA_USE = gpu::BufferUse::storage | gpu::BufferUse::acceleration_input |
-                                     gpu::BufferUse::device_address;
+constexpr ftk::gpu::BufferUses MEGA_USE = ftk::gpu::BufferUse::storage | ftk::gpu::BufferUse::acceleration_input |
+                                     ftk::gpu::BufferUse::device_address;
 
-gpu::Owned<gpu::Buffer> make_growable(gpu::Device& gpu, uint64_t size, uint64_t reserve,
-                                      gpu::BufferUses use, std::string_view name) {
-    auto made = gpu.create(gpu::BufferDesc{.size = size, .reserve = reserve, .use = use, .name = name});
+ftk::gpu::Owned<ftk::gpu::Buffer> make_growable(ftk::gpu::Device& gpu, uint64_t size, uint64_t reserve,
+                                      ftk::gpu::BufferUses use, std::string_view name) {
+    auto made = gpu.create(ftk::gpu::BufferDesc{.size = size, .reserve = reserve, .use = use, .name = name});
     if (!made) throw std::runtime_error(made.error());
     return std::move(*made);
 }
 
 } // namespace
 
-MegaBuffer::MegaBuffer(gpu::Device& gpu)
+MegaBuffer::MegaBuffer(ftk::gpu::Device& gpu)
     : gpu_{gpu}
     , vertices_{make_growable(gpu, INITIAL_VERTEX_SIZE, MAX_VERTEX_SIZE,
-                              MEGA_USE | gpu::BufferUse::vertex, "mega_vertex")}
+                              MEGA_USE | ftk::gpu::BufferUse::vertex, "mega_vertex")}
     , indices_{make_growable(gpu, INITIAL_INDEX_SIZE, MAX_INDEX_SIZE,
-                             MEGA_USE | gpu::BufferUse::index, "mega_index")} {
-    FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
+                             MEGA_USE | ftk::gpu::BufferUse::index, "mega_index")} {
+    FTK_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
                    gpu_.size(vertices_) / (1024 * 1024), gpu_.size(indices_) / (1024 * 1024));
 }
 
@@ -41,7 +41,7 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
     auto grown = gpu_.grow(vertices_, vertex_byte_offset + vertices.size() * sizeof(Vertex));
     if (grown) grown = gpu_.grow(indices_, index_byte_offset + indices.size() * sizeof(uint32_t));
     if (!grown) {
-        FJELL_GFX_ERROR("Mesh not added to the mega buffer: {}", grown.error());
+        FTK_GFX_ERROR("Mesh not added to the mega buffer: {}", grown.error());
         return {};
     }
 
@@ -67,9 +67,9 @@ void MegaBuffer::update_vertices(const MegaMeshEntry& entry,
     gpu_.upload().to_buffer(vertices_, byte_offset, vertices);
 }
 
-void MegaBuffer::bind(gpu::RenderEncoder& pass) const {
-    pass.set_vertex_buffer(gpu::BufferRange(vertices_));
-    pass.set_index_buffer(gpu::BufferRange(indices_), gpu::IndexType::u32);
+void MegaBuffer::bind(ftk::gpu::RenderEncoder& pass) const {
+    pass.set_vertex_buffer(ftk::gpu::BufferRange(vertices_));
+    pass.set_index_buffer(ftk::gpu::BufferRange(indices_), ftk::gpu::IndexType::u32);
 }
 
 uint32_t MegaBuffer::generation() const {

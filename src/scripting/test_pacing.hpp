@@ -34,7 +34,7 @@ struct Pacing {
 
 /// Reads `--pacing`'s list: frame rates and `jitter`, separated by commas.
 /// At least two, because each run is compared with the first.
-[[nodiscard]] Result<std::vector<Pacing>> parse_pacings(std::string_view list);
+[[nodiscard]] ftk::Result<std::vector<Pacing>> parse_pacings(std::string_view list);
 
 /// The frames a paced run plays, as the clock is told they took. Uneven
 /// frames come from a fixed seed, so every run of `jitter` plays the same ones.

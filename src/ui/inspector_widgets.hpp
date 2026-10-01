@@ -12,9 +12,9 @@ namespace fjell {
 /// swatch and the numbers are sRGB, the same as the scene file, so what is
 /// picked is what the light or sky looks like. Returns true on edit.
 inline bool color_edit_linear(const char* id, glm::vec3& linear) {
-    glm::vec3 srgb = color_space::linear_to_srgb(linear);
+    glm::vec3 srgb = ftk::color_space::linear_to_srgb(linear);
     if (!ImGui::ColorEdit3(id, &srgb.x)) return false;
-    linear = color_space::srgb_to_linear(srgb);
+    linear = ftk::color_space::srgb_to_linear(srgb);
     return true;
 }
 
@@ -22,7 +22,7 @@ inline bool color_edit_linear(const char* id, glm::vec3& linear) {
 /// kit; new code uses ui::toggle_button (icon) or ui::toggle (text).
 inline bool toggle_button(const char* id, const char* label, bool on, const char* tooltip) {
     ImGui::PushID(id);
-    const bool clicked = ui::toggle(label, on, tooltip);
+    const bool clicked = ftk::ui::toggle(label, on, tooltip);
     ImGui::PopID();
     return clicked;
 }

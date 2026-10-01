@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -75,4 +75,4 @@ std::string with_unit(const char* number, const char* unit_symbol) {
 
 } // namespace detail
 
-} // namespace fjell::ui
+} // namespace ftk::ui

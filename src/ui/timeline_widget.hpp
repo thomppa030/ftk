@@ -50,7 +50,7 @@ public:
 
     // Lanes, drawn in the colour of what they are.
     void set_lanes(const std::vector<TimelineLane>& lanes) { lanes_ = lanes; }
-    void set_category(theme::Category category) { category_ = category; }
+    void set_category(ftk::theme::Category category) { category_ = category; }
     [[nodiscard]] const std::vector<TimelineLane>& lanes() const { return lanes_; }
 
     // Window title (for docking)
@@ -63,15 +63,15 @@ public:
     [[nodiscard]] ImVec2 screen_position(float time, int lane = -1) const;
 
     // Callbacks
-    Delegate<void(float)> on_scrub;
-    Delegate<void()> on_play;
-    Delegate<void()> on_pause;
-    Delegate<void()> on_stop;
-    Delegate<void(int)> on_marker_selected;
-    Delegate<void(float)> on_right_click;          // right-click on the ruler, at that time
-    Delegate<void(int, float)> on_marker_moved;    // marker index + new time
-    Delegate<void(int)> on_lane_selected;          // lane index clicked
-    Delegate<void(int, float)> on_lane_dragged;    // lane index + new start
+    ftk::Delegate<void(float)> on_scrub;
+    ftk::Delegate<void()> on_play;
+    ftk::Delegate<void()> on_pause;
+    ftk::Delegate<void()> on_stop;
+    ftk::Delegate<void(int)> on_marker_selected;
+    ftk::Delegate<void(float)> on_right_click;          // right-click on the ruler, at that time
+    ftk::Delegate<void(int, float)> on_marker_moved;    // marker index + new time
+    ftk::Delegate<void(int)> on_lane_selected;          // lane index clicked
+    ftk::Delegate<void(int, float)> on_lane_dragged;    // lane index + new start
 
 private:
     enum class Drag { None, Scrub, Marker, Lane };
@@ -89,9 +89,9 @@ private:
     std::vector<TimelineMarker> markers_;
     int selected_marker_{-1};
     std::vector<TimelineLane> lanes_;
-    theme::Category category_{theme::Category::Animation};
+    ftk::theme::Category category_{ftk::theme::Category::Animation};
 
-    ui::CanvasView view_{{.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
+    ftk::ui::CanvasView view_{{.zoom = ftk::ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
                           .min_span = 0.05f}};
     bool framed_{false};
     float body_top_{0.0f};

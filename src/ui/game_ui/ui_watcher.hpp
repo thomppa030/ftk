@@ -40,7 +40,7 @@ public:
 
 private:
     ChangeCallback callback_;
-    platform::FileWatcher watcher_;
+    ftk::platform::FileWatcher watcher_;
     bool changed_{false};
     std::unordered_set<std::string> expected_;
     std::unordered_set<std::string> expected_hit_;

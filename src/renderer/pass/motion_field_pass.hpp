@@ -34,7 +34,7 @@ public:
     static constexpr float EXTENT_METRES = 64.0f;
     /// rg = velocity on the ground plane (m/s), b = height reached above the
     /// map's floor, a = recency, 1 at the moment of passing.
-    static constexpr gpu::Format FIELD_FORMAT = gpu::Format::rgba16_float;
+    static constexpr ftk::gpu::Format FIELD_FORMAT = ftk::gpu::Format::rgba16_float;
     /// How long the map itself remembers, in seconds. Long enough for the
     /// slowest consumer; a faster one fades its own reading sooner.
     static constexpr float MEMORY_SECONDS = 4.0f;
@@ -57,13 +57,13 @@ public:
     /// breaks into eddies rather than softening into a band.
     static constexpr float SWIRL_METRES_PER_SECOND = 0.6f;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the map holds anything worth reading: something has moved
@@ -73,7 +73,7 @@ public:
     [[nodiscard]] const glm::mat4& world_to_uv() const { return world_to_uv_; }
 
     /// The map the last run wrote, for the viewport's debug source.
-    [[nodiscard]] gpu::Texture map() const { return maps_[cur_]; }
+    [[nodiscard]] ftk::gpu::Texture map() const { return maps_[cur_]; }
 
 private:
     /// One moving thing, as the splat shader reads it.
@@ -105,14 +105,14 @@ private:
     /// rather than an absolute the consumer has to guess at.
     float floor_y_{0.0f};
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
 
     // Two maps, ping-ponged. The pass reads the previous frame's map at an
     // offset and writes this frame's, which a single image could not do: one
     // invocation's read and another's write would race over the same texel.
-    std::array<gpu::Owned<gpu::Texture>, 2> maps_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> maps_;
     uint32_t cur_{0};
-    gpu::Sampler sampler_;
+    ftk::gpu::Sampler sampler_;
 
     [[nodiscard]] uint32_t prev_index() const { return 1 - cur_; }
 
@@ -128,7 +128,7 @@ private:
     /// Seconds the map has been running, for the curl field to creep by.
     float elapsed_{0.0f};
 
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
 };
 
 } // namespace fjell

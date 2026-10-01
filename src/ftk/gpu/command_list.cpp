@@ -3,7 +3,7 @@
 #include <format>
 #include <string>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 Result<uint32_t> push_size(const ShaderLayout& layout, size_t given) {
     if (layout.push_size == 0) return make_error("the shaders take no push data");
@@ -30,4 +30,4 @@ Result<> barrier_accesses(AccessSet before, AccessSet after, bool (*applies)(Acc
     return {};
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

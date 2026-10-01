@@ -86,7 +86,7 @@ void UiAnimation::forget_tree() {
 }
 
 bool UiAnimation::update(UiNode& root, float dt) {
-    FJELL_PROFILE_SCOPE_N("ui_animation_update");
+    FTK_PROFILE_SCOPE_N("ui_animation_update");
     bool any_active = false;
     update_node(root, dt, any_active);
     return any_active;

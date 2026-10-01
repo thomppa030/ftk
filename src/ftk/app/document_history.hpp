@@ -6,7 +6,7 @@
 #include <functional>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 /// Undo for an editor whose edits change its data directly rather than
 /// through commands. It keeps the document (the asset written as text) as
@@ -45,4 +45,4 @@ private:
     bool was_editing_{false};
 };
 
-} // namespace fjell
+} // namespace ftk

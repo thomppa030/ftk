@@ -48,7 +48,7 @@ TEST_CASE("RT instance: every mask fits the instance's eight bits and is hit by 
 TEST_CASE("RT instance: a TLAS is reused only for the very same instances", "[rt_instance]") {
     fjell::RtInstance built{};
     built.transform[3] = glm::vec4(4.0f, 0.0f, -2.0f, 1.0f);
-    built.blas = fjell::gpu::AccelerationStructure::make(1, 1);
+    built.blas = ftk::gpu::AccelerationStructure::make(1, 1);
     built.first_index = 30;
     built.vertex_offset = 12;
     built.material_id = 7;
@@ -61,10 +61,10 @@ TEST_CASE("RT instance: a TLAS is reused only for the very same instances", "[rt
     now.transform[3].x += 0.001f;
     CHECK_FALSE(now == built);
     now = built;
-    now.blas = fjell::gpu::AccelerationStructure::make(2, 1);
+    now.blas = ftk::gpu::AccelerationStructure::make(2, 1);
     CHECK_FALSE(now == built);
     // The same slot made anew: another structure.
-    now.blas = fjell::gpu::AccelerationStructure::make(1, 2);
+    now.blas = ftk::gpu::AccelerationStructure::make(1, 2);
     CHECK_FALSE(now == built);
     now = built;
     now.first_index = 31;

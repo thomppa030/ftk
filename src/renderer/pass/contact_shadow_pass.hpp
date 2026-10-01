@@ -24,19 +24,19 @@ class ContactShadowPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     [[nodiscard]] bool enabled() const { return enabled_; }
     /// The mask the surfaces sample, and the sampler they read it through.
-    [[nodiscard]] gpu::Texture shadow() const { return shadow_; }
-    [[nodiscard]] gpu::Sampler shadow_sampler() const { return sampler_; }
+    [[nodiscard]] ftk::gpu::Texture shadow() const { return shadow_; }
+    [[nodiscard]] ftk::gpu::Sampler shadow_sampler() const { return sampler_; }
 
     /// Grow the shadow image so it covers a viewport of this size. The image
     /// is shared by every viewport and is only ever enlarged, so the largest
@@ -48,17 +48,17 @@ public:
 
 private:
     /// A mask of `w` × `h` holding no occlusion until the first trace.
-    Result<> make_shadow(uint32_t w, uint32_t h);
+    ftk::Result<> make_shadow(uint32_t w, uint32_t h);
 
     bool enabled_{true};
     float max_distance_{0.3f};
     float thickness_{0.05f};
     int step_count_{12};
 
-    gpu::Device* device_{nullptr};
-    gpu::Owned<gpu::Texture> shadow_;
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
-    gpu::Sampler sampler_;
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Owned<ftk::gpu::Texture> shadow_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Sampler sampler_;
     glm::uvec2 extent_{0, 0};
     uint32_t frame_counter_{0};
 };

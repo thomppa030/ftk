@@ -12,7 +12,7 @@ namespace fjell {
 /// Fjell/). Empty when neither matches, which every caller treats as a
 /// broken install rather than something to work around.
 [[nodiscard]] inline std::filesystem::path find_engine_dir() {
-    auto dir = platform::executable_path().parent_path();
+    auto dir = ftk::platform::executable_path().parent_path();
     for (int i = 0; i < 3; ++i) {
         if (std::filesystem::is_directory(dir / "shaders")) return dir;
         dir = dir.parent_path();

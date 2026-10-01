@@ -32,7 +32,7 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
     // Markup and scripts hand over UTF-8, so a character may span several
     // bytes; the atlas is keyed by codepoint.
     for (size_t i = 0; i < text.size();) {
-        const uint32_t cp = utf8::next(text, i);
+        const uint32_t cp = ftk::utf8::next(text, i);
 
         // Carriage return: skip (handle \r\n as just \n)
         if (cp == '\r') continue;

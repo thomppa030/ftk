@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 struct CurveKeyframe {
     float time{0.0f};         // [0, 1] normalized
@@ -35,4 +35,4 @@ struct Curve {
     void from_json(const nlohmann::json& j);
 };
 
-} // namespace fjell
+} // namespace ftk

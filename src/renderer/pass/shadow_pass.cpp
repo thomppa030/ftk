@@ -154,24 +154,24 @@ void ShadowPass::update_cascades(const glm::mat4& view, const glm::mat4& project
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> ShadowPass::create(const PassResources& resources) {
+ftk::Result<> ShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     written_ = false;
-    FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{
-                          .kind = gpu::TextureKind::tex2d_array,
+    FTK_TRY(atlas_, device_->create(ftk::gpu::TextureDesc{
+                          .kind = ftk::gpu::TextureKind::tex2d_array,
                           .format = DEPTH_FORMAT,
                           .width = MAP_SIZE,
                           .height = MAP_SIZE,
                           .layers = CASCADE_COUNT,
-                          .use = gpu::TextureUse::depth_target | gpu::TextureUse::sampled,
+                          .use = ftk::gpu::TextureUse::depth_target | ftk::gpu::TextureUse::sampled,
                           .name = "shadow_map",
                       }));
     // Filtered comparison; outside the map reads as lit.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::border,
-                                 .compare = gpu::Compare::less_equal,
-                                 .border = gpu::Border::opaque_white});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::border,
+                                 .compare = ftk::gpu::Compare::less_equal,
+                                 .border = ftk::gpu::Border::opaque_white});
 
     // Depth clamped rather than clipped, so casters behind the near plane
     // still land in the map; front faces culled and a slope-scaled bias
@@ -182,7 +182,7 @@ Result<> ShadowPass::create(const PassResources& resources) {
                    .depth_clamp = true,
                    .depth_bias = DEPTH_BIAS_CONSTANT,
                    .depth_bias_slope = DEPTH_BIAS_SLOPE},
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less_equal},
         .depth_format = DEPTH_FORMAT,
     };
     if (auto made = casters_.create(*device_,
@@ -197,7 +197,7 @@ Result<> ShadowPass::create(const PassResources& resources) {
     }
     // Skinned casters draw from their own vertices, with the same state.
     state.vertex_layout = SkinnedVertex::layout();
-    FJELL_TRY(skinned_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(skinned_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_shadow.vert",
                                      .fragment = "shaders/depth_only.frag",
                                      .vertex_layout = state.vertex_layout,
@@ -208,12 +208,12 @@ Result<> ShadowPass::create(const PassResources& resources) {
                                      .name = "skinned_shadow",
                                  }));
 
-    FJELL_GFX_DEBUG("Shadow map created: {}x{}, {} cascades", MAP_SIZE, MAP_SIZE, CASCADE_COUNT);
+    FTK_GFX_DEBUG("Shadow map created: {}x{}, {} cascades", MAP_SIZE, MAP_SIZE, CASCADE_COUNT);
     return {};
 }
 
 void ShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    gpu.global_bindings().set("shadow_map", gpu::sampled(atlas_, sampler_));
+    gpu.global_bindings().set("shadow_map", ftk::gpu::sampled(atlas_, sampler_));
 }
 
 void ShadowPass::destroy() {
@@ -228,7 +228,7 @@ void ShadowPass::record(const FrameContext& ctx) {
     // is still cleared.
     if (ctx.queue == nullptr || !atlas_) return;
 
-    FJELL_PROFILE_SCOPE_N("record_shadow");
+    FTK_PROFILE_SCOPE_N("record_shadow");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Cascade Shadows");
 
@@ -254,10 +254,10 @@ void ShadowPass::record(const FrameContext& ctx) {
                                 && ctx.shadow_cascade_draw_data_groups[c].valid();
 
         // The cascade's layer, cleared as its scope opens.
-        auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = gpu::layer(atlas_, c),
-                                                               .load = gpu::Load::clear}});
+        auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{.view = ftk::gpu::layer(atlas_, c),
+                                                               .load = ftk::gpu::Load::clear}});
         if (has_meshes) {
-            const gpu::BindGroup draw_data = ctx.shadow_cascade_draw_data_groups[c];
+            const ftk::gpu::BindGroup draw_data = ctx.shadow_cascade_draw_data_groups[c];
             auto bind = [&](bool custom) {
                 pass.bind(ctx.globals);
                 if (custom) pass.bind(ctx.bindless);
@@ -307,11 +307,11 @@ PassSetup ShadowPass::setup() const {
     };
 }
 
-void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void ShadowPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
     auto atlas = builder.import_named(ctx, "shadow_atlas");
     if (atlas.valid()) {
-        builder.write(atlas, gpu::Access::depth_attachment);
+        builder.write(atlas, ftk::gpu::Access::depth_attachment);
     }
 }
 
@@ -320,7 +320,7 @@ void ShadowPass::collect_exports(DeclareContext& ctx) {
     // Every lit surface samples it in the fragment shader through the global
     // set. Nothing is in it before the pass first draws.
     ctx.export_texture("shadow_atlas", atlas_,
-                       {.persistent = true, .resting = gpu::Access::sampled_fragment, .unwritten = !written_});
+                       {.persistent = true, .resting = ftk::gpu::Access::sampled_fragment, .unwritten = !written_});
 }
 
 } // namespace fjell

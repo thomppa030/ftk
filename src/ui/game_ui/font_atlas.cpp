@@ -19,12 +19,12 @@ FontAtlas::~FontAtlas() {
     destroy();
 }
 
-gpu::Texture FontAtlas::texture() const {
-    return atlas_texture_ ? atlas_texture_->texture() : gpu::Texture{};
+ftk::gpu::Texture FontAtlas::texture() const {
+    return atlas_texture_ ? atlas_texture_->texture() : ftk::gpu::Texture{};
 }
 
-gpu::Sampler FontAtlas::sampler() const {
-    return atlas_texture_ ? atlas_texture_->sampler() : gpu::Sampler{};
+ftk::gpu::Sampler FontAtlas::sampler() const {
+    return atlas_texture_ ? atlas_texture_->sampler() : ftk::gpu::Sampler{};
 }
 
 void FontAtlas::destroy() {
@@ -72,22 +72,22 @@ FontAtlasData to_data(BakedFontAtlas atlas, const std::filesystem::path& source_
 
 } // namespace
 
-Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
+ftk::Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
     // The bake reports recipe warnings too, but a fresh cache skips it, so
     // they are read here where every load passes.
     std::vector<std::string> warnings;
     auto recipe = load_font_recipe(recipe_path, &warnings);
-    for (const auto& warning : warnings) FJELL_CORE_WARN("FontAtlas: {}", warning);
+    for (const auto& warning : warnings) FTK_CORE_WARN("FontAtlas: {}", warning);
     if (!recipe) {
-        FJELL_CORE_ERROR("FontAtlas: {}", recipe.error());
-        return make_error(recipe.error());
+        FTK_CORE_ERROR("FontAtlas: {}", recipe.error());
+        return ftk::make_error(recipe.error());
     }
 
     auto source_path = font_source_path(recipe_path, *recipe);
     auto hash = font_source_hash(recipe_path, source_path);
     if (!hash) {
-        FJELL_CORE_ERROR("FontAtlas: {}", hash.error());
-        return make_error(hash.error());
+        FTK_CORE_ERROR("FontAtlas: {}", hash.error());
+        return ftk::make_error(hash.error());
     }
     auto cache_path = font_atlas_cache_path(recipe_path);
 
@@ -99,36 +99,36 @@ Result<FontAtlasData> FontAtlas::load_data(const std::string& recipe_path) {
             atlas = std::move(*read);
             loaded = true;
         } else {
-            FJELL_CORE_WARN("FontAtlas: {}, rebuilding", read.error());
+            FTK_CORE_WARN("FontAtlas: {}, rebuilding", read.error());
         }
     }
     if (!loaded) {
 #if FJELL_FONT_BAKE
         auto baked = bake_font_recipe(recipe_path);
         if (!baked) {
-            FJELL_CORE_ERROR("FontAtlas: {}", baked.error());
-            return make_error(baked.error());
+            FTK_CORE_ERROR("FontAtlas: {}", baked.error());
+            return ftk::make_error(baked.error());
         }
         atlas = std::move(baked->atlas);
         if (!baked->missing.empty()) {
-            FJELL_CORE_WARN("FontAtlas: {} has no glyph for {} codepoint(s): {}",
+            FTK_CORE_WARN("FontAtlas: {} has no glyph for {} codepoint(s): {}",
                             recipe->source, baked->missing.size(),
                             describe_codepoints(baked->missing));
         }
         if (!baked->unmerged.empty()) {
-            FJELL_CORE_WARN("FontAtlas: {}: the overlapping contours of {} glyph(s) could not be "
+            FTK_CORE_WARN("FontAtlas: {}: the overlapping contours of {} glyph(s) could not be "
                             "merged and may show seams: {}",
                             recipe->source, baked->unmerged.size(),
                             describe_codepoints(baked->unmerged));
         }
-        FJELL_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
+        FTK_GFX_INFO("Baked font atlas {}: {}x{}, {} glyphs, {}px cells, pxRange={}",
                        recipe_path, atlas.header.atlas_width, atlas.header.atlas_height,
                        atlas.glyphs.size(), atlas.header.em_size, atlas.header.px_range);
 #else
         // A shipped build carries no baker; the atlas has to arrive with
         // the recipe.
         auto message = recipe_path + ": atlas missing or stale, bake it with fjimport";
-        FJELL_CORE_ERROR("FontAtlas: {}", message);
+        FTK_CORE_ERROR("FontAtlas: {}", message);
         return make_error(message);
 #endif
     }
@@ -156,10 +156,10 @@ void FontAtlas::create(const std::string& recipe_path, const FontAtlasGpu& gpu,
 
     // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
     atlas_texture_ = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
-                                               atlas_height_, gpu::Format::rgba8_unorm, 1, true);
+                                               atlas_height_, ftk::gpu::Format::rgba8_unorm, 1, true);
     atlas_index_ = gpu_.bindless->add(*atlas_texture_);
 
-    FJELL_GFX_INFO("Font atlas ready: {} ({}x{}, {} glyphs)",
+    FTK_GFX_INFO("Font atlas ready: {} ({}x{}, {} glyphs)",
                    recipe_path_, atlas_width_, atlas_height_, glyphs_.size());
 }
 
@@ -173,12 +173,12 @@ void FontAtlas::reload(FontAtlasData data) {
     ++generation_;
 
     auto fresh = std::make_unique<Texture>(*gpu_.gpu_device, data.pixels.data(), atlas_width_,
-                                           atlas_height_, gpu::Format::rgba8_unorm, 1, true);
+                                           atlas_height_, ftk::gpu::Format::rgba8_unorm, 1, true);
     gpu_.bindless->update_entry(atlas_index_, fresh->texture());
     // The old texture goes when the frames reading it are done.
     atlas_texture_ = std::move(fresh);
 
-    FJELL_GFX_INFO("Font atlas reloaded: {} ({}x{}, {} glyphs)",
+    FTK_GFX_INFO("Font atlas reloaded: {} ({}x{}, {} glyphs)",
                    recipe_path_, atlas_width_, atlas_height_, glyphs_.size());
 }
 
@@ -192,13 +192,13 @@ float FontAtlas::kerning(uint32_t left, uint32_t right) const {
     return it != kerning_.end() ? it->second : 0.0f;
 }
 
-Result<FontAtlasData> FontAtlas::bake_data(const std::string& recipe_path, const FjFontRecipe& recipe) {
+ftk::Result<FontAtlasData> FontAtlas::bake_data(const std::string& recipe_path, const FjFontRecipe& recipe) {
 #if FJELL_FONT_BAKE
     auto source_path = font_source_path(recipe_path, recipe);
     auto hash = font_source_hash(recipe_path, source_path);
-    if (!hash) return make_error(hash.error());
+    if (!hash) return ftk::make_error(hash.error());
     auto baked = bake_font_atlas(recipe, source_path, *hash);
-    if (!baked) return make_error(baked.error());
+    if (!baked) return ftk::make_error(baked.error());
     return to_data(std::move(*baked), source_path);
 #else
     (void)recipe;

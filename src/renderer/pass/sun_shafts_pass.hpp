@@ -37,12 +37,12 @@ public:
     static constexpr uint32_t RESOLUTION_DIVISOR = 2;  // half-res
     /// The march's output, this frame only: a graph transient. Alpha carries
     /// each ray's length, which the resolve filters by.
-    static constexpr gpu::Format RAW_FORMAT = gpu::Format::rgba16_float;
+    static constexpr ftk::gpu::Format RAW_FORMAT = ftk::gpu::Format::rgba16_float;
     static constexpr const char* RAW_NAME = "sun_shafts_raw";
     /// The resolved shafts, kept from frame to frame. Alpha keeps the length
     /// of the ray each texel was resolved for, which is how the next frame
     /// tells whether that history is of the same surface.
-    static constexpr gpu::Format SHAFTS_FORMAT = gpu::Format::rgba16_float;
+    static constexpr ftk::gpu::Format SHAFTS_FORMAT = ftk::gpu::Format::rgba16_float;
     static constexpr const char* HISTORY_CUR_NAME = "sun_shafts_cur";
     static constexpr const char* HISTORY_PREV_NAME = "sun_shafts_prev";
 
@@ -50,7 +50,7 @@ public:
         // Ping-pong: each frame resolves into shafts[cur] and samples
         // shafts[prev] as history. The graph tracks their layouts; they reach
         // it as imports each frame.
-        std::array<gpu::Owned<gpu::Texture>, 2> shafts;
+        std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> shafts;
         /// False until a resolve has written, and again after a resize: the
         /// history holds nothing worth blending with.
         bool history_valid{false};
@@ -62,11 +62,11 @@ public:
         [[nodiscard]] uint32_t cur_index() const { return ping_pong; }
         [[nodiscard]] uint32_t prev_index() const { return 1 - ping_pong; }
 
-        void create(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        void create(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
         /// Releases the images; the frames still reading them keep them
         /// until they are done.
         void destroy();
-        void resize(gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
+        void resize(ftk::gpu::Device& gpu, uint32_t screen_w, uint32_t screen_h);
     };
 
     /// What the march and the resolve both need to rebuild a pixel's ray.
@@ -76,11 +76,11 @@ public:
         float max_reach;
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     [[nodiscard]] bool enabled() const { return enabled_; }
@@ -103,9 +103,9 @@ public:
     [[nodiscard]] RayPush ray_push(const Images& imgs, glm::uvec2 viewport) const;
     [[nodiscard]] float upsample_depth_tolerance() const { return upsample_depth_tolerance_; }
 
-    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
-    [[nodiscard]] gpu::ComputePipeline resolve_pipeline() const { return resolve_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
+    [[nodiscard]] ftk::gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline resolve_pipeline() const { return resolve_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
 
     /// How far a half-res tap's surface may sit from a pixel's own, as a share
     /// of that pixel's distance, before the tap stops counting in the upsample.
@@ -136,11 +136,11 @@ private:
     std::unordered_map<uint32_t, WaterMarch> water_march_;
     float upsample_depth_tolerance_{0.05f};
 
-    gpu::Device* device_{nullptr};
-    gpu::Sampler sampler_;
-    gpu::Owned<gpu::ComputePipeline> march_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> resolve_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Sampler sampler_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> march_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> resolve_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> composite_pipeline_;
 
     Images default_images_;
 };
@@ -148,11 +148,11 @@ private:
 /// Blends this frame's march into the shaft history.
 class SunShaftsResolvePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -162,11 +162,11 @@ private:
 /// Upsamples the resolved shafts and adds them to the frame.
 class SunShaftsCompositePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:

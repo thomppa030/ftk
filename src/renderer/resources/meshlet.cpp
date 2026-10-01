@@ -69,7 +69,7 @@ MeshletBuildResult build_meshlets_impl(const float* positions, uint32_t vertex_c
         result.bounds.push_back(bounds);
     }
 
-    FJELL_GFX_DEBUG("Built {} meshlets from {} triangles",
+    FTK_GFX_DEBUG("Built {} meshlets from {} triangles",
                     meshlet_count, index_count / 3);
 
     return result;

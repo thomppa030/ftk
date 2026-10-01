@@ -24,16 +24,16 @@ namespace {
 
 // A buffer of `count` elements of `element_size` bytes. Unset, with the
 // reason logged, when it could not be made.
-gpu::Owned<gpu::Buffer> make_buffer(gpu::Device& gpu, uint64_t count, uint64_t element_size,
-                                    gpu::BufferUses use, gpu::Memory memory, std::string_view name) {
-    auto made = gpu.create(gpu::BufferDesc{
+ftk::gpu::Owned<ftk::gpu::Buffer> make_buffer(ftk::gpu::Device& gpu, uint64_t count, uint64_t element_size,
+                                    ftk::gpu::BufferUses use, ftk::gpu::Memory memory, std::string_view name) {
+    auto made = gpu.create(ftk::gpu::BufferDesc{
         .size = count * element_size,
         .use = use,
         .memory = memory,
         .name = name,
     });
     if (!made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
         return {};
     }
     return std::move(*made);
@@ -48,7 +48,7 @@ uint32_t grown(uint32_t needed, uint32_t held, uint32_t least) {
 // A copy of `values` in the frame's memory; one word of zeroes when there are
 // none, so a binding of it is never empty.
 template <typename T>
-gpu::BufferRange publish(gpu::Frame& frame, std::span<const T> values) {
+ftk::gpu::BufferRange publish(ftk::gpu::Frame& frame, std::span<const T> values) {
     if (values.empty()) {
         constexpr std::array<uint32_t, 4> NOTHING{};
         return frame.transient(NOTHING);
@@ -58,14 +58,14 @@ gpu::BufferRange publish(gpu::Frame& frame, std::span<const T> values) {
 
 } // namespace
 
-IndirectBatch::IndirectBatch(gpu::Device& gpu)
+IndirectBatch::IndirectBatch(ftk::gpu::Device& gpu)
     : gpu_{gpu} {
 }
 
 bool IndirectBatch::ensure_visible_capacity(uint32_t frame_index, uint32_t count) {
     if (count <= visible_instance_capacities_[frame_index]) return true;
     const uint32_t new_cap = grown(count, visible_instance_capacities_[frame_index], 256);
-    auto visible = make_buffer(gpu_, new_cap, sizeof(glm::mat4), gpu::BufferUse::storage, gpu::Memory::gpu,
+    auto visible = make_buffer(gpu_, new_cap, sizeof(glm::mat4), ftk::gpu::BufferUse::storage, ftk::gpu::Memory::gpu,
                                "batch_visible_instances");
     if (!visible) return false;
     visible_instance_buffers_[frame_index] = std::move(visible);
@@ -73,7 +73,7 @@ bool IndirectBatch::ensure_visible_capacity(uint32_t frame_index, uint32_t count
     return true;
 }
 
-void IndirectBatch::clear(gpu::Frame& frame) {
+void IndirectBatch::clear(ftk::gpu::Frame& frame) {
     const uint32_t frame_index = frame.slot();
     opaque_counts_[frame_index] = 0;
     draw_data_counts_[frame_index] = 0;
@@ -86,7 +86,7 @@ void IndirectBatch::clear(gpu::Frame& frame) {
     pipeline_ranges_[frame_index].clear();
     skinned_draw_indices_[frame_index].clear();
     node_draws_[frame_index].clear();
-    const gpu::BufferRange nothing = publish(frame, std::span<const uint32_t>{});
+    const ftk::gpu::BufferRange nothing = publish(frame, std::span<const uint32_t>{});
     for (auto* ranges : {&indirect_commands_, &draw_data_, &mesh_commands_, &mesh_counts_, &pipeline_bins_,
                          &instance_transforms_, &instanced_draws_, &spline_segments_}) {
         (*ranges)[frame_index] = nothing;
@@ -106,7 +106,7 @@ uint32_t IndirectBatch::lod_for(const Model& model, const glm::mat4& world) cons
     return model.select_lod_sq(r_proj_sq, dist_sq);
 }
 
-void IndirectBatch::build(gpu::Frame& frame,
+void IndirectBatch::build(ftk::gpu::Frame& frame,
                           const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           const glm::mat4& projection,
@@ -114,7 +114,7 @@ void IndirectBatch::build(gpu::Frame& frame,
                           AnimationSystem* animation_system,
                           bool is_shadow_batch,
                           const PipelineCache* pipelines) {
-    FJELL_PROFILE_SCOPE_N("indirect_batch_build");
+    FTK_PROFILE_SCOPE_N("indirect_batch_build");
     const uint32_t frame_index = frame.slot();
 
     // LOD selection reads the projection's vertical scale; an identity
@@ -219,7 +219,7 @@ void IndirectBatch::build(gpu::Frame& frame,
         const NoteNodeDraws note{node_draws, dc.node_id, draw_index, draw_index};
         // A material that culls no back faces keeps the meshlets facing away.
         const uint32_t draw_flags =
-            pipelines != nullptr && pipelines->cull(dc.pipeline_id) != gpu::Cull::back
+            pipelines != nullptr && pipelines->cull(dc.pipeline_id) != ftk::gpu::Cull::back
                 ? DRAW_FLAG_KEEPS_BACK_FACES
                 : 0U;
 
@@ -265,7 +265,7 @@ void IndirectBatch::build(gpu::Frame& frame,
             for (uint32_t e = entry_begin; e < entry_end; ++e) {
                 if (!entry_matches_slot(dc, e)) continue;
                 const auto& entry = entries[e];
-                gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                ftk::gpu::DrawIndexedArgs& cmd = indirect[draw_index];
                 cmd.index_count    = entry.index_count;
                 cmd.instance_count = seg_count;
                 cmd.first_index    = entry.first_index;
@@ -316,7 +316,7 @@ void IndirectBatch::build(gpu::Frame& frame,
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
                     if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
-                    gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                    ftk::gpu::DrawIndexedArgs& cmd = indirect[draw_index];
                     cmd.index_count = entry.index_count;
                     cmd.instance_count = src_count;
                     cmd.first_index = entry.first_index;
@@ -398,7 +398,7 @@ void IndirectBatch::build(gpu::Frame& frame,
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
                     if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
-                    gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+                    ftk::gpu::DrawIndexedArgs& cmd = indirect[draw_index];
                     cmd.index_count = entry.index_count;
                     cmd.instance_count = bucket_count;
                     cmd.first_index = entry.first_index;
@@ -444,7 +444,7 @@ void IndirectBatch::build(gpu::Frame& frame,
         for (uint32_t e = entry_begin; e < entry_end; ++e) {
             if (!entry_matches_slot(dc, e)) continue;
             const auto& entry = entries[e];
-            gpu::DrawIndexedArgs& cmd = indirect[draw_index];
+            ftk::gpu::DrawIndexedArgs& cmd = indirect[draw_index];
             cmd.index_count = entry.index_count;
             cmd.instance_count = 1;
             cmd.first_index = entry.first_index;
@@ -536,7 +536,7 @@ void IndirectBatch::build(gpu::Frame& frame,
     uint32_t most_groups = 0;
     for (uint32_t i = 0; i < opaque_count; ++i) {
         const uint32_t mc = staged_draw_data_[i].meshlet_count;
-        staged_mesh_commands_[i] = gpu::DrawMeshTasksArgs{.x = (mc + 31) / 32};
+        staged_mesh_commands_[i] = ftk::gpu::DrawMeshTasksArgs{.x = (mc + 31) / 32};
         most_groups = std::max(most_groups, staged_mesh_commands_[i].x);
     }
     most_mesh_task_groups_[frame_index] = most_groups;
@@ -548,9 +548,9 @@ void IndirectBatch::build(gpu::Frame& frame,
     // Everything the build staged goes into the frame's memory in one copy
     // each (scattered writes to write-combined memory are slow).
     indirect_commands_[frame_index] =
-        publish(frame, std::span<const gpu::DrawIndexedArgs>(staged_indirect_).first(opaque_count));
+        publish(frame, std::span<const ftk::gpu::DrawIndexedArgs>(staged_indirect_).first(opaque_count));
     draw_data_[frame_index] = publish(frame, std::span<const GpuDrawData>(staged_draw_data_).first(draw_index));
-    mesh_commands_[frame_index] = publish(frame, std::span<const gpu::DrawMeshTasksArgs>(staged_mesh_commands_));
+    mesh_commands_[frame_index] = publish(frame, std::span<const ftk::gpu::DrawMeshTasksArgs>(staged_mesh_commands_));
     mesh_counts_[frame_index] = publish(frame, std::span<const uint32_t>(staged_mesh_counts_));
     pipeline_bins_[frame_index] = publish(frame, std::span<const uint32_t>(staged_pipeline_bins_));
 

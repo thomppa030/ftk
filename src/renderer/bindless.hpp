@@ -17,11 +17,11 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
 
 class Texture;
 
@@ -105,7 +105,7 @@ public:
 
     /// Makes the table's shared layout and a group for each frame slot.
     /// @return nothing, or what could not be made.
-    [[nodiscard]] Result<> create(gpu::Device& gpu);
+    [[nodiscard]] ftk::Result<> create(ftk::gpu::Device& gpu);
     void destroy();
 
     /// The texture's index, read with its own sampler: the same index each
@@ -115,13 +115,13 @@ public:
 
     /// An index read with `sampler` that holds nothing until `update_entry()`
     /// gives it a texture; shaders must not read it before.
-    [[nodiscard]] uint32_t reserve_index(gpu::Sampler sampler);
+    [[nodiscard]] uint32_t reserve_index(ftk::gpu::Sampler sampler);
 
     /// Points an index at another texture, read with the sampler the index
     /// names, for the frames that flush after it (a render target that was
     /// resized, a font atlas baked again). No texture empties it, before what
     /// it held is destroyed.
-    void update_entry(uint32_t index, gpu::Texture texture);
+    void update_entry(uint32_t index, ftk::gpu::Texture texture);
 
     /// Register a material and get its index for push constants.
     uint32_t add_material(const GpuMaterial& mat);
@@ -142,9 +142,9 @@ public:
     void flush(uint32_t slot);
 
     /// The layout pipelines name to bind the table.
-    [[nodiscard]] gpu::SharedLayout layout() const { return layout_; }
+    [[nodiscard]] ftk::gpu::SharedLayout layout() const { return layout_; }
     /// The group the frames of `slot` bind.
-    [[nodiscard]] gpu::BindGroup group(uint32_t slot) const { return slots_[slot].group; }
+    [[nodiscard]] ftk::gpu::BindGroup group(uint32_t slot) const { return slots_[slot].group; }
 
     [[nodiscard]] const GpuMaterial& material_at(uint32_t index) const { return materials_[index]; }
     [[nodiscard]] uint32_t material_count() const { return static_cast<uint32_t>(materials_.size()); }
@@ -160,7 +160,7 @@ private:
     /// What a slot's group has yet to take: array elements to write, one bit
     /// per frame slot for each element so none is listed twice.
     struct Pending {
-        std::array<std::vector<uint32_t>, MAX_FRAMES_IN_FLIGHT> lists;
+        std::array<std::vector<uint32_t>, ftk::MAX_FRAMES_IN_FLIGHT> lists;
         std::vector<uint8_t> bits;
 
         /// Lists element `i` for every frame slot that has not got it listed.
@@ -171,9 +171,9 @@ private:
 
     /// One frame slot's group, its buffers, and what it has yet to take.
     struct Slot {
-        gpu::Owned<gpu::BindGroup> group;
-        gpu::Owned<gpu::Buffer> materials;
-        gpu::Owned<gpu::Buffer> params;
+        ftk::gpu::Owned<ftk::gpu::BindGroup> group;
+        ftk::gpu::Owned<ftk::gpu::Buffer> materials;
+        ftk::gpu::Owned<ftk::gpu::Buffer> params;
         uint64_t params_capacity{0}; // floats
         bool materials_pending{false};
         bool params_pending{false};
@@ -183,17 +183,17 @@ private:
     [[nodiscard]] std::optional<uint32_t> next_slot();
     /// The sampler's place in the sampler table, added the first time it is
     /// asked for; none when the table is full.
-    [[nodiscard]] std::optional<uint32_t> sampler_place(gpu::Sampler sampler);
+    [[nodiscard]] std::optional<uint32_t> sampler_place(ftk::gpu::Sampler sampler);
 
-    gpu::Device* gpu_{nullptr};
-    gpu::SharedLayout layout_{};
-    std::array<Slot, MAX_FRAMES_IN_FLIGHT> slots_;
+    ftk::gpu::Device* gpu_{nullptr};
+    ftk::gpu::SharedLayout layout_{};
+    std::array<Slot, ftk::MAX_FRAMES_IN_FLIGHT> slots_;
 
     /// The texture in each slot; empty for one reserved and not yet filled.
-    std::vector<gpu::Texture> textures_;
-    std::unordered_map<gpu::Texture, uint32_t, HandleHash> texture_to_slot_;
+    std::vector<ftk::gpu::Texture> textures_;
+    std::unordered_map<ftk::gpu::Texture, uint32_t, ftk::HandleHash> texture_to_slot_;
     Pending pending_textures_;
-    std::vector<gpu::Sampler> samplers_;
+    std::vector<ftk::gpu::Sampler> samplers_;
     Pending pending_samplers_;
     bool texture_overflow_reported_{false};
     bool sampler_overflow_reported_{false};

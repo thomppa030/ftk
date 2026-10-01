@@ -6,8 +6,8 @@
 #include <optional>
 #include <string>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 TEST_CASE("An asset tile is 96 px wide, reports clicks, and renames in place", "[ui][kit]") {
     ImGuiHarness h;

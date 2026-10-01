@@ -70,11 +70,11 @@ inline void mix_named_values(std::vector<NamedValue>& from,
             float a = value->values[i];
             float b = target.values[i];
             if (linear && i < 3) {
-                a = color_space::srgb_to_linear(a);
-                b = color_space::srgb_to_linear(b);
+                a = ftk::color_space::srgb_to_linear(a);
+                b = ftk::color_space::srgb_to_linear(b);
             }
             float mixed = a + (b - a) * t;
-            if (linear && i < 3) mixed = color_space::linear_to_srgb(mixed);
+            if (linear && i < 3) mixed = ftk::color_space::linear_to_srgb(mixed);
             value->values[i] = mixed;
         }
     }

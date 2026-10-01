@@ -52,7 +52,7 @@ namespace fjell {
 
 class SsrCore : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void collect_exports(DeclareContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
@@ -64,7 +64,7 @@ public:
 
     /// Copies the scene colour, in `Access::copy_src`, into the history, in
     /// `Access::copy_dst`. Skipped while the history does not have `extent`.
-    void copy_prev_frame(gpu::CommandList& cmd, gpu::Texture color, glm::uvec2 extent);
+    void copy_prev_frame(ftk::gpu::CommandList& cmd, ftk::gpu::Texture color, glm::uvec2 extent);
 
     using Mode = RenderSettings::Ssr::Mode;
     void set_mode(Mode m) { mode_ = m; }
@@ -82,18 +82,18 @@ public:
     [[nodiscard]] float intensity() const { return intensity_; }
 
     // Getters for follower passes.
-    [[nodiscard]] gpu::Sampler linear_sampler() const { return linear_sampler_; }
-    [[nodiscard]] gpu::Sampler nearest_sampler() const { return nearest_sampler_; }
-    [[nodiscard]] gpu::ComputePipeline trace_pipeline() const { return trace_pipeline_; }
-    [[nodiscard]] gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
-    [[nodiscard]] gpu::Texture prev_frame() const { return prev_frame_; }
+    [[nodiscard]] ftk::gpu::Sampler linear_sampler() const { return linear_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler nearest_sampler() const { return nearest_sampler_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline trace_pipeline() const { return trace_pipeline_; }
+    [[nodiscard]] ftk::gpu::ComputePipeline composite_pipeline() const { return composite_pipeline_; }
+    [[nodiscard]] ftk::gpu::Texture prev_frame() const { return prev_frame_; }
 
 private:
-    gpu::Device* device_{nullptr};
-    gpu::Sampler linear_sampler_;
-    gpu::Sampler nearest_sampler_;
-    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Sampler linear_sampler_;
+    ftk::gpu::Sampler nearest_sampler_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> composite_pipeline_;
 
     Mode mode_{Mode::ScreenSpace};
     uint32_t max_steps_{64};
@@ -102,7 +102,7 @@ private:
     float intensity_{1.0f};
 
     /// Last frame's scene colour, which the trace takes what it hits from.
-    gpu::Owned<gpu::Texture> prev_frame_;
+    ftk::gpu::Owned<ftk::gpu::Texture> prev_frame_;
     glm::uvec2 prev_frame_extent_{0, 0};
 };
 
@@ -110,16 +110,16 @@ class SsrTracePass : public SsrCore {
 public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 };
 
 class SsrCompositePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -132,11 +132,11 @@ private:
 /// moves the colour into the copy's layout and out again.
 class SsrHistoryPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:

@@ -9,7 +9,7 @@
 //     ImGui::SameLine(0.0f, 0.0f);
 //     { ui::Pane main("##main", {0.0f, height}); ... }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 enum class PaneSurface { Base, Sunken };
 
@@ -28,4 +28,4 @@ private:
     bool visible_{false};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

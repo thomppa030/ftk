@@ -18,11 +18,14 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class Project;
 class ResourceManager;
-
 
 class Scene {
 public:
@@ -61,7 +64,7 @@ public:
     void move_to(uint32_t id, int32_t parent_id, std::size_t index);
     void clear();
 
-    void compute_world_matrices(class ThreadPool* pool = nullptr);
+    void compute_world_matrices(ftk::ThreadPool* pool = nullptr);
     void reparent(uint32_t child_id, int32_t new_parent_id);
 
     /// The node's world matrix from its and its ancestors' current local
@@ -119,8 +122,8 @@ public:
     [[nodiscard]] int index_of(uint32_t id) const;
     [[nodiscard]] std::vector<const Node*> collect_subtree(uint32_t root_id) const;
 
-    Result<> save(const std::string& path, const Project* project = nullptr);
-    static Result<Scene> load(const std::string& path,
+    ftk::Result<> save(const std::string& path, const Project* project = nullptr);
+    static ftk::Result<Scene> load(const std::string& path,
                               ResourceManager& resources,
                               const Project* project = nullptr);
 

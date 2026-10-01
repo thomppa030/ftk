@@ -6,7 +6,7 @@
 
 namespace fjell {
 
-Result<> SubsystemComputePass::create(const PassResources& /*resources*/) {
+ftk::Result<> SubsystemComputePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -20,7 +20,7 @@ PassSetup SubsystemComputePass::setup() const {
     };
 }
 
-void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SubsystemComputePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Everything the subsystems simulate in this run and then draw. A
     // buffer that carries state into the next frame is persistent, which
     // keeps the simulation running while nothing on screen draws it.
@@ -28,12 +28,12 @@ void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& c
         if (!input.written) continue;
         builder.read_write(builder.import("subsystem_draw_input", input.buffer.buffer,
                                           input.buffer.persistent),
-                           gpu::Access::storage_buffer_read_write_compute);
+                           ftk::gpu::Access::storage_buffer_read_write_compute);
     }
 }
 
 void SubsystemComputePass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_subsystem_compute");
+    FTK_PROFILE_SCOPE_N("record_subsystem_compute");
     // Each subsystem records its dispatches and barriers into this pass's
     // list.
     auto zone = ctx.commands().zone("Subsystem Compute");

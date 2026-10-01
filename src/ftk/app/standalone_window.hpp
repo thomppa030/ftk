@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 class ImGuiLayer;
 struct ImGuiLayerFiles;
@@ -51,4 +51,4 @@ private:
     std::unique_ptr<ImGuiLayer> imgui_;
 };
 
-} // namespace fjell
+} // namespace ftk

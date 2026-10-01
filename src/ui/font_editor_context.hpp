@@ -36,8 +36,8 @@ public:
     [[nodiscard]] DockPreset dock_preset() const override;
     [[nodiscard]] std::string asset_path() const override { return recipe_path_; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     void init() override;
     void shutdown() override;
@@ -47,7 +47,7 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext& /*vk*/) override {}
     void render_previews(VulkanContext& vk, Scene* scene, float dt,
-                         const EnvironmentState& environment, ThreadPool& pool) override;
+                         const EnvironmentState& environment, ftk::ThreadPool& pool) override;
 
     /// Opens a recipe by its project-relative path.
     void open_font(const std::string& recipe_path);

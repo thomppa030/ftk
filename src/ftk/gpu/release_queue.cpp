@@ -1,6 +1,6 @@
 #include "ftk/gpu/release_queue.hpp"
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 void ReleaseQueue::defer(uint64_t after, std::move_only_function<void()> fn) {
     entries_.push_back({after, std::move(fn)});
@@ -24,4 +24,4 @@ void ReleaseQueue::flush() {
     }
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

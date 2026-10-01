@@ -8,12 +8,12 @@
 #include <cstdint>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
 class RenderEncoder;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
 
 struct MegaMeshEntry {
     uint32_t vertex_offset{0};
@@ -30,7 +30,7 @@ struct MegaMeshEntry {
 class MegaBuffer {
 public:
     /// Throws when the buffers cannot be made.
-    explicit MegaBuffer(gpu::Device& gpu);
+    explicit MegaBuffer(ftk::gpu::Device& gpu);
 
     /// Appends a mesh. An entry with no vertices and no indices, which
     /// draws nothing, when the buffers cannot grow to hold it; the reason
@@ -50,14 +50,14 @@ public:
     void update_vertices(const MegaMeshEntry& entry, const std::vector<Vertex>& vertices);
 
     /// Sets the vertices and 32-bit indices every mega entry draws from.
-    void bind(gpu::RenderEncoder& pass) const;
+    void bind(ftk::gpu::RenderEncoder& pass) const;
 
     [[nodiscard]] uint32_t vertex_count() const { return vertex_offset_; }
     [[nodiscard]] uint32_t index_count() const { return index_offset_; }
-    [[nodiscard]] gpu::Buffer vertex_buffer() const { return vertices_; }
+    [[nodiscard]] ftk::gpu::Buffer vertex_buffer() const { return vertices_; }
     /// The bytes of vertices uploaded so far.
     [[nodiscard]] uint64_t vertex_buffer_size() const { return uint64_t{vertex_offset_} * sizeof(Vertex); }
-    [[nodiscard]] gpu::Buffer index_buffer() const { return indices_; }
+    [[nodiscard]] ftk::gpu::Buffer index_buffer() const { return indices_; }
     /// The bytes of indices uploaded so far.
     [[nodiscard]] uint64_t index_buffer_size() const { return uint64_t{index_offset_} * sizeof(uint32_t); }
 
@@ -69,9 +69,9 @@ public:
     [[nodiscard]] uint32_t generation() const;
 
 private:
-    gpu::Device& gpu_;
-    gpu::Owned<gpu::Buffer> vertices_;
-    gpu::Owned<gpu::Buffer> indices_;
+    ftk::gpu::Device& gpu_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> vertices_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> indices_;
     uint32_t vertex_offset_{0};
     uint32_t index_offset_{0};
 

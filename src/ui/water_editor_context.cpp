@@ -82,7 +82,7 @@ namespace {
 
 WaterEditorContext::WaterEditorContext(WaterEditorDeps deps) : deps_{deps} {}
 
-EditorContext::DockPreset WaterEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset WaterEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .inspector = {"Sea", "Waves"}};
 }
 
@@ -114,7 +114,7 @@ void WaterEditorContext::open_water(const std::string& path) {
 
     auto loaded = load_fjwater_file(water_abs_path_);
     if (!loaded) {
-        FJELL_CORE_ERROR("Water editor: {}", loaded.error());
+        FTK_CORE_ERROR("Water editor: {}", loaded.error());
         loaded_ = false;
         return;
     }
@@ -204,7 +204,7 @@ void WaterEditorContext::load_preview_material() {
     auto resolved = base_path::resolve_asset(water_.preview_material, project);
     auto handle = deps_.resource_manager->load_material_asset(resolved, project);
     if (!handle) {
-        FJELL_CORE_ERROR("Water editor: {}", handle.error());
+        FTK_CORE_ERROR("Water editor: {}", handle.error());
         return;
     }
     water->material_path = water_.preview_material;
@@ -216,15 +216,15 @@ std::string WaterEditorContext::document() const {
     return loaded_ ? fjwater_text(water_) : std::string{};
 }
 
-Result<> WaterEditorContext::write() {
-    if (!loaded_) return make_error("no water is open");
+ftk::Result<> WaterEditorContext::write() {
+    if (!loaded_) return ftk::make_error("no water is open");
     if (auto written = save_fjwater_file(water_abs_path_, water_); !written) return written;
     return {};
 }
 
-Result<> WaterEditorContext::restore(const std::string& text) {
+ftk::Result<> WaterEditorContext::restore(const std::string& text) {
     auto field = fjwater_from_text(text, water_abs_path_);
-    if (!field) return make_error(field.error());
+    if (!field) return ftk::make_error(field.error());
     const bool material_changed = field->preview_material != water_.preview_material;
     water_ = std::move(*field);
     if (selected_contributor_ >= water_.contributors.size()) selected_contributor_ = 0;
@@ -295,10 +295,10 @@ void WaterEditorContext::draw(float dt) {
 }
 
 void WaterEditorContext::draw_generator_panel() {
-    auto panel = ui::Panel(ui::icon::water, ctx_title("Sea").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::water, ctx_title("Sea").c_str());
     if (!panel) return;
     if (!loaded_) {
-        ui::empty_state(ui::icon::warning, "The file couldn't be read", "The console says why");
+        ftk::ui::empty_state(ftk::ui::icon::warning, "The file couldn't be read", "The console says why");
         return;
     }
 
@@ -310,10 +310,10 @@ void WaterEditorContext::draw_generator_panel() {
     ictx.project_mgr = deps_.project_mgr;
     ictx.content_browser = deps_.content_browser;
     ictx.icons = deps_.icon_cache;
-    if (auto t = ui::PropertyTable("##preview_material")) {
+    if (auto t = ftk::ui::PropertyTable("##preview_material")) {
         static const std::string mat_exts[] = {".fjmat"};
         const auto* mat_type = AssetTypeRegistry::instance().find_by_name("Material");
-        ui::row("Preview material",
+        ftk::ui::row("Preview material",
                 "The material this field is previewed through, saved with the .fjwater as an authoring "
                 "setting: a placed body of water takes its material from its own component. Unset draws "
                 "the engine's water shader.",
@@ -336,7 +336,7 @@ void WaterEditorContext::draw_generator_panel() {
             const std::string text = "Its shader is shader_type " +
                                      std::string(shader_type_name(water->material->shader_type())) +
                                      "; water needs shader_type water";
-            ui::status(ui::Severity::Warning, text.c_str());
+            ftk::ui::status(ftk::ui::Severity::Warning, text.c_str());
         }
     }
 
@@ -353,46 +353,46 @@ void WaterEditorContext::draw_generator_panel() {
     if (sea == nullptr) return;
 
     auto& g = sea->generator;
-    ui::Edit generated;
-    ui::section("Generate", ui::icon::water);
-    if (auto t = ui::PropertyTable("##generate")) {
-        ui::row("Wind direction", [&] {
+    ftk::ui::Edit generated;
+    ftk::ui::section("Generate", ftk::ui::icon::water);
+    if (auto t = ftk::ui::PropertyTable("##generate")) {
+        ftk::ui::row("Wind direction", [&] {
             float wind_deg = direction_degrees(g.wind_direction);
-            const auto edit = ui::slider("##wind", wind_deg, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+            const auto edit = ftk::ui::slider("##wind", wind_deg, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
             if (edit.changed) g.wind_direction = direction_from_degrees(wind_deg);
             generated |= edit;
         });
-        ui::row("Swell", "Height of the largest train. The rest fall away from it.", [&] {
-            generated |= ui::slider("##swell", g.swell, 0.0f, 6.0f, ui::Unit::Metres);
+        ftk::ui::row("Swell", "Height of the largest train. The rest fall away from it.", [&] {
+            generated |= ftk::ui::slider("##swell", g.swell, 0.0f, 6.0f, ftk::ui::Unit::Metres);
         });
-        ui::row("Chop", "How far the crests pinch. 0 is a sum of sines.", [&] {
-            generated |= ui::slider("##chop", g.chop, 0.0f, 1.0f);
+        ftk::ui::row("Chop", "How far the crests pinch. 0 is a sum of sines.", [&] {
+            generated |= ftk::ui::slider("##chop", g.chop, 0.0f, 1.0f);
         });
-        ui::row("Longest wavelength", [&] {
-            generated |= ui::slider("##longest", g.longest_wavelength, 2.0f, 200.0f, ui::Unit::Metres, "%.1f");
+        ftk::ui::row("Longest wavelength", [&] {
+            generated |= ftk::ui::slider("##longest", g.longest_wavelength, 2.0f, 200.0f, ftk::ui::Unit::Metres, "%.1f");
         });
-        ui::row("Spread",
+        ftk::ui::row("Spread",
                 "How far the trains fan either side of the wind. 0 reads as a canal rather than open sea; a "
                 "swell that has travelled stays inside about 10.",
-                [&] { generated |= ui::slider("##spread", g.spread_degrees, 0.0f, 90.0f, ui::Unit::Degrees, "%.0f"); });
-        ui::row("Wavelength falloff",
+                [&] { generated |= ftk::ui::slider("##spread", g.spread_degrees, 0.0f, 90.0f, ftk::ui::Unit::Degrees, "%.0f"); });
+        ftk::ui::row("Wavelength falloff",
                 "How much shorter each train is than the last. Low buries the long waves under chop, which "
                 "reads as a wind sea; high keeps them and the surface rolls.",
-                [&] { generated |= ui::slider("##wavelength_falloff", g.wavelength_falloff, 0.30f, 0.95f); });
-        ui::row("Amplitude falloff",
+                [&] { generated |= ftk::ui::slider("##wavelength_falloff", g.wavelength_falloff, 0.30f, 0.95f); });
+        ftk::ui::row("Amplitude falloff",
                 "How much lower each train is than the last. Below the wavelength falloff the short waves fade "
                 "out and the swell reads smooth.",
-                [&] { generated |= ui::slider("##amplitude_falloff", g.amplitude_falloff, 0.30f, 0.95f); });
-        ui::row("Trains", [&] {
+                [&] { generated |= ftk::ui::slider("##amplitude_falloff", g.amplitude_falloff, 0.30f, 0.95f); });
+        ftk::ui::row("Trains", [&] {
             int count = static_cast<int>(g.wave_count);
-            const auto edit = ui::slider_int("##trains", count, 1, static_cast<int>(MAX_WATER_WAVES));
+            const auto edit = ftk::ui::slider_int("##trains", count, 1, static_cast<int>(MAX_WATER_WAVES));
             if (edit.changed) {
                 g.wave_count = static_cast<std::uint32_t>(std::clamp(count, 1, static_cast<int>(MAX_WATER_WAVES)));
             }
             generated |= edit;
         });
-        ui::row("", [&] {
-            if (ui::action(ui::icon::reload, "Generate waves")) generated.changed = true;
+        ftk::ui::row("", [&] {
+            if (ftk::ui::action(ftk::ui::icon::reload, "Generate waves")) generated.changed = true;
             ImGui::SetItemTooltip("Fills the wave list from the numbers above, overwriting it: a starting shape, "
                                   "and the list in Waves is the asset. Moving a number above does the same.");
         });
@@ -405,53 +405,53 @@ void WaterEditorContext::draw_generator_panel() {
         push_live();
     }
 
-    ui::section("All of its trains", ui::icon::water);
-    if (auto t = ui::PropertyTable("##scales")) {
-        ui::Edit edit;
-        ui::row("Amplitude scale",
+    ftk::ui::section("All of its trains", ftk::ui::icon::water);
+    if (auto t = ftk::ui::PropertyTable("##scales")) {
+        ftk::ui::Edit edit;
+        ftk::ui::row("Amplitude scale",
                 "Multiplies every train of this contributor. Where calm becomes storm without touching a "
                 "single wave.",
-                [&] { edit |= ui::slider("##amplitude_scale", sea->amplitude_scale, 0.0f, 4.0f, ui::Unit::Times); });
-        ui::row("Speed scale", [&] {
-            edit |= ui::slider("##speed_scale", sea->speed_scale, 0.0f, 3.0f, ui::Unit::Times);
+                [&] { edit |= ftk::ui::slider("##amplitude_scale", sea->amplitude_scale, 0.0f, 4.0f, ftk::ui::Unit::Times); });
+        ftk::ui::row("Speed scale", [&] {
+            edit |= ftk::ui::slider("##speed_scale", sea->speed_scale, 0.0f, 3.0f, ftk::ui::Unit::Times);
         });
-        ui::row("Steepness headroom",
+        ftk::ui::row("Steepness headroom",
                 "How much of the fold limit the trains share. 1 can never fold whatever they do; past the "
                 "measured ceiling the sharpest crests turn inside out, which reads as dark facets in the foam.",
-                [&] { edit |= ui::slider("##headroom", sea->steepness_headroom, 0.5f, 4.0f); });
+                [&] { edit |= ftk::ui::slider("##headroom", sea->steepness_headroom, 0.5f, 4.0f); });
         draw_fold_readout();
         if (edit.changed) push_live();
     }
 
-    ui::section("Wind response", ui::icon::weather);
-    if (auto t = ui::PropertyTable("##wind_response")) {
-        ui::Edit edit;
-        ui::row("Answers the weather",
+    ftk::ui::section("Wind response", ftk::ui::icon::weather);
+    if (auto t = ftk::ui::PropertyTable("##wind_response")) {
+        ftk::ui::Edit edit;
+        ftk::ui::row("Answers the weather",
                 "Whether the weather's wind reaches these trains. Off for a pool, a canal, anything indoors, "
                 "and for a swell that arrived from a storm somewhere else.",
-                [&] { edit |= ui::checkbox("##answers", sea->wind.enabled); });
+                [&] { edit |= ftk::ui::checkbox("##answers", sea->wind.enabled); });
         if (sea->wind.enabled) {
-            ui::row("Reference wind",
+            ftk::ui::row("Reference wind",
                     "The wind this sea is authored at. At this speed nothing below changes anything, so it is "
                     "the sea you are looking at now.",
                     [&] {
-                        edit |= ui::slider("##reference", sea->wind.reference_speed, 0.5f, 30.0f,
-                                           ui::Unit::MetresPerSecond, "%.1f");
+                        edit |= ftk::ui::slider("##reference", sea->wind.reference_speed, 0.5f, 30.0f,
+                                           ftk::ui::Unit::MetresPerSecond, "%.1f");
                     });
-            ui::row("Height at double wind", [&] {
-                edit |= ui::slider("##height_response", sea->wind.amplitude_response, 0.0f, 4.0f, ui::Unit::Times);
+            ftk::ui::row("Height at double wind", [&] {
+                edit |= ftk::ui::slider("##height_response", sea->wind.amplitude_response, 0.0f, 4.0f, ftk::ui::Unit::Times);
             });
-            ui::row("Headroom at double wind",
+            ftk::ui::row("Headroom at double wind",
                     "Wind sharpens a sea as well as raising it. This multiplies the fold headroom, so a sea tuned "
                     "near its ceiling will fold in a storm.",
                     [&] {
-                        edit |= ui::slider("##headroom_response", sea->wind.steepness_response, 0.0f, 3.0f,
-                                           ui::Unit::Times);
+                        edit |= ftk::ui::slider("##headroom_response", sea->wind.steepness_response, 0.0f, 3.0f,
+                                           ftk::ui::Unit::Times);
                     });
-            ui::row("Turns onto wind",
+            ftk::ui::row("Turns onto wind",
                     "How far the wind combs the trains around. Only the short ones turn: a long swell holds the "
                     "heading the storm that raised it gave it.",
-                    [&] { edit |= ui::slider("##turn", sea->wind.direction_response, 0.0f, 1.0f); });
+                    [&] { edit |= ftk::ui::slider("##turn", sea->wind.direction_response, 0.0f, 1.0f); });
         }
         if (edit.changed) push_live();
     }
@@ -460,8 +460,8 @@ void WaterEditorContext::draw_generator_panel() {
     // nobody is looking at while they tune. Show what it comes to at the
     // winds that actually blow, folding measured rather than warned about.
     if (sea->wind.enabled && !sea->waves.empty()) {
-        ui::subheading("At a given wind");
-        if (auto t = ui::PropertyTable("##at_wind")) {
+        ftk::ui::subheading("At a given wind");
+        if (auto t = ftk::ui::PropertyTable("##at_wind")) {
             // Measured when the sea has changed and the mouse has let go of
             // it, like the readout above and for the same reason: five
             // whole-sea measurements are too slow to take mid-drag.
@@ -490,11 +490,11 @@ void WaterEditorContext::draw_generator_panel() {
                     std::snprintf(text, sizeof(text), "%.2f\xc3\x97 high, headroom %.2f, %.1f%% folds",
                                   blown_sea.amplitude_scale, blown_sea.steepness_headroom, pct);
                 }
-                ui::row(label, [&] {
+                ftk::ui::row(label, [&] {
                     if (pct <= 0.0f) {
-                        ui::readout(text);
+                        ftk::ui::readout(text);
                     } else {
-                        ui::status(ui::Severity::Warning, text);
+                        ftk::ui::status(ftk::ui::Severity::Warning, text);
                     }
                 });
             }
@@ -503,7 +503,7 @@ void WaterEditorContext::draw_generator_panel() {
 }
 
 void WaterEditorContext::draw_contributor_list() {
-    ui::section("Contributors", ui::icon::water);
+    ftk::ui::section("Contributors", ftk::ui::icon::water);
     std::uint32_t gerstner_count = 0;
     bool has_simulated = false;
     for (const auto& contributor : water_.contributors) {
@@ -517,7 +517,7 @@ void WaterEditorContext::draw_contributor_list() {
     bool changed = false;
     std::optional<std::size_t> remove;
     {
-        ui::ListEditor list("##contributors", water_.contributors.size());
+        ftk::ui::ListEditor list("##contributors", water_.contributors.size());
         for (std::size_t i = 0; i < water_.contributors.size(); ++i) {
             if (!list.begin_item(i, i == selected_contributor_)) continue;
             const std::string label = std::visit(
@@ -533,7 +533,7 @@ void WaterEditorContext::draw_contributor_list() {
             char gerstner_limit[64];
             std::snprintf(gerstner_limit, sizeof(gerstner_limit), "A field sums at most %u of them",
                           MAX_GERSTNER_CONTRIBUTORS);
-            if (ui::menu_item({.icon = ui::icon::water, .label = "Gerstner trains",
+            if (ftk::ui::menu_item({.icon = ftk::ui::icon::water, .label = "Gerstner trains",
                                .enabled = gerstner_count < MAX_GERSTNER_CONTRIBUTORS,
                                .disabled_reason = gerstner_limit})) {
                 // Born with the generator's sea rather than empty, so adding one
@@ -544,7 +544,7 @@ void WaterEditorContext::draw_contributor_list() {
                 selected_contributor_ = water_.contributors.size() - 1;
                 changed = true;
             }
-            if (ui::menu_item({.icon = ui::icon::simulated, .label = "Simulated sea", .enabled = !has_simulated,
+            if (ftk::ui::menu_item({.icon = ftk::ui::icon::simulated, .label = "Simulated sea", .enabled = !has_simulated,
                                .disabled_reason = "One to a field: a simulation is a patch of water carried forward "
                                                   "every frame, and the world runs one"})) {
                 water_.contributors.emplace_back(FftContributor{});
@@ -563,7 +563,7 @@ void WaterEditorContext::draw_contributor_list() {
                 std::rotate(first + static_cast<std::ptrdiff_t>(to), first + static_cast<std::ptrdiff_t>(from),
                             first + static_cast<std::ptrdiff_t>(from) + 1);
             }
-            selected_contributor_ = ui::index_after_move(selected_contributor_, from, to);
+            selected_contributor_ = ftk::ui::index_after_move(selected_contributor_, from, to);
             changed = true;
         }
     }
@@ -599,112 +599,112 @@ void WaterEditorContext::draw_fold_readout() {
         fold_stale_ = false;
     }
     const float pct = 100.0f * folded_share_;
-    ui::row("Folding",
+    ftk::ui::row("Folding",
             "Of the whole sea: every contributor summed, the simulated one included. Folded crests are where "
             "foam gathers; some of it is what a rough sea looks like.",
             [&] {
                 char text[64];
                 if (pct <= 0.0f) {
-                    ui::readout(fold_stale_ ? "None (measured on release)" : "None");
+                    ftk::ui::readout(fold_stale_ ? "None (measured on release)" : "None");
                 } else {
                     std::snprintf(text, sizeof(text), fold_stale_ ? "%.2f%% of the surface (measured on release)"
                                                                   : "%.2f%% of the surface", pct);
-                    ui::status(ui::Severity::Warning, text);
+                    ftk::ui::status(ftk::ui::Severity::Warning, text);
                 }
             });
 }
 
 void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
-    ui::Edit edit;
+    ftk::ui::Edit edit;
 
-    ui::section("Wind", ui::icon::weather);
-    if (auto t = ui::PropertyTable("##sim_wind")) {
-        ui::row("Kind",
+    ftk::ui::section("Wind", ftk::ui::icon::weather);
+    if (auto t = ftk::ui::PropertyTable("##sim_wind")) {
+        ftk::ui::row("Kind",
                 "A sea raised from a wind-driven spectrum and simulated on the GPU. It is drawn and floated on "
                 "only through its strongest waves, set under What floats on it.",
-                [&] { ui::readout("Simulated sea"); });
-        ui::row("Answers the weather",
+                [&] { ftk::ui::readout("Simulated sea"); });
+        ftk::ui::row("Answers the weather",
                 "On, the weather's wind replaces the two below, late, so a front builds the sea over its "
                 "passage. Off, this sea is raised by its own wind whatever the weather does.",
-                [&] { edit |= ui::checkbox("##answers", sea.answers_weather); });
-        ui::row("Heading", [&] {
+                [&] { edit |= ftk::ui::checkbox("##answers", sea.answers_weather); });
+        ftk::ui::row("Heading", [&] {
             float heading = direction_degrees(sea.wind_direction);
-            const auto moved = ui::slider("##heading", heading, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+            const auto moved = ftk::ui::slider("##heading", heading, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
             if (moved.changed) sea.wind_direction = direction_from_degrees(heading);
             edit |= moved;
         });
-        ui::row("Speed", "8 is a fresh breeze, 15 a near gale, 25 a storm.", [&] {
-            edit |= ui::slider("##speed", sea.wind_speed, 0.0f, 35.0f, ui::Unit::MetresPerSecond, "%.1f");
+        ftk::ui::row("Speed", "8 is a fresh breeze, 15 a near gale, 25 a storm.", [&] {
+            edit |= ftk::ui::slider("##speed", sea.wind_speed, 0.0f, 35.0f, ftk::ui::Unit::MetresPerSecond, "%.1f");
         });
         if (sea.answers_weather) {
-            ui::hint("Under weather these are the sea with no weather; here the preview wind stands in");
+            ftk::ui::hint("Under weather these are the sea with no weather; here the preview wind stands in");
         }
-        ui::row("Fetch",
+        ftk::ui::row("Fetch",
                 "How far the wind has blown over open water. Short is a lake's steep chop, long is the open "
                 "ocean's heavy swell under the same wind.",
                 [&] {
                     float fetch_km = sea.fetch / 1000.0f;
-                    const auto moved = ui::slider("##fetch", fetch_km, 0.5f, 500.0f, ui::Unit::Kilometres, "%.1f", true);
+                    const auto moved = ftk::ui::slider("##fetch", fetch_km, 0.5f, 500.0f, ftk::ui::Unit::Kilometres, "%.1f", true);
                     if (moved.changed) sea.fetch = fetch_km * 1000.0f;
                     edit |= moved;
                 });
     }
 
-    ui::section("Stylisation", ui::icon::water);
-    if (auto t = ui::PropertyTable("##stylisation")) {
-        ui::row("Height", [&] { edit |= ui::slider("##height", sea.amplitude_scale, 0.0f, 4.0f, ui::Unit::Times); });
-        ui::row("Choppiness",
+    ftk::ui::section("Stylisation", ftk::ui::icon::water);
+    if (auto t = ftk::ui::PropertyTable("##stylisation")) {
+        ftk::ui::row("Height", [&] { edit |= ftk::ui::slider("##height", sea.amplitude_scale, 0.0f, 4.0f, ftk::ui::Unit::Times); });
+        ftk::ui::row("Choppiness",
                 "How far crests are pinched. 1 is the physical amount, which reads as gentle; past it crests "
                 "sharpen until they fold and foam. The same motion a Gerstner train's steepness buys.",
-                [&] { edit |= ui::slider("##choppiness", sea.choppiness, 0.0f, 3.0f); });
-        ui::row("Spread",
+                [&] { edit |= ftk::ui::slider("##choppiness", sea.choppiness, 0.0f, 3.0f); });
+        ftk::ui::row("Spread",
                 "The angle from the wind at which the sea carries half the energy it carries downwind. Narrow "
                 "for long parallel ridges, wide for a confused sea.",
-                [&] { edit |= ui::slider("##spread", sea.spread_degrees, 2.0f, 90.0f, ui::Unit::Degrees, "%.0f"); });
-        ui::row("High cut",
+                [&] { edit |= ftk::ui::slider("##spread", sea.spread_degrees, 2.0f, 90.0f, ftk::ui::Unit::Degrees, "%.0f"); });
+        ftk::ui::row("High cut",
                 "Fades out waves shorter than this. The biggest stylisation control: it turns a busy correct "
                 "ocean into a few big readable swells. 0 keeps everything the grid holds.",
-                [&] { edit |= ui::slider("##high_cut", sea.high_cut, 0.0f, 40.0f, ui::Unit::Metres, "%.1f"); });
+                [&] { edit |= ftk::ui::slider("##high_cut", sea.high_cut, 0.0f, 40.0f, ftk::ui::Unit::Metres, "%.1f"); });
         draw_fold_readout();
     }
 
-    ui::section("Simulated patch", ui::icon::simulated);
-    if (auto t = ui::PropertyTable("##patch")) {
-        ui::row("Patch size",
+    ftk::ui::section("Simulated patch", ftk::ui::icon::simulated);
+    if (auto t = ftk::ui::PropertyTable("##patch")) {
+        ftk::ui::row("Patch size",
                 "The square of sea that is simulated; it tiles beyond that. It wants several of the longest waves "
                 "in it, and few enough that the grid still resolves the short ones.",
                 [&] {
-                    edit |= ui::slider("##patch_size", sea.patch_size, 16.0f, 2000.0f, ui::Unit::Metres, "%.0f", true);
+                    edit |= ftk::ui::slider("##patch_size", sea.patch_size, 16.0f, 2000.0f, ftk::ui::Unit::Metres, "%.0f", true);
                 });
-        ui::row("Resolution", "Samples along each side. Four times the cost for each step up.", [&] {
+        ftk::ui::row("Resolution", "Samples along each side. Four times the cost for each step up.", [&] {
             static constexpr std::uint32_t RESOLUTIONS[] = {64, 128, 256, 512, 1024};
             static constexpr const char* NAMES[] = {"64", "128", "256", "512", "1024"};
             int index = 0;
             for (int i = 0; i < 5; ++i) {
                 if (RESOLUTIONS[i] == sea.resolution) index = i;
             }
-            const auto picked = ui::choice("##resolution", index, NAMES);
+            const auto picked = ftk::ui::choice("##resolution", index, NAMES);
             if (picked.changed) sea.resolution = RESOLUTIONS[index];
             edit |= picked;
         });
-        ui::row("Seed", "Which sea of all the seas this spectrum describes.", [&] {
+        ftk::ui::row("Seed", "Which sea of all the seas this spectrum describes.", [&] {
             int seed = static_cast<int>(sea.seed);
-            const auto moved = ui::drag_int("##seed", seed, 0.2f, 0, 1 << 30);
+            const auto moved = ftk::ui::drag_int("##seed", seed, 0.2f, 0, 1 << 30);
             if (moved.changed) sea.seed = static_cast<std::uint32_t>(std::max(seed, 0));
             edit |= moved;
         });
     }
 
-    ui::section("What floats on it", ui::icon::collision);
-    if (auto t = ui::PropertyTable("##floats")) {
-        ui::row("Physics waves",
+    ftk::ui::section("What floats on it", ftk::ui::icon::collision);
+    if (auto t = ftk::ui::PropertyTable("##floats")) {
+        ftk::ui::row("Physics waves",
                 "How many of this sea's strongest waves a floating body feels. The simulation is on the GPU, "
                 "which physics cannot read, so buoyancy is given the strongest waves in closed form: the same "
                 "waves, on the same clock. 0 floats a body on the Gerstner contributors alone. Each one is work "
                 "per floating point per tick.",
                 [&] {
                     int physics_waves = static_cast<int>(sea.physics_waves);
-                    const auto moved = ui::slider_int("##physics_waves", physics_waves, 0, 256);
+                    const auto moved = ftk::ui::slider_int("##physics_waves", physics_waves, 0, 256);
                     if (moved.changed) sea.physics_waves = static_cast<std::uint32_t>(std::max(physics_waves, 0));
                     edit |= moved;
                 });
@@ -714,32 +714,32 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     if (edit.changed) push_live();
 
     // What those settings come to, since none of them is a wave to look at.
-    ui::section("What it comes to", ui::icon::info);
-    if (auto t = ui::PropertyTable("##comes_to")) {
+    ftk::ui::section("What it comes to", ftk::ui::icon::info);
+    if (auto t = ftk::ui::PropertyTable("##comes_to")) {
         const float peak = water::peak_frequency(sea);
         if (peak > 0.0f) {
             const float wavelength = glm::two_pi<float>() * 9.81f / (peak * peak);
             char text[64];
             std::snprintf(text, sizeof(text), "%.2f m", water::significant_amplitude(sea) * 2.0f);
-            ui::row("Significant height", [&] { ui::readout(text); });
+            ftk::ui::row("Significant height", [&] { ftk::ui::readout(text); });
             std::snprintf(text, sizeof(text), "%.0f m, every %.1f s", wavelength, glm::two_pi<float>() / peak);
-            ui::row("Dominant wave", [&] { ui::readout(text); });
+            ftk::ui::row("Dominant wave", [&] { ftk::ui::readout(text); });
             if (wavelength * 3.0f > sea.patch_size) {
-                ui::hint("The patch holds under 3 of them, so they are cut short");
+                ftk::ui::hint("The patch holds under 3 of them, so they are cut short");
             }
         } else {
-            ui::row("Significant height", [&] { ui::readout("No wind, no sea"); });
+            ftk::ui::row("Significant height", [&] { ftk::ui::readout("No wind, no sea"); });
         }
         const float texel = sea.patch_size / static_cast<float>(std::max(sea.resolution, 1u));
         char grid[64];
         std::snprintf(grid, sizeof(grid), "%.2f m a sample, waves down to %.1f m", texel, texel * 2.0f);
-        ui::row("Grid", [&] { ui::readout(grid); });
+        ftk::ui::row("Grid", [&] { ftk::ui::readout(grid); });
     }
 }
 
 void WaterEditorContext::draw_physics_waves_readout(const FftContributor& sea) {
     if (sea.physics_waves == 0) {
-        ui::hint("A floating body does not feel this sea");
+        ftk::ui::hint("A floating body does not feel this sea");
         return;
     }
     // Read off the sea the preview is actually running, so the number is about
@@ -764,11 +764,11 @@ void WaterEditorContext::draw_physics_waves_readout(const FftContributor& sea) {
     char text[80];
     std::snprintf(text, sizeof(text), "%.0f%% of its height, waves down to %.1f m", physics_height_share_ * 100.0f,
                   physics_shortest_wave_);
-    ui::row("A body feels",
+    ftk::ui::row("A body feels",
             "The strongest waves carry most of a sea's height. What a body floating on them misses is "
             "everything shorter than the shortest of them: about right for a hull that long or longer, which "
             "averages out chop shorter than itself, and visibly wrong for a buoy or a swimmer.",
-            [&] { ui::readout(text); });
+            [&] { ftk::ui::readout(text); });
 }
 
 void WaterEditorContext::draw_preview_wind() {
@@ -790,19 +790,19 @@ void WaterEditorContext::draw_preview_wind() {
     // asset's: a .fjwater says how a sea answers wind, never what wind it
     // sits in. One wind for the whole preview, as the weather's is for a
     // placed sea, with every contributor answering it by its own response.
-    ui::section("Preview wind", ui::icon::weather);
-    if (auto t = ui::PropertyTable("##preview_wind")) {
-        ui::row("Speed",
+    ftk::ui::section("Preview wind", ftk::ui::icon::weather);
+    if (auto t = ftk::ui::PropertyTable("##preview_wind")) {
+        ftk::ui::row("Speed",
                 "What the preview is blown at, to watch the wind responses. Not saved: a placed sea takes its "
                 "wind from the weather.",
                 [&] {
-                    if (ui::slider("##preview_speed", preview_wind_speed_, 0.0f, 40.0f, ui::Unit::MetresPerSecond,
+                    if (ftk::ui::slider("##preview_speed", preview_wind_speed_, 0.0f, 40.0f, ftk::ui::Unit::MetresPerSecond,
                                    "%.1f").changed) {
                         apply_preview_wind();
                     }
                 });
-        ui::row("Heading", [&] {
-            if (ui::slider("##preview_heading", preview_wind_heading_, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f")
+        ftk::ui::row("Heading", [&] {
+            if (ftk::ui::slider("##preview_heading", preview_wind_heading_, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f")
                     .changed) {
                 apply_preview_wind();
             }
@@ -812,8 +812,8 @@ void WaterEditorContext::draw_preview_wind() {
         const GerstnerContributor* selected = selected_gerstner();
         const GerstnerContributor* reference = selected != nullptr && selected->wind.enabled ? selected : answering;
         if (reference != nullptr) {
-            ui::row("", [&] {
-                if (ui::action(ui::icon::revert, "Reference wind")) {
+            ftk::ui::row("", [&] {
+                if (ftk::ui::action(ftk::ui::icon::revert, "Reference wind")) {
                     preview_wind_speed_ = reference->wind.reference_speed;
                     apply_preview_wind();
                 }
@@ -838,14 +838,14 @@ void WaterEditorContext::draw_measures() {
     });
     if (longest <= 0.0f) return;
 
-    ui::section("Measures", ui::icon::info);
-    if (auto t = ui::PropertyTable("##measures")) {
+    ftk::ui::section("Measures", ftk::ui::icon::info);
+    if (auto t = ftk::ui::PropertyTable("##measures")) {
         char text[64];
         std::snprintf(text, sizeof(text), "%.2f m", water::wave_height(water_) * 2.0f);
-        ui::row("Crest to trough", "With every crest of every contributor aligned, which a sea only rarely arranges.",
-                [&] { ui::readout(text); });
+        ftk::ui::row("Crest to trough", "With every crest of every contributor aligned, which a sea only rarely arranges.",
+                [&] { ftk::ui::readout(text); });
         std::snprintf(text, sizeof(text), "%.1f m", longest);
-        ui::row("Longest train", [&] { ui::readout(text); });
+        ftk::ui::row("Longest train", [&] { ftk::ui::readout(text); });
         // The period is what says whether a sea rolls. Wind chop comes in at
         // two to five seconds and reads as busy; swell that has travelled
         // from a storm arrives at eight to fourteen and reads as a procession
@@ -856,34 +856,34 @@ void WaterEditorContext::draw_measures() {
             const float period = glm::two_pi<float>() / omega;
             const char* reads = period < 6.0f ? "wind chop" : (period < 8.0f ? "building" : "rolling swell");
             std::snprintf(text, sizeof(text), "%.1f s, reads as %s", period, reads);
-            ui::row("Longest period", [&] { ui::readout(text); });
+            ftk::ui::row("Longest period", [&] { ftk::ui::readout(text); });
         }
         // The shortest train is what decides how finely the surface has to be
         // tessellated: under about four vertices per wavelength it cannot be
         // drawn and comes out as noise instead of chop.
         const float shortest = water::shortest_wavelength(water_);
         std::snprintf(text, sizeof(text), "%.1f m", shortest);
-        ui::row("Shortest train", [&] { ui::readout(text); });
+        ftk::ui::row("Shortest train", [&] { ftk::ui::readout(text); });
         std::snprintf(text, sizeof(text), "Needs about %.1f m between vertices", shortest / 4.0f);
-        ui::hint(text);
+        ftk::ui::hint(text);
     }
 }
 
 void WaterEditorContext::draw_wave_list_panel() {
-    auto panel = ui::Panel(ui::icon::curve, ctx_title("Waves").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::curve, ctx_title("Waves").c_str());
     if (!panel) return;
     if (!loaded_) return;
 
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ui::empty_state(ui::icon::water, "No trains here", "Trains belong to a Gerstner contributor; select one in Sea");
+        ftk::ui::empty_state(ftk::ui::icon::water, "No trains here", "Trains belong to a Gerstner contributor; select one in Sea");
         return;
     }
 
     char count[48];
     std::snprintf(count, sizeof(count), "%zu of %u", sea->waves.size(), MAX_WATER_WAVES);
-    if (auto t = ui::PropertyTable("##train_count")) {
-        ui::row("Trains", [&] { ui::readout(count); });
+    if (auto t = ftk::ui::PropertyTable("##train_count")) {
+        ftk::ui::row("Trains", [&] { ftk::ui::readout(count); });
     }
 
     // Each train is named by its size rather than its index: which one is
@@ -891,28 +891,28 @@ void WaterEditorContext::draw_wave_list_panel() {
     bool changed = false;
     std::optional<std::size_t> remove;
     {
-        ui::ListEditor list("##waves", sea->waves.size(), {.reorder = false, .opens = true});
+        ftk::ui::ListEditor list("##waves", sea->waves.size(), {.reorder = false, .opens = true});
         for (std::size_t i = 0; i < sea->waves.size(); ++i) {
             auto& wave = sea->waves[i];
             const bool open = selected_wave_ == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;
             if (open) {
-                if (auto t = ui::PropertyTable("##wave")) {
-                    ui::Edit edit;
-                    ui::row("Direction", [&] {
+                if (auto t = ftk::ui::PropertyTable("##wave")) {
+                    ftk::ui::Edit edit;
+                    ftk::ui::row("Direction", [&] {
                         float deg = direction_degrees(wave.direction);
-                        const auto moved = ui::slider("##direction", deg, -180.0f, 180.0f, ui::Unit::Degrees, "%.0f");
+                        const auto moved = ftk::ui::slider("##direction", deg, -180.0f, 180.0f, ftk::ui::Unit::Degrees, "%.0f");
                         if (moved.changed) wave.direction = direction_from_degrees(deg);
                         edit |= moved;
                     });
-                    ui::row("Wavelength", [&] {
-                        edit |= ui::slider("##wavelength", wave.wavelength, 0.5f, 200.0f, ui::Unit::Metres, "%.1f");
+                    ftk::ui::row("Wavelength", [&] {
+                        edit |= ftk::ui::slider("##wavelength", wave.wavelength, 0.5f, 200.0f, ftk::ui::Unit::Metres, "%.1f");
                     });
-                    ui::row("Amplitude", [&] {
-                        edit |= ui::slider("##amplitude", wave.amplitude, 0.0f, 6.0f, ui::Unit::Metres);
+                    ftk::ui::row("Amplitude", [&] {
+                        edit |= ftk::ui::slider("##amplitude", wave.amplitude, 0.0f, 6.0f, ftk::ui::Unit::Metres);
                     });
-                    ui::row("Steepness", [&] { edit |= ui::slider("##steepness", wave.steepness, 0.0f, 1.0f); });
-                    ui::row("Speed", [&] { edit |= ui::slider("##speed", wave.speed, 0.0f, 3.0f, ui::Unit::Times); });
+                    ftk::ui::row("Steepness", [&] { edit |= ftk::ui::slider("##steepness", wave.steepness, 0.0f, 1.0f); });
+                    ftk::ui::row("Speed", [&] { edit |= ftk::ui::slider("##speed", wave.speed, 0.0f, 3.0f, ftk::ui::Unit::Times); });
                     // A train travels at the speed its wavelength implies, so
                     // the period is a consequence rather than a setting, worth
                     // showing because two trains with close periods beat
@@ -921,7 +921,7 @@ void WaterEditorContext::draw_wave_list_panel() {
                     if (omega > 1e-4f) {
                         char period[32];
                         std::snprintf(period, sizeof(period), "%.1f s", glm::two_pi<float>() / omega);
-                        ui::row("Period", [&] { ui::readout(period); });
+                        ftk::ui::row("Period", [&] { ftk::ui::readout(period); });
                     }
                     changed |= edit.changed;
                 }

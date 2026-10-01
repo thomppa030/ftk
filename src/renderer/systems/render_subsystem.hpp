@@ -4,12 +4,14 @@
 
 #include <cstdint>
 
+namespace ftk::gpu {
+class Frame;
+class RenderEncoder;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 struct DeclareContext;
-namespace gpu {
-class RenderEncoder;
-}
 class Project;
 class ResourceManager;
 class Scene;
@@ -18,9 +20,6 @@ struct PassResources;
 
 // Per-frame context passed to render subsystem update().
 // Each subsystem reads what it needs and ignores the rest.
-namespace gpu {
-class Frame;
-}
 
 struct RenderSubsystemContext {
     Scene* scene{nullptr};
@@ -31,7 +30,7 @@ struct RenderSubsystemContext {
     uint32_t frame_index{0};
     /// The frame recording, whose memory update() writes a view's data into,
     /// so each view's run keeps its own. Unset for sync().
-    gpu::Frame* frame{nullptr};
+    ftk::gpu::Frame* frame{nullptr};
     float dt{0.0f};
     bool playing{false};
 };
@@ -75,17 +74,17 @@ public:
     // Draw into the depth pre-pass — called before the opaque pass so the
     // subsystem's opaque geometry contributes to Hi-Z, contact shadows,
     // and depth-driven post (SS-GI, SSR neighbour lookups).
-    virtual void record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
+    virtual void record_depth(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw opaque geometry — called during the opaque color pass.
-    virtual void record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
+    virtual void record_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw distortion particles into the distortion UV-offset buffer.
-    virtual void record_distortion(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
+    virtual void record_distortion(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Draw transparent geometry — called during the transparent color pass.
     // Subsystems are sorted by transparent_order() before recording (lower = drawn first = behind).
-    virtual void record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
+    virtual void record_transparent(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) { (void)ctx; (void)pass; }
 
     // Sort key for transparent pass draw order. Lower values draw first (behind).
     [[nodiscard]] virtual int transparent_order() const { return 0; }

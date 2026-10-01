@@ -53,9 +53,9 @@ void report_script_exception(const ScriptCall& call, const std::exception* error
     if (g_halted) return;
     const std::string where = describe(call);
     if (error != nullptr) {
-        FJELL_CORE_ERROR("Exception in {}: {}", where, error->what());
+        FTK_CORE_ERROR("Exception in {}: {}", where, error->what());
     } else {
-        FJELL_CORE_ERROR("Unknown exception in {}", where);
+        FTK_CORE_ERROR("Unknown exception in {}", where);
     }
 }
 

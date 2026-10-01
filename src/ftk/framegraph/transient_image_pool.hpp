@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 namespace gpu {
 class Device;
@@ -91,4 +91,4 @@ private:
     uint64_t live_bytes_{0};
 };
 
-} // namespace fjell
+} // namespace ftk

@@ -19,22 +19,22 @@ namespace fjell {
 
 void TilemapRenderer::create(const PassResources& resources) {
     gpu_ = resources.device;
-    gpu::Device& gpu = *gpu_;
+    ftk::gpu::Device& gpu = *gpu_;
 
     // The scene's four colour targets: colour, metallic/roughness, normal and
     // motion. Tiles write colour, and lit tiles the surface they are too;
     // nothing writes motion, since a tilemap does not move.
-    auto targets = [&](gpu::Blend colour_blend, bool surface) {
-        const gpu::ChannelMask surface_channels =
-            surface ? gpu::ChannelMask{gpu::Channel::r | gpu::Channel::g} : gpu::ChannelMask{};
-        return std::vector<gpu::ColorTarget>{
+    auto targets = [&](ftk::gpu::Blend colour_blend, bool surface) {
+        const ftk::gpu::ChannelMask surface_channels =
+            surface ? ftk::gpu::ChannelMask{ftk::gpu::Channel::r | ftk::gpu::Channel::g} : ftk::gpu::ChannelMask{};
+        return std::vector<ftk::gpu::ColorTarget>{
             {resources.scene_color_format, colour_blend},
-            {resources.scene_mr_format, gpu::Blend::none, surface_channels},
-            {resources.scene_normal_format, gpu::Blend::none, surface_channels},
-            {resources.scene_velocity_format, gpu::Blend::none, gpu::ChannelMask{}},
+            {resources.scene_mr_format, ftk::gpu::Blend::none, surface_channels},
+            {resources.scene_normal_format, ftk::gpu::Blend::none, surface_channels},
+            {resources.scene_velocity_format, ftk::gpu::Blend::none, ftk::gpu::ChannelMask{}},
         };
     };
-    auto make = [&](gpu::GraphicsPipelineDesc desc) {
+    auto make = [&](ftk::gpu::GraphicsPipelineDesc desc) {
         desc.depth_format = resources.scene_depth_format;
         desc.samples = resources.samples;
         desc.shared = {resources.globals, resources.bindless};
@@ -47,37 +47,37 @@ void TilemapRenderer::create(const PassResources& resources) {
     pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)] = make({
         .vertex = "shaders/tilemap.vert",
         .fragment = "shaders/tilemap.frag",
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
-        .color = targets(gpu::Blend::alpha, false),
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
+        .color = targets(ftk::gpu::Blend::alpha, false),
         .name = "tilemap",
     });
     pipelines_[static_cast<size_t>(Bucket::LitOpaque)] = make({
         .vertex = "shaders/tilemap_lit.vert",
         .fragment = "shaders/tilemap_lit.frag",
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less_equal},
-        .color = targets(gpu::Blend::none, true),
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less_equal},
+        .color = targets(ftk::gpu::Blend::none, true),
         .name = "tilemap_lit",
     });
     // The lit tiles into the depth pre-pass, alpha-tested.
     depth_pipeline_ = make({
         .vertex = "shaders/tilemap_lit.vert",
         .fragment = "shaders/tilemap_depth.frag",
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
         .name = "tilemap_depth",
     });
 
     for (auto& buffer : tile_buffers_) {
-        auto made = gpu.create(gpu::BufferDesc{
+        auto made = gpu.create(ftk::gpu::BufferDesc{
             .size = TILE_BUFFER_SIZE,
-            .use = gpu::BufferUse::storage,
-            .memory = gpu::Memory::upload,
+            .use = ftk::gpu::BufferUse::storage,
+            .memory = ftk::gpu::Memory::upload,
             .name = "tilemap_tiles",
         });
         if (!made) throw std::runtime_error("Tilemap: " + made.error());
         buffer = std::move(*made);
     }
 
-    FJELL_GFX_DEBUG("Tilemap renderer created");
+    FTK_GFX_DEBUG("Tilemap renderer created");
 }
 
 void TilemapRenderer::destroy() {
@@ -130,19 +130,19 @@ void TilemapRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void TilemapRenderer::record_depth(const FrameContext& ctx, gpu::RenderEncoder& pass) {
-    FJELL_PROFILE_SCOPE_N("tilemap_record_depth");
+void TilemapRenderer::record_depth(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
+    FTK_PROFILE_SCOPE_N("tilemap_record_depth");
     if (tile_buckets_[ctx.frame_index] != Bucket::LitOpaque) return;
     draw(ctx, pass, depth_pipeline_);
 }
 
-void TilemapRenderer::record_opaque(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void TilemapRenderer::record_opaque(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (tile_buckets_[ctx.frame_index] == Bucket::LitOpaque) {
         draw(ctx, pass, pipelines_[static_cast<size_t>(Bucket::LitOpaque)]);
     }
 }
 
-void TilemapRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void TilemapRenderer::record_transparent(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (tile_buckets_[ctx.frame_index] == Bucket::UnlitTransparent) {
         draw(ctx, pass, pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)]);
     }
@@ -150,7 +150,7 @@ void TilemapRenderer::record_transparent(const FrameContext& ctx, gpu::RenderEnc
 
 void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_projection*/,
                                    uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("tilemap_update");
+    FTK_PROFILE_SCOPE_N("tilemap_update");
 
     uint32_t total_tiles = 0;
     PushConstants pc{};
@@ -220,16 +220,16 @@ void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_pr
     push_constants_[frame_index] = pc;
 }
 
-void TilemapRenderer::draw(const FrameContext& ctx, gpu::RenderEncoder& pass,
-                           gpu::GraphicsPipeline pipeline) {
-    FJELL_PROFILE_SCOPE_N("tilemap_record_bucket");
+void TilemapRenderer::draw(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass,
+                           ftk::gpu::GraphicsPipeline pipeline) {
+    FTK_PROFILE_SCOPE_N("tilemap_record_bucket");
     const uint32_t tiles = tile_counts_[ctx.frame_index];
     if (tiles == 0) return;
 
     pass.set_pipeline(pipeline);
     pass.bind(ctx.globals);
     pass.bind(ctx.bindless);
-    pass.bind({{"TileBuffer", gpu::storage(tile_buffers_[ctx.frame_index])}});
+    pass.bind({{"TileBuffer", ftk::gpu::storage(tile_buffers_[ctx.frame_index])}});
     pass.push(push_constants_[ctx.frame_index]);
     pass.draw(tiles * 6);
 }

@@ -40,16 +40,16 @@ int ClimateAsset::index_of(std::string_view state_name) const {
     return -1;
 }
 
-Result<ClimateAsset> load_climate_asset_file(const std::string& path) {
+ftk::Result<ClimateAsset> load_climate_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjclimate file: " + path);
+        return ftk::make_error("Failed to open .fjclimate file: " + path);
     }
     nlohmann::json j;
     try {
         f >> j;
     } catch (const std::exception& e) {
-        return make_error("Malformed .fjclimate file " + path + ": " + e.what());
+        return ftk::make_error("Malformed .fjclimate file " + path + ": " + e.what());
     }
 
     ClimateAsset asset;
@@ -79,7 +79,7 @@ Result<ClimateAsset> load_climate_asset_file(const std::string& path) {
     return asset;
 }
 
-Result<> save_climate_asset_file(const std::string& path, const ClimateAsset& asset) {
+ftk::Result<> save_climate_asset_file(const std::string& path, const ClimateAsset& asset) {
     nlohmann::json j;
     j["name"] = asset.name;
     if (!asset.initial.empty()) j["initial"] = asset.initial;
@@ -100,7 +100,7 @@ Result<> save_climate_asset_file(const std::string& path, const ClimateAsset& as
 
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjclimate file: " + path);
+        return ftk::make_error("Failed to write .fjclimate file: " + path);
     }
     f << j.dump(4) << "\n";
     return {};

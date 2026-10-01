@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -186,4 +186,4 @@ bool mode_button(const char* id, const char* icon, const char* label, bool alert
     return clicked;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

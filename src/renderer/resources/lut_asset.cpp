@@ -61,7 +61,7 @@ LutStrip neutral_lut(uint32_t size) {
     return strip;
 }
 
-Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes) {
+ftk::Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes) {
     const auto* data = image_bytes.data();
     const int len = static_cast<int>(image_bytes.size());
     int width = 0;
@@ -70,12 +70,12 @@ Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes) {
     LutStrip strip;
     if (stbi_is_16_bit_from_memory(data, len) != 0) {
         stbi_us* pixels = stbi_load_16_from_memory(data, len, &width, &height, &channels, 4);
-        if (pixels == nullptr) return make_error(std::string("unreadable image: ") + stbi_failure_reason());
+        if (pixels == nullptr) return ftk::make_error(std::string("unreadable image: ") + stbi_failure_reason());
         strip.rgba.assign(pixels, pixels + static_cast<size_t>(width) * height * 4);
         stbi_image_free(pixels);
     } else {
         stbi_uc* pixels = stbi_load_from_memory(data, len, &width, &height, &channels, 4);
-        if (pixels == nullptr) return make_error(std::string("unreadable image: ") + stbi_failure_reason());
+        if (pixels == nullptr) return ftk::make_error(std::string("unreadable image: ") + stbi_failure_reason());
         strip.rgba.resize(static_cast<size_t>(width) * height * 4);
         // 8 bits to 16 by repeating the byte, so 255 lands on 65535.
         for (size_t i = 0; i < strip.rgba.size(); ++i) {
@@ -85,14 +85,14 @@ Result<LutStrip> decode_lut_strip(std::span<const uint8_t> image_bytes) {
     }
     const auto size = static_cast<uint32_t>(height);
     if (size < MIN_SIZE || size > MAX_SIZE || static_cast<uint32_t>(width) != size * size) {
-        return make_error("is " + std::to_string(width) + "x" + std::to_string(height)
+        return ftk::make_error("is " + std::to_string(width) + "x" + std::to_string(height)
                           + "; a LUT strip is N·N wide and N tall, like 256x16 or 1024x32");
     }
     strip.size = size;
     return strip;
 }
 
-Result<LutStrip> decode_cube(std::string_view text) {
+ftk::Result<LutStrip> decode_cube(std::string_view text) {
     uint32_t cube_size = 0;
     std::array<float, 3> domain_min{0.0f, 0.0f, 0.0f};
     std::array<float, 3> domain_max{1.0f, 1.0f, 1.0f};
@@ -109,7 +109,7 @@ Result<LutStrip> decode_cube(std::string_view text) {
         std::string key;
         words >> key;
         const auto located = [&](const std::string& what) {
-            return make_error("line " + std::to_string(line_number) + ": " + what);
+            return ftk::make_error("line " + std::to_string(line_number) + ": " + what);
         };
         if (key == "TITLE") continue;
         if (key == "LUT_1D_SIZE") return located("a 1D table is not a colour grade; export a 3D .cube");
@@ -131,15 +131,15 @@ Result<LutStrip> decode_cube(std::string_view text) {
         }
         rows.push_back(row);
     }
-    if (cube_size == 0) return make_error("no LUT_3D_SIZE");
+    if (cube_size == 0) return ftk::make_error("no LUT_3D_SIZE");
     const size_t expected = static_cast<size_t>(cube_size) * cube_size * cube_size;
     if (rows.size() != expected) {
-        return make_error("LUT_3D_SIZE " + std::to_string(cube_size) + " wants "
+        return ftk::make_error("LUT_3D_SIZE " + std::to_string(cube_size) + " wants "
                           + std::to_string(expected) + " rows and there are "
                           + std::to_string(rows.size()));
     }
     for (int c = 0; c < 3; ++c) {
-        if (!(domain_max[c] > domain_min[c])) return make_error("DOMAIN_MAX must be above DOMAIN_MIN");
+        if (!(domain_max[c] > domain_min[c])) return ftk::make_error("DOMAIN_MAX must be above DOMAIN_MIN");
     }
 
     // Red changes fastest through the rows, then green, then blue.
@@ -181,15 +181,15 @@ Result<LutStrip> decode_cube(std::string_view text) {
     return strip;
 }
 
-Result<LutRecipe> read_lut_recipe(const fs::path& recipe_path) {
+ftk::Result<LutRecipe> read_lut_recipe(const fs::path& recipe_path) {
     const std::string where = recipe_path.string();
     const auto text = read_file(recipe_path);
-    if (!text) return make_error(where + ": cannot be read");
+    if (!text) return ftk::make_error(where + ": cannot be read");
     const auto j = nlohmann::json::parse(*text, nullptr, false);
-    if (!j.is_object()) return make_error(where + ": is not a JSON object");
+    if (!j.is_object()) return ftk::make_error(where + ": is not a JSON object");
     const auto source = j.find("source");
     if (source == j.end() || !source->is_string() || source->get<std::string>().empty()) {
-        return make_error(where + ": 'source' must name a strip image or a .cube");
+        return ftk::make_error(where + ": 'source' must name a strip image or a .cube");
     }
     LutRecipe recipe;
     recipe.source = source->get<std::string>();
@@ -201,17 +201,17 @@ fs::path lut_source_path(const fs::path& recipe_path, const LutRecipe& recipe) {
     return recipe_path.parent_path() / recipe.source;
 }
 
-Result<LutStrip> load_lut(const fs::path& recipe_path) {
+ftk::Result<LutStrip> load_lut(const fs::path& recipe_path) {
     auto recipe = read_lut_recipe(recipe_path);
-    if (!recipe) return make_error(recipe.error());
+    if (!recipe) return ftk::make_error(recipe.error());
     const fs::path source = lut_source_path(recipe_path, *recipe);
     const auto bytes = read_file(source);
-    if (!bytes) return make_error(recipe_path.string() + ": its source " + source.string() + " cannot be read");
+    if (!bytes) return ftk::make_error(recipe_path.string() + ": its source " + source.string() + " cannot be read");
 
     auto strip = source.extension() == ".cube"
         ? decode_cube(*bytes)
         : decode_lut_strip(std::span{reinterpret_cast<const uint8_t*>(bytes->data()), bytes->size()});
-    if (!strip) return make_error(source.string() + ": " + strip.error());
+    if (!strip) return ftk::make_error(source.string() + ": " + strip.error());
     return strip;
 }
 

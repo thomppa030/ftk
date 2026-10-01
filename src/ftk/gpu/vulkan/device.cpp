@@ -13,7 +13,7 @@
 #include <span>
 #include <string>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 void vulkan::name_object(VkDevice device, VkObjectType type, uint64_t handle, std::string_view name) {
     if (name.empty() || handle == 0) return;
@@ -132,7 +132,7 @@ void Device::Impl::save_pipeline_cache() {
             std::ofstream file(pipeline_cache_file, std::ios::binary | std::ios::trunc);
             if (file.is_open()) {
                 file.write(data.data(), static_cast<std::streamsize>(size));
-                FJELL_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
+                FTK_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
             }
         }
     }
@@ -184,7 +184,7 @@ Device::Impl::Impl(Window& window)
         vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
     end_label = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
         vkGetDeviceProcAddr(device, "vkCmdEndDebugUtilsLabelEXT"));
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     // The profiler calibrates its GPU clock against the graphics queue with a
     // command buffer of its own.
     VkCommandPoolCreateInfo profiler_pool_info{};
@@ -256,7 +256,7 @@ Device::Impl::~Impl() {
     // and finish with everything else on the GPU, before anything goes.
     foundation.lanes().wait_all();
     vkDeviceWaitIdle(device);
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     if (profiler != nullptr) TracyVkDestroy(profiler);
     vkDestroyCommandPool(device, profiler_pool, nullptr);
 #endif
@@ -312,7 +312,7 @@ Device::Impl::~Impl() {
     for (const auto& [key, layout] : pipeline_layouts) vkDestroyPipelineLayout(device, layout, nullptr);
     for (const auto& [key, layout] : set_layouts) vkDestroyDescriptorSetLayout(device, layout, nullptr);
     if (leaked > 0) {
-        FJELL_GFX_WARN("GPU device destroyed with {} buffers, textures and acceleration structures "
+        FTK_GFX_WARN("GPU device destroyed with {} buffers, textures and acceleration structures "
                        "never released", leaked);
     }
 }
@@ -336,7 +336,7 @@ VkImageView Device::Impl::image_view(const TextureView& view) {
                                     key.base_layer, key.layer_count};
     VkImageView made{VK_NULL_HANDLE};
     if (vkCreateImageView(device, &create_info, nullptr, &made) != VK_SUCCESS) {
-        FJELL_GFX_ERROR("Failed to create a view of a texture (mips {}+{}, layers {}+{})",
+        FTK_GFX_ERROR("Failed to create a view of a texture (mips {}+{}, layers {}+{})",
                         key.base_mip, key.mip_count, key.base_layer, key.layer_count);
         return VK_NULL_HANDLE;
     }
@@ -590,7 +590,7 @@ Sampler Device::sampler(const SamplerDesc& desc) {
 
     VkSampler made{VK_NULL_HANDLE};
     if (vkCreateSampler(self.device, &create_info, nullptr, &made) != VK_SUCCESS) {
-        FJELL_GFX_ERROR("Failed to create a sampler");
+        FTK_GFX_ERROR("Failed to create a sampler");
         return {};
     }
     const Sampler sampler = self.samplers.emplace(made);
@@ -670,7 +670,7 @@ void Device::set_pipeline_cache_file(const std::filesystem::path& file) {
         data.resize(static_cast<size_t>(in.tellg()));
         in.seekg(0);
         in.read(data.data(), static_cast<std::streamsize>(data.size()));
-        FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", data.size());
+        FTK_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", data.size());
     }
     VkPipelineCacheCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -678,7 +678,7 @@ void Device::set_pipeline_cache_file(const std::filesystem::path& file) {
     info.pInitialData = data.empty() ? nullptr : data.data();
     if (vkCreatePipelineCache(self.device, &info, nullptr, &self.pipeline_cache) != VK_SUCCESS) {
         // What the file held is from another driver or device.
-        FJELL_GFX_WARN("Pipeline cache {} did not load; starting empty", file.string());
+        FTK_GFX_WARN("Pipeline cache {} did not load; starting empty", file.string());
         info.initialDataSize = 0;
         info.pInitialData = nullptr;
         vk_check(vkCreatePipelineCache(self.device, &info, nullptr, &self.pipeline_cache),
@@ -748,4 +748,4 @@ Result<std::unique_ptr<Device>> Device::create(Window& window) {
     }
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -25,40 +25,40 @@ namespace {
 constexpr float VERIFY_TIME = 3.7f;
 // Frames between the copy being recorded and its result being read: long
 // enough for every frame in flight when it was recorded to have finished.
-constexpr int VERIFY_WAIT_FRAMES = static_cast<int>(MAX_FRAMES_IN_FLIGHT) + 2;
+constexpr int VERIFY_WAIT_FRAMES = static_cast<int>(ftk::MAX_FRAMES_IN_FLIGHT) + 2;
 // Where the surfaces rest: sampled by the water's task and mesh stages, and
 // by the waterline and fog in compute. A reader anywhere else declares its
 // read and gets its own barrier from the graph.
-constexpr gpu::AccessSet SURFACE_READS = gpu::Access::sampled_mesh | gpu::Access::sampled_compute;
+constexpr ftk::gpu::AccessSet SURFACE_READS = ftk::gpu::Access::sampled_mesh | ftk::gpu::Access::sampled_compute;
 
 } // namespace
 
-Result<> WaterFftPass::create(const PassResources& resources) {
+ftk::Result<> WaterFftPass::create(const PassResources& resources) {
     gpu_device_ = resources.device;
-    gpu::Device& device = *gpu_device_;
+    ftk::gpu::Device& device = *gpu_device_;
 
-    FJELL_TRY(evolve_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(evolve_, device.create(ftk::gpu::ComputePipelineDesc{
                            .shader = "shaders/water_fft_evolve.comp",
                            .name = "water_fft_evolve",
                        }));
-    FJELL_TRY(butterfly_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(butterfly_, device.create(ftk::gpu::ComputePipelineDesc{
                               .shader = "shaders/water_fft_butterfly.comp",
                               .name = "water_fft_butterfly",
                           }));
-    FJELL_TRY(assemble_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(assemble_, device.create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/water_fft_assemble.comp",
                              .name = "water_fft_assemble",
                          }));
     // The patch tiles: the sea past its edge is the sea at its other edge.
-    sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                               .mip_filter = gpu::Filter::linear,
-                               .address = gpu::Address::repeat});
-    FJELL_TRY(still_, device.create(gpu::TextureDesc{
+    sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                               .mip_filter = ftk::gpu::Filter::linear,
+                               .address = ftk::gpu::Address::repeat});
+    FTK_TRY(still_, device.create(ftk::gpu::TextureDesc{
                           .format = SURFACE_FORMAT,
                           .width = 1,
                           .height = 1,
-                          .use = gpu::TextureUse::sampled,
-                          .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                          .use = ftk::gpu::TextureUse::sampled,
+                          .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
                           .name = "water_fft_still",
                       }));
 
@@ -87,13 +87,13 @@ void WaterFftPass::retire_images() {
     images_ready_ = false;
 }
 
-Result<> WaterFftPass::build_images() {
+ftk::Result<> WaterFftPass::build_images() {
     mips_ = static_cast<std::uint32_t>(std::countr_zero(resolution_)) + 1;
-    gpu::Device& device = *gpu_device_;
+    ftk::gpu::Device& device = *gpu_device_;
 
-    const auto texture = [&](gpu::Format format, std::uint32_t mips, gpu::TextureUses use,
+    const auto texture = [&](ftk::gpu::Format format, std::uint32_t mips, ftk::gpu::TextureUses use,
                              std::string_view name) {
-        return device.create(gpu::TextureDesc{
+        return device.create(ftk::gpu::TextureDesc{
             .format = format,
             .width = resolution_,
             .height = resolution_,
@@ -102,20 +102,20 @@ Result<> WaterFftPass::build_images() {
             .name = name,
         });
     };
-    constexpr gpu::TextureUses SURFACE_USE = gpu::TextureUse::storage | gpu::TextureUse::sampled;
+    constexpr ftk::gpu::TextureUses SURFACE_USE = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled;
     for (std::uint32_t i = 0; i < 2; ++i) {
-        FJELL_TRY(spectra_a_[i], texture(SPECTRUM_FORMAT, 1, gpu::TextureUse::storage, "water_fft_spectra_a"));
-        FJELL_TRY(spectra_b_[i], texture(SPECTRUM_FORMAT, 1, gpu::TextureUse::storage, "water_fft_spectra_b"));
-        FJELL_TRY(displacement_[i], texture(SURFACE_FORMAT, mips_, SURFACE_USE, "water_fft_displacement"));
+        FTK_TRY(spectra_a_[i], texture(SPECTRUM_FORMAT, 1, ftk::gpu::TextureUse::storage, "water_fft_spectra_a"));
+        FTK_TRY(spectra_b_[i], texture(SPECTRUM_FORMAT, 1, ftk::gpu::TextureUse::storage, "water_fft_spectra_b"));
+        FTK_TRY(displacement_[i], texture(SURFACE_FORMAT, mips_, SURFACE_USE, "water_fft_displacement"));
     }
-    FJELL_TRY(derivatives_, texture(SURFACE_FORMAT, mips_, SURFACE_USE, "water_fft_derivatives"));
+    FTK_TRY(derivatives_, texture(SURFACE_FORMAT, mips_, SURFACE_USE, "water_fft_derivatives"));
 
     const std::uint64_t bytes = std::uint64_t{resolution_} * resolution_ * sizeof(glm::vec2);
     for (auto& buffer : amplitude_buffers_) {
-        FJELL_TRY(buffer, device.create(gpu::BufferDesc{
+        FTK_TRY(buffer, device.create(ftk::gpu::BufferDesc{
                               .size = bytes,
-                              .use = gpu::BufferUse::storage,
-                              .memory = gpu::Memory::upload,
+                              .use = ftk::gpu::BufferUse::storage,
+                              .memory = ftk::gpu::Memory::upload,
                               .name = "water_fft_amplitudes",
                           }));
     }
@@ -138,7 +138,7 @@ void WaterFftPass::set_sea(const FjWaterData::SimulatedSea* sea) {
     const std::uint32_t resolution = sea->spectrum->resolution;
     if (resolution < MIN_RESOLUTION || resolution > MAX_RESOLUTION || patch_size_ <= 0.0f) {
         if (spectrum_ != nullptr || resolution_ != resolution) {
-            FJELL_CORE_WARN("WaterFftPass: a simulated sea needs a patch with a size and a "
+            FTK_CORE_WARN("WaterFftPass: a simulated sea needs a patch with a size and a "
                             "resolution from {} to {}, got {} m at {}", MIN_RESOLUTION,
                             MAX_RESOLUTION, patch_size_, resolution);
         }
@@ -152,7 +152,7 @@ void WaterFftPass::set_sea(const FjWaterData::SimulatedSea* sea) {
         retire_images();
         resolution_ = resolution;
         if (auto built = build_images(); !built) {
-            FJELL_CORE_ERROR("{}", built.error());
+            FTK_CORE_ERROR("{}", built.error());
             retire_images();
             spectrum_.reset();
             return;
@@ -180,7 +180,7 @@ PassSetup WaterFftPass::setup() const {
     };
 }
 
-void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void WaterFftPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Steps once a frame, in the first run that keeps it; with no sea running
     // the still texel is all there is and nothing is written.
     if (stepped_this_frame_ || !active()) { return; }
@@ -189,20 +189,20 @@ void WaterFftPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // returns them to rest.
     for (const char* name : {"water_displacement", "water_derivatives"}) {
         auto image = builder.import_named(ctx, name);
-        builder.write(image, gpu::Access::storage_write_compute);
-        builder.leaves(image, gpu::Access::copy_dst, gpu::Access::copy_dst);
+        builder.write(image, ftk::gpu::Access::storage_write_compute);
+        builder.leaves(image, ftk::gpu::Access::copy_dst, ftk::gpu::Access::copy_dst);
     }
     // New images: last frame's surface is cleared to still water, and the
     // graph returns it to rest.
     if (images_fresh_) {
-        builder.write(builder.import_named(ctx, "water_displacement_prev"), gpu::Access::copy_dst);
+        builder.write(builder.import_named(ctx, "water_displacement_prev"), ftk::gpu::Access::copy_dst);
     }
 }
 
 void WaterFftPass::collect_exports(DeclareContext& ctx) {
     // Every surface rests where its readers sample it. Fresh images hold
     // nothing until the first step; the still texel is cleared when made.
-    const auto add = [&](std::string_view name, gpu::Texture texture, bool unwritten) {
+    const auto add = [&](std::string_view name, ftk::gpu::Texture texture, bool unwritten) {
         // This frame's surface is the next frame's previous one.
         ctx.export_texture(name, texture,
                            {.persistent = true, .resting = SURFACE_READS, .unwritten = unwritten});
@@ -221,10 +221,10 @@ void WaterFftPass::collect_exports(DeclareContext& ctx) {
     add("water_derivatives", derivatives_, images_fresh_);
 }
 
-void WaterFftPass::generate_mips(gpu::CommandList& cmd, gpu::Texture surface, gpu::AccessSet from) const {
+void WaterFftPass::generate_mips(ftk::gpu::CommandList& cmd, ftk::gpu::Texture surface, ftk::gpu::AccessSet from) const {
     // The top mip as written, the rest to be filled from it: all as copy
     // targets, which is where the chain starts and ends.
-    cmd.barrier(surface, from, gpu::Access::copy_dst);
+    cmd.barrier(surface, from, ftk::gpu::Access::copy_dst);
     cmd.generate_mipmaps(surface);
 }
 
@@ -233,7 +233,7 @@ void WaterFftPass::record(const FrameContext& ctx) {
     stepped_this_frame_ = true;
     if (!active()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_water_fft");
+    FTK_PROFILE_SCOPE_N("record_water_fft");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("WaterFft");
 
@@ -242,7 +242,7 @@ void WaterFftPass::record(const FrameContext& ctx) {
     // prepared and never recorded would otherwise leave "this frame's" surface
     // naming the older of the two.
     cur_ = 1 - cur_;
-    const std::uint32_t slot = ctx.frame_index % MAX_FRAMES_IN_FLIGHT;
+    const std::uint32_t slot = ctx.frame_index % ftk::MAX_FRAMES_IN_FLIGHT;
     // Written here rather than when the sea was set: a sea can be set after
     // this pass has prepared its frame, and the transform must never run from
     // a buffer that has not been filled.
@@ -258,26 +258,26 @@ void WaterFftPass::record(const FrameContext& ctx) {
     // The spectra are written whole, so what they held before is of no
     // interest and they start from nothing. The graph has the surface and
     // its derivatives as storage already.
-    const std::array<gpu::TextureView, 4> spectra{spectra_a_[0], spectra_b_[0], spectra_a_[1], spectra_b_[1]};
-    cmd.barrier(spectra, {}, gpu::Access::storage_read_write_compute);
+    const std::array<ftk::gpu::TextureView, 4> spectra{spectra_a_[0], spectra_b_[0], spectra_a_[1], spectra_b_[1]};
+    cmd.barrier(spectra, {}, ftk::gpu::Access::storage_read_write_compute);
 
     if (images_fresh_) {
         // Nothing has been simulated into last frame's surface yet. Still
         // water is the honest thing for it to hold: the surface then appears
         // to have risen out of a flat sea over one frame, not out of whatever
         // was in the memory. The graph has it as a copy target.
-        cmd.clear(displacement_[1 - cur_], gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f});
+        cmd.clear(displacement_[1 - cur_], ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f});
         images_fresh_ = false;
     }
 
     // Turn the drawn sea to now.
     {
-        FJELL_PROFILE_SCOPE_N("water_fft_evolve");
+        FTK_PROFILE_SCOPE_N("water_fft_evolve");
         auto evolve_zone = cmd.zone("WaterFft Evolve");
         cmd.set_pipeline(evolve_);
-        cmd.bind({{"sea", gpu::storage(amplitude_buffers_[slot])},
-                  {"spectra_a", gpu::storage(spectra_a_[0])},
-                  {"spectra_b", gpu::storage(spectra_b_[0])}});
+        cmd.bind({{"sea", ftk::gpu::storage(amplitude_buffers_[slot])},
+                  {"spectra_a", ftk::gpu::storage(spectra_a_[0])},
+                  {"spectra_b", ftk::gpu::storage(spectra_b_[0])}});
         cmd.push(EvolvePush{resolution_, log2_resolution, k_spacing_, time_, choppiness_});
         cmd.dispatch(groups, groups, 1);
     }
@@ -286,17 +286,17 @@ void WaterFftPass::record(const FrameContext& ctx) {
     // reads what the one before wrote and writes what it read.
     std::uint32_t source = 0;
     {
-        FJELL_PROFILE_SCOPE_N("water_fft_butterflies");
+        FTK_PROFILE_SCOPE_N("water_fft_butterflies");
         auto butterfly_zone = cmd.zone("WaterFft Butterflies");
         cmd.set_pipeline(butterfly_);
         for (std::uint32_t vertical = 0; vertical < 2; ++vertical) {
             for (std::uint32_t stage = 1; stage <= log2_resolution; ++stage) {
-                cmd.barrier(spectra, gpu::Access::storage_read_write_compute,
-                            gpu::Access::storage_read_write_compute);
-                cmd.bind({{"a_in", gpu::storage(spectra_a_[source])},
-                          {"b_in", gpu::storage(spectra_b_[source])},
-                          {"a_out", gpu::storage(spectra_a_[1 - source])},
-                          {"b_out", gpu::storage(spectra_b_[1 - source])}});
+                cmd.barrier(spectra, ftk::gpu::Access::storage_read_write_compute,
+                            ftk::gpu::Access::storage_read_write_compute);
+                cmd.bind({{"a_in", ftk::gpu::storage(spectra_a_[source])},
+                          {"b_in", ftk::gpu::storage(spectra_b_[source])},
+                          {"a_out", ftk::gpu::storage(spectra_a_[1 - source])},
+                          {"b_out", ftk::gpu::storage(spectra_b_[1 - source])}});
                 cmd.push(ButterflyPush{resolution_, stage, vertical});
                 cmd.dispatch(groups, groups, 1);
                 source = 1 - source;
@@ -306,26 +306,26 @@ void WaterFftPass::record(const FrameContext& ctx) {
 
     // Gather the surface and how it changes across the patch.
     {
-        FJELL_PROFILE_SCOPE_N("water_fft_assemble");
+        FTK_PROFILE_SCOPE_N("water_fft_assemble");
         auto assemble_zone = cmd.zone("WaterFft Assemble");
-        cmd.barrier(std::array<gpu::TextureView, 2>{spectra_a_[source], spectra_b_[source]},
-                    gpu::Access::storage_read_write_compute, gpu::Access::storage_read_compute);
+        cmd.barrier(std::array<ftk::gpu::TextureView, 2>{spectra_a_[source], spectra_b_[source]},
+                    ftk::gpu::Access::storage_read_write_compute, ftk::gpu::Access::storage_read_compute);
         cmd.set_pipeline(assemble_);
-        cmd.bind({{"surface_a", gpu::storage(spectra_a_[source])},
-                  {"surface_b", gpu::storage(spectra_b_[source])},
-                  {"displacement", gpu::storage(gpu::mip(displacement_[cur_], 0))},
-                  {"derivatives", gpu::storage(gpu::mip(derivatives_, 0))}});
+        cmd.bind({{"surface_a", ftk::gpu::storage(spectra_a_[source])},
+                  {"surface_b", ftk::gpu::storage(spectra_b_[source])},
+                  {"displacement", ftk::gpu::storage(ftk::gpu::mip(displacement_[cur_], 0))},
+                  {"derivatives", ftk::gpu::storage(ftk::gpu::mip(derivatives_, 0))}});
         cmd.push(AssemblePush{resolution_, patch_size_ / static_cast<float>(resolution_)});
         cmd.dispatch(groups, groups, 1);
     }
 
-    gpu::AccessSet written = gpu::Access::storage_write_compute;
+    ftk::gpu::AccessSet written = ftk::gpu::Access::storage_write_compute;
     if (verifying_ && verify_frames_left_ < 0 && record_verification_copy(cmd)) {
-        written = gpu::Access::copy_src;
+        written = ftk::gpu::Access::copy_src;
     }
 
     {
-        FJELL_PROFILE_SCOPE_N("water_fft_mips");
+        FTK_PROFILE_SCOPE_N("water_fft_mips");
         auto mips_zone = cmd.zone("WaterFft Mips");
         generate_mips(cmd, displacement_[cur_], written);
         generate_mips(cmd, derivatives_, written);
@@ -351,20 +351,20 @@ void WaterFftPass::begin_verification() {
     verify_sea_ = water::draw_simulated_sea(sea);
     verifying_ = true;
     set_sea(&*verify_sea_);
-    FJELL_CORE_INFO("WaterFftPass: verifying the GPU transform against the CPU reference");
+    FTK_CORE_INFO("WaterFftPass: verifying the GPU transform against the CPU reference");
 }
 
-bool WaterFftPass::record_verification_copy(gpu::CommandList& cmd) {
+bool WaterFftPass::record_verification_copy(ftk::gpu::CommandList& cmd) {
     const std::uint64_t texels = std::uint64_t{resolution_} * resolution_;
     const std::uint64_t image_bytes = texels * 4 * sizeof(std::uint16_t);
-    auto readback = gpu_device_->create(gpu::BufferDesc{
+    auto readback = gpu_device_->create(ftk::gpu::BufferDesc{
         .size = image_bytes * 2,
-        .use = gpu::BufferUse::storage,
-        .memory = gpu::Memory::readback,
+        .use = ftk::gpu::BufferUse::storage,
+        .memory = ftk::gpu::Memory::readback,
         .name = "water_fft_verify",
     });
     if (!readback) {
-        FJELL_CORE_ERROR("WaterFftPass: {}", readback.error());
+        FTK_CORE_ERROR("WaterFftPass: {}", readback.error());
         return false;
     }
     verify_readback_ = std::move(*readback);
@@ -372,8 +372,8 @@ bool WaterFftPass::record_verification_copy(gpu::CommandList& cmd) {
     // What the assemble step wrote, copied as it stands.
     for (const auto& [surface, offset] : {std::pair{displacement_[cur_].get(), std::uint64_t{0}},
                                          std::pair{derivatives_.get(), image_bytes}}) {
-        cmd.barrier(surface, gpu::Access::storage_write_compute, gpu::Access::copy_src);
-        cmd.copy(gpu::mip(surface, 0), gpu::BufferRange(verify_readback_, offset, image_bytes));
+        cmd.barrier(surface, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::copy_src);
+        cmd.copy(ftk::gpu::mip(surface, 0), ftk::gpu::BufferRange(verify_readback_, offset, image_bytes));
     }
     verify_frames_left_ = VERIFY_WAIT_FRAMES;
     return true;
@@ -427,11 +427,11 @@ void WaterFftPass::finish_verification() {
     // is off by the height itself.
     const float allowed = std::max(tallest, 0.1f) * 2e-3f;
     if (worst_surface <= allowed && worst_slope <= allowed * 4.0f) {
-        FJELL_CORE_INFO("WaterFftPass: VERIFIED. {}x{} sea up to {:.3f} m: surface within "
+        FTK_CORE_INFO("WaterFftPass: VERIFIED. {}x{} sea up to {:.3f} m: surface within "
                         "{:.5f} m, derivatives within {:.5f}", n, n, tallest, worst_surface,
                         worst_slope);
     } else {
-        FJELL_CORE_ERROR("WaterFftPass: VERIFICATION FAILED. {}x{} sea up to {:.3f} m: surface "
+        FTK_CORE_ERROR("WaterFftPass: VERIFICATION FAILED. {}x{} sea up to {:.3f} m: surface "
                          "off by {:.5f} m, derivatives by {:.5f} (allowed {:.5f})", n, n, tallest,
                          worst_surface, worst_slope, allowed);
     }

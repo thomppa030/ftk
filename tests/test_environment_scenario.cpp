@@ -15,7 +15,7 @@ namespace {
 
 fs::path write_scenario(const char* name, const std::string& text) {
     auto dir = fs::temp_directory_path() /
-               ("fjell_scenario_test_" + std::to_string(platform::process_id()));
+               ("fjell_scenario_test_" + std::to_string(ftk::platform::process_id()));
     fs::create_directories(dir);
     auto path = dir / name;
     std::ofstream(path) << text;

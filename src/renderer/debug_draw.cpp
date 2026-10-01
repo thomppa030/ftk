@@ -21,7 +21,6 @@
 
 namespace fjell {
 
-
 // ── Geometry helpers ────────────────────────────────────────────────────
 
 void DebugDraw::add_line(const glm::vec3& a, const glm::vec3& b) {
@@ -206,7 +205,7 @@ glm::mat4 DebugDraw::primitive_placement(const CollisionPrimitive& prim,
 
 void DebugDraw::update(const Scene& scene, uint32_t selected_id,
                        bool show_colliders, DebugDrawQueue* script_queue) {
-    FJELL_PROFILE_SCOPE_N("debug_draw_update");
+    FTK_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
     draw_commands_.clear();
 
@@ -417,7 +416,7 @@ void DebugDraw::update(const Scene& scene, uint32_t selected_id,
 
 // ── Draw ────────────────────────────────────────────────────────────────
 
-void DebugDraw::draw(gpu::RenderEncoder& pass) const {
+void DebugDraw::draw(ftk::gpu::RenderEncoder& pass) const {
     if (vertices_.empty() || draw_commands_.empty()) return;
 
     // The lines of the last update(), copied for this frame.

@@ -8,7 +8,7 @@
 #include <string_view>
 #include <utility>
 
-namespace fjell::test {
+namespace ftk::test {
 
 /// Runs Dear ImGui with no window and no renderer, so editor UI code can be
 /// driven from a test: set the UI once, feed it mouse, key and text events,
@@ -74,4 +74,4 @@ private:
     std::map<std::string, Rect> marks_;
 };
 
-} // namespace fjell::test
+} // namespace ftk::test

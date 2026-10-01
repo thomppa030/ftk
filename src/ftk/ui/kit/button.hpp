@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What pressing a button does, which decides how it looks. Every button in
 /// the editor is one of these; there is one button height.
@@ -54,4 +54,4 @@ bool mode_button(const char* id, const char* icon, const char* label, bool alert
 /// The same toggle with a text label, sized to fit it.
 bool toggle(const char* label, bool on, const char* tooltip);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

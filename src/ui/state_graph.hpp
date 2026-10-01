@@ -43,12 +43,12 @@ public:
     [[nodiscard]] ImVec2 screen_position(glm::vec2 graph_point) const { return graph_.screen_position(graph_point); }
 
 private:
-    [[nodiscard]] ui::NodeGraphDesc describe(const AnimationStateMachine& machine) const;
-    bool apply(AnimationStateMachine& machine, const ui::NodeGraphEvents& events);
-    bool menu(AnimationStateMachine& machine, const ui::NodeGraphMenu& target, bool& changed);
+    [[nodiscard]] ftk::ui::NodeGraphDesc describe(const AnimationStateMachine& machine) const;
+    bool apply(AnimationStateMachine& machine, const ftk::ui::NodeGraphEvents& events);
+    bool menu(AnimationStateMachine& machine, const ftk::ui::NodeGraphMenu& target, bool& changed);
     void add_state(AnimationStateMachine& machine, glm::vec2 at);
 
-    ui::NodeGraph graph_;
+    ftk::ui::NodeGraph graph_;
 };
 
 } // namespace fjell

@@ -26,9 +26,9 @@ static const bool reg_vfx = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::VfxAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_vfx_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -49,9 +49,9 @@ static const bool reg_audio = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::AudioAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_audio_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -72,9 +72,9 @@ static const bool reg_surface = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::SurfaceAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_surface_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -95,9 +95,9 @@ static const bool reg_day_profile = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::DayProfileAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_day_profile(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -118,9 +118,9 @@ static const bool reg_weather = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::WeatherAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_weather_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -141,9 +141,9 @@ static const bool reg_climate = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::ClimateAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_climate_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -164,16 +164,16 @@ static const bool reg_material = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::MaterialHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_material_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
             return rm.asset_handle_of<fjell::MaterialHandle>(path).id;
         },
         .draw_preview = [](const std::string& path, ResourceManager& /*rm*/,
-                           fjell::IconCache* icons, const fjell::Project* project,
+                           ftk::IconCache* icons, const fjell::Project* project,
                            float width) {
             auto* thumbnails = fjell::AssetThumbnailRenderer::instance();
             if (!thumbnails || !project || path.empty() || path == "default") return;
@@ -210,9 +210,9 @@ static const bool reg_input_action = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::InputActionHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_input_action(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {
@@ -233,9 +233,9 @@ static const bool reg_preset = [] {
         .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
             return rm.asset_path_of(fjell::PresetAssetHandle{id});
         },
-        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+        .load      = [](ResourceManager& rm, const std::string& path) -> ftk::Result<uint32_t> {
             auto r = rm.load_preset_asset(path);
-            if (!r) return fjell::make_error(r.error());
+            if (!r) return ftk::make_error(r.error());
             return r->id;
         },
         .find      = [](const ResourceManager& rm, const std::string& path) -> uint32_t {

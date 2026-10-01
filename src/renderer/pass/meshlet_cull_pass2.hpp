@@ -12,13 +12,13 @@ class MeshletInstancePass;
 /// draws with the first.
 class MeshletCullPass2 : public RenderPass {
 public:
-    Result<> create(const PassResources&) override { return {}; }
+    ftk::Result<> create(const PassResources&) override { return {}; }
     void destroy() override {}
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
 
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
     MeshletInstancePass* instance_pass_{nullptr};

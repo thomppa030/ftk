@@ -23,7 +23,7 @@
 namespace fjell {
 
 void GameUi::create(const PassResources& resources, FontLibrary& fonts, PipelineCache* fjsl_pipelines,
-                    gpu::Format output_format) {
+                    ftk::gpu::Format output_format) {
     fonts_ = &fonts;
     renderer_.create(resources, fjsl_pipelines, output_format);
 }
@@ -59,7 +59,7 @@ void GameUi::destroy() {
 
 void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     if (!std::filesystem::exists(fjui_path)) {
-        FJELL_CORE_WARN("GameUi: .fjui file not found: {}", fjui_path);
+        FTK_CORE_WARN("GameUi: .fjui file not found: {}", fjui_path);
         return;
     }
 
@@ -69,7 +69,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
 
     auto parsed = FjuiParser::parse(fjui_ss.str());
     if (!parsed) {
-        FJELL_CORE_ERROR("GameUi: failed to parse {}", fjui_path);
+        FTK_CORE_ERROR("GameUi: failed to parse {}", fjui_path);
         return;
     }
     ui_stamp_source_file(*parsed, fjui_path);
@@ -98,7 +98,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     dirty_ = true;
     watch_sources(fjui_path, fjss_path);
 
-    FJELL_CORE_DEBUG("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
+    FTK_CORE_DEBUG("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
 }
 
 void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
@@ -140,7 +140,7 @@ void GameUi::install_tree(std::unique_ptr<UiNode> root, const std::string& base_
     take_bind_result(bind_result);
 
     dirty_ = true;
-    FJELL_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
+    FTK_CORE_DEBUG("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
 }
 
 GameUi::GameUi() {
@@ -197,7 +197,7 @@ const FontAtlas& GameUi::font_for(const UiComputedStyle& style) {
 
     if (!best) {
         if (unknown_families_.insert(style.font_family).second) {
-            FJELL_CORE_WARN("GameUi: {}: no @font-face declares font-family '{}', using the default font",
+            FTK_CORE_WARN("GameUi: {}: no @font-face declares font-family '{}', using the default font",
                             stylesheet_path_.empty() ? "<in-memory sheet>" : stylesheet_path_,
                             style.font_family);
         }
@@ -260,7 +260,7 @@ bool GameUi::consume_reload_request() {
 void GameUi::update(float viewport_width, float viewport_height,
                     uint32_t frame_index, float dt, const Input* input,
                     glm::vec2 viewport_offset) {
-    FJELL_PROFILE_SCOPE_N("game_ui_update");
+    FTK_PROFILE_SCOPE_N("game_ui_update");
     if (!root_) return;
 
 #ifndef NDEBUG
@@ -371,7 +371,7 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // When something changes, flush all in-flight SSBO slots
     if (needs_redraw_) {
-        redraw_countdown_ = MAX_FRAMES_IN_FLIGHT;
+        redraw_countdown_ = ftk::MAX_FRAMES_IN_FLIGHT;
     }
     if (redraw_countdown_ == 0) return;
     --redraw_countdown_;
@@ -389,7 +389,7 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 8. Shape and upload text for all text nodes
     if (fonts_ && fonts_->fallback().valid()) {
-        FJELL_PROFILE_SCOPE_N("ui_shape_text");
+        FTK_PROFILE_SCOPE_N("ui_shape_text");
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
 
@@ -435,9 +435,9 @@ void GameUi::init_text_templates(UiNode& node) {
     }
 }
 
-void GameUi::record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+void GameUi::record(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                     glm::uvec2 extent, uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("game_ui_record");
+    FTK_PROFILE_SCOPE_N("game_ui_record");
     renderer_.record(pass, globals, bindless, extent, frame_index);
 }
 
@@ -445,7 +445,7 @@ void GameUi::create_world_pipelines(const PassResources& resources) {
     renderer_.create_world_pipelines(resources);
 }
 
-void GameUi::record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+void GameUi::record_world(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                           glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                           const glm::mat4& prev_mvp) {
     renderer_.record_world(pass, globals, bindless, extent, frame_index, push, prev_mvp);
@@ -486,12 +486,12 @@ void GameUi::resolve_node_assets(UiNode& node, bool bound) {
         if (!src->empty()) { // a key with no value yet draws no texture
             auto resolved_path = base_path::resolve_asset(*src, project_);
             auto tex_result = resolved_path.empty()
-                ? Result<TextureHandle>(make_error("asset reference does not resolve"))
+                ? ftk::Result<TextureHandle>(ftk::make_error("asset reference does not resolve"))
                 : resource_manager_->load_texture(resolved_path);
             if (tex_result) {
                 node.resolved_texture_id = resource_manager_->bindless_index(*tex_result);
             } else {
-                FJELL_CORE_WARN("{}:{}: <{}> src='{}' did not load: {}",
+                FTK_CORE_WARN("{}:{}: <{}> src='{}' did not load: {}",
                                 node.source_file, node.source_line, node.tag, *src,
                                 tex_result.error());
             }
@@ -533,20 +533,20 @@ void GameUi::resolve_node_assets(UiNode& node, bool bound) {
                     "material '" + mat_name + "' is shader_type "
                         + std::string(shader_type_name(mat->shader_type())) +
                         "; a UI node needs a shader_type ui material"});
-                FJELL_CORE_WARN("{}:{}: <{}> material '{}' is shader_type {}, a UI node needs "
+                FTK_CORE_WARN("{}:{}: <{}> material '{}' is shader_type {}, a UI node needs "
                                 "shader_type ui",
                                 node.source_file, node.source_line, node.tag, mat_name,
                                 shader_type_name(mat->shader_type()));
             } else if (mat) {
                 node.resolved_material_id = mat->material_id();
                 node.resolved_pipeline_id = mat->pipeline_id();
-                FJELL_CORE_DEBUG("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
+                FTK_CORE_DEBUG("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
                                  "param_offset={} param_count={}",
                                  node.tag, mat_name, mat->material_id(), mat->pipeline_id(),
                                  mat->custom_param_offset(), mat->custom_param_count());
             }
         } else {
-            FJELL_CORE_WARN("GameUi: <{}> material='{}' did not resolve to a valid handle",
+            FTK_CORE_WARN("GameUi: <{}> material='{}' did not resolve to a valid handle",
                             node.tag, mat_name);
         }
     }

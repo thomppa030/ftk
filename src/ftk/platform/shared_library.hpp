@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 #ifdef _WIN32
 inline constexpr const char* SHARED_LIB_EXT = ".dll";
@@ -49,4 +49,4 @@ private:
     std::string error_;
 };
 
-} // namespace fjell::platform
+} // namespace ftk::platform

@@ -14,12 +14,15 @@
 #include <variant>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class AnimationClip;
 class AnimationSubsystem;
 class Clock;
-class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
@@ -33,7 +36,7 @@ struct BlendSpaceEditorDeps {
     Clock* clock;
     AnimationSubsystem* animation_subsystem;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
 };
 
 /// Edits a blend space, a `.fjblend1D` or a `.fjblend2D`: clips placed at
@@ -54,8 +57,8 @@ public:
     void draw(float dt) override;
     bool handle_shortcuts() override { return false; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
@@ -81,7 +84,7 @@ private:
 
     void draw_canvas_panel();
     /// The canvas's axes, named after the space's parameters.
-    [[nodiscard]] ui::PlotAxes plot_axes() const;
+    [[nodiscard]] ftk::ui::PlotAxes plot_axes() const;
     /// Shows every point with room around it, and at least -1..1.
     void frame_points();
     void draw_canvas_1d(ImVec2 origin, ImVec2 size);
@@ -119,7 +122,7 @@ private:
     std::vector<std::string> available_clip_names_;
 
     // Canvas: a line along the parameter for 1D, a plot of both for 2D.
-    ui::CanvasView view_;
+    ftk::ui::CanvasView view_;
     bool frame_pending_{true};
     glm::vec2 cursor_{0.0f, 0.0f};
     int selected_point_{-1};

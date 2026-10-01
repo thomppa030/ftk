@@ -18,16 +18,16 @@ namespace fjell {
 
 // A sample count is stored as the number itself (1/2/4/8), which keeps the
 // JSON human-readable; anything else reads as the default, four.
-static uint32_t sample_count_to_u32(gpu::Samples samples) {
+static uint32_t sample_count_to_u32(ftk::gpu::Samples samples) {
     return static_cast<uint32_t>(samples);
 }
 
-static gpu::Samples sample_count_from_u32(uint32_t v) {
+static ftk::gpu::Samples sample_count_from_u32(uint32_t v) {
     switch (v) {
-        case 1: return gpu::Samples::x1;
-        case 2: return gpu::Samples::x2;
-        case 8: return gpu::Samples::x8;
-        default: return gpu::Samples::x4;
+        case 1: return ftk::gpu::Samples::x1;
+        case 2: return ftk::gpu::Samples::x2;
+        case 8: return ftk::gpu::Samples::x8;
+        default: return ftk::gpu::Samples::x4;
     }
 }
 
@@ -140,7 +140,7 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
             constexpr uint32_t AGX = 3;
             const uint32_t op = t.value("operator", AGX);
             if (op != AGX && op < std::size(OPERATORS)) {
-                FJELL_CORE_WARN("Project settings: the tone curve is a post process volume's "
+                FTK_CORE_WARN("Project settings: the tone curve is a post process volume's "
                                 "now, and this project used {0}. Add a Post Process Volume with "
                                 "Infinite bounds and set its operator to {0} to keep the look.",
                                 OPERATORS[op]);

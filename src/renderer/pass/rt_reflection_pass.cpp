@@ -62,51 +62,51 @@ struct SpatialPush {
 
 // Where the pass's own textures rest between its dispatches and between
 // frames: sampled by its compute shaders.
-constexpr gpu::Access REST = gpu::Access::sampled_compute;
+constexpr ftk::gpu::Access REST = ftk::gpu::Access::sampled_compute;
 
 } // namespace
 
 // ── create ─────────────────────────────────────────────────────────────
 
-Result<> RtReflectionPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
-    linear_sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                                      .mip_filter = gpu::Filter::nearest,
-                                      .address = gpu::Address::clamp});
-    nearest_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
-                                       .mip_filter = gpu::Filter::nearest,
-                                       .address = gpu::Address::clamp});
+ftk::Result<> RtReflectionPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
+    linear_sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                                      .mip_filter = ftk::gpu::Filter::nearest,
+                                      .address = ftk::gpu::Address::clamp});
+    nearest_sampler_ = device.sampler({.filter = ftk::gpu::Filter::nearest,
+                                       .mip_filter = ftk::gpu::Filter::nearest,
+                                       .address = ftk::gpu::Address::clamp});
 
     // The trace is only built when the device has ray queries. Without them
     // the pass still exists (so .fjgraph parses) but does nothing.
     if (!device.caps().ray_queries) {
-        FJELL_GFX_INFO("RT reflections disabled (no ray queries)");
+        FTK_GFX_INFO("RT reflections disabled (no ray queries)");
         return {};
     }
 
     // Set 0 the pass's own, set 1 the bindless material set a hit's surface
     // is read from.
-    FJELL_TRY(trace_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(trace_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                    .shader = "shaders/rt_reflection_trace.comp",
                                    .shared = {resources.bindless},
                                    .name = "rt_reflection_trace",
                                }));
     // One stochastic sample per pixel is unusable raw; this accumulates it
     // across frames. See shaders/rt_reflection_denoise.comp.
-    FJELL_TRY(denoise_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(denoise_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                      .shader = "shaders/rt_reflection_denoise.comp",
                                      .name = "rt_reflection_denoise",
                                  }));
     // Reconciles neighbouring pixels the temporal pass converged
     // independently. See shaders/rt_reflection_spatial.comp.
-    FJELL_TRY(spatial_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(spatial_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                      .shader = "shaders/rt_reflection_spatial.comp",
                                      .name = "rt_reflection_spatial",
                                  }));
 
     // Per-viewport textures are owned by PostProcessResources, made once per
     // viewport at the right size.
-    FJELL_GFX_INFO("RT reflection pass created");
+    FTK_GFX_INFO("RT reflection pass created");
     return {};
 }
 
@@ -116,33 +116,33 @@ void RtReflectionPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
 
 // ── Images (per-viewport) ──────────────────────────────────────────────
 
-void RtReflectionPass::Images::create(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void RtReflectionPass::Images::create(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     extent = {width, height};
     history_valid = false;
     prev_depth_slot = 0;
 
-    auto make = [&](gpu::Format format, std::string_view name) -> gpu::Owned<gpu::Texture> {
-        auto made = gpu.create(gpu::TextureDesc{
+    auto make = [&](ftk::gpu::Format format, std::string_view name) -> ftk::gpu::Owned<ftk::gpu::Texture> {
+        auto made = gpu.create(ftk::gpu::TextureDesc{
             .format = format,
             .width = width,
             .height = height,
-            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-            .initial = gpu::Clear{},
+            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+            .initial = ftk::gpu::Clear{},
             .name = name,
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             return {};
         }
         return std::move(*made);
     };
     // Cleared, the output shows no reflection until the trace first writes it.
-    output = make(gpu::Format::rgba16_float, "rt_reflection_output");
-    accumulated = make(gpu::Format::rgba16_float, "rt_reflection_accumulated");
-    history = make(gpu::Format::rgba16_float, "rt_reflection_history");
+    output = make(ftk::gpu::Format::rgba16_float, "rt_reflection_output");
+    accumulated = make(ftk::gpu::Format::rgba16_float, "rt_reflection_accumulated");
+    history = make(ftk::gpu::Format::rgba16_float, "rt_reflection_history");
     // At the reflection's resolution, which is what the denoise reprojects in.
     for (auto& slot : prev_depth) {
-        slot = make(gpu::Format::r32_float, "rt_reflection_prev_depth");
+        slot = make(ftk::gpu::Format::r32_float, "rt_reflection_prev_depth");
     }
 }
 
@@ -156,7 +156,7 @@ void RtReflectionPass::Images::destroy() {
     prev_depth_slot = 0;
 }
 
-void RtReflectionPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void RtReflectionPass::Images::resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (output && extent.x == width && extent.y == height) return;
     destroy();
     if (width > 0 && height > 0) create(gpu, width, height);
@@ -178,34 +178,34 @@ PassSetup RtReflectionPass::setup() const {
     };
 }
 
-void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void RtReflectionPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ray_traced_active()) return;
     auto out = builder.import_named_optional(ctx, OUTPUT_NAME);
     if (!out.valid()) return;
     // Written whole by the trace, and again by the spatial filter once the
     // denoise has read it, all inside the pass; the composite reads it next,
     // which is what keeps the pass alive.
-    builder.write(out, gpu::Access::storage_write_compute);
+    builder.write(out, ftk::gpu::Access::storage_write_compute);
 
     AccelStructureManager::declare_trace(builder, ctx);
     // The trace, the denoise and the filter read the surface in compute.
-    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
-    builder.read(builder.import_named(ctx, "normal"), gpu::Access::sampled_compute);
-    builder.read(builder.import_named(ctx, "mr"), gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "depth"), ftk::gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "normal"), ftk::gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "mr"), ftk::gpu::Access::sampled_compute);
     // A reflection ray that misses reads the sky.
     if (auto sky = builder.import_named(ctx, "sky_cubemap"); sky.valid()) {
-        builder.read(sky, gpu::Access::sampled_compute);
+        builder.read(sky, ftk::gpu::Access::sampled_compute);
     }
     // A hit is lit by this viewport's DDGI probe field, after DDGI has
     // updated it.
     for (std::string_view name :
          {DdgiPass::IRRADIANCE_NAME, DdgiPass::VISIBILITY_NAME, DdgiPass::PROBE_OFFSET_NAME}) {
         if (auto atlas = builder.import_named_optional(ctx, name); atlas.valid()) {
-            builder.read(atlas, gpu::Access::sampled_compute);
+            builder.read(atlas, ftk::gpu::Access::sampled_compute);
         }
     }
     builder.read(builder.import_named_buffer(ctx, DdgiPass::PROBE_STATUS_NAME),
-                 gpu::Access::storage_buffer_read_compute);
+                 ftk::gpu::Access::storage_buffer_read_compute);
 }
 
 void RtReflectionPass::record(const FrameContext& ctx) {
@@ -213,7 +213,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     auto* imgs = ctx.pp_resources->rt_reflection();
     if (imgs == nullptr || !imgs->output) return;
 
-    FJELL_PROFILE_SCOPE_N("record_rt_reflection");
+    FTK_PROFILE_SCOPE_N("record_rt_reflection");
     record_into(ctx, *imgs);
 }
 
@@ -224,7 +224,7 @@ void RtReflectionPass::record_into(const FrameContext& ctx, Images& imgs) {
     // This frame's TLAS for the scene, built by the rt_scene pass; none when
     // no tracer's reach held anything.
     const uint64_t scene_id = ctx.scene->id();
-    const gpu::AccelerationStructure tlas = accel_manager_->tlas(scene_id, ctx.frame_index);
+    const ftk::gpu::AccelerationStructure tlas = accel_manager_->tlas(scene_id, ctx.frame_index);
     if (!tlas.valid()) return;
     // A hit is lit by the probe field this viewport's DDGI keeps, made
     // cleared with every probe untraced before DDGI first runs.
@@ -234,28 +234,28 @@ void RtReflectionPass::record_into(const FrameContext& ctx, Images& imgs) {
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("RT Reflection");
 
-    const gpu::Texture depth = ctx.target->depth_texture();
-    const gpu::Texture normal = ctx.target->normal_texture();
-    const gpu::Texture mr = ctx.target->mr_texture();
+    const ftk::gpu::Texture depth = ctx.target->depth_texture();
+    const ftk::gpu::Texture normal = ctx.target->normal_texture();
+    const ftk::gpu::Texture mr = ctx.target->mr_texture();
 
     // The graph has the output in storage_write.
     cmd.set_pipeline(trace_pipeline_);
-    cmd.bind({{"ddgi", gpu::uniform(ddgi->constants[ctx.frame_index])},
-              {"tlas", gpu::acceleration(tlas)},
-              {"depth_tex", gpu::sampled(depth, nearest_sampler_)},
-              {"normal_tex", gpu::sampled(normal, nearest_sampler_)},
-              {"mr_tex", gpu::sampled(mr, linear_sampler_)},
-              {"sky_cubemap", gpu::sampled(sky_->sky_texture(), sky_->sky_sampler())},
-              {"reflection_out", gpu::storage(imgs.output)},
-              {"VertexBuffer", gpu::storage(ctx.mega_buffer->vertex_buffer())},
-              {"IndexBuffer", gpu::storage(ctx.mega_buffer->index_buffer())},
+    cmd.bind({{"ddgi", ftk::gpu::uniform(ddgi->constants[ctx.frame_index])},
+              {"tlas", ftk::gpu::acceleration(tlas)},
+              {"depth_tex", ftk::gpu::sampled(depth, nearest_sampler_)},
+              {"normal_tex", ftk::gpu::sampled(normal, nearest_sampler_)},
+              {"mr_tex", ftk::gpu::sampled(mr, linear_sampler_)},
+              {"sky_cubemap", ftk::gpu::sampled(sky_->sky_texture(), sky_->sky_sampler())},
+              {"reflection_out", ftk::gpu::storage(imgs.output)},
+              {"VertexBuffer", ftk::gpu::storage(ctx.mega_buffer->vertex_buffer())},
+              {"IndexBuffer", ftk::gpu::storage(ctx.mega_buffer->index_buffer())},
               {"InstanceDataBuffer",
-               gpu::storage(accel_manager_->instance_data_buffer(scene_id, ctx.frame_index))},
-              {"ddgi_irradiance_tex", gpu::sampled(ddgi->irradiance, linear_sampler_)},
-              {"ddgi_visibility_tex", gpu::sampled(ddgi->visibility, linear_sampler_)},
-              {"ddgi_probe_offset_tex", gpu::sampled(ddgi->probe_offset, nearest_sampler_)},
-              {"DdgiProbeStatusSSBO", gpu::storage(ddgi->probe_status)},
-              {"rc", gpu::uniform(cmd.transient(ReflectionConstants{
+               ftk::gpu::storage(accel_manager_->instance_data_buffer(scene_id, ctx.frame_index))},
+              {"ddgi_irradiance_tex", ftk::gpu::sampled(ddgi->irradiance, linear_sampler_)},
+              {"ddgi_visibility_tex", ftk::gpu::sampled(ddgi->visibility, linear_sampler_)},
+              {"ddgi_probe_offset_tex", ftk::gpu::sampled(ddgi->probe_offset, nearest_sampler_)},
+              {"DdgiProbeStatusSSBO", ftk::gpu::storage(ddgi->probe_status)},
+              {"rc", ftk::gpu::uniform(cmd.transient(ReflectionConstants{
                          .sun_dir_intensity = glm::vec4(glm::normalize(-sun_direction_), sun_intensity_),
                          .sun_color = glm::vec4(sun_color_, 0.0F),
                      }))}});
@@ -284,8 +284,8 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("RT Reflection Denoise");
 
-    const gpu::Texture depth = ctx.target->depth_texture();
-    const gpu::Texture mr = ctx.target->mr_texture();
+    const ftk::gpu::Texture depth = ctx.target->depth_texture();
+    const ftk::gpu::Texture mr = ctx.target->mr_texture();
 
     // Ping-pong: read what the previous dispatch wrote, write the other slot.
     const uint32_t read_slot = imgs.prev_depth_slot;
@@ -293,9 +293,9 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
 
     // The trace's sample becomes the denoise's input; the accumulation and
     // this frame's depth are written whole, after last frame's reads.
-    cmd.barrier(imgs.output, gpu::Access::storage_write_compute, REST);
-    const std::array<gpu::TextureView, 2> written{imgs.accumulated, imgs.prev_depth[write_slot]};
-    cmd.barrier(written, REST, gpu::Access::storage_write_compute);
+    cmd.barrier(imgs.output, ftk::gpu::Access::storage_write_compute, REST);
+    const std::array<ftk::gpu::TextureView, 2> written{imgs.accumulated, imgs.prev_depth[write_slot]};
+    cmd.barrier(written, REST, ftk::gpu::Access::storage_write_compute);
 
     // FJELL_RT_DENOISE_DEBUG=1|2|3 replaces the reflection with a diagnostic
     // view: surviving blend, which test rejected history, or how hard the
@@ -306,13 +306,13 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
     }();
 
     cmd.set_pipeline(denoise_pipeline_);
-    cmd.bind({{"raw_reflection", gpu::sampled(imgs.output, linear_sampler_)},
-              {"history", gpu::sampled(imgs.history, linear_sampler_)},
-              {"depth_tex", gpu::sampled(depth, nearest_sampler_)},
-              {"prev_depth_tex", gpu::sampled(imgs.prev_depth[read_slot], nearest_sampler_)},
-              {"mr_tex", gpu::sampled(mr, nearest_sampler_)},
-              {"resolved_out", gpu::storage(imgs.accumulated)},
-              {"dc", gpu::uniform(cmd.transient(GpuReflectionDenoiseConstants{
+    cmd.bind({{"raw_reflection", ftk::gpu::sampled(imgs.output, linear_sampler_)},
+              {"history", ftk::gpu::sampled(imgs.history, linear_sampler_)},
+              {"depth_tex", ftk::gpu::sampled(depth, nearest_sampler_)},
+              {"prev_depth_tex", ftk::gpu::sampled(imgs.prev_depth[read_slot], nearest_sampler_)},
+              {"mr_tex", ftk::gpu::sampled(mr, nearest_sampler_)},
+              {"resolved_out", ftk::gpu::storage(imgs.accumulated)},
+              {"dc", ftk::gpu::uniform(cmd.transient(GpuReflectionDenoiseConstants{
                          .projection = ctx.projection,
                          .inv_view_proj = ctx.inv_view_proj,
                          .prev_view_proj = imgs.prev_view_proj,
@@ -320,7 +320,7 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
                          .camera_position = ctx.camera_position,
                          .pad0 = 0.0F,
                      }))},
-              {"prev_depth_out", gpu::storage(imgs.prev_depth[write_slot])}});
+              {"prev_depth_out", ftk::gpu::storage(imgs.prev_depth[write_slot])}});
     cmd.push(DenoisePush{
         .width = imgs.extent.x,
         .height = imgs.extent.y,
@@ -331,12 +331,12 @@ void RtReflectionPass::record_denoise(const FrameContext& ctx, Images& imgs) {
     cmd.dispatch((imgs.extent.x + 7) / 8, (imgs.extent.y + 7) / 8, 1);
 
     // The accumulation becomes the next frame's history.
-    cmd.barrier(imgs.accumulated, gpu::Access::storage_write_compute, gpu::Access::copy_src);
-    cmd.barrier(imgs.history, REST, gpu::Access::copy_dst);
+    cmd.barrier(imgs.accumulated, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::copy_src);
+    cmd.barrier(imgs.history, REST, ftk::gpu::Access::copy_dst);
     cmd.copy(imgs.accumulated, imgs.history);
-    cmd.barrier(imgs.history, gpu::Access::copy_dst, REST);
-    cmd.barrier(imgs.accumulated, gpu::Access::copy_src, REST);
-    cmd.barrier(imgs.prev_depth[write_slot], gpu::Access::storage_write_compute, REST);
+    cmd.barrier(imgs.history, ftk::gpu::Access::copy_dst, REST);
+    cmd.barrier(imgs.accumulated, ftk::gpu::Access::copy_src, REST);
+    cmd.barrier(imgs.prev_depth[write_slot], ftk::gpu::Access::storage_write_compute, REST);
 
     // Next frame reads this frame's depth and writes the other slot.
     imgs.prev_depth_slot = write_slot;
@@ -359,13 +359,13 @@ void RtReflectionPass::record_spatial(const FrameContext& ctx, Images& imgs) {
     // neighbourhood clamp keeps measuring the real sample spread rather than
     // one this pass already smoothed. It leaves the output in storage_write,
     // where the graph expects the pass to leave it.
-    cmd.barrier(imgs.output, REST, gpu::Access::storage_write_compute);
+    cmd.barrier(imgs.output, REST, ftk::gpu::Access::storage_write_compute);
 
     cmd.set_pipeline(spatial_pipeline_);
-    cmd.bind({{"reflection_in", gpu::sampled(imgs.accumulated, linear_sampler_)},
-              {"depth_tex", gpu::sampled(ctx.target->depth_texture(), nearest_sampler_)},
-              {"mr_tex", gpu::sampled(ctx.target->mr_texture(), nearest_sampler_)},
-              {"filtered_out", gpu::storage(imgs.output)}});
+    cmd.bind({{"reflection_in", ftk::gpu::sampled(imgs.accumulated, linear_sampler_)},
+              {"depth_tex", ftk::gpu::sampled(ctx.target->depth_texture(), nearest_sampler_)},
+              {"mr_tex", ftk::gpu::sampled(ctx.target->mr_texture(), nearest_sampler_)},
+              {"filtered_out", ftk::gpu::storage(imgs.output)}});
     cmd.push(SpatialPush{
         .width = imgs.extent.x,
         .height = imgs.extent.y,

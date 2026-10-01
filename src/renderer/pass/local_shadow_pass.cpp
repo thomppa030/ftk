@@ -25,31 +25,31 @@ namespace fjell {
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-Result<> LocalShadowPass::create(const PassResources& resources) {
+ftk::Result<> LocalShadowPass::create(const PassResources& resources) {
     device_ = resources.device;
     written_ = false;
-    FJELL_TRY(atlas_, device_->create(gpu::TextureDesc{
+    FTK_TRY(atlas_, device_->create(ftk::gpu::TextureDesc{
                           .format = DEPTH_FORMAT,
                           .width = ATLAS_SIZE,
                           .height = ATLAS_SIZE,
-                          .use = gpu::TextureUse::depth_target | gpu::TextureUse::sampled,
+                          .use = ftk::gpu::TextureUse::depth_target | ftk::gpu::TextureUse::sampled,
                           .name = "local_shadow_atlas",
                       }));
     // The cascades' comparison: filtered, and outside the map reads as lit.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::border,
-                                 .compare = gpu::Compare::less_equal,
-                                 .border = gpu::Border::opaque_white});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::border,
+                                 .compare = ftk::gpu::Compare::less_equal,
+                                 .border = ftk::gpu::Border::opaque_white});
 
     // The cascades' caster state: clamped depth, front faces culled, their
     // bias. Skinned casters cull nothing.
-    const gpu::Raster raster{.cull = gpu::Cull::front,
+    const ftk::gpu::Raster raster{.cull = ftk::gpu::Cull::front,
                              .depth_clamp = true,
                              .depth_bias = ShadowPass::DEPTH_BIAS_CONSTANT,
                              .depth_bias_slope = ShadowPass::DEPTH_BIAS_SLOPE};
-    const gpu::Depth depth{.test = true, .write = true, .compare = gpu::Compare::less_equal};
-    FJELL_TRY(pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    const ftk::gpu::Depth depth{.test = true, .write = true, .compare = ftk::gpu::Compare::less_equal};
+    FTK_TRY(pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/shadow.vert",
                              .fragment = "shaders/depth_only.frag",
                              .vertex_layout = Vertex::layout(),
@@ -59,9 +59,9 @@ Result<> LocalShadowPass::create(const PassResources& resources) {
                              .shared = {resources.globals, resources.draw_data},
                              .name = "local_shadow",
                          }));
-    gpu::Raster skinned_raster = raster;
-    skinned_raster.cull = gpu::Cull::none;
-    FJELL_TRY(skinned_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    ftk::gpu::Raster skinned_raster = raster;
+    skinned_raster.cull = ftk::gpu::Cull::none;
+    FTK_TRY(skinned_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_shadow.vert",
                                      .fragment = "shaders/depth_only.frag",
                                      .vertex_layout = SkinnedVertex::layout(),
@@ -72,12 +72,12 @@ Result<> LocalShadowPass::create(const PassResources& resources) {
                                      .name = "skinned_local_shadow",
                                  }));
 
-    FJELL_GFX_DEBUG("Local shadow atlas created: {}x{}", ATLAS_SIZE, ATLAS_SIZE);
+    FTK_GFX_DEBUG("Local shadow atlas created: {}x{}", ATLAS_SIZE, ATLAS_SIZE);
     return {};
 }
 
 void LocalShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    gpu.global_bindings().set("local_shadow_atlas", gpu::sampled(atlas_, sampler_));
+    gpu.global_bindings().set("local_shadow_atlas", ftk::gpu::sampled(atlas_, sampler_));
 }
 
 void LocalShadowPass::destroy() {
@@ -273,17 +273,17 @@ PassSetup LocalShadowPass::setup() const {
     };
 }
 
-void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void LocalShadowPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "local_shadow_atlas");
     if (atlas.valid()) {
         if (has_work()) {
-            builder.write(atlas, gpu::Access::depth_attachment);
+            builder.write(atlas, ftk::gpu::Access::depth_attachment);
         } else {
             // No light casts a shadow, but the global set still binds the
             // atlas: reading it at rest has the graph keep it where it is
             // sampled, from the first frame on. That is the pass's whole
             // effect, and it has no output to keep it from being culled.
-            builder.read(atlas, gpu::Access::sampled_fragment);
+            builder.read(atlas, ftk::gpu::Access::sampled_fragment);
             builder.has_side_effects();
         }
     }
@@ -292,9 +292,9 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // before the cull, so these reads are what the cull has to wait for
     // before overwriting either buffer.
     builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                 gpu::Access::storage_buffer_read_vertex);
+                 ftk::gpu::Access::storage_buffer_read_vertex);
     builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
-                 gpu::Access::indirect_read);
+                 ftk::gpu::Access::indirect_read);
 }
 
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {
@@ -304,13 +304,13 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     // first draws.
     ctx.export_texture("local_shadow_atlas", atlas_,
                        {.persistent = true,
-                        .resting = gpu::Access::sampled_fragment | gpu::Access::sampled_compute,
+                        .resting = ftk::gpu::Access::sampled_fragment | ftk::gpu::Access::sampled_compute,
                         .unwritten = !written_});
 }
 
 // ── Recording ──────────────────────────────────────────────────────────
 
-void LocalShadowPass::draw_casters(const FrameContext& ctx, gpu::RenderEncoder& pass, uint32_t x,
+void LocalShadowPass::draw_casters(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass, uint32_t x,
                                    uint32_t y, uint32_t size, const glm::mat4& light_vp) const {
     pass.set_viewport({.x = static_cast<float>(x),
                        .y = static_cast<float>(y),
@@ -330,7 +330,7 @@ void LocalShadowPass::draw_casters(const FrameContext& ctx, gpu::RenderEncoder& 
         pass.push(light_vp);
         ctx.mega_buffer->bind(pass);
         pass.draw_indexed_indirect(batch.indirect_commands(ctx.frame_index, 0, draws), draws,
-                                   sizeof(gpu::DrawIndexedArgs));
+                                   sizeof(ftk::gpu::DrawIndexedArgs));
     }
 
     // Skinned meshes, each from its own vertices.
@@ -352,7 +352,7 @@ void LocalShadowPass::draw_casters(const FrameContext& ctx, gpu::RenderEncoder& 
 }
 
 void LocalShadowPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_local_shadows");
+    FTK_PROFILE_SCOPE_N("record_local_shadows");
     if (!has_work() || !atlas_) return;
     if (!ctx.mega_buffer || !ctx.indirect_batch) return;
 
@@ -360,7 +360,7 @@ void LocalShadowPass::record(const FrameContext& ctx) {
     auto zone = cmd.zone("Local Shadows");
     // The whole atlas in one scope, cleared as it opens; each light's tiles
     // are drawn through a viewport and scissor of their own.
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = atlas_, .load = gpu::Load::clear}});
+    auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{.view = atlas_, .load = ftk::gpu::Load::clear}});
 
     for (const auto& tile : spot_tiles_) {
         draw_casters(ctx, pass, tile.x, tile.y, tile.size, tile.light_vp);

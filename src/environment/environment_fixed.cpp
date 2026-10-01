@@ -97,7 +97,7 @@ void EnvironmentSubsystem::fixed_tick(const FixedTickContext& ctx) {
 }
 
 void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSource> sources,
-                                         float dt, float time, ThreadPool* workers) {
+                                         float dt, float time, ftk::ThreadPool* workers) {
     // The sustained wind, deliberately without the gust that a sail or a
     // leaf gets. A gust breathes on about a one-second cycle, and a sea that
     // answered it would swing its whole height with it — measured at a gale,

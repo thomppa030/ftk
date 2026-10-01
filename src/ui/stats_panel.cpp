@@ -30,7 +30,7 @@ double reduction_pct(uint32_t logical, uint32_t physical) {
 
 // One measurement: its name in the label column, the value read out beside it.
 void metric(const char* label, const std::string& value) {
-    ui::row(label, [&] { ui::readout(value.c_str()); });
+    ftk::ui::row(label, [&] { ftk::ui::readout(value.c_str()); });
 }
 
 } // namespace
@@ -57,7 +57,7 @@ void StatsPanel::draw(float dt, const char* title) {
     frame_time_history_[frame_time_index_] = dt * 1000.0F;
     frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
 
-    if (auto p = ui::Panel(ui::icon::stats, title)) {
+    if (auto p = ftk::ui::Panel(ftk::ui::icon::stats, title)) {
         draw_header();
         draw_rendering_section();
         draw_simulation_section();
@@ -88,11 +88,11 @@ void StatsPanel::add_simulation_frame() {
 
 void StatsPanel::draw_header() {
     // Always visible, outside any section: the numbers worth a glance.
-    if (auto t = ui::PropertyTable("##stats_header")) {
+    if (auto t = ftk::ui::PropertyTable("##stats_header")) {
         metric("FPS", std::format("{:.0f}", fps_));
         metric("Frame", std::format("{:.2f} ms", frame_time_));
         metric("GPU", ctx_->gpu_name());
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
         metric("Profiler", "Tracy");
 #endif
     }
@@ -104,10 +104,10 @@ void StatsPanel::draw_header() {
 }
 
 void StatsPanel::draw_rendering_section() {
-    if (!ui::section_foldable("Rendering", ui::icon::rendering)) { return; }
+    if (!ftk::ui::section_foldable("Rendering", ftk::ui::icon::rendering)) { return; }
 
     const auto& stats = ctx_->render_stats();
-    if (auto t = ui::PropertyTable("##rendering_metrics")) {
+    if (auto t = ftk::ui::PropertyTable("##rendering_metrics")) {
         metric("Draw calls", std::to_string(stats.draw_calls));
         metric("Triangles", std::to_string(stats.triangle_count));
         metric("Objects", std::format("{} / {} culled",
@@ -139,16 +139,16 @@ void StatsPanel::draw_rendering_section() {
 
 void StatsPanel::draw_simulation_section() {
     if (simulation_ == nullptr) { return; }
-    if (!ui::section_foldable("Simulation", ui::icon::simulation)) { return; }
+    if (!ftk::ui::section_foldable("Simulation", ftk::ui::icon::simulation)) { return; }
 
     const FixedStepStats& stats = *simulation_;
     if (stats.tick_rate == 0) {
-        ui::hint("The simulation steps while the game plays");
+        ftk::ui::hint("The simulation steps while the game plays");
         return;
     }
 
     const StepTotals& totals = shown_step_totals_;
-    if (auto t = ui::PropertyTable("##simulation")) {
+    if (auto t = ftk::ui::PropertyTable("##simulation")) {
         metric("Tick rate", std::format("{} Hz", stats.tick_rate));
         if (totals.frames > 0) {
             metric("Steps per frame",
@@ -165,8 +165,8 @@ void StatsPanel::draw_simulation_section() {
 
     // Wall time per step, averaged over the steps the period ran: a frame
     // pays it as many times as it runs steps.
-    ui::subheading("Each step");
-    if (auto t = ui::PropertyTable("##step_cost")) {
+    ftk::ui::subheading("Each step");
+    if (auto t = ftk::ui::PropertyTable("##step_cost")) {
         if (totals.steps == 0) {
             metric("Total", "No steps");
             return;
@@ -183,15 +183,15 @@ void StatsPanel::draw_simulation_section() {
 }
 
 void StatsPanel::draw_frame_graph_section() {
-    if (!ui::section_foldable("Frame graph", ui::icon::frame_graph, false)) { return; }
+    if (!ftk::ui::section_foldable("Frame graph", ftk::ui::icon::frame_graph, false)) { return; }
 
     auto& pipeline = ctx_->render_pipeline();
     const auto& a = pipeline.aliasing_stats();
 
-    if (auto t = ui::PropertyTable("##fg_live")) {
-        ui::row("Aliasing", [&] {
+    if (auto t = ftk::ui::PropertyTable("##fg_live")) {
+        ftk::ui::row("Aliasing", [&] {
             bool aliasing = pipeline.aliasing_enabled();
-            if (ui::checkbox("##aliasing", aliasing).changed) {
+            if (ftk::ui::checkbox("##aliasing", aliasing).changed) {
                 pipeline.set_aliasing_enabled(aliasing);
             }
         });
@@ -204,8 +204,8 @@ void StatsPanel::draw_frame_graph_section() {
         metric("Allocations", std::format("{} / frame", a.allocations));
     }
 
-    ui::subheading("Peak since startup");
-    if (auto t = ui::PropertyTable("##fg_peak")) {
+    ftk::ui::subheading("Peak since startup");
+    if (auto t = ftk::ui::PropertyTable("##fg_peak")) {
         metric("Logical -> physical", std::format("{} -> {} ({:.1f}%)",
                                                   pipeline.peak_logical(), pipeline.peak_physical(),
                                                   reduction_pct(pipeline.peak_logical(),

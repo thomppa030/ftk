@@ -49,8 +49,8 @@ struct SkyBackdrop {
     /// a little lighter towards the top.
     static const SkyBackdrop& editor_preview() {
         static const SkyBackdrop backdrop{
-            .top = color_space::srgb_to_linear(glm::vec3{0.227f, 0.239f, 0.259f}),
-            .bottom = color_space::srgb_to_linear(glm::vec3{0.102f, 0.110f, 0.122f}),
+            .top = ftk::color_space::srgb_to_linear(glm::vec3{0.227f, 0.239f, 0.259f}),
+            .bottom = ftk::color_space::srgb_to_linear(glm::vec3{0.102f, 0.110f, 0.122f}),
         };
         return backdrop;
     }

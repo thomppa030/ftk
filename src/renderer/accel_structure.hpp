@@ -15,26 +15,29 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class PassBuilder;
+} // namespace ftk
+
+namespace ftk::gpu {
+class CommandList;
+class Device;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class Model;
 class ParticleSystem;
-class PassBuilder;
 class PipelineCache;
 class Scene;
 struct DeclareContext;
 struct DrawCommand;
 
-namespace gpu {
-class CommandList;
-class Device;
-}
-
 /// One bottom-level acceleration structure (BLAS) over one mesh entry, so a
 /// hit's primitive index counts that entry's triangles from first_index and
 /// a TLAS instance carries exactly one material.
 struct Blas {
-    gpu::Owned<gpu::AccelerationStructure> structure;
+    ftk::gpu::Owned<ftk::gpu::AccelerationStructure> structure;
     uint32_t first_index{0};    // the entry's first_index in MegaBuffer
     uint32_t vertex_offset{0};  // the entry's vertex_offset in MegaBuffer
 };
@@ -58,14 +61,14 @@ public:
     static constexpr const char* TLAS_NAME = "rt_scene_tlas";
     static constexpr const char* INSTANCES_NAME = "rt_scene_instances";
 
-    explicit AccelStructureManager(gpu::Device& device);
+    explicit AccelStructureManager(ftk::gpu::Device& device);
 
     /// Declares a tracer's reads of the scene's TLAS and the hit data beside
     /// it, which order its traces after `rt_scene`'s build: what every pass
     /// that traces declares.
     /// @return whether there is a TLAS to trace this frame; none when no
     /// tracer's reach held anything.
-    static bool declare_trace(PassBuilder& builder, const DeclareContext& ctx);
+    static bool declare_trace(ftk::PassBuilder& builder, const DeclareContext& ctx);
 
     AccelStructureManager(const AccelStructureManager&) = delete;
     AccelStructureManager& operator=(const AccelStructureManager&) = delete;
@@ -107,21 +110,21 @@ public:
     /// frame slot whose TLAS was built from exactly this is not built again.
     /// Returns how many instances the TLAS holds, 0 when there is none or
     /// this frame's was already recorded.
-    uint32_t record_build(gpu::CommandList& commands, uint64_t scene_id, uint32_t frame_index);
+    uint32_t record_build(ftk::gpu::CommandList& commands, uint64_t scene_id, uint32_t frame_index);
 
     /// The TLAS prepare_scene() made ready this frame for `scene_id`, and
     /// the instance table beside it: what `rt_scene` declares it writes.
     /// Invalid when the scene was not prepared this frame or nothing is in
     /// reach.
-    [[nodiscard]] gpu::AccelerationStructure prepared_tlas(uint64_t scene_id, uint32_t frame_index) const;
-    [[nodiscard]] gpu::Buffer prepared_instances(uint64_t scene_id, uint32_t frame_index) const;
+    [[nodiscard]] ftk::gpu::AccelerationStructure prepared_tlas(uint64_t scene_id, uint32_t frame_index) const;
+    [[nodiscard]] ftk::gpu::Buffer prepared_instances(uint64_t scene_id, uint32_t frame_index) const;
 
     /// This frame's TLAS for `scene_id`, invalid when there is none: no
     /// tracer asked, nothing was in reach, or it is not built yet.
-    [[nodiscard]] gpu::AccelerationStructure tlas(uint64_t scene_id, uint32_t frame_index) const;
+    [[nodiscard]] ftk::gpu::AccelerationStructure tlas(uint64_t scene_id, uint32_t frame_index) const;
     /// The GpuRtInstance records the hit code reads beside that TLAS, one per
     /// instance in instance order.
-    [[nodiscard]] gpu::Buffer instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const;
+    [[nodiscard]] ftk::gpu::Buffer instance_data_buffer(uint64_t scene_id, uint32_t frame_index) const;
 
 private:
     /// Makes the BLASes for a Model, one per LOD 0 mesh entry, to be built
@@ -152,7 +155,7 @@ private:
     [[nodiscard]] std::vector<Blas> make_blases(std::span<const MegaMeshEntry> entries,
                                                 const MegaBuffer& mega);
 
-    gpu::Device& device_;
+    ftk::gpu::Device& device_;
 
     std::unordered_map<const Model*, std::vector<Blas>> blas_map_;
     std::unordered_map<const void*, Blas> entry_blas_map_;
@@ -160,30 +163,30 @@ private:
     /// BLASes made and not yet built, with the triangles each is built
     /// from.
     struct PendingBuild {
-        gpu::AccelerationStructure blas;
-        gpu::Triangles triangles;
+        ftk::gpu::AccelerationStructure blas;
+        ftk::gpu::Triangles triangles;
     };
     std::vector<PendingBuild> pending_builds_;
 
     /// Writes the mesh particles' instances, shared by every scene; invalid
     /// when it could not be made, and particles are left out.
-    gpu::Owned<gpu::ComputePipeline> particle_pipeline_;
-    gpu::Buffer particle_state_{};  // the particle system's state
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> particle_pipeline_;
+    ftk::gpu::Buffer particle_state_{};  // the particle system's state
 
     // One frame slot's TLAS for one scene. Each slot has its own, so a frame
     // still tracing never sees the next frame's build.
     struct FrameTlas {
-        gpu::Owned<gpu::AccelerationStructure> tlas;
+        ftk::gpu::Owned<ftk::gpu::AccelerationStructure> tlas;
         /// The instances `tlas` was made for, and what the buffers hold
         /// room for.
         uint32_t capacity{0};
         /// The instance records the TLAS is built from, written by the CPU
         /// and, for particles, by the GPU.
-        gpu::Owned<gpu::Buffer> instances;
+        ftk::gpu::Owned<ftk::gpu::Buffer> instances;
         /// The GpuRtInstance records the hit code reads, in instance order.
-        gpu::Owned<gpu::Buffer> rt_instance_data;
+        ftk::gpu::Owned<ftk::gpu::Buffer> rt_instance_data;
         /// Where the particle compute appends its instances.
-        gpu::Owned<gpu::Buffer> particle_counter;
+        ftk::gpu::Owned<ftk::gpu::Buffer> particle_counter;
         // What the TLAS was built from. It still holds while the scene lists
         // the same instances; never after a build with particles, whose
         // instances the GPU writes anew each frame.
@@ -205,7 +208,7 @@ private:
         /// room for every particle.
         uint32_t instance_count{0};
         uint64_t prepared_serial{0};
-        std::array<FrameTlas, MAX_FRAMES_IN_FLIGHT> frames{};
+        std::array<FrameTlas, ftk::MAX_FRAMES_IN_FLIGHT> frames{};
     };
 
     /// Makes `frame`'s TLAS and buffers large enough for `count` instances,
@@ -215,7 +218,7 @@ private:
 
     // Records the build of `scene`'s TLAS into `frame` from its prepared
     // instances. Returns the instances built.
-    uint32_t build_tlas(gpu::CommandList& commands, SceneTlas& scene, FrameTlas& frame);
+    uint32_t build_tlas(ftk::gpu::CommandList& commands, SceneTlas& scene, FrameTlas& frame);
 
     std::unordered_map<uint64_t, SceneTlas> scenes_;
     uint64_t frame_serial_{0};

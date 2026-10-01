@@ -32,16 +32,16 @@ struct ActionState {
 
 struct ActionDelegates {
     // Button-specific
-    Delegate<void()> on_pressed;      // button: just went down
-    Delegate<void()> on_released;     // button: just went up
+    ftk::Delegate<void()> on_pressed;      // button: just went down
+    ftk::Delegate<void()> on_released;     // button: just went up
 
     // Shared lifecycle
-    Delegate<void()> on_triggered;    // any type: action became active this frame
-    Delegate<void()> on_completed;    // any type: action became inactive this frame
+    ftk::Delegate<void()> on_triggered;    // any type: action became active this frame
+    ftk::Delegate<void()> on_completed;    // any type: action became inactive this frame
 
     // Continuous value (fires every frame while active)
-    Delegate<void(float)> on_axis1d;
-    Delegate<void(glm::vec2)> on_axis2d;
+    ftk::Delegate<void(float)> on_axis1d;
+    ftk::Delegate<void(glm::vec2)> on_axis2d;
 };
 
 } // namespace fjell

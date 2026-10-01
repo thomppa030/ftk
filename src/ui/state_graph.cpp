@@ -53,24 +53,24 @@ std::optional<std::pair<int, int>> StateGraph::selected_transition() const {
 
 // ── What the machine holds ───────────────────────────────────────────────
 
-ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine) const {
-    ui::NodeGraphDesc desc;
+ftk::ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine) const {
+    ftk::ui::NodeGraphDesc desc;
     const auto& states = machine.states();
     for (int i = 0; i < static_cast<int>(states.size()); ++i) {
         const AnimationState& state = states[static_cast<size_t>(i)];
         // What it plays: a blend space by its icon, never a colour.
         const std::string& what = state.uses_blend_space() ? state.blend_space : state.clip;
-        ui::NodeRow plays;
+        ftk::ui::NodeRow plays;
         plays.text = what.empty() ? std::string("Nothing to play") : std::filesystem::path(what).stem().string();
-        if (state.uses_blend_space()) plays.text = std::string(ui::icon::blend_space) + "  " + plays.text;
+        if (state.uses_blend_space()) plays.text = std::string(ftk::ui::icon::blend_space) + "  " + plays.text;
         plays.text_dimmed = what.empty();
         desc.nodes.push_back({.id = node_of(i),
                               .position = position_of(state, i),
-                              .anchor = ui::NodeAnchor::Centre,
+                              .anchor = ftk::ui::NodeAnchor::Centre,
                               .width = STATE_W,
                               .title = state.name,
-                              .hue = theme::category(theme::Category::Animation),
-                              .connect = ui::NodeConnect::Edge,
+                              .hue = ftk::theme::category(ftk::theme::Category::Animation),
+                              .connect = ftk::ui::NodeConnect::Edge,
                               .rows = {plays}});
 
         for (int t = 0; t < static_cast<int>(state.transitions.size()); ++t) {
@@ -84,7 +84,7 @@ ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine) con
         }
     }
     if (const int initial = index_of(machine, machine.initial_state_name()); initial >= 0) {
-        desc.start = ui::NodeStart{.node = node_of(initial), .label = "Entry"};
+        desc.start = ftk::ui::NodeStart{.node = node_of(initial), .label = "Entry"};
     }
     desc.empty_hint = "Double-click to add a state";
     return desc;
@@ -93,15 +93,15 @@ ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine) con
 // ── What the user did ────────────────────────────────────────────────────
 
 bool StateGraph::draw(AnimationStateMachine& machine) {
-    const ui::NodeGraphDesc desc = describe(machine);
+    const ftk::ui::NodeGraphDesc desc = describe(machine);
     bool menu_changed = false;
-    const ui::NodeGraphEvents events = graph_.draw(desc, [&](const ui::NodeGraphMenu& target) {
+    const ftk::ui::NodeGraphEvents events = graph_.draw(desc, [&](const ftk::ui::NodeGraphMenu& target) {
         return menu(machine, target, menu_changed);
     });
     return apply(machine, events) || menu_changed;
 }
 
-bool StateGraph::apply(AnimationStateMachine& machine, const ui::NodeGraphEvents& events) {
+bool StateGraph::apply(AnimationStateMachine& machine, const ftk::ui::NodeGraphEvents& events) {
     auto& states = machine.states_mutable();
     const int count = static_cast<int>(states.size());
     bool changed = false;
@@ -143,23 +143,23 @@ bool StateGraph::apply(AnimationStateMachine& machine, const ui::NodeGraphEvents
     return changed;
 }
 
-bool StateGraph::menu(AnimationStateMachine& machine, const ui::NodeGraphMenu& target, bool& changed) {
+bool StateGraph::menu(AnimationStateMachine& machine, const ftk::ui::NodeGraphMenu& target, bool& changed) {
     const auto& states = machine.states();
     const int state = static_cast<int>(target.node) - 1;
     if (target.node != 0 && state < static_cast<int>(states.size())) {
         const std::string& name = states[static_cast<size_t>(state)].name;
-        if (ui::menu_item({.icon = ui::icon::play, .label = "Start here", .enabled = name != machine.initial_state_name(),
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::play, .label = "Start here", .enabled = name != machine.initial_state_name(),
                            .disabled_reason = "The machine starts in this state already"})) {
             machine.set_initial(name);
             changed = true;
         }
-        return ui::menu_item({.icon = ui::icon::remove, .label = "Remove state", .shortcut = "Del", .destructive = true});
+        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove state", .shortcut = "Del", .destructive = true});
     }
     if (target.link != 0) {
-        return ui::menu_item({.icon = ui::icon::remove, .label = "Remove transition", .shortcut = "Del",
+        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove transition", .shortcut = "Del",
                               .destructive = true});
     }
-    if (ui::menu_item({.icon = ui::icon::add, .label = "Add state here"})) {
+    if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add state here"})) {
         add_state(machine, target.at);
         changed = true;
     }

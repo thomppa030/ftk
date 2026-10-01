@@ -19,8 +19,8 @@ public:
 
     [[nodiscard]] const char* context_type() const override { return "weather"; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
     void draw_header_actions() override;
 
 private:

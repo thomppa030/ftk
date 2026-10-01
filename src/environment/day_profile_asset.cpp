@@ -95,22 +95,22 @@ void DayProfileAsset::apply(float hour, EnvironmentState& state) const {
     }
 }
 
-Result<DayProfileAsset> load_day_profile_file(const std::string& path) {
+ftk::Result<DayProfileAsset> load_day_profile_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjday file: " + path);
+        return ftk::make_error("Failed to open .fjday file: " + path);
     }
     std::stringstream text;
     text << f.rdbuf();
     return day_profile_from_text(text.str(), path);
 }
 
-Result<DayProfileAsset> day_profile_from_text(std::string_view text, const std::string& path) {
+ftk::Result<DayProfileAsset> day_profile_from_text(std::string_view text, const std::string& path) {
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
-        return make_error("Malformed .fjday file " + path + ": " + e.what());
+        return ftk::make_error("Malformed .fjday file " + path + ": " + e.what());
     }
     DayProfileAsset asset;
     asset.name = j.value("name", std::string{});
@@ -133,10 +133,10 @@ std::string day_profile_text(const DayProfileAsset& asset) {
     return j.dump(4) + "\n";
 }
 
-Result<> save_day_profile_file(const std::string& path, const DayProfileAsset& asset) {
+ftk::Result<> save_day_profile_file(const std::string& path, const DayProfileAsset& asset) {
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjday file: " + path);
+        return ftk::make_error("Failed to write .fjday file: " + path);
     }
     f << day_profile_text(asset);
     return {};

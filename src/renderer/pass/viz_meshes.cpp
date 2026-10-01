@@ -11,7 +11,7 @@
 
 namespace fjell {
 
-void draw_viz_meshes(const FrameContext& ctx, gpu::RenderEncoder& pass) {
+void draw_viz_meshes(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass) {
     if (ctx.queue == nullptr) return;
     if (ctx.mega_buffer == nullptr || ctx.indirect_batch == nullptr) return;
     ctx.mega_buffer->bind(pass);

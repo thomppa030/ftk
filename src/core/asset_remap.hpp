@@ -24,10 +24,10 @@ public:
     explicit AssetRemap(std::filesystem::path project_root);
 
     /// Load from .fjell/asset_remap.json. A missing file is not an error.
-    Result<> load();
+    ftk::Result<> load();
 
     /// Save if anything changed since the last save.
-    Result<> save() const;
+    ftk::Result<> save() const;
 
     /// Record that `from` now resolves to `to`. Existing entries pointing at
     /// `from` are re-pointed at `to` as well, so a chain of supersessions

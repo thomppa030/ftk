@@ -60,8 +60,8 @@ vec4 textureLod(const FjellTexture& s, vec2 uv, float /*lod*/) {
 
 #define FJELL_BINDLESS_GLSL
 #define FJELL_COLOR_SPACE_GLSL
-vec3 linear_to_srgb(vec3 c) { return fjell::color_space::linear_to_srgb(c); }
-vec3 srgb_to_linear(vec3 c) { return fjell::color_space::srgb_to_linear(c); }
+vec3 linear_to_srgb(vec3 c) { return ftk::color_space::linear_to_srgb(c); }
+vec3 srgb_to_linear(vec3 c) { return ftk::color_space::srgb_to_linear(c); }
 
 #include "../shaders/include/fjell_lut.glsl"
 
@@ -255,8 +255,8 @@ TEST_CASE("lut_sample through a neutral strip gives the colour back", "[lut][gls
                 for (int b = 0; b <= 20; ++b) {
                     const glm::vec3 srgb{static_cast<float>(r) / 20.0f, static_cast<float>(g) / 20.0f,
                                          static_cast<float>(b) / 20.0f};
-                    const glm::vec3 linear = color_space::srgb_to_linear(srgb);
-                    const glm::vec3 out = color_space::linear_to_srgb(lut_shim::lut_sample(strip_texture, linear));
+                    const glm::vec3 linear = ftk::color_space::srgb_to_linear(srgb);
+                    const glm::vec3 out = ftk::color_space::linear_to_srgb(lut_shim::lut_sample(strip_texture, linear));
                     INFO("sRGB " << srgb.r << " " << srgb.g << " " << srgb.b);
                     REQUIRE(glm::all(glm::lessThanEqual(glm::abs(out - srgb), glm::vec3(0.5f / 255.0f))));
                 }
@@ -272,8 +272,8 @@ TEST_CASE("lut_sample reads a grade between its grid points", "[lut][glsl]") {
     const lut_shim::FjellTexture strip_texture{&strip};
     for (const glm::vec3 srgb : {glm::vec3(0.1f, 0.5f, 0.9f), glm::vec3(0.73f, 0.22f, 0.41f),
                                  glm::vec3(1.0f, 0.0f, 0.5f)}) {
-        const glm::vec3 out = color_space::linear_to_srgb(
-            lut_shim::lut_sample(strip_texture, color_space::srgb_to_linear(srgb)));
+        const glm::vec3 out = ftk::color_space::linear_to_srgb(
+            lut_shim::lut_sample(strip_texture, ftk::color_space::srgb_to_linear(srgb)));
         const glm::vec3 want = warm(srgb);
         REQUIRE(glm::all(glm::lessThanEqual(glm::abs(out - want), glm::vec3(1.0f / 255.0f))));
     }

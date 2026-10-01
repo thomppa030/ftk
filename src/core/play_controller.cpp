@@ -56,7 +56,7 @@ void PlayController::check_component_serialization() const {
     // once at startup rather than discovered as a missing component later.
     ComponentRegistry::instance().for_each([](ComponentTypeId, const ComponentMeta& meta) {
         if (!meta.serialize || !meta.deserialize) {
-            FJELL_CORE_ERROR("Component '{}' has no {} — it will not survive play mode",
+            FTK_CORE_ERROR("Component '{}' has no {} — it will not survive play mode",
                              meta.display_name,
                              !meta.serialize ? "serializer" : "deserializer");
         }
@@ -211,7 +211,7 @@ void PlayController::flush_spawned() {
         (void)s_.scene->flush_spawned();
         if (!s_.scene->has_added()) return;
         if (round == MAX_ROUNDS) {
-            FJELL_CORE_WARN("PlayController: nodes still joining after {} rounds, a begin_play "
+            FTK_CORE_WARN("PlayController: nodes still joining after {} rounds, a begin_play "
                             "keeps spawning; leaving the rest for the next flush",
                             MAX_ROUNDS);
             return;
@@ -259,7 +259,7 @@ void PlayController::apply_pending_hud_resize() {
     auto w = static_cast<uint32_t>(hud_img_size_.x);
     auto h = static_cast<uint32_t>(hud_img_size_.y);
     if (!hud_target_) {
-        hud_target_ = std::make_unique<OffscreenPass>(s_.vulkan->gpu_device(), w, h, gpu::Samples::x1,
+        hud_target_ = std::make_unique<OffscreenPass>(s_.vulkan->gpu_device(), w, h, ftk::gpu::Samples::x1,
                                                       OffscreenPass::Contents::color);
     } else {
         hud_target_->resize(w, h);
@@ -270,7 +270,7 @@ void PlayController::record_hud(uint32_t frame_index) {
     if (!playing() || !hud_target_) return;
 
     s_.vulkan->record_game_ui_offscreen_multi(
-        [this](gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+        [this](ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                glm::uvec2 extent, uint32_t idx) {
             for (auto& inst : s_.ui->instances()) {
                 if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
@@ -289,7 +289,7 @@ void PlayController::record_hud(uint32_t frame_index) {
 
 ImTextureID PlayController::hud_texture() {
     if (!hud_target_) return {};
-    return imgui_texture(hud_target_->color_texture());
+    return ftk::imgui_texture(hud_target_->color_texture());
 }
 
 void PlayController::start() {
@@ -383,7 +383,7 @@ void PlayController::start() {
     session_ = std::make_unique<PlaySession>(std::move(snapshot));
     state_ = PlayState::playing;
     s_.vulkan->set_playing(true);
-    FJELL_CORE_INFO("Play mode started");
+    FTK_CORE_INFO("Play mode started");
     on_started.broadcast();
 }
 
@@ -444,7 +444,7 @@ void PlayController::stop() {
     if (s_.input->is_cursor_captured()) {
         s_.input->set_cursor_captured(false);
     }
-    FJELL_CORE_INFO("Play mode stopped");
+    FTK_CORE_INFO("Play mode stopped");
     on_stopped.broadcast();
 }
 

@@ -12,22 +12,22 @@ namespace fjell {
 // own.
 class MeshletVizPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// What the pass drew, for a viewport to show; none before its first draw.
-    [[nodiscard]] gpu::Texture picture() const { return viz_image_.picture(); }
+    [[nodiscard]] ftk::gpu::Texture picture() const { return viz_image_.picture(); }
     void resize(uint32_t width, uint32_t height) { viz_image_.resize(width, height); }
 
 private:
     VizImage viz_image_;
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
     /// The scene's depth format, for the view's own depth.
-    gpu::Format depth_format_{gpu::Format::undefined};
+    ftk::gpu::Format depth_format_{ftk::gpu::Format::undefined};
 };
 
 } // namespace fjell

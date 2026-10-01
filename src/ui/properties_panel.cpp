@@ -37,13 +37,13 @@ namespace fjell {
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
                            ScriptManager* scripts,
-                           CommandHistory* history, GridSettings* grid_settings,
+                           ftk::CommandHistory* history, GridSettings* grid_settings,
                            PipelineCache* pipeline_cache,
                            BindlessTextures* bindless,
                            ResourceManager* resource_manager,
                            ProjectManager* project_mgr,
                            ContentBrowser* content_browser,
-                           IconCache* icons, TerrainSculptTool* sculpt) {
+                           ftk::IconCache* icons, TerrainSculptTool* sculpt) {
     scene_ = scene;
     selected_id_ = selected_id;
     scripts_ = scripts;
@@ -72,10 +72,10 @@ void PropertiesPanel::commit_name() {
 }
 
 void PropertiesPanel::draw() {
-    if (auto p = ui::Panel(ui::icon::properties, "Properties")) {
+    if (auto p = ftk::ui::Panel(ftk::ui::icon::properties, "Properties")) {
         Node* base = scene_->find(*selected_id_);
         if (base == nullptr) {
-            ui::empty_state(ui::icon::nothing_selected, "Nothing selected",
+            ftk::ui::empty_state(ftk::ui::icon::nothing_selected, "Nothing selected",
                             "Pick an object in the viewport or the hierarchy to edit it here");
             return;
         }
@@ -107,8 +107,8 @@ void PropertiesPanel::draw_name(const Node& selected) {
         named = &selected;
         name_node_id_ = selected.id;
     }
-    if (auto t = ui::PropertyTable("##name")) {
-        ui::row("Name", [&] {
+    if (auto t = ftk::ui::PropertyTable("##name")) {
+        ftk::ui::row("Name", [&] {
             if (name_field_.draw("##Name", named->name).committed) {
                 commit_name();
             }
@@ -117,7 +117,7 @@ void PropertiesPanel::draw_name(const Node& selected) {
 }
 
 void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx) {
-    ui::section("Components", ui::icon::components);
+    ftk::ui::section("Components", ftk::ui::icon::components);
     auto& registry = ComponentRegistry::instance();
     ComponentTypeId remove_id = ~0u;
 
@@ -131,16 +131,16 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
         // components on one node may both have an "Add" or "Clear".
         ImGui::PushID(meta->json_key.c_str());
         bool remove = false;
-        const auto category = inspector ? inspector->category : theme::Category::Structure;
-        if (ui::component_block(meta->display_name.c_str(), category, remove)) {
+        const auto category = inspector ? inspector->category : ftk::theme::Category::Structure;
+        if (ftk::ui::component_block(meta->display_name.c_str(), category, remove)) {
             // The fields in one group, so the block knows whether
             // one of them is being edited or under the mouse.
             const std::string scope = std::to_string(node.id) + "/" + meta->json_key;
-            ui::edit_scope(scope);
+            ftk::ui::edit_scope(scope);
             ImGui::BeginGroup();
-            const ui::Edit edit = inspector ? inspector->draw(node, ptr, ictx) : ui::Edit{};
+            const ftk::ui::Edit edit = inspector ? inspector->draw(node, ptr, ictx) : ftk::ui::Edit{};
             ImGui::EndGroup();
-            ui::edit_scope({});
+            ftk::ui::edit_scope({});
             const bool active = ImGui::IsItemActive();
             const bool hovered = ImGui::IsItemHovered();
             component_edits_.track(
@@ -178,12 +178,12 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
 }
 
 void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
-    ui::section("Scripts", ui::icon::scripts);
+    ftk::ui::section("Scripts", ftk::ui::icon::scripts);
     std::string remove;
     for (auto& entry : node.scripts) {
         ImGui::PushID(entry.type_name.c_str());
         bool removed = false;
-        if (ui::component_block(entry.type_name.c_str(), theme::Category::Logic, removed)) {
+        if (ftk::ui::component_block(entry.type_name.c_str(), ftk::theme::Category::Logic, removed)) {
             draw_script(node, entry, ictx);
         }
         if (removed) remove = entry.type_name;
@@ -208,23 +208,23 @@ constexpr std::size_t RECENT_COUNT = 4;
 } // namespace
 
 std::string PropertiesPanel::edit_description(const std::string& subject, const std::string& scope) {
-    if (auto record = ui::take_edit_record(scope)) {
-        return describe_change(subject + ": " + record->label, record->before, record->after);
+    if (auto record = ftk::ui::take_edit_record(scope)) {
+        return ftk::describe_change(subject + ": " + record->label, record->before, record->after);
     }
     return "Edit " + subject;
 }
 
 void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
-    ImGui::Dummy({0.0f, theme::GAP_M});
-    if (ui::action(ui::icon::add, "Add component", ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
-        ui::grouped_picker::open(ADD_PICKER);
+    ImGui::Dummy({0.0f, ftk::theme::GAP_M});
+    if (ftk::ui::action(ftk::ui::icon::add, "Add component", ftk::ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
+        ftk::ui::grouped_picker::open(ADD_PICKER);
     }
     // Gathered only while the picker is up; drawn every frame so it hangs
     // under the button.
-    std::vector<ui::grouped_picker::Group> groups;
-    if (ui::grouped_picker::is_open(ADD_PICKER)) groups = addable_groups(node);
+    std::vector<ftk::ui::grouped_picker::Group> groups;
+    if (ftk::ui::grouped_picker::is_open(ADD_PICKER)) groups = addable_groups(node);
     std::string picked;
-    if (ui::grouped_picker::draw(ADD_PICKER, groups,
+    if (ftk::ui::grouped_picker::draw(ADD_PICKER, groups,
                              {.search_hint = "Search components and scripts",
                               .empty_message = "Nothing matches"},
                              picked)) {
@@ -232,13 +232,13 @@ void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
     }
 }
 
-std::vector<ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Node3D& node) const {
-    using ui::grouped_picker::Group;
-    using ui::grouped_picker::Item;
+std::vector<ftk::ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Node3D& node) const {
+    using ftk::ui::grouped_picker::Group;
+    using ftk::ui::grouped_picker::Item;
     const std::string owner = node.name.empty() ? std::string("This node") : node.name;
 
     // Everything that can be added, by value, with the category it goes under.
-    std::vector<std::pair<Item, theme::Category>> all;
+    std::vector<std::pair<Item, ftk::theme::Category>> all;
     const auto& inspectors = component_inspectors();
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
         const auto* inspector = inspectors.find(id);
@@ -248,7 +248,7 @@ std::vector<ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Nod
             item.detail = "added";
             item.disabled_reason = owner + " already has a " + meta.display_name;
         }
-        all.emplace_back(std::move(item), inspector ? inspector->category : theme::Category::Structure);
+        all.emplace_back(std::move(item), inspector ? inspector->category : ftk::theme::Category::Structure);
     });
     if (scripts_ != nullptr && scripts_->is_loaded()) {
         for (const auto& type : scripts_->script_types()) {
@@ -261,7 +261,7 @@ std::vector<ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Nod
                 item.detail = "added";
                 item.disabled_reason = owner + " already has " + type.name;
             }
-            all.emplace_back(std::move(item), theme::Category::Logic);
+            all.emplace_back(std::move(item), ftk::theme::Category::Logic);
         }
     }
     std::ranges::sort(all, [](const auto& a, const auto& b) { return a.first.label < b.first.label; });
@@ -278,9 +278,9 @@ std::vector<ui::grouped_picker::Group> PropertiesPanel::addable_groups(const Nod
     }
     if (!recent.items.empty()) groups.push_back(std::move(recent));
 
-    for (int c = 0; c <= static_cast<int>(theme::Category::Structure); ++c) {
-        const auto category = static_cast<theme::Category>(c);
-        Group group{.label = theme::category_name(category), .category = category};
+    for (int c = 0; c <= static_cast<int>(ftk::theme::Category::Structure); ++c) {
+        const auto category = static_cast<ftk::theme::Category>(c);
+        Group group{.label = ftk::theme::category_name(category), .category = category};
         for (const auto& [item, item_category] : all) {
             if (item_category == category) group.items.push_back(item);
         }
@@ -334,30 +334,30 @@ void PropertiesPanel::draw_script(Node3D& node, ScriptEntry& entry, const Inspec
     // why they can't be edited instead of showing nothing.
     const auto* type = scripts_->find_script_type(entry.type_name);
     if (!scripts_->is_loaded()) {
-        ui::status(ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
+        ftk::ui::status(ftk::ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
         return;
     }
     if (type == nullptr || !type->loaded) {
-        ui::status(ui::Severity::Warning, "Not in the last build. Its values are kept until it is back");
+        ftk::ui::status(ftk::ui::Severity::Warning, "Not in the last build. Its values are kept until it is back");
         return;
     }
     if (!entry.instance) {
-        ui::status(ui::Severity::Error, "Couldn't be created: Scripts > Build & Reload tries again");
+        ftk::ui::status(ftk::ui::Severity::Error, "Couldn't be created: Scripts > Build & Reload tries again");
         return;
     }
     if (type->fields.empty()) {
-        ui::hint("No properties");
+        ftk::ui::hint("No properties");
         return;
     }
 
     // The fields in one group, so the block knows whether one of them is
     // being edited or under the mouse.
     const std::string scope = std::to_string(node.id) + "/script/" + entry.type_name;
-    ui::edit_scope(scope);
+    ftk::ui::edit_scope(scope);
     ImGui::BeginGroup();
-    const ui::Edit edit = draw_script_fields(type->fields, entry.instance.get(), ictx, scene_);
+    const ftk::ui::Edit edit = draw_script_fields(type->fields, entry.instance.get(), ictx, scene_);
     ImGui::EndGroup();
-    ui::edit_scope({});
+    ftk::ui::edit_scope({});
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
     script_edits_.track(
@@ -390,13 +390,13 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
 
     // The material's values are its own, shared by every node using it, so
     // they are set apart from the component's in a box of their own.
-    auto box = ui::InsetGroup("##material_values", "Material", ui::icon::material,
-                              theme::category(theme::Category::Rendering));
+    auto box = ftk::ui::InsetGroup("##material_values", "Material", ftk::ui::icon::material,
+                              ftk::theme::category(ftk::theme::Category::Rendering));
     if (!box) return;
     // Its values stay editable: they are the last version that compiled.
     shader_error_callout(*pipeline_cache_, pid, project_mgr_ != nullptr ? project_mgr_->active() : nullptr);
-    if (auto t = ui::PropertyTable("##material")) {
-        ui::row("Shader", [&] { ui::readout(mat->shader_path().c_str()); });
+    if (auto t = ftk::ui::PropertyTable("##material")) {
+        ftk::ui::row("Shader", [&] { ftk::ui::readout(mat->shader_path().c_str()); });
         // UV scale: every surface material has one; a ui quad's UV is its own
         // and a terrain material tiles each layer by that layer's own scale.
         if (meta.shader_type == ShaderType::Spatial) {
@@ -404,9 +404,9 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
             glm::vec2 uv_scale{gpu.base_params[7], gpu.base_params[8]};
             if (uv_scale.x == 0.0f) uv_scale.x = 1.0f;
             if (uv_scale.y == 0.0f) uv_scale.y = 1.0f;
-            ui::row("UV scale", [&] {
-                if (ui::vec2("##uv_scale", uv_scale, {.speed = 0.1f, .min = 0.01f, .max = 100.0f,
-                                                      .unit = ui::Unit::Times})
+            ftk::ui::row("UV scale", [&] {
+                if (ftk::ui::vec2("##uv_scale", uv_scale, {.speed = 0.1f, .min = 0.01f, .max = 100.0f,
+                                                      .unit = ftk::ui::Unit::Times})
                         .changed) {
                     GpuMaterial updated = gpu;
                     updated.base_params[7] = uv_scale.x;

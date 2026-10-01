@@ -11,20 +11,20 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void TaaResolvePass::Images::create(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void TaaResolvePass::Images::create(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     extent = {width, height};
     write_index = 0;
     needs_init = true;
     for (auto& slot : history) {
-        auto made = gpu.create(gpu::TextureDesc{
-            .format = gpu::Format::rgba16_float,
+        auto made = gpu.create(ftk::gpu::TextureDesc{
+            .format = ftk::gpu::Format::rgba16_float,
             .width = width,
             .height = height,
-            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
             .name = "taa_history",
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             destroy();
             return;
         }
@@ -37,7 +37,7 @@ void TaaResolvePass::Images::destroy() {
     extent = {0, 0};
 }
 
-void TaaResolvePass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void TaaResolvePass::Images::resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (extent.x == width && extent.y == height) return;
     destroy();
     if (width > 0 && height > 0) create(gpu, width, height);
@@ -45,16 +45,16 @@ void TaaResolvePass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t h
 
 // ── TaaResolvePass (singleton) ─────────────────────────────────────────────
 
-Result<> TaaResolvePass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
-    sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                               .mip_filter = gpu::Filter::nearest,
-                               .address = gpu::Address::clamp});
-    FJELL_TRY(pipeline_, device.create(gpu::ComputePipelineDesc{
+ftk::Result<> TaaResolvePass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
+    sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                               .mip_filter = ftk::gpu::Filter::nearest,
+                               .address = ftk::gpu::Address::clamp});
+    FTK_TRY(pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/taa_resolve.comp",
                              .name = "taa_resolve",
                          }));
-    FJELL_GFX_DEBUG("TAA resolve pass created (compute pipeline)");
+    FTK_GFX_DEBUG("TAA resolve pass created (compute pipeline)");
     return {};
 }
 
@@ -70,29 +70,29 @@ PassSetup TaaResolvePass::setup() const {
     };
 }
 
-void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void TaaResolvePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // A viewport without TAA images of its own (a scene viewport made from
     // flags runs the global pass set) has no history to resolve into, so
     // the pass declares nothing there and the graph leaves it out.
-    const FgTexture history_read = builder.import_named_optional(ctx, "taa_history_read");
-    const FgTexture history_write = builder.import_named_optional(ctx, "taa_history_write");
+    const ftk::FgTexture history_read = builder.import_named_optional(ctx, "taa_history_read");
+    const ftk::FgTexture history_write = builder.import_named_optional(ctx, "taa_history_write");
     if (!history_read.valid() || !history_write.valid()) { return; }
 
     auto color = builder.import_named(ctx, "color");
     auto velocity = builder.import_named(ctx, "velocity");
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(color, gpu::Access::sampled_compute);
-    builder.read(velocity, gpu::Access::sampled_compute);
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(color, ftk::gpu::Access::sampled_compute);
+    builder.read(velocity, ftk::gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
     // Blends into this frame's history slot from last frame's. The slots
     // are persistent, which keeps the pass alive for the frame after even
     // when nothing reads its output now.
-    builder.read(history_read, gpu::Access::sampled_compute);
-    builder.write(history_write, gpu::Access::storage_write_compute);
+    builder.read(history_read, ftk::gpu::Access::sampled_compute);
+    builder.write(history_write, ftk::gpu::Access::storage_write_compute);
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_taa");
+    FTK_PROFILE_SCOPE_N("record_taa");
     // Only a viewport's own history is declared to the graph, which is what
     // moves it between layouts; without one there is nothing to write into.
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->taa() : nullptr;
@@ -121,11 +121,11 @@ void TaaResolvePass::record_into(const FrameContext& ctx, Images& imgs) {
         float pad;
     };
     cmd.set_pipeline(pipeline_);
-    cmd.bind({{"current_color", gpu::sampled(ctx.target->color_texture(), sampler_)},
-              {"history_color", gpu::sampled(imgs.history[read_idx], sampler_)},
-              {"velocity_tex", gpu::sampled(ctx.target->velocity_texture(), sampler_)},
-              {"resolve_output", gpu::storage(imgs.history[write_idx])},
-              {"depth_tex", gpu::sampled(ctx.target->depth_texture(), sampler_)}});
+    cmd.bind({{"current_color", ftk::gpu::sampled(ctx.target->color_texture(), sampler_)},
+              {"history_color", ftk::gpu::sampled(imgs.history[read_idx], sampler_)},
+              {"velocity_tex", ftk::gpu::sampled(ctx.target->velocity_texture(), sampler_)},
+              {"resolve_output", ftk::gpu::storage(imgs.history[write_idx])},
+              {"depth_tex", ftk::gpu::sampled(ctx.target->depth_texture(), sampler_)}});
     cmd.push(TaaPush{
         .texel_x = 1.0f / static_cast<float>(imgs.extent.x),
         .texel_y = 1.0f / static_cast<float>(imgs.extent.y),

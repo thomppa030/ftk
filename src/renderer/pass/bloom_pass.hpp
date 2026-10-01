@@ -55,7 +55,7 @@ constexpr uint32_t BLOOM_MIP_COUNT = 5;
 
 class BloomCore : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
 
     void set_threshold(float t) { threshold_ = t; }
@@ -65,14 +65,14 @@ public:
     [[nodiscard]] float intensity() const { return intensity_; }
     [[nodiscard]] bool enabled() const { return enabled_; }
 
-    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
-    [[nodiscard]] gpu::GraphicsPipeline downsample_pipeline() const { return downsample_pipeline_; }
-    [[nodiscard]] gpu::GraphicsPipeline upsample_pipeline() const { return upsample_pipeline_; }
+    [[nodiscard]] ftk::gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] ftk::gpu::GraphicsPipeline downsample_pipeline() const { return downsample_pipeline_; }
+    [[nodiscard]] ftk::gpu::GraphicsPipeline upsample_pipeline() const { return upsample_pipeline_; }
 
 private:
-    gpu::Sampler sampler_;
-    gpu::Owned<gpu::GraphicsPipeline> downsample_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> upsample_pipeline_;
+    ftk::gpu::Sampler sampler_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> downsample_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> upsample_pipeline_;
 
     float threshold_{1.0F};
     float intensity_{0.25F};
@@ -85,7 +85,7 @@ class BloomDs0Pass : public BloomCore {
 public:
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 };
 
 // Follower downsample node for mip_index 1..4. Reads bloom_mip<idx-1>,
@@ -95,11 +95,11 @@ public:
     explicit BloomDsPass(uint32_t mip_index)
         : mip_index_(mip_index), zone_name_("Bloom Ds" + std::to_string(mip_index)) {}
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:
@@ -116,11 +116,11 @@ public:
     explicit BloomUsPass(uint32_t dst_mip)
         : dst_mip_(dst_mip), zone_name_("Bloom Us" + std::to_string(dst_mip)) {}
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
 private:

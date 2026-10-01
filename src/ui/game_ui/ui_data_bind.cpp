@@ -177,7 +177,7 @@ void UiDataBind::add_node(UiNode& node, UiContext& outer) {
         }
         const auto spec = parse_foreach(it->second);
         if (!spec) {
-            FJELL_CORE_WARN("{}:{}: foreach=\"{}\" reads `item in list` or `item, i in list`",
+            FTK_CORE_WARN("{}:{}: foreach=\"{}\" reads `item in list` or `item, i in list`",
                             child->source_file, child->source_line, it->second);
             continue;
         }
@@ -206,7 +206,7 @@ bool hidden(const UiNode& node) {
 } // namespace
 
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
-    FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
+    FTK_PROFILE_SCOPE_N("ui_data_bind_resolve");
     work_ = {};
     DataBindResult result;
     if (built_root_ != &root || built_context_ != &context) build(root, context);
@@ -220,7 +220,7 @@ DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
 }
 
 DataBindResult UiDataBind::resolve_revealed(bool& revealed) {
-    FJELL_PROFILE_SCOPE_N("ui_data_bind_revealed");
+    FTK_PROFILE_SCOPE_N("ui_data_bind_revealed");
     revealed = false;
     DataBindResult result;
     const std::vector<std::size_t> skipped = std::move(skipped_);

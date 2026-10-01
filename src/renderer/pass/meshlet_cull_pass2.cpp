@@ -20,24 +20,24 @@ PassSetup MeshletCullPass2::setup() const {
     };
 }
 
-void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void MeshletCullPass2::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
-        builder.read(hiz, gpu::Access::sampled_compute);
+        builder.read(hiz, ftk::gpu::Access::sampled_compute);
     }
     // Tests again what the first cull set aside, and writes what is now
     // visible into the second set of the same instances and commands.
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled"),
-                 gpu::Access::storage_buffer_read_compute);
+                 ftk::gpu::Access::storage_buffer_read_compute);
     builder.read(builder.import_named_buffer(ctx, "meshlet_culled_count"),
-                 gpu::Access::storage_buffer_read_compute);
+                 ftk::gpu::Access::storage_buffer_read_compute);
     builder.read_write(builder.import_named_buffer(ctx, "meshlet_visible"),
-                       gpu::Access::storage_buffer_read_write_compute);
+                       ftk::gpu::Access::storage_buffer_read_write_compute);
     builder.read_write(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                       gpu::Access::storage_buffer_read_write_compute);
+                       ftk::gpu::Access::storage_buffer_read_write_compute);
 }
 
 void MeshletCullPass2::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_meshlet_cull2");
+    FTK_PROFILE_SCOPE_N("record_meshlet_cull2");
     if (instance_pass_ == nullptr || ctx.indirect_batch == nullptr) { return; }
     if (ctx.indirect_batch->opaque_draw_count(ctx.frame_index) == 0) { return; }
     auto zone = ctx.commands().zone("Meshlet Cull Pass 2");

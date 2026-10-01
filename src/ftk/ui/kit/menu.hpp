@@ -6,7 +6,7 @@
 
 #include <optional>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct MenuItem {
     const char* icon{nullptr};      ///< from ui::icon; null leaves the column empty
@@ -32,4 +32,4 @@ void menu_heading(const char* label);
 /// calls ImGui::EndMenu().
 bool begin_menu(const char* icon, const char* label, bool enabled = true);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

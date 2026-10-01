@@ -52,7 +52,7 @@ void NetManager::host(uint16_t port, uint32_t max_clients) {
     };
 
     if (!transport->host(port, max_clients)) {
-        FJELL_CORE_ERROR("NetManager: failed to host on port {}", port);
+        FTK_CORE_ERROR("NetManager: failed to host on port {}", port);
         return;
     }
 
@@ -60,7 +60,7 @@ void NetManager::host(uint16_t port, uint32_t max_clients) {
     role_       = NetRole::server;
     local_peer_ = SERVER_PEER;
     net_scene_.local_player_changed();
-    FJELL_CORE_INFO("NetManager: hosting (server peer {})", local_peer_);
+    FTK_CORE_INFO("NetManager: hosting (server peer {})", local_peer_);
 }
 
 void NetManager::join(const std::string& address, uint16_t port) {
@@ -74,7 +74,7 @@ void NetManager::join(const std::string& address, uint16_t port) {
     };
 
     if (!transport->connect(address, port)) {
-        FJELL_CORE_ERROR("NetManager: failed to connect to {}:{}", address, port);
+        FTK_CORE_ERROR("NetManager: failed to connect to {}:{}", address, port);
         return;
     }
 
@@ -84,7 +84,7 @@ void NetManager::join(const std::string& address, uint16_t port) {
     // then it is unknown. SERVER_PEER here just means "not yet a distinct peer".
     local_peer_ = SERVER_PEER;
     net_scene_.local_player_changed();
-    FJELL_CORE_INFO("NetManager: joining {}:{}", address, port);
+    FTK_CORE_INFO("NetManager: joining {}:{}", address, port);
 }
 
 void NetManager::shutdown() {
@@ -157,7 +157,7 @@ NetId NetManager::spawn(Scene& scene, ResourceManager& resources,
                         const std::string& preset_path, const glm::vec3& position,
                         PeerId owner, const Project* project) {
     if (role_ != NetRole::server) {
-        FJELL_CORE_WARN("NetManager: spawn() called off the server, ignoring");
+        FTK_CORE_WARN("NetManager: spawn() called off the server, ignoring");
         return NET_ID_NONE;
     }
     return spawn_replicator_.spawn(scene, resources, net_scene_, transport_.get(),
@@ -166,7 +166,7 @@ NetId NetManager::spawn(Scene& scene, ResourceManager& resources,
 
 void NetManager::destroy(Scene& scene, NetId net_id) {
     if (role_ != NetRole::server) {
-        FJELL_CORE_WARN("NetManager: destroy() called off the server, ignoring");
+        FTK_CORE_WARN("NetManager: destroy() called off the server, ignoring");
         return;
     }
     spawn_replicator_.destroy(scene, net_scene_, transport_.get(), net_id);
@@ -256,7 +256,7 @@ void NetManager::handle_receive(const NetContext& ctx, PeerId peer,
         apply_welcome(data);
         break;
     default:
-        FJELL_CORE_WARN("NetManager: unknown packet type {}", type);
+        FTK_CORE_WARN("NetManager: unknown packet type {}", type);
         break;
     }
 }
@@ -271,7 +271,7 @@ void NetManager::apply_welcome(std::span<const uint8_t> data) {
     if (role_ != NetRole::client) return;  // only a client adopts a server-assigned id
     local_peer_ = assigned;
     net_scene_.local_player_changed();
-    FJELL_CORE_INFO("NetManager: assigned peer id {}", local_peer_);
+    FTK_CORE_INFO("NetManager: assigned peer id {}", local_peer_);
 }
 
 } // namespace fjell

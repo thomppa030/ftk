@@ -22,7 +22,7 @@
 #include <string_view>
 #include <type_traits>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class CommandList;
 class Device;
@@ -256,4 +256,4 @@ private:
 [[nodiscard]] Result<> barrier_accesses(AccessSet before, AccessSet after,
                                         bool (*applies)(Access) noexcept, std::string_view resource);
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

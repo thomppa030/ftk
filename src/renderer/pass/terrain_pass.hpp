@@ -68,7 +68,7 @@ static_assert(offsetof(TerrainPushConstants, layer_uv_scales) == 80);
 /// of its own: they call `draw_depth`, `draw_shadow` and `draw`.
 class TerrainPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -77,20 +77,20 @@ public:
 
     /// Draws terrain lit, into the opaque pass's targets, and the patch grid
     /// over the nodes that ask for it.
-    void draw(gpu::RenderEncoder& pass, const FrameContext& ctx);
+    void draw(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx);
 
     /// Draws terrain into the depth prepass. Terrain is opaque geometry, and
     /// the colour pass tests against the prepass depth rather than writing
     /// it — without this the surface fails its own depth test wherever the
     /// prepass left the cleared far value, and terrain flickers out as the
     /// camera turns. Also feeds Hi-Z, so terrain occludes what is behind it.
-    void draw_depth(gpu::RenderEncoder& pass, const FrameContext& ctx);
+    void draw_depth(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx);
 
     /// Draws terrain into one shadow cascade. Terrain is the ground every
     /// other caster stands on, so without this a hill shadows nothing — not
     /// the character walking behind it, and not the sun shafts, which read the
     /// same cascades. `cascade` selects the light matrix from the global UBO.
-    void draw_shadow(gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t cascade);
+    void draw_shadow(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx, uint32_t cascade);
 
     /// Whether the scene holds a terrain with a resolved asset. Depth passes
     /// early-out on an empty render queue, which terrain is never part of, so
@@ -108,19 +108,19 @@ private:
 
     /// A colour pipeline built from one terrain FJSL entry.
     struct MaterialPipeline {
-        gpu::Owned<gpu::GraphicsPipeline> pipeline;
+        ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline;
         uint32_t generation{0};   ///< PipelineCache generation it was built at
     };
 
     /// Build (or rebuild after a recompile) the colour pipeline for a terrain
     /// FJSL entry. Invalid when the entry failed to compile or is not a
     /// terrain shader, in which case the fallback pipeline draws instead.
-    gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
+    ftk::gpu::GraphicsPipeline ensure_material_pipeline(uint32_t pipeline_id);
 
     /// The colour pipeline and material row a node draws with: its own
     /// material when that is a terrain shader that compiled, else the engine's
     /// terrain.fjsl at its defaults.
-    void resolve_node_material(const TerrainComponent& comp, gpu::GraphicsPipeline& out_pipeline,
+    void resolve_node_material(const TerrainComponent& comp, ftk::gpu::GraphicsPipeline& out_pipeline,
                                uint32_t& out_material_id);
 
     /// Register the engine's terrain.fjsl and give it a material row, so a
@@ -132,16 +132,16 @@ private:
     /// projection the draw writes into: 0 the camera, 1..3 the shadow cascade
     /// of that index minus one. `extent` is the size of what is drawn into,
     /// in pixels, which each patch's level of detail is chosen against.
-    void draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContext& ctx, Variant variant,
+    void draw_terrain_nodes(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx, Variant variant,
                             uint32_t view_index, glm::uvec2 extent);
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     PassResources resources_{};
-    gpu::Owned<gpu::GraphicsPipeline> depth_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> shadow_pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> wireframe_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> depth_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> shadow_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> wireframe_pipeline_;
     /// Linear and clamped to the edge, for all three terrain textures.
-    gpu::Sampler sampler_{};
+    ftk::gpu::Sampler sampler_{};
 
     /// Projected patch height in pixels below which each coarser level takes
     /// over. A patch is finest above the first, coarsest below the last.

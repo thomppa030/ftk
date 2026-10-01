@@ -51,7 +51,7 @@ private:
 
     State state_{State::idle};
     SourceSummary summary_;
-    platform::SubprocessHandle process_;
+    ftk::platform::SubprocessHandle process_;
     std::string buffer_;
 };
 

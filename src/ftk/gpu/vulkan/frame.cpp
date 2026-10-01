@@ -17,7 +17,7 @@
 // when the slot comes round, and the frame's lists submitted when it ends,
 // each on its own batch, chained across the queues by the queue timelines.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -361,4 +361,4 @@ uint64_t Device::finished_frame() const {
     return value;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

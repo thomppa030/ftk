@@ -275,7 +275,7 @@ void encode_uniform_for_gpu(const FjslUniform& u, std::span<float> values) {
     if (!is_authored_color(u)) return;
     const size_t rgb = std::min<size_t>(values.size(), 3);
     for (size_t i = 0; i < rgb; ++i) {
-        values[i] = color_space::srgb_to_linear(values[i]);
+        values[i] = ftk::color_space::srgb_to_linear(values[i]);
     }
 }
 
@@ -283,7 +283,7 @@ void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values) {
     if (!is_authored_color(u)) return;
     const size_t rgb = std::min<size_t>(values.size(), 3);
     for (size_t i = 0; i < rgb; ++i) {
-        values[i] = color_space::linear_to_srgb(values[i]);
+        values[i] = ftk::color_space::linear_to_srgb(values[i]);
     }
 }
 
@@ -930,9 +930,9 @@ void log_diagnostics(const std::vector<FjslDiagnostic>& diagnostics,
         // that wired it — report it where it lives.
         const std::string& file = d.file.empty() ? fallback : d.file;
         if (d.severity == FjslSeverity::error) {
-            FJELL_GFX_ERROR("{}:{}:{}: error: {}", file, d.line, d.column, d.message);
+            FTK_GFX_ERROR("{}:{}:{}: error: {}", file, d.line, d.column, d.message);
         } else {
-            FJELL_GFX_WARN("{}:{}:{}: warning: {}", file, d.line, d.column, d.message);
+            FTK_GFX_WARN("{}:{}:{}: warning: {}", file, d.line, d.column, d.message);
         }
     }
 }

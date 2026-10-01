@@ -18,23 +18,23 @@ static CompareOp parse_op(const std::string& s) {
     if (s == "<=" || s == "le")  return CompareOp::less_equal;
     if (s == ">"  || s == "gt")  return CompareOp::greater;
     if (s == ">=" || s == "ge")  return CompareOp::greater_equal;
-    FJELL_CORE_WARN("Unknown compare op '{}', defaulting to ==", s);
+    FTK_CORE_WARN("Unknown compare op '{}', defaulting to ==", s);
     return CompareOp::equal;
 }
 
-Result<> AnimationStateMachine::load(const std::string& path) {
+ftk::Result<> AnimationStateMachine::load(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjanimset: " + path);
+        return ftk::make_error("Failed to open .fjanimset: " + path);
     }
     std::stringstream text;
     text << f.rdbuf();
     return load_text(text.str(), path);
 }
 
-Result<> AnimationStateMachine::load_text(std::string_view text, const std::string& path) {
+ftk::Result<> AnimationStateMachine::load_text(std::string_view text, const std::string& path) {
     auto j = nlohmann::json::parse(text, nullptr, false);
-    if (!j.is_object()) return make_error("Malformed .fjanimset: " + path);
+    if (!j.is_object()) return ftk::make_error("Malformed .fjanimset: " + path);
 
     states_.clear();
     state_index_.clear();
@@ -49,7 +49,7 @@ Result<> AnimationStateMachine::load_text(std::string_view text, const std::stri
 
     // Parse states
     if (!j.contains("states") || !j["states"].is_array()) {
-        return make_error(".fjanimset missing 'states' array: " + path);
+        return ftk::make_error(".fjanimset missing 'states' array: " + path);
     }
 
     for (const auto& js : j["states"]) {
@@ -166,10 +166,10 @@ std::string AnimationStateMachine::text() const {
     return j.dump(2);
 }
 
-Result<> AnimationStateMachine::save(const std::string& path) const {
+ftk::Result<> AnimationStateMachine::save(const std::string& path) const {
     std::ofstream file(path);
     if (!file) {
-        return make_error("Failed to save .fjanimset: " + path);
+        return ftk::make_error("Failed to save .fjanimset: " + path);
     }
     file << text();
     return {};

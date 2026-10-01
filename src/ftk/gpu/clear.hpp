@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// What a texture is cleared to. The texture's format decides what is read:
 /// a colour format reads `color` (an unsigned integer format as whole
@@ -34,4 +34,4 @@ struct Clear {
     }
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

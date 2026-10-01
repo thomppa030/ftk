@@ -15,11 +15,11 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
 
 /// The global set every pass may bind at set 0: the frame's uniforms and
 /// lights, the shadow maps, the sky, and the view's depth, AO and GI. Its
@@ -39,25 +39,25 @@ public:
 
     /// Makes the layout. `gpu` is what the groups are made and written with.
     /// @return nothing, or why the layout could not be made.
-    [[nodiscard]] Result<> create(gpu::Device& gpu);
+    [[nodiscard]] ftk::Result<> create(ftk::gpu::Device& gpu);
 
     /// The layout pipelines name to bind the set.
-    [[nodiscard]] gpu::SharedLayout layout() const { return layout_; }
+    [[nodiscard]] ftk::gpu::SharedLayout layout() const { return layout_; }
 
     /// The group the frames of `slot` bind, made the first time it is asked
     /// for. Empty, and reported once, while a binding has never been set.
-    [[nodiscard]] gpu::BindGroup group(uint32_t slot);
+    [[nodiscard]] ftk::gpu::BindGroup group(uint32_t slot);
 
     /// Points the binding `name` at `resource` in every slot's group.
-    void set(std::string_view name, const gpu::BindResource& resource);
+    void set(std::string_view name, const ftk::gpu::BindResource& resource);
 
     /// `set()` for one slot's group only: for a binding that changes with
     /// the view drawn, set for the slot about to record.
-    void set(uint32_t slot, std::string_view name, const gpu::BindResource& resource);
+    void set(uint32_t slot, std::string_view name, const ftk::gpu::BindResource& resource);
 
     /// Several bindings of one slot's group at once, as one new version of
     /// it: a view's run points the bindings it fills at its own.
-    void set(uint32_t slot, std::span<const gpu::BindEntry> entries);
+    void set(uint32_t slot, std::span<const ftk::gpu::BindEntry> entries);
 
     /// Releases the groups. The layout lasts as long as the device.
     void destroy();
@@ -66,17 +66,17 @@ private:
     struct Declared {
         std::string name;
         uint32_t binding{0};
-        gpu::BindingKind kind{gpu::BindingKind::sampled_texture};
-        gpu::ShaderStages stages{};
+        ftk::gpu::BindingKind kind{ftk::gpu::BindingKind::sampled_texture};
+        ftk::gpu::ShaderStages stages{};
     };
 
     void declare(Declared decl);
     /// Every binding's entry as `slot` holds it; none when one was never
     /// set, which is reported once by name.
-    [[nodiscard]] std::optional<std::vector<gpu::BindEntry>> entries(uint32_t slot);
+    [[nodiscard]] std::optional<std::vector<ftk::gpu::BindEntry>> entries(uint32_t slot);
 
-    gpu::Device* gpu_{nullptr};
-    gpu::SharedLayout layout_{};
+    ftk::gpu::Device* gpu_{nullptr};
+    ftk::gpu::SharedLayout layout_{};
     std::vector<Declared> declared_;
     struct NameHash {
         using is_transparent = void;
@@ -84,8 +84,8 @@ private:
     };
     std::unordered_map<std::string, size_t, NameHash, std::equal_to<>> index_;
     /// What each slot holds, by declared binding.
-    std::array<std::vector<std::optional<gpu::BindResource>>, MAX_FRAMES_IN_FLIGHT> contents_;
-    std::array<gpu::Owned<gpu::BindGroup>, MAX_FRAMES_IN_FLIGHT> groups_;
+    std::array<std::vector<std::optional<ftk::gpu::BindResource>>, ftk::MAX_FRAMES_IN_FLIGHT> contents_;
+    std::array<ftk::gpu::Owned<ftk::gpu::BindGroup>, ftk::MAX_FRAMES_IN_FLIGHT> groups_;
     bool missing_reported_{false};
 };
 

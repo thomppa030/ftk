@@ -66,7 +66,7 @@ OwnedFieldDesc element_field(const OwnedVectorDesc& vector) {
     return field;
 }
 
-ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOptions& options) {
+ftk::ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOptions& options) {
     const OwnedVectorDesc& vector = field.vector;
     if (vector.size == nullptr || vector.at == nullptr) return {};
     const bool structs = vector.element == FJELL_FIELD_STRUCT && vector.element_type != nullptr;
@@ -76,7 +76,7 @@ ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOpt
     const ImGuiID open_id = ImGui::GetID("##open_card");
     int open = storage->GetInt(open_id, -1);
 
-    ui::Edit edit;
+    ftk::ui::Edit edit;
     std::optional<uint32_t> remove;
     std::optional<std::pair<std::size_t, std::size_t>> moved;
     bool add = false;
@@ -85,7 +85,7 @@ ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOpt
     inner.path.clear();
     inner.entries_of = path_to(options, field.name);
     {
-        ui::ListEditor cards("##cards", count,
+        ftk::ui::ListEditor cards("##cards", count,
                              {.reorder = editable && vector.move != nullptr, .remove = editable, .opens = structs});
         for (uint32_t i = 0; i < count; ++i) {
             const bool is_open = structs && static_cast<int>(i) == open;
@@ -99,8 +99,8 @@ ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOpt
                 const std::string summary =
                     model_summary(vector.element_type->name, vector.element_type->fields, entry);
                 ImGui::TextUnformatted(summary.empty() ? "Empty" : summary.c_str());
-            } else if (auto table = ui::PropertyTable("##value")) {
-                ui::row("Value", [&] {
+            } else if (auto table = ftk::ui::PropertyTable("##value")) {
+                ftk::ui::row("Value", [&] {
                     ImGui::BeginDisabled(!options.editable);
                     edit |= draw_script_field(element_field(vector), entry, *options.ctx, options.scene);
                     ImGui::EndDisabled();
@@ -125,9 +125,9 @@ ui::Edit draw_list(const OwnedFieldDesc& field, void* list, const ModelFieldsOpt
         edit = {true, true};
     } else if (moved && vector.move != nullptr) {
         const auto [from, before] = *moved;
-        const auto to = ui::index_after_move(from, from, before);
+        const auto to = ftk::ui::index_after_move(from, from, before);
         vector.move(list, static_cast<uint32_t>(from), static_cast<uint32_t>(to));
-        if (open >= 0) open = static_cast<int>(ui::index_after_move(static_cast<std::size_t>(open), from, before));
+        if (open >= 0) open = static_cast<int>(ftk::ui::index_after_move(static_cast<std::size_t>(open), from, before));
         edit = {true, true};
     }
     storage->SetInt(open_id, open);
@@ -150,10 +150,10 @@ std::string model_summary(std::string_view type, std::span<const OwnedFieldDesc>
     return summary;
 }
 
-ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object, const ModelFieldsOptions& options) {
+ftk::ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object, const ModelFieldsOptions& options) {
     auto* base = static_cast<char*>(object);
-    ui::Edit edit;
-    std::optional<ui::PropertyTable> table;
+    ftk::ui::Edit edit;
+    std::optional<ftk::ui::PropertyTable> table;
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const auto& f = fields[i];
         const std::string label = field_label(f.name);
@@ -161,7 +161,7 @@ ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object,
             // A struct or a list has its own heading, between tables of rows.
             table.reset();
             ImGui::PushID(static_cast<int>(i));
-            ui::subheading(label.c_str());
+            ftk::ui::subheading(label.c_str());
             if (f.type == FJELL_FIELD_VECTOR) {
                 edit |= draw_list(f, base + f.offset, options);
             } else if (f.struct_type != nullptr) {
@@ -176,7 +176,7 @@ ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object,
         if (!*table) continue;
         const std::string path = path_to(options, f.name);
         ImGui::PushID(static_cast<int>(i));
-        ui::row(label.c_str(), path.c_str(), [&] {
+        ftk::ui::row(label.c_str(), path.c_str(), [&] {
             if (f.is_getter()) {
                 draw_getter(f, object, options);
                 return;

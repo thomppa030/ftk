@@ -3,7 +3,7 @@
 #include <cctype>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 /// Convert "velocity_min" → "Velocity Min"
 inline std::string display_name(const std::string& snake) {
@@ -24,4 +24,4 @@ inline std::string display_name(const std::string& snake) {
     return out;
 }
 
-} // namespace fjell
+} // namespace ftk

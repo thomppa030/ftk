@@ -7,7 +7,7 @@
 using fjell::AnimationState;
 using fjell::AnimationStateMachine;
 using fjell::StateGraph;
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 
 namespace {
 

@@ -16,7 +16,7 @@
 #include <array>
 #include <unordered_map>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 struct FileWatcher::Impl {
     struct WatchEntry {
@@ -77,7 +77,7 @@ struct FileWatcher::Impl {
             nullptr);
 
         if (h == INVALID_HANDLE_VALUE) {
-            FJELL_CORE_WARN("FileWatcher: failed to open directory {}", dir_path.string());
+            FTK_CORE_WARN("FileWatcher: failed to open directory {}", dir_path.string());
             return false;
         }
 
@@ -91,7 +91,7 @@ struct FileWatcher::Impl {
         if (!begin_read(w)) {
             CloseHandle(w.overlapped.hEvent);
             CloseHandle(h);
-            FJELL_CORE_WARN("FileWatcher: ReadDirectoryChangesW failed for {}", dir_path.string());
+            FTK_CORE_WARN("FileWatcher: ReadDirectoryChangesW failed for {}", dir_path.string());
             return false;
         }
 
@@ -165,4 +165,4 @@ bool FileWatcher::poll() {
     return impl_->poll_events();
 }
 
-} // namespace fjell::platform
+} // namespace ftk::platform

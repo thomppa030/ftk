@@ -7,12 +7,12 @@
 
 namespace fjell {
 
-AnimationSystem::AnimationSystem(gpu::Device& gpu)
+AnimationSystem::AnimationSystem(ftk::gpu::Device& gpu)
     : bone_buffer_{gpu} {
 }
 
 void AnimationSystem::update(Scene& scene, float dt) {
-    FJELL_PROFILE_SCOPE_N("anim_system_update");
+    FTK_PROFILE_SCOPE_N("anim_system_update");
     for (auto [obj, anim] : scene.view<AnimatorComponent>()) {
 
         // Auto-init from SkeletalModel's embedded skeleton
@@ -31,7 +31,7 @@ void AnimationSystem::update(Scene& scene, float dt) {
 }
 
 void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("anim_upload_bones");
+    FTK_PROFILE_SCOPE_N("anim_upload_bones");
     bone_buffer_.begin_frame();
 
     // Clear only previously active entries (O(active) instead of O(max_id))

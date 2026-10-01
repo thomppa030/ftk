@@ -7,10 +7,10 @@
 
 namespace fjell {
 
-Result<AudioAsset> load_audio_asset_file(const std::string& path) {
+ftk::Result<AudioAsset> load_audio_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjaudio file: " + path);
+        return ftk::make_error("Failed to open .fjaudio file: " + path);
     }
 
     nlohmann::json j;
@@ -27,7 +27,7 @@ Result<AudioAsset> load_audio_asset_file(const std::string& path) {
     return asset;
 }
 
-Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset) {
+ftk::Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset) {
     nlohmann::json j;
     j["clip"] = asset.clip_path;
     j["volume"] = asset.volume;
@@ -39,7 +39,7 @@ Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset)
 
     std::ofstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to write .fjaudio file: " + path);
+        return ftk::make_error("Failed to write .fjaudio file: " + path);
     }
     f << j.dump(4) << "\n";
     return {};

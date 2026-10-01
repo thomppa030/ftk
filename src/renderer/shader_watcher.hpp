@@ -63,7 +63,7 @@ private:
     std::string source_dir_;
     std::string output_dir_;
     std::string project_dir_;
-    platform::FileWatcher watcher_;
+    ftk::platform::FileWatcher watcher_;
     Changes changes_;
 };
 

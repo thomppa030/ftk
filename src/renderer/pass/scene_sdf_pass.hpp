@@ -22,15 +22,15 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk::gpu {
+class CommandList;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class Model;
 class TerrainAsset;
 struct PassResources;
-
-namespace gpu {
-class CommandList;
-}
 
 // What an instance's grid holds: a baked mesh distance field, or a terrain's
 // height samples that the shader turns into a distance on the fly.
@@ -74,23 +74,23 @@ static_assert(sizeof(GpuSdfInstance) == 176);
 class SceneSdfPass : public RenderPass {
 public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
-    static constexpr gpu::Format SDF_FORMAT = gpu::Format::r16_float;
+    static constexpr ftk::gpu::Format SDF_FORMAT = ftk::gpu::Format::r16_float;
     /// The index volume: per voxel, the slot of the object nearest it within
     /// max_distance(), or NO_SDF_SLOT. A slot is an object's id for as long
     /// as it is in the scene, so a voxel left alone by later composes still
     /// names the right object.
-    static constexpr gpu::Format SDF_INDEX_FORMAT = gpu::Format::r16_uint;
+    static constexpr ftk::gpu::Format SDF_INDEX_FORMAT = ftk::gpu::Format::r16_uint;
     /// What the volumes and the debug slice are exported under.
     static constexpr const char* VOLUME_NAME = "scene_sdf";
     static constexpr const char* INDEX_NAME = "scene_sdf_index";
     static constexpr const char* SLICE_NAME = "scene_sdf_slice";
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
@@ -150,13 +150,13 @@ public:
     [[nodiscard]] float max_distance() const;
 
     /// The distances, sampled trilinearly and clamped to the edge.
-    [[nodiscard]] gpu::Texture volume() const { return volume_; }
-    [[nodiscard]] gpu::Sampler sampler() const { return volume_sampler_; }
+    [[nodiscard]] ftk::gpu::Texture volume() const { return volume_; }
+    [[nodiscard]] ftk::gpu::Sampler sampler() const { return volume_sampler_; }
     /// The index volume (SDF_INDEX_FORMAT), read with texelFetch.
-    [[nodiscard]] gpu::Texture index_volume() const { return index_volume_; }
-    [[nodiscard]] gpu::Sampler index_sampler() const { return index_sampler_; }
+    [[nodiscard]] ftk::gpu::Texture index_volume() const { return index_volume_; }
+    [[nodiscard]] ftk::gpu::Sampler index_sampler() const { return index_sampler_; }
     /// Frame slot `frame_index`'s GpuSdfSlot per slot the index volume names.
-    [[nodiscard]] gpu::Buffer slot_table(uint32_t frame_index) const {
+    [[nodiscard]] ftk::gpu::Buffer slot_table(uint32_t frame_index) const {
         return slot_tables_[frame_index];
     }
     [[nodiscard]] const glm::vec3& volume_min() const { return volume_min_; }
@@ -171,8 +171,8 @@ public:
     void request_slice(uint32_t axis, float slice_pos, std::optional<glm::uvec2> texel = {});
     /// The slice to show, and the nearest sampler to show it with, so each
     /// texel stays a square; none until the first slice has been asked for.
-    [[nodiscard]] gpu::Texture slice_texture() const { return slice_texture_; }
-    [[nodiscard]] gpu::Sampler slice_sampler() const { return slice_sampler_; }
+    [[nodiscard]] ftk::gpu::Texture slice_texture() const { return slice_texture_; }
+    [[nodiscard]] ftk::gpu::Sampler slice_sampler() const { return slice_sampler_; }
     /// Texels across and down the slice.
     static constexpr uint32_t SLICE_SIZE = 256;
     /// The distance in metres at the texel last asked about, as the GPU
@@ -199,33 +199,33 @@ public:
 private:
     /// Records the outstanding region updates, or a full rebuild, with frame
     /// slot `frame_index`'s instance list.
-    void compose(gpu::CommandList& cmd, uint32_t frame_index);
+    void compose(ftk::gpu::CommandList& cmd, uint32_t frame_index);
     /// Draws the slice asked for, into the slot's part of the distances.
-    void draw_slice(gpu::CommandList& cmd, uint32_t frame_index);
+    void draw_slice(ftk::gpu::CommandList& cmd, uint32_t frame_index);
     /// The slice's texture, readback and pipeline, made at the first
     /// request; false when they could not be, which is reported.
     [[nodiscard]] bool make_slice();
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
 
-    gpu::Owned<gpu::Texture> volume_;
-    gpu::Owned<gpu::Texture> index_volume_;
-    gpu::Sampler volume_sampler_{};
-    gpu::Sampler index_sampler_{};
-    gpu::Owned<gpu::ComputePipeline> composite_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::Texture> volume_;
+    ftk::gpu::Owned<ftk::gpu::Texture> index_volume_;
+    ftk::gpu::Sampler volume_sampler_{};
+    ftk::gpu::Sampler index_sampler_{};
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> composite_pipeline_;
 
     // Per-mesh SDF data packed into a single SSBO, written by the CPU
-    gpu::Owned<gpu::Buffer> mesh_sdf_buffer_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> mesh_sdf_buffer_;
     uint32_t mesh_sdf_offset_{0}; // next free offset in int16 units
 
     // Per-instance metadata, host-written when a compose is recorded, so one
     // per frame in flight: a compose still running on the GPU must not read
     // the next frame's instance list.
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> instance_buffers_;
 
     // Each slot's materials, rewritten every frame from the gather, so one
     // table per frame in flight; `slots_` is the CPU copy, by slot.
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> slot_tables_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> slot_tables_;
     std::vector<GpuSdfSlot> slots_;
     // Slots given back by objects that left, handed out again first.
     std::vector<uint32_t> free_slots_;
@@ -265,17 +265,17 @@ private:
     void add_dirty_region(AABB region);
 
     // Slice visualization
-    gpu::Owned<gpu::ComputePipeline> slice_pipeline_;
-    gpu::Owned<gpu::Texture> slice_texture_;
-    gpu::Sampler slice_sampler_{};
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> slice_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::Texture> slice_texture_;
+    ftk::gpu::Sampler slice_sampler_{};
     bool slice_requested_{false};
     uint32_t slice_axis_{1};
     float slice_pos_{0.5f};
     std::optional<glm::uvec2> slice_texel_{};
     std::optional<float> hovered_distance_{};
     // MAX_FRAMES_IN_FLIGHT slices of distances, read back by the CPU.
-    gpu::Owned<gpu::Buffer> slice_distances_;
-    std::array<bool, MAX_FRAMES_IN_FLIGHT> slice_written_{};
+    ftk::gpu::Owned<ftk::gpu::Buffer> slice_distances_;
+    std::array<bool, ftk::MAX_FRAMES_IN_FLIGHT> slice_written_{};
 };
 
 } // namespace fjell

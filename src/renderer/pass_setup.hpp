@@ -18,7 +18,7 @@ struct PassResources;
 /// An entry whose `enabled_if` names an unsupported device feature (mesh
 /// shaders, currently the only one) is skipped rather than constructed —
 /// see the `feature_available` switch in the .cpp.
-[[nodiscard]] Result<> create_passes_from_graph(const FjGraph& graph,
+[[nodiscard]] ftk::Result<> create_passes_from_graph(const FjGraph& graph,
                                                 PassRegistry& passes,
                                                 RenderPipeline& pipeline,
                                                 GpuContext& gpu,

@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -130,4 +130,4 @@ SaveAction AssetHeaderBar::finish() {
     return action_;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

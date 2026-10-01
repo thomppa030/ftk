@@ -13,11 +13,11 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 class Window;
 }
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 class UploadLanes;
 
@@ -222,4 +222,4 @@ private:
     std::vector<const char*> device_extensions_;
 };
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

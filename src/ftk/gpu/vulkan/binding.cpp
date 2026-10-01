@@ -10,7 +10,7 @@
 #include <string>
 #include <tuple>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -370,7 +370,7 @@ std::string Device::Impl::shared_at(const PipelineRecord& pipeline, uint32_t set
 
 void Device::Impl::report_once(const std::string& message) {
     std::lock_guard lock(reported_mutex);
-    if (reported.insert(message).second) FJELL_GFX_ERROR("{}", message);
+    if (reported.insert(message).second) FTK_GFX_ERROR("{}", message);
 }
 
 // ── Device ──────────────────────────────────────────────────────────────
@@ -543,4 +543,4 @@ void release(Device& device, BindGroup group) {
     });
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

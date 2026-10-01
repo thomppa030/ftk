@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <functional>
 
-namespace fjell {
+namespace ftk {
 
 /// Generational handle: a slot index and the generation the slot had when the
 /// handle was made, so a handle kept after its object was removed no longer
@@ -35,4 +35,4 @@ struct HandleHash {
     }
 };
 
-} // namespace fjell
+} // namespace ftk

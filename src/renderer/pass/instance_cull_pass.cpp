@@ -8,14 +8,14 @@
 
 namespace fjell {
 
-Result<> InstanceCullPass::create(const PassResources& resources) {
+ftk::Result<> InstanceCullPass::create(const PassResources& resources) {
     // Set 0 is the globals (the view-projection); set 1 the pass's buffers.
-    FJELL_TRY(pipeline_, resources.device->create(gpu::ComputePipelineDesc{
+    FTK_TRY(pipeline_, resources.device->create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/instance_cull.comp",
                              .shared = {resources.globals},
                              .name = "instance_cull",
                          }));
-    FJELL_GFX_DEBUG("InstanceCullPass created");
+    FTK_GFX_DEBUG("InstanceCullPass created");
     return {};
 }
 
@@ -49,23 +49,23 @@ void InstanceCullPass::collect_exports(DeclareContext& ctx) {
     // that survived the cull, and the commands whose instance counts say
     // how many did.
     if (transforms_.buffer.valid()) {
-        ctx.buffer_imports.emplace(fg_name_hash("instance_transforms"), transforms_);
+        ctx.buffer_imports.emplace(ftk::fg_name_hash("instance_transforms"), transforms_);
     }
     if (commands_.buffer.valid()) {
-        ctx.buffer_imports.emplace(fg_name_hash("batch_indirect"), commands_);
+        ctx.buffer_imports.emplace(ftk::fg_name_hash("batch_indirect"), commands_);
     }
 }
 
-void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void InstanceCullPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(builder.import_named_buffer(ctx, "instance_transforms"),
-                  gpu::Access::storage_buffer_write_compute);
+                  ftk::gpu::Access::storage_buffer_write_compute);
     // The instance counts are patched in place in commands the CPU wrote.
     builder.read_write(builder.import_named_buffer(ctx, "batch_indirect"),
-                       gpu::Access::storage_buffer_read_write_compute);
+                       ftk::gpu::Access::storage_buffer_read_write_compute);
 }
 
 void InstanceCullPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_instance_cull");
+    FTK_PROFILE_SCOPE_N("record_instance_cull");
     if (ctx.indirect_batch == nullptr) { return; }
     const IndirectBatch& batch = *ctx.indirect_batch;
     const uint32_t frame = ctx.frame_index;
@@ -78,10 +78,10 @@ void InstanceCullPass::record(const FrameContext& ctx) {
     cmd.bind(ctx.globals);
     // Each instanced draw's box and slice, the transforms the CPU wrote, the
     // compacted survivors, and the commands whose instance counts are patched.
-    cmd.bind({{"InstancedDrawBuffer", gpu::storage(batch.instanced_draws(frame))},
-              {"InstanceTransformsBuffer", gpu::storage(batch.instance_transforms(frame))},
-              {"VisibleTransformsBuffer", gpu::storage(batch.visible_instances(frame))},
-              {"IndirectBuffer", gpu::storage(batch.indirect_commands(frame))}});
+    cmd.bind({{"InstancedDrawBuffer", ftk::gpu::storage(batch.instanced_draws(frame))},
+              {"InstanceTransformsBuffer", ftk::gpu::storage(batch.instance_transforms(frame))},
+              {"VisibleTransformsBuffer", ftk::gpu::storage(batch.visible_instances(frame))},
+              {"IndirectBuffer", ftk::gpu::storage(batch.indirect_commands(frame))}});
     cmd.dispatch(draw_count, 1, 1);
 }
 

@@ -27,33 +27,33 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
     switch (u.type) {
         case UniformType::Float:
             if (u.hint == UniformHint::None && u.range.max > u.range.min) {
-                return ui::slider("##val", *v, u.range.min, u.range.max).changed;
+                return ftk::ui::slider("##val", *v, u.range.min, u.range.max).changed;
             }
-            return ui::drag("##val", *v, {.speed = 0.01f}).changed;
+            return ftk::ui::drag("##val", *v, {.speed = 0.01f}).changed;
         case UniformType::Int: {
             // Stored as a float like every scalar; a track or a blend may
             // leave it between two, and the shader rounds it the same way.
             int value = static_cast<int>(std::lround(*v));
-            ui::Edit edit;
+            ftk::ui::Edit edit;
             if (u.hint == UniformHint::Enum && !u.enum_options.empty()) {
-                std::vector<ui::Choice<int>> choices;
+                std::vector<ftk::ui::Choice<int>> choices;
                 choices.reserve(u.enum_options.size());
                 for (std::size_t i = 0; i < u.enum_options.size(); ++i) {
                     choices.push_back({static_cast<int>(i), u.enum_options[i].c_str()});
                 }
-                edit = ui::choice("##val", value, std::span<const ui::Choice<int>>(choices));
+                edit = ftk::ui::choice("##val", value, std::span<const ftk::ui::Choice<int>>(choices));
             } else if (u.range.declared) {
-                edit = ui::slider_int("##val", value, static_cast<int>(u.range.min),
+                edit = ftk::ui::slider_int("##val", value, static_cast<int>(u.range.min),
                                       static_cast<int>(u.range.max));
             } else {
-                edit = ui::drag_int("##val", value);
+                edit = ftk::ui::drag_int("##val", value);
             }
             if (edit.changed) *v = static_cast<float>(value);
             return edit.changed;
         }
         case UniformType::Vec2: {
             glm::vec2 value{v[0], v[1]};
-            const bool changed = ui::vec2("##val", value, {.speed = 0.01f}).changed;
+            const bool changed = ftk::ui::vec2("##val", value, {.speed = 0.01f}).changed;
             v[0] = value.x;
             v[1] = value.y;
             return changed;
@@ -62,8 +62,8 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
             glm::vec3 value{v[0], v[1], v[2]};
             // The values arrive as a person reads them, a colour in sRGB.
             const bool changed = u.hint == UniformHint::Color
-                ? ui::color("##val", value, ui::ColorSpace::Srgb).changed
-                : ui::vec3("##val", value, {.speed = 0.01f}).changed;
+                ? ftk::ui::color("##val", value, ftk::ui::ColorSpace::Srgb).changed
+                : ftk::ui::vec3("##val", value, {.speed = 0.01f}).changed;
             v[0] = value.x;
             v[1] = value.y;
             v[2] = value.z;
@@ -72,8 +72,8 @@ bool draw_uniform_value(const FjslUniform& u, std::span<float> values) {
         case UniformType::Vec4: {
             glm::vec4 value{v[0], v[1], v[2], v[3]};
             const bool changed = u.hint == UniformHint::Color
-                ? ui::color("##val", value, ui::ColorSpace::Srgb).changed
-                : ui::vec4("##val", value, {.speed = 0.01f}).changed;
+                ? ftk::ui::color("##val", value, ftk::ui::ColorSpace::Srgb).changed
+                : ftk::ui::vec4("##val", value, {.speed = 0.01f}).changed;
             v[0] = value.x;
             v[1] = value.y;
             v[2] = value.z;
@@ -130,17 +130,17 @@ bool draw_material_params(const ShaderMetadata& meta,
     // above the custom uniforms so a shader with none still gets an editable
     // material. A ui shader paints a quad and reads neither, and a terrain
     // shader takes them from its layers, so both show only their own uniforms.
-    if (meta.shader_type == ShaderType::Spatial && ui::subheading_foldable("Base PBR")) {
+    if (meta.shader_type == ShaderType::Spatial && ftk::ui::subheading_foldable("Base PBR")) {
         GpuMaterial base = bindless.material_at(material.material_id());
         float metallic = base.base_params[4];
         float roughness = base.base_params[5];
         bool base_changed = false;
-        if (auto t = ui::PropertyTable("##base_pbr")) {
-            ui::row("Metallic", [&] {
-                base_changed |= ui::slider("##metallic", metallic, 0.0f, 1.0f).changed;
+        if (auto t = ftk::ui::PropertyTable("##base_pbr")) {
+            ftk::ui::row("Metallic", [&] {
+                base_changed |= ftk::ui::slider("##metallic", metallic, 0.0f, 1.0f).changed;
             });
-            ui::row("Roughness", [&] {
-                base_changed |= ui::slider("##roughness", roughness, 0.0f, 1.0f).changed;
+            ftk::ui::row("Roughness", [&] {
+                base_changed |= ftk::ui::slider("##roughness", roughness, 0.0f, 1.0f).changed;
             });
         }
         if (base_changed) {
@@ -165,19 +165,19 @@ bool draw_material_params(const ShaderMetadata& meta,
         std::size_t end = start;
         while (end < uniforms.size() && uniforms[end].group == group) ++end;
 
-        const bool open = group.empty() || ui::subheading_foldable(group.c_str());
+        const bool open = group.empty() || ftk::ui::subheading_foldable(group.c_str());
         if (open) {
             ImGui::PushID(group.c_str());
-            if (auto t = ui::PropertyTable("##uniforms")) {
+            if (auto t = ftk::ui::PropertyTable("##uniforms")) {
                 for (std::size_t i = start; i < end; ++i) {
                     const auto& u = uniforms[i];
                     if (u.type == UniformType::Sampler2D) continue;
                     const uint32_t fcount = uniform_float_count(u.type);
                     if (u.slot + fcount > param_count) continue;
                     const uint32_t abs_offset = gpu.param_offset + u.slot;
-                    const std::string label = display_name(u.name);
+                    const std::string label = ftk::display_name(u.name);
                     ImGui::PushID(u.name.c_str());
-                    ui::row(label.c_str(), [&] {
+                    ftk::ui::row(label.c_str(), [&] {
                         // Read the current values from the CPU-side params buffer.
                         float temp[4]{};
                         for (uint32_t k = 0; k < fcount; ++k) temp[k] = bindless.read_param(abs_offset + k);

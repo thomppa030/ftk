@@ -1,7 +1,7 @@
 # Profiling
 
 The engine carries [Tracy](https://github.com/wolfpld/tracy) zones on the CPU
-side (`FJELL_PROFILE_SCOPE_N`) and around every render pass on the GPU
+side (`FTK_PROFILE_SCOPE_N`) and around every render pass on the GPU
 (`FJELL_GPU_ZONE`). The `tracy` preset builds the client in; the Tracy GUI is
 the way to look at one frame in detail. For the question that comes up far more
 often, *what does each pass cost and did my change move it*, `tools/fjtrace`
@@ -108,7 +108,7 @@ significance test.
 
 `tracy-csvexport` drops Tracy's frame marks, so the report cuts frames at a
 zone instead: `input_update` on the CPU (the first zone after
-`FJELL_PROFILE_FRAME` in the main loop) and `Mesh Depth` on the GPU (the depth
+`FTK_PROFILE_FRAME` in the main loop) and `Mesh Depth` on the GPU (the depth
 prepass, drawn every frame; an instance cull before it is skipped on frames
 with nothing to cull and so counts at the tail of the previous frame). If a
 capture lacks them, the once-per-frame zone that follows the largest gap is

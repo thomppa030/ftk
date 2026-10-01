@@ -18,9 +18,11 @@
 #include <optional>
 #include <vector>
 
-namespace fjell {
-
+namespace ftk {
 class ThreadPool;
+} // namespace ftk
+
+namespace fjell {
 
 // Simulates a sea from a spectrum: the patch of water an `FftContributor`
 // describes, carried forward to now each frame and transformed into a tiling
@@ -45,20 +47,20 @@ public:
     /// What the transform works in. Two complex numbers a texel; 32-bit
     /// because the sum across a 256-wide grid loses a 16-bit float's precision
     /// long before the last stage.
-    static constexpr gpu::Format SPECTRUM_FORMAT = gpu::Format::rgba32_float;
+    static constexpr ftk::gpu::Format SPECTRUM_FORMAT = ftk::gpu::Format::rgba32_float;
     /// What the surface is sampled from. Every device filters it linearly,
     /// which 32-bit float does not promise, and a millimetre at the height of
     /// a storm wave is inside what it holds.
-    static constexpr gpu::Format SURFACE_FORMAT = gpu::Format::rgba16_float;
+    static constexpr ftk::gpu::Format SURFACE_FORMAT = ftk::gpu::Format::rgba16_float;
     static constexpr std::uint32_t MIN_RESOLUTION = 16;
     static constexpr std::uint32_t MAX_RESOLUTION = 1024;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// The sea to simulate, as it has been drawn, or null for none. Compared
@@ -82,18 +84,18 @@ public:
     /// Always something valid to bind. With no sea running these are a texel
     /// of still water, so a water shader's descriptor set never has a hole in
     /// it for want of a simulation.
-    [[nodiscard]] gpu::Texture displacement() const {
+    [[nodiscard]] ftk::gpu::Texture displacement() const {
         return active() ? displacement_[cur_].get() : still_.get();
     }
-    [[nodiscard]] gpu::Texture previous_displacement() const {
+    [[nodiscard]] ftk::gpu::Texture previous_displacement() const {
         return active() ? displacement_[1 - cur_].get() : still_.get();
     }
     /// x dh/dx, y dh/dz, z d(displacement x)/dx, w d(displacement z)/dz.
-    [[nodiscard]] gpu::Texture derivatives() const {
+    [[nodiscard]] ftk::gpu::Texture derivatives() const {
         return active() ? derivatives_.get() : still_.get();
     }
     /// Linear, repeating, across the whole mip chain.
-    [[nodiscard]] gpu::Sampler sampler() const { return sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler sampler() const { return sampler_; }
 
 private:
     struct EvolvePush {
@@ -115,7 +117,7 @@ private:
 
     /// Makes the textures and buffers for `resolution_`. Nothing is made
     /// and the reason is given when any of them cannot be.
-    [[nodiscard]] Result<> build_images();
+    [[nodiscard]] ftk::Result<> build_images();
     /// Releases them; the frames still reading them keep them until done.
     void retire_images();
     /// Which of the two displacement images holds this frame's surface once
@@ -128,7 +130,7 @@ private:
     /// A surface's top mip has been written as storage, and after it `from`
     /// if not storage: fills the rest of the chain from it, leaving it all
     /// as a copy target.
-    void generate_mips(gpu::CommandList& cmd, gpu::Texture surface, gpu::AccessSet from) const;
+    void generate_mips(ftk::gpu::CommandList& cmd, ftk::gpu::Texture surface, ftk::gpu::AccessSet from) const;
 
     /// Asked for through FJELL_VERIFY_WATER_FFT: simulate a fixed sea at a
     /// fixed time, read the surface back, and hold it to the CPU's plain
@@ -138,15 +140,15 @@ private:
     /// has just written, for finish_verification() to read, and leaves both
     /// as copy sources. False, with nothing recorded, when there is nowhere
     /// to copy them.
-    [[nodiscard]] bool record_verification_copy(gpu::CommandList& cmd);
+    [[nodiscard]] bool record_verification_copy(ftk::gpu::CommandList& cmd);
     void finish_verification();
 
-    gpu::Device* gpu_device_{nullptr};
+    ftk::gpu::Device* gpu_device_{nullptr};
 
-    gpu::Owned<gpu::ComputePipeline> evolve_;
-    gpu::Owned<gpu::ComputePipeline> butterfly_;
-    gpu::Owned<gpu::ComputePipeline> assemble_;
-    gpu::Sampler sampler_{};
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> evolve_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> butterfly_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> assemble_;
+    ftk::gpu::Sampler sampler_{};
 
     /// The sea being animated: its spectrum, the patch it tiles over and how
     /// hard its crests are pinched. Null for none.
@@ -166,26 +168,26 @@ private:
     /// Which frame slots still hold an older spectrum than `spectrum_`. A
     /// buffer per slot because the GPU may still be reading last frame's while
     /// this frame's is written.
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> amplitude_buffers_;
-    std::array<bool, MAX_FRAMES_IN_FLIGHT> amplitudes_stale_{};
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> amplitude_buffers_;
+    std::array<bool, ftk::MAX_FRAMES_IN_FLIGHT> amplitudes_stale_{};
 
     // The transform ping-pongs between two pairs of images: every stage reads
     // two texels of the stage before to write one, so it cannot work in place.
-    std::array<gpu::Owned<gpu::Texture>, 2> spectra_a_;
-    std::array<gpu::Owned<gpu::Texture>, 2> spectra_b_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> spectra_a_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> spectra_b_;
     // This frame's surface and last frame's, swapped each step.
-    std::array<gpu::Owned<gpu::Texture>, 2> displacement_;
-    gpu::Owned<gpu::Texture> derivatives_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> displacement_;
+    ftk::gpu::Owned<ftk::gpu::Texture> derivatives_;
     std::uint32_t cur_{0};
     /// One texel of zeros: what there is to sample when no sea is running.
     /// Cleared when made, and never written again.
-    gpu::Owned<gpu::Texture> still_;
+    ftk::gpu::Owned<ftk::gpu::Texture> still_;
 
     bool verifying_{false};
     /// The fixed sea the verification runs, kept alive for the pass to animate.
     std::optional<FjWaterData::SimulatedSea> verify_sea_;
     int verify_frames_left_{-1};
-    gpu::Owned<gpu::Buffer> verify_readback_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> verify_readback_;
 };
 
 } // namespace fjell

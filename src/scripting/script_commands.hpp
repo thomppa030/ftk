@@ -29,7 +29,7 @@ inline ScriptEntry* find_script(Node& node, const std::string& type_name) {
 /// One finished edit of a script's fields, undone by setting them as they
 /// were. The fields travel as the scene file stores them, so the command
 /// holds nothing from the script library and survives a rebuild.
-class ScriptEditCommand : public Command {
+class ScriptEditCommand : public ftk::Command {
 public:
     /// `before` and `after` are ScriptManager::fields_of() at the start and
     /// the end of the edit. The script already has `after` when the command
@@ -75,7 +75,7 @@ private:
 /// while the command waits in the history unloads the code an instance
 /// would need. In a running game the script ends as it would with its node,
 /// and one put back starts again (ScriptManager::add_script, remove_script).
-class RemoveScriptCommand : public Command {
+class RemoveScriptCommand : public ftk::Command {
 public:
     RemoveScriptCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name)
         : scene_{scene}, scripts_{scripts}, node_id_{node_id}, type_name_{std::move(type_name)} {}
@@ -112,7 +112,7 @@ private:
 /// Adds a script to a node. Undo takes it off keeping its fields, and redo
 /// puts it back with them, so values set in between survive the round trip.
 /// In a running game it starts when added and ends when taken off.
-class AddScriptCommand : public Command {
+class AddScriptCommand : public ftk::Command {
 public:
     AddScriptCommand(Scene& scene, ScriptManager& scripts, uint32_t node_id, std::string type_name)
         : scene_{scene}, scripts_{scripts}, node_id_{node_id}, type_name_{std::move(type_name)} {}

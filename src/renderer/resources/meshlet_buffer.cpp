@@ -9,23 +9,23 @@ namespace fjell {
 
 namespace {
 
-gpu::Owned<gpu::Buffer> make_growable(gpu::Device& gpu, uint64_t size, uint64_t reserve,
+ftk::gpu::Owned<ftk::gpu::Buffer> make_growable(ftk::gpu::Device& gpu, uint64_t size, uint64_t reserve,
                                       std::string_view name) {
-    auto made = gpu.create(gpu::BufferDesc{
-        .size = size, .reserve = reserve, .use = gpu::BufferUse::storage, .name = name});
+    auto made = gpu.create(ftk::gpu::BufferDesc{
+        .size = size, .reserve = reserve, .use = ftk::gpu::BufferUse::storage, .name = name});
     if (!made) throw std::runtime_error(made.error());
     return std::move(*made);
 }
 
 } // namespace
 
-MeshletBuffer::MeshletBuffer(gpu::Device& gpu)
+MeshletBuffer::MeshletBuffer(ftk::gpu::Device& gpu)
     : gpu_{gpu}
     , meshlets_{make_growable(gpu, INITIAL_MESHLET_SIZE, MAX_MESHLET_SIZE, "meshlets")}
     , bounds_{make_growable(gpu, INITIAL_BOUNDS_SIZE, MAX_BOUNDS_SIZE, "meshlet_bounds")}
     , vertex_indices_{make_growable(gpu, INITIAL_VERTEX_INDEX_SIZE, MAX_VERTEX_INDEX_SIZE, "meshlet_verts")}
     , triangles_{make_growable(gpu, INITIAL_TRIANGLE_SIZE, MAX_TRIANGLE_SIZE, "meshlet_tris")} {
-    FJELL_GFX_INFO("MeshletBuffer created: {}KB meshlets, {}KB bounds, {}KB vert_idx, {}KB tris",
+    FTK_GFX_INFO("MeshletBuffer created: {}KB meshlets, {}KB bounds, {}KB vert_idx, {}KB tris",
                    gpu_.size(meshlets_) / 1024, gpu_.size(bounds_) / 1024,
                    gpu_.size(vertex_indices_) / 1024, gpu_.size(triangles_) / 1024);
 }
@@ -49,7 +49,7 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     if (grown) grown = gpu_.grow(vertex_indices_, vertex_index_used_ + vert_idx_size);
     if (grown) grown = gpu_.grow(triangles_, tri_end_word);
     if (!grown) {
-        FJELL_GFX_ERROR("Meshlets not added to the meshlet buffer: {}", grown.error());
+        FTK_GFX_ERROR("Meshlets not added to the meshlet buffer: {}", grown.error());
         return {};
     }
 
@@ -67,7 +67,7 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
         m.triangle_offset = (original_byte_offset + global_tri_base_bytes) / 3;
     }
 
-    gpu::Upload& upload = gpu_.upload();
+    ftk::gpu::Upload& upload = gpu_.upload();
     upload.to_buffer(meshlets_, meshlet_used_, adjusted_meshlets);
     upload.to_buffer(bounds_, bounds_used_, result.bounds);
     upload.to_buffer(vertex_indices_, vertex_index_used_, result.meshlet_vertices);

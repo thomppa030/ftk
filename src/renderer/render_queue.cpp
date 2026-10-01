@@ -26,7 +26,7 @@ void RenderQueue::push(const DrawCommand& cmd) {
 }
 
 void RenderQueue::sort(const glm::vec3& /*camera_pos*/) {
-    FJELL_PROFILE_SCOPE_N("render_queue_sort");
+    FTK_PROFILE_SCOPE_N("render_queue_sort");
     // Opaque: sort by material to minimize descriptor rebinds
     std::sort(opaque_.begin(), opaque_.end(),
               [](const DrawCommand& a, const DrawCommand& b) {

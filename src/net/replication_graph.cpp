@@ -148,7 +148,7 @@ void ReplicationGraph::ensure_scene_registered(Scene& scene, ScriptManager& scri
         net_scene.register_object(net_scene.assign_net_id(), id);
     }
     if (!ids.empty()) {
-        FJELL_CORE_INFO("NetManager: registered {} networked object(s)", ids.size());
+        FTK_CORE_INFO("NetManager: registered {} networked object(s)", ids.size());
     }
 }
 

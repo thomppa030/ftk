@@ -11,7 +11,7 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
 #include <tracy/TracyVulkan.hpp>
 #endif
 
@@ -30,11 +30,11 @@
 #include <filesystem>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 class Window;
 }
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 struct FrameSlot;
 
@@ -344,7 +344,7 @@ struct Device::Impl {
     /// null elsewhere.
     PFN_vkCmdBeginDebugUtilsLabelEXT begin_label{nullptr};
     PFN_vkCmdEndDebugUtilsLabelEXT end_label{nullptr};
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     /// Where a zone was opened: its name and its place in the source.
     struct ZoneSite {
         std::string name;
@@ -427,4 +427,4 @@ void name_object(VkDevice device, VkObjectType type, uint64_t handle, std::strin
 
 } // namespace vulkan
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

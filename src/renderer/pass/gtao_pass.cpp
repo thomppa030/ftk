@@ -44,14 +44,14 @@ struct BlurPushConstants {
 
 /// One blur dispatch over the half-resolution AO, `source` into `output`.
 void record_blur(const FrameContext& ctx, AoPass& owner, const AoPass::Images& g,
-                 gpu::Texture output, gpu::Texture source, uint32_t direction) {
+                 ftk::gpu::Texture output, ftk::gpu::Texture source, uint32_t direction) {
     auto& cmd = ctx.commands();
-    const gpu::Sampler sampler = owner.ao_sampler();
+    const ftk::gpu::Sampler sampler = owner.ao_sampler();
     cmd.set_pipeline(owner.blur_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"blur_output", gpu::storage(output)},
-              {"ao_input", gpu::sampled(source, sampler)},
-              {"normal_texture", gpu::sampled(ctx.target->normal_texture(), sampler)}});
+    cmd.bind({{"blur_output", ftk::gpu::storage(output)},
+              {"ao_input", ftk::gpu::sampled(source, sampler)},
+              {"normal_texture", ftk::gpu::sampled(ctx.target->normal_texture(), sampler)}});
     cmd.push(BlurPushConstants{
         .viewport_width = g.extent.x,
         .viewport_height = g.extent.y,
@@ -65,18 +65,18 @@ void record_blur(const FrameContext& ctx, AoPass& owner, const AoPass::Images& g
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void AoPass::Images::create(gpu::Device& gpu, uint32_t half_w, uint32_t half_h) {
-    auto made = gpu.create(gpu::TextureDesc{
-        .format = gpu::Format::r8_unorm,
+void AoPass::Images::create(ftk::gpu::Device& gpu, uint32_t half_w, uint32_t half_h) {
+    auto made = gpu.create(ftk::gpu::TextureDesc{
+        .format = ftk::gpu::Format::r8_unorm,
         .width = half_w,
         .height = half_h,
-        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-        .queues = gpu::Queues::graphics_and_compute,
-        .initial = gpu::Clear{1.0F},
+        .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+        .queues = ftk::gpu::Queues::graphics_and_compute,
+        .initial = ftk::gpu::Clear{1.0F},
         .name = "ao",
     });
     if (!made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
         return;
     }
     ao = std::move(*made);
@@ -88,7 +88,7 @@ void AoPass::Images::destroy() {
     extent = {0, 0};
 }
 
-void AoPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
+void AoPass::Images::resize(ftk::gpu::Device& gpu, uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
 
     const uint32_t half_w = std::max(1U, width / 2);
@@ -99,12 +99,12 @@ void AoPass::Images::resize(gpu::Device& gpu, uint32_t width, uint32_t height) {
 
 // ── AoPass ──────────────────────────────────────────────────────────────────
 
-Result<> AoPass::create(const PassResources& resources) {
+ftk::Result<> AoPass::create(const PassResources& resources) {
     device_ = resources.device;
-    ao_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                    .mip_filter = gpu::Filter::nearest,
-                                    .address = gpu::Address::clamp});
-    FJELL_TRY(blur_pipeline_, device_->create(gpu::ComputePipelineDesc{
+    ao_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                    .mip_filter = ftk::gpu::Filter::nearest,
+                                    .address = ftk::gpu::Address::clamp});
+    FTK_TRY(blur_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                   .shader = "shaders/gtao_blur.comp",
                                   .shared = {resources.globals},
                                   .name = "gtao_blur",
@@ -115,7 +115,7 @@ Result<> AoPass::create(const PassResources& resources) {
 
     if (auto r = create_trace(resources); !r) { return r; }
 
-    FJELL_GFX_DEBUG("AO pass created");
+    FTK_GFX_DEBUG("AO pass created");
     return {};
 }
 
@@ -129,17 +129,17 @@ void AoPass::resize(uint32_t width, uint32_t height) {
     default_images_.resize(*device_, width, height);
 }
 
-void AoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void AoPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
 
     auto ao = builder.import_named(ctx, "gtao_ao");
     if (enabled_) {
-        builder.write(ao, gpu::Access::storage_write_compute);
+        builder.write(ao, ftk::gpu::Access::storage_write_compute);
         declare_trace(builder, ctx);
     } else {
         // Disabled path: the AO is cleared, the only ao node running.
-        builder.write(ao, gpu::Access::clear);
+        builder.write(ao, ftk::gpu::Access::clear);
     }
 
     builder.has_side_effects();
@@ -150,12 +150,12 @@ void AoPass::record(const FrameContext& ctx) {
     auto& g = imgs != nullptr ? *imgs : default_images_;
     if (!g.ao) return;
 
-    FJELL_PROFILE_SCOPE_N("record_gtao_trace");
+    FTK_PROFILE_SCOPE_N("record_gtao_trace");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("GTAO Trace");
 
     if (!enabled_) {
-        cmd.clear(g.ao, gpu::Clear{1.0F});   // no occlusion
+        cmd.clear(g.ao, ftk::gpu::Clear{1.0F});   // no occlusion
         return;
     }
 
@@ -171,8 +171,8 @@ void AoPass::collect_exports(DeclareContext& /*ctx*/) {
 
 // ── GtaoTracePass ───────────────────────────────────────────────────────────
 
-Result<> GtaoTracePass::create_trace(const PassResources& resources) {
-    FJELL_TRY(trace_pipeline_, device_->create(gpu::ComputePipelineDesc{
+ftk::Result<> GtaoTracePass::create_trace(const PassResources& resources) {
+    FTK_TRY(trace_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                    .shader = "shaders/gtao.comp",
                                    .shared = {resources.globals},
                                    .name = "gtao",
@@ -184,7 +184,7 @@ void GtaoTracePass::destroy_trace() {
     trace_pipeline_.reset();
 }
 
-void GtaoTracePass::declare_trace(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+void GtaoTracePass::declare_trace(ftk::PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
     // No additional accesses beyond AoPass::declare.
 }
 
@@ -193,7 +193,7 @@ void GtaoTracePass::record_trace(const FrameContext& ctx, Images& g) {
     const auto target_extent = ctx.target->extent();
     cmd.set_pipeline(trace_pipeline_);
     cmd.bind(ctx.globals);
-    cmd.bind({{"ao_output", gpu::storage(g.ao)}});
+    cmd.bind({{"ao_output", ftk::gpu::storage(g.ao)}});
     cmd.push(GtaoPushConstants{
         .radius = radius(),
         .intensity = intensity(),
@@ -218,7 +218,7 @@ PassSetup GtaoTracePass::setup() const {
 
 // ── AoBlurHPass ─────────────────────────────────────────────────────────────
 
-Result<> AoBlurHPass::create(const PassResources& /*resources*/) {
+ftk::Result<> AoBlurHPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -237,21 +237,21 @@ PassSetup AoBlurHPass::setup() const {
     };
 }
 
-void AoBlurHPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void AoBlurHPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (owner_ == nullptr || !owner_->enabled()) { return; }
 
     auto ao = builder.import_named(ctx, "gtao_ao");
-    builder.read(ao, gpu::Access::sampled_compute);
+    builder.read(ao, ftk::gpu::Access::sampled_compute);
 
     auto normal = builder.import_named(ctx, "normal");
-    builder.read(normal, gpu::Access::sampled_compute);
+    builder.read(normal, ftk::gpu::Access::sampled_compute);
 
-    TextureDesc blur_desc{};
-    blur_desc.format = gpu::Format::r8_unorm;
-    blur_desc.size_class = SizeClass::viewport;
+    ftk::TextureDesc blur_desc{};
+    blur_desc.format = ftk::gpu::Format::r8_unorm;
+    blur_desc.size_class = ftk::SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);
-    builder.write(blur, gpu::Access::storage_write_compute);
+    builder.write(blur, ftk::gpu::Access::storage_write_compute);
 }
 
 void AoBlurHPass::record(const FrameContext& ctx) {
@@ -260,17 +260,17 @@ void AoBlurHPass::record(const FrameContext& ctx) {
     auto* pp = ctx.pp_resources;
     auto* imgs = pp != nullptr ? pp->gtao() : nullptr;
     auto& g = imgs != nullptr ? *imgs : owner_->images();
-    const gpu::Texture blur = ctx.texture("gtao_blur");
+    const ftk::gpu::Texture blur = ctx.texture("gtao_blur");
     if (!g.ao || !blur.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_gtao_blur_h");
+    FTK_PROFILE_SCOPE_N("record_gtao_blur_h");
     auto zone = ctx.commands().zone("GTAO Blur H");
     record_blur(ctx, *owner_, g, blur, g.ao, 0);
 }
 
 // ── AoBlurVPass ─────────────────────────────────────────────────────────────
 
-Result<> AoBlurVPass::create(const PassResources& /*resources*/) {
+ftk::Result<> AoBlurVPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -289,25 +289,25 @@ PassSetup AoBlurVPass::setup() const {
     };
 }
 
-void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void AoBlurVPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (owner_ == nullptr || !owner_->enabled()) { return; }
 
     // Declare the same virtual transient AoBlurHPass declared — the
     // graph dedupes virtual resources by name so both passes resolve to
     // the same TrackedImage. This lets the DAG sort see the blur_h →
     // blur_v edge and keeps blur_h alive through the pass-culling walk.
-    TextureDesc blur_desc{};
-    blur_desc.format = gpu::Format::r8_unorm;
-    blur_desc.size_class = SizeClass::viewport;
+    ftk::TextureDesc blur_desc{};
+    blur_desc.format = ftk::gpu::Format::r8_unorm;
+    blur_desc.size_class = ftk::SizeClass::viewport;
     blur_desc.viewport_divisor = 2;
     auto blur = builder.create("gtao_blur", blur_desc);
-    builder.read(blur, gpu::Access::sampled_compute);
+    builder.read(blur, ftk::gpu::Access::sampled_compute);
 
     auto normal = builder.import_named(ctx, "normal");
-    builder.read(normal, gpu::Access::sampled_compute);
+    builder.read(normal, ftk::gpu::Access::sampled_compute);
 
     auto ao = builder.import_named(ctx, "gtao_ao");
-    builder.write(ao, gpu::Access::storage_write_compute);
+    builder.write(ao, ftk::gpu::Access::storage_write_compute);
 }
 
 void AoBlurVPass::record(const FrameContext& ctx) {
@@ -316,10 +316,10 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     auto* pp = ctx.pp_resources;
     auto* imgs = pp != nullptr ? pp->gtao() : nullptr;
     auto& g = imgs != nullptr ? *imgs : owner_->images();
-    const gpu::Texture blur = ctx.texture("gtao_blur");
+    const ftk::gpu::Texture blur = ctx.texture("gtao_blur");
     if (!g.ao || !blur.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_gtao_blur_v");
+    FTK_PROFILE_SCOPE_N("record_gtao_blur_v");
     auto zone = ctx.commands().zone("GTAO Blur V");
     record_blur(ctx, *owner_, g, g.ao, blur, 1);
 }

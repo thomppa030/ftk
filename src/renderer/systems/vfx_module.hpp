@@ -500,10 +500,10 @@ struct VelocityInheritanceModule final : VfxModule {
 constexpr uint32_t kCurveLutSamples = 32;
 
 struct CurveColorOverLifeModule final : VfxModule {
-    Curve curve_r{Curve::linear(1.0f, 1.0f)};
-    Curve curve_g{Curve::linear(0.8f, 0.1f)};
-    Curve curve_b{Curve::linear(0.2f, 0.0f)};
-    Curve curve_a{Curve::linear(1.0f, 0.0f)};
+    ftk::Curve curve_r{ftk::Curve::linear(1.0f, 1.0f)};
+    ftk::Curve curve_g{ftk::Curve::linear(0.8f, 0.1f)};
+    ftk::Curve curve_b{ftk::Curve::linear(0.2f, 0.0f)};
+    ftk::Curve curve_a{ftk::Curve::linear(1.0f, 0.0f)};
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::curve_color_over_life; }
     [[nodiscard]] const char* name() const override { return "Curve Color Over Life"; }
@@ -572,7 +572,7 @@ struct TrailModule final : VfxModule {
 };
 
 struct CurveSizeOverLifeModule final : VfxModule {
-    Curve curve{Curve::linear(0.1f, 0.02f)};
+    ftk::Curve curve{ftk::Curve::linear(0.1f, 0.02f)};
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::curve_size_over_life; }
     [[nodiscard]] const char* name() const override { return "Curve Size Over Life"; }

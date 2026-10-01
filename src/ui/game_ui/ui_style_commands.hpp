@@ -20,7 +20,7 @@ namespace fjell {
 /// FjssSerializer). Routing every edit through one selector kind keeps
 /// "which rule did this edit land in" unambiguous; a node's other
 /// classes/tag rules are untouched and still apply underneath it.
-class SetStylePropertyCommand : public Command {
+class SetStylePropertyCommand : public ftk::Command {
 public:
     SetStylePropertyCommand(GameUi& game_ui, UiNode& node,
                             std::string property, std::string old_value,

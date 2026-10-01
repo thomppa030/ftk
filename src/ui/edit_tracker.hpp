@@ -40,7 +40,7 @@ public:
     /// `step(before, after)` makes the undo command for one finished edit.
     /// Marks the scene dirty on a change.
     template <typename Take, typename Step>
-    void track(Scene& scene, CommandHistory* history, uint32_t node_id, uint32_t key,
+    void track(Scene& scene, ftk::CommandHistory* history, uint32_t node_id, uint32_t key,
                const EditFrame& frame, Take&& take, Step&& step) {
         Entry& e = entry(scene, node_id, key, take);
         const bool stale = e.revision != scene.revision();

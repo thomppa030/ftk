@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// Custom-titled panel. Drop-in replacement for:
 ///
@@ -97,4 +97,4 @@ private:
     bool open_{false};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

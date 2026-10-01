@@ -13,17 +13,17 @@ namespace fjell {
 // engine tracks generically — there's no feature registry yet, just this
 // switch. Add a case here when a pass needs to gate on something the device
 // may not support (mirrors the mesh-shader gate below).
-static bool feature_available(const std::string& key, const gpu::Caps& caps) {
+static bool feature_available(const std::string& key, const ftk::gpu::Caps& caps) {
     if (key == "mesh_shaders") { return caps.mesh_shaders; }
     return true;
 }
 
-Result<> create_passes_from_graph(const FjGraph& graph,
+ftk::Result<> create_passes_from_graph(const FjGraph& graph,
                                   PassRegistry& passes,
                                   RenderPipeline& pipeline,
                                   GpuContext& gpu,
                                   const PassResources& resources) {
-    const gpu::Caps& caps = resources.device->caps();
+    const ftk::gpu::Caps& caps = resources.device->caps();
 
     for (const auto& entry : graph.passes) {
         // A pass whose device feature is missing is skipped rather than
@@ -37,14 +37,14 @@ Result<> create_passes_from_graph(const FjGraph& graph,
 
         auto pass = PassFactory::make(entry.class_name, entry.params);
         if (!pass) {
-            return make_error("PassFactory::make returned null for '" +
+            return ftk::make_error("PassFactory::make returned null for '" +
                               entry.class_name +
                               "' — should have been caught at parse time");
         }
 
         auto create_result = pass->create(resources);
         if (!create_result) {
-            return make_error("Pass '" + entry.name + "' (" + entry.class_name +
+            return ftk::make_error("Pass '" + entry.name + "' (" + entry.class_name +
                               ") failed to create: " + create_result.error());
         }
 

@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 constexpr float PAD_X = 12.0f;
@@ -34,4 +34,4 @@ RaisedStrip::~RaisedStrip() {
     ImGui::PopID();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

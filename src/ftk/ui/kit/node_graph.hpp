@@ -37,7 +37,7 @@
 // selected, Ctrl and a click on a pin breaks its links, and right-click opens
 // the caller's menu on what is under the mouse.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// A value edited inside a node (sheet 31), written straight into the
 /// caller's data: dragged sideways it changes, a double-click types one.
@@ -274,4 +274,4 @@ private:
     NodeGraphMenu menu_{};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

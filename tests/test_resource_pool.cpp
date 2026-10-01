@@ -12,7 +12,7 @@ struct Clip {
     int samples{0};
 };
 
-using ClipHandle = Handle<struct ClipTag>;
+using ClipHandle = ftk::Handle<struct ClipTag>;
 using ClipPool = ResourcePool<Clip, ClipHandle>;
 
 } // namespace

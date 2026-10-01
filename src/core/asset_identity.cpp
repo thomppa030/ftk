@@ -55,7 +55,7 @@ bool write_json(const std::filesystem::path& file, const AssetId& id) {
         try {
             j = nlohmann::json::parse(in);
         } catch (const nlohmann::json::parse_error& e) {
-            FJELL_CORE_WARN("Cannot store id in '{}': {}", file.string(), e.what());
+            FTK_CORE_WARN("Cannot store id in '{}': {}", file.string(), e.what());
             return false;
         }
     }

@@ -52,7 +52,7 @@ public:
     /// that is lower than the camera would have put it.
     static constexpr float FLOOR_BELOW_SOURCE = 2.0f;
     /// One signed channel: how much of the fog here was pushed aside.
-    static constexpr gpu::Format FIELD_FORMAT = gpu::Format::r16_float;
+    static constexpr ftk::gpu::Format FIELD_FORMAT = ftk::gpu::Format::r16_float;
     /// How long a disturbance lasts. Longer than the motion field remembers,
     /// because outlasting the mark that made it is the whole point.
     static constexpr float MEMORY_SECONDS = 6.0f;
@@ -82,13 +82,13 @@ public:
     /// How far the wind carries a disturbance, against its own speed. Air that
     /// has been stirred goes with the weather rather than standing still in it.
     static constexpr float WIND_FRACTION = 0.4f;
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the field holds anything worth reading. A still scene pays
@@ -132,15 +132,15 @@ private:
     glm::mat4 world_to_uv_{1.0f};
     float elapsed_{0.0f};
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
 
     // Two fields, ping-ponged. Advection asks what flowed into a texel, which
     // lands at an arbitrary place in the previous field — generally a texel
     // another invocation is in the middle of writing. One image could not do
     // it: there is no ordering between workgroups to make that read safe.
-    std::array<gpu::Owned<gpu::Texture>, 2> fields_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Texture>, 2> fields_;
     uint32_t cur_{0};
-    gpu::Sampler sampler_;
+    ftk::gpu::Sampler sampler_;
 
     [[nodiscard]] uint32_t prev_index() const { return 1 - cur_; }
 
@@ -165,7 +165,7 @@ private:
     /// written. prepare_frame runs once a frame and clears this.
     bool stepped_this_frame_{false};
 
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
 };
 
 } // namespace fjell

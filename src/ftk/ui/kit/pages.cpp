@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -94,4 +94,4 @@ void page_title(const char* icon, const char* label) {
     ImGui::Dummy({0.0f, theme::GAP_S});
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

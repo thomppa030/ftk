@@ -57,10 +57,10 @@ struct AnimationState {
 class AnimationStateMachine {
 public:
     // Load/save state machine definition from/to a .fjanimset JSON file.
-    [[nodiscard]] Result<> load(const std::string& path);
+    [[nodiscard]] ftk::Result<> load(const std::string& path);
     /// Replaces the definition with one read back from text().
-    [[nodiscard]] Result<> load_text(std::string_view text, const std::string& path);
-    [[nodiscard]] Result<> save(const std::string& path) const;
+    [[nodiscard]] ftk::Result<> load_text(std::string_view text, const std::string& path);
+    [[nodiscard]] ftk::Result<> save(const std::string& path) const;
     /// The .fjanimset text save() writes, without writing it.
     [[nodiscard]] std::string text() const;
 
@@ -102,7 +102,7 @@ public:
     void rebuild_index();
 
     // Fired when a transition begins (from_state, to_state).
-    Delegate<void(const std::string&, const std::string&)> on_transition;
+    ftk::Delegate<void(const std::string&, const std::string&)> on_transition;
 
 private:
     [[nodiscard]] bool evaluate_conditions(const std::vector<TransitionCondition>& conditions) const;

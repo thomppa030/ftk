@@ -21,7 +21,7 @@ struct WidgetFixture {
     fs::path base;
 
     WidgetFixture() {
-        base = fs::temp_directory_path() / ("fjell_widget_test_" + std::to_string(platform::process_id()));
+        base = fs::temp_directory_path() / ("fjell_widget_test_" + std::to_string(ftk::platform::process_id()));
         fs::create_directories(base / "widgets");
         write("widgets/my_widget.fjwidget",
               "<widget style=\"my_widget.fjss\">\n"

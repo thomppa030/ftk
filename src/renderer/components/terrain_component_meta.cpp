@@ -19,7 +19,7 @@ void load_terrain_material(TerrainComponent& terrain, ResourceManager* resources
     auto resolved = base_path::resolve_asset(terrain.material_path, project);
     auto handle = resources->load_material_asset(resolved, project);
     if (!handle) {
-        FJELL_CORE_ERROR("terrain material: {}", handle.error());
+        FTK_CORE_ERROR("terrain material: {}", handle.error());
         return;
     }
     terrain.material_handle = *handle;
@@ -55,7 +55,7 @@ static const bool registered = [] {
             auto handle = res.load_terrain_asset(
                 base_path::resolve_asset(terrain.terrain_path, proj), proj);
             if (!handle) {
-                FJELL_CORE_ERROR("terrain: {}", handle.error());
+                FTK_CORE_ERROR("terrain: {}", handle.error());
                 return;
             }
             terrain.terrain_handle = *handle;

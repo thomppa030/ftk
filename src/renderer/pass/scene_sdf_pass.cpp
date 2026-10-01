@@ -56,68 +56,68 @@ constexpr float EMPTY_DISTANCE = 65504.0F;  // the largest a half float holds
 
 // Where the volumes rest between composes: sampled, through the global set,
 // by fragment and compute shaders alike.
-constexpr gpu::AccessSet SAMPLED = gpu::Access::sampled_fragment | gpu::Access::sampled_compute;
+constexpr ftk::gpu::AccessSet SAMPLED = ftk::gpu::Access::sampled_fragment | ftk::gpu::Access::sampled_compute;
 
 } // namespace
 
-Result<> SceneSdfPass::create(const PassResources& resources) {
+ftk::Result<> SceneSdfPass::create(const PassResources& resources) {
     device_ = resources.device;
 
-    const auto volume_desc = [&](gpu::Format format, float empty, std::string_view name) {
-        return gpu::TextureDesc{
-            .kind = gpu::TextureKind::tex3d,
+    const auto volume_desc = [&](ftk::gpu::Format format, float empty, std::string_view name) {
+        return ftk::gpu::TextureDesc{
+            .kind = ftk::gpu::TextureKind::tex3d,
             .format = format,
             .width = resolution_,
             .height = resolution_,
             .depth = resolution_,
-            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-            .initial = gpu::Clear{empty},
+            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+            .initial = ftk::gpu::Clear{empty},
             .name = name,
         };
     };
-    FJELL_TRY(volume_, device_->create(volume_desc(SDF_FORMAT, EMPTY_DISTANCE, "scene_sdf")));
-    FJELL_TRY(index_volume_,
+    FTK_TRY(volume_, device_->create(volume_desc(SDF_FORMAT, EMPTY_DISTANCE, "scene_sdf")));
+    FTK_TRY(index_volume_,
               device_->create(volume_desc(SDF_INDEX_FORMAT, static_cast<float>(NO_SDF_SLOT), "scene_sdf_index")));
-    volume_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                        .mip_filter = gpu::Filter::nearest,
-                                        .address = gpu::Address::clamp});
-    index_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
-                                       .mip_filter = gpu::Filter::nearest,
-                                       .address = gpu::Address::clamp});
+    volume_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                        .mip_filter = ftk::gpu::Filter::nearest,
+                                        .address = ftk::gpu::Address::clamp});
+    index_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::nearest,
+                                       .mip_filter = ftk::gpu::Filter::nearest,
+                                       .address = ftk::gpu::Address::clamp});
 
-    FJELL_TRY(composite_pipeline_, device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(composite_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                        .shader = "shaders/sdf_composite.comp",
                                        .name = "sdf_composite",
                                    }));
 
-    FJELL_TRY(mesh_sdf_buffer_, device_->create(gpu::BufferDesc{
+    FTK_TRY(mesh_sdf_buffer_, device_->create(ftk::gpu::BufferDesc{
                                     .size = GRID_BUFFER_SIZE,
-                                    .use = gpu::BufferUse::storage,
-                                    .memory = gpu::Memory::upload,
+                                    .use = ftk::gpu::BufferUse::storage,
+                                    .memory = ftk::gpu::Memory::upload,
                                     .name = "sdf grids",
                                 }));
-    for (uint32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
-        FJELL_TRY(instance_buffers_[slot], device_->create(gpu::BufferDesc{
+    for (uint32_t slot = 0; slot < ftk::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        FTK_TRY(instance_buffers_[slot], device_->create(ftk::gpu::BufferDesc{
                                                .size = INSTANCE_CAPACITY * sizeof(GpuSdfInstance),
-                                               .use = gpu::BufferUse::storage,
-                                               .memory = gpu::Memory::upload,
+                                               .use = ftk::gpu::BufferUse::storage,
+                                               .memory = ftk::gpu::Memory::upload,
                                                .name = "sdf instances",
                                            }));
-        FJELL_TRY(slot_tables_[slot], device_->create(gpu::BufferDesc{
+        FTK_TRY(slot_tables_[slot], device_->create(ftk::gpu::BufferDesc{
                                           .size = MAX_SDF_SLOTS * sizeof(GpuSdfSlot),
-                                          .use = gpu::BufferUse::storage,
-                                          .memory = gpu::Memory::upload,
+                                          .use = ftk::gpu::BufferUse::storage,
+                                          .memory = ftk::gpu::Memory::upload,
                                           .name = "sdf objects",
                                       }));
     }
 
-    FJELL_GFX_DEBUG("SceneSdfPass created ({}³ R16_SFLOAT, {:.1f}MB)", resolution_,
+    FTK_GFX_DEBUG("SceneSdfPass created ({}³ R16_SFLOAT, {:.1f}MB)", resolution_,
                     float(resolution_ * resolution_ * resolution_ * 2) / (1024.0f * 1024.0f));
     return {};
 }
 
 void SceneSdfPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    gpu.global_bindings().set("scene_sdf", gpu::sampled(volume_, volume_sampler_));
+    gpu.global_bindings().set("scene_sdf", ftk::gpu::sampled(volume_, volume_sampler_));
 }
 
 void SceneSdfPass::destroy() {
@@ -157,42 +157,42 @@ PassSetup SceneSdfPass::setup() const {
 }
 
 void SceneSdfPass::collect_exports(DeclareContext& ctx) {
-    const TextureExport sampled{.persistent = true, .resting = SAMPLED};
+    const ftk::TextureExport sampled{.persistent = true, .resting = SAMPLED};
     ctx.export_texture(VOLUME_NAME, volume_, sampled);
     ctx.export_texture(INDEX_NAME, index_volume_, sampled);
     // ImGui shows the slice.
     if (slice_texture_) {
         ctx.export_texture(SLICE_NAME, slice_texture_,
-                           {.persistent = true, .resting = gpu::Access::sampled_fragment});
+                           {.persistent = true, .resting = ftk::gpu::Access::sampled_fragment});
     }
 }
 
-void SceneSdfPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SceneSdfPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     const bool compose_now = has_pending_update();
     const bool slice_now = slice_requested_ && slice_texture_ && (compose_now || composed_);
     if (!compose_now && !slice_now) return;
-    const FgTexture volume = builder.import_named(ctx, VOLUME_NAME);
+    const ftk::FgTexture volume = builder.import_named(ctx, VOLUME_NAME);
     if (compose_now) {
-        const FgTexture index = builder.import_named(ctx, INDEX_NAME);
+        const ftk::FgTexture index = builder.import_named(ctx, INDEX_NAME);
         if (full_rebuild_) {
-            builder.write(volume, gpu::Access::storage_write_compute);
-            builder.write(index, gpu::Access::storage_write_compute);
+            builder.write(volume, ftk::gpu::Access::storage_write_compute);
+            builder.write(index, ftk::gpu::Access::storage_write_compute);
         } else {
             // A region's compose keeps every voxel outside it.
-            builder.read_write(volume, gpu::Access::storage_read_write_compute);
-            builder.read_write(index, gpu::Access::storage_read_write_compute);
+            builder.read_write(volume, ftk::gpu::Access::storage_read_write_compute);
+            builder.read_write(index, ftk::gpu::Access::storage_read_write_compute);
         }
         // The slice after it reads the distances the compose wrote.
         if (slice_now) {
-            builder.leaves(volume, full_rebuild_ ? gpu::Access::storage_write_compute
-                                                 : gpu::Access::storage_read_write_compute,
-                           gpu::Access::sampled_compute);
+            builder.leaves(volume, full_rebuild_ ? ftk::gpu::Access::storage_write_compute
+                                                 : ftk::gpu::Access::storage_read_write_compute,
+                           ftk::gpu::Access::sampled_compute);
         }
     } else if (slice_now) {
-        builder.read(volume, gpu::Access::sampled_compute);
+        builder.read(volume, ftk::gpu::Access::sampled_compute);
     }
     if (slice_now) {
-        builder.write(builder.import_named(ctx, SLICE_NAME), gpu::Access::storage_write_compute);
+        builder.write(builder.import_named(ctx, SLICE_NAME), ftk::gpu::Access::storage_write_compute);
     }
 }
 
@@ -200,7 +200,7 @@ void SceneSdfPass::record(const FrameContext& ctx) {
     // Once a frame: the first viewport composes what is pending and draws
     // the slice asked for; those after find nothing to do.
     if (!has_pending_update() && !slice_requested_) return;
-    FJELL_PROFILE_SCOPE_N("record_scene_sdf");
+    FTK_PROFILE_SCOPE_N("record_scene_sdf");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Scene SDF");
     const bool composing = has_pending_update();
@@ -210,8 +210,8 @@ void SceneSdfPass::record(const FrameContext& ctx) {
         // The distances just written, as the slice samples them; declared
         // as what the pass leaves them in.
         if (composing) {
-            cmd.barrier(volume_, full ? gpu::Access::storage_write_compute : gpu::Access::storage_read_write_compute,
-                        gpu::Access::sampled_compute);
+            cmd.barrier(volume_, full ? ftk::gpu::Access::storage_write_compute : ftk::gpu::Access::storage_read_write_compute,
+                        ftk::gpu::Access::sampled_compute);
         }
         draw_slice(cmd, ctx.frame_index);
     }
@@ -231,7 +231,7 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
     uint32_t bytes_needed = voxel_count * sizeof(int16_t);
     uint32_t current_bytes = mesh_sdf_offset_ * sizeof(int16_t);
     if (current_bytes + bytes_needed > device_->size(mesh_sdf_buffer_)) {
-        FJELL_GFX_WARN("SDF mesh buffer full, cannot register model {}", model_id);
+        FTK_GFX_WARN("SDF mesh buffer full, cannot register model {}", model_id);
         return false;
     }
 
@@ -255,7 +255,7 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
 
     mesh_sdf_offset_ += voxel_count;
 
-    FJELL_GFX_DEBUG("Registered SDF for model {} ({}³, offset={})",
+    FTK_GFX_DEBUG("Registered SDF for model {} ({}³, offset={})",
                     model_id, res, entry.offset);
     return true;
 }
@@ -283,7 +283,7 @@ const SceneSdfPass::TerrainSdfEntry* SceneSdfPass::register_terrain_sdf(
     const size_t bytes_needed = count * sizeof(int16_t);
     const size_t current_bytes = static_cast<size_t>(mesh_sdf_offset_) * sizeof(int16_t);
     if (current_bytes + bytes_needed > device_->size(mesh_sdf_buffer_)) {
-        FJELL_GFX_WARN("SDF grid buffer full, terrain '{}' will not be part of the scene SDF",
+        FTK_GFX_WARN("SDF grid buffer full, terrain '{}' will not be part of the scene SDF",
                        terrain.path());
         return nullptr;
     }
@@ -293,7 +293,7 @@ const SceneSdfPass::TerrainSdfEntry* SceneSdfPass::register_terrain_sdf(
 
     TerrainSdfEntry entry{mesh_sdf_offset_, samples, terrain.edit_generation()};
     mesh_sdf_offset_ += static_cast<uint32_t>(count);
-    FJELL_GFX_DEBUG("Registered terrain '{}' in the scene SDF ({}x{} samples, offset={})",
+    FTK_GFX_DEBUG("Registered terrain '{}' in the scene SDF ({}x{} samples, offset={})",
                     terrain.path(), samples, samples, entry.offset);
     return &terrain_sdf_entries_.emplace(&terrain, entry).first->second;
 }
@@ -450,7 +450,7 @@ void SceneSdfPass::add_dirty_region(AABB region) {
     dirty_regions_.push_back(region);
 }
 
-void SceneSdfPass::compose(gpu::CommandList& cmd, uint32_t frame_index) {
+void SceneSdfPass::compose(ftk::gpu::CommandList& cmd, uint32_t frame_index) {
     const std::span<std::byte> instance_memory = device_->mapped(instance_buffers_[frame_index]);
 
     // Each region gets the instances whose distance band reaches into it,
@@ -496,7 +496,7 @@ void SceneSdfPass::compose(gpu::CommandList& cmd, uint32_t frame_index) {
     }
 
     if (upload.size() > capacity) {
-        FJELL_GFX_WARN("SDF instance buffer too small ({} instances), rebuilding everything",
+        FTK_GFX_WARN("SDF instance buffer too small ({} instances), rebuilding everything",
                        upload.size());
         upload = gathered_;
         if (upload.size() > capacity) upload.resize(capacity);
@@ -510,10 +510,10 @@ void SceneSdfPass::compose(gpu::CommandList& cmd, uint32_t frame_index) {
     // The regions are apart, so their dispatches write different voxels and
     // need nothing between them.
     cmd.set_pipeline(composite_pipeline_);
-    cmd.bind({{"scene_sdf", gpu::storage(volume_)},
-              {"MeshSdfData", gpu::storage(mesh_sdf_buffer_)},
-              {"SdfMetadata", gpu::storage(instance_buffers_[frame_index])},
-              {"scene_sdf_index", gpu::storage(index_volume_)}});
+    cmd.bind({{"scene_sdf", ftk::gpu::storage(volume_)},
+              {"MeshSdfData", ftk::gpu::storage(mesh_sdf_buffer_)},
+              {"SdfMetadata", ftk::gpu::storage(instance_buffers_[frame_index])},
+              {"scene_sdf_index", ftk::gpu::storage(index_volume_)}});
     for (const auto& d : dispatches) {
         cmd.push(ComposePush{volume_min_, d.instance_offset, volume_max_, d.instance_count,
                              d.voxel_min, resolution_, d.voxel_extent, max_distance()});
@@ -541,28 +541,28 @@ float SceneSdfPass::slice_surface() const {
 }
 
 bool SceneSdfPass::make_slice() {
-    auto pipeline = device_->create(gpu::ComputePipelineDesc{
+    auto pipeline = device_->create(ftk::gpu::ComputePipelineDesc{
         .shader = "shaders/sdf_slice.comp",
         .name = "sdf_slice",
     });
-    auto texture = device_->create(gpu::TextureDesc{
-        .format = gpu::Format::rgba8_unorm,
+    auto texture = device_->create(ftk::gpu::TextureDesc{
+        .format = ftk::gpu::Format::rgba8_unorm,
         .width = SLICE_SIZE,
         .height = SLICE_SIZE,
-        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-        .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
+        .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+        .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
         .name = "sdf slice",
     });
     // Every frame in flight's slice of distances, read on the CPU once that
     // frame is done.
-    auto distances = device_->create(gpu::BufferDesc{
-        .size = uint64_t{sizeof(float)} * SLICE_SIZE * SLICE_SIZE * MAX_FRAMES_IN_FLIGHT,
-        .use = gpu::BufferUse::storage,
-        .memory = gpu::Memory::readback,
+    auto distances = device_->create(ftk::gpu::BufferDesc{
+        .size = uint64_t{sizeof(float)} * SLICE_SIZE * SLICE_SIZE * ftk::MAX_FRAMES_IN_FLIGHT,
+        .use = ftk::gpu::BufferUse::storage,
+        .memory = ftk::gpu::Memory::readback,
         .name = "sdf slice distances",
     });
     if (!pipeline || !texture || !distances) {
-        FJELL_GFX_ERROR("The SDF slice cannot be drawn: {}",
+        FTK_GFX_ERROR("The SDF slice cannot be drawn: {}",
                         !pipeline ? pipeline.error() : !texture ? texture.error() : distances.error());
         return false;
     }
@@ -570,13 +570,13 @@ bool SceneSdfPass::make_slice() {
     slice_texture_ = std::move(*texture);
     slice_distances_ = std::move(*distances);
     slice_written_.fill(false);
-    slice_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
-                                       .mip_filter = gpu::Filter::nearest,
-                                       .address = gpu::Address::clamp});
+    slice_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::nearest,
+                                       .mip_filter = ftk::gpu::Filter::nearest,
+                                       .address = ftk::gpu::Address::clamp});
     return true;
 }
 
-void SceneSdfPass::draw_slice(gpu::CommandList& cmd, uint32_t frame_index) {
+void SceneSdfPass::draw_slice(ftk::gpu::CommandList& cmd, uint32_t frame_index) {
     // This frame in flight's slice was last written MAX_FRAMES_IN_FLIGHT
     // frames ago and that frame is done: read the hovered texel's distance
     // from it before this frame writes it again.
@@ -593,17 +593,17 @@ void SceneSdfPass::draw_slice(gpu::CommandList& cmd, uint32_t frame_index) {
     slice_written_[frame_index] = true;
 
     cmd.set_pipeline(slice_pipeline_);
-    cmd.bind({{"scene_sdf", gpu::sampled(volume_, volume_sampler_)},
-              {"slice_output", gpu::storage(slice_texture_)},
-              {"SliceDistances", gpu::storage(slice_distances_)}});
+    cmd.bind({{"scene_sdf", ftk::gpu::sampled(volume_, volume_sampler_)},
+              {"slice_output", ftk::gpu::storage(slice_texture_)},
+              {"SliceDistances", ftk::gpu::storage(slice_distances_)}});
     cmd.push(SlicePush{slice_axis_, slice_pos_, SLICE_SIZE, max_distance(), slice_surface(),
                        static_cast<uint32_t>(offset)});
     const uint32_t groups = (SLICE_SIZE + 7) / 8;
     cmd.dispatch(groups, groups, 1);
 
     // The distances, for the CPU once the frame is done.
-    cmd.barrier(gpu::BufferRange(slice_distances_, offset * sizeof(float), slice_floats * sizeof(float)),
-                gpu::Access::storage_buffer_write_compute, gpu::Access::host_read);
+    cmd.barrier(ftk::gpu::BufferRange(slice_distances_, offset * sizeof(float), slice_floats * sizeof(float)),
+                ftk::gpu::Access::storage_buffer_write_compute, ftk::gpu::Access::host_read);
 }
 
 } // namespace fjell

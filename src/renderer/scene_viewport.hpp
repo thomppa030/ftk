@@ -22,7 +22,7 @@ struct SceneViewportConfig {
     uint32_t width{512};
     uint32_t height{512};
     PostProcessConfig pp_config{};
-    gpu::Samples samples{gpu::Samples::x1};
+    ftk::gpu::Samples samples{ftk::gpu::Samples::x1};
     bool expose_hdr{false};    // true = HDR color (R16F), false = tonemapped LDR (sRGB)
     bool skip_shadows{true};
 
@@ -45,7 +45,7 @@ struct SceneViewportView {
 /// as a bindless texture index, usable by any material.
 class SceneViewport {
 public:
-    SceneViewport(gpu::Device& gpu, const SceneViewportConfig& config,
+    SceneViewport(ftk::gpu::Device& gpu, const SceneViewportConfig& config,
                   const PostProcessResources::PassRefs& pass_refs,
                   uint32_t reserved_bindless_index);
     ~SceneViewport();
@@ -66,7 +66,7 @@ public:
     [[nodiscard]] ViewportRenderRequest build_request() const;
 
     /// The texture materials sample (HDR or tonemapped based on config).
-    [[nodiscard]] gpu::Texture output_texture() const;
+    [[nodiscard]] ftk::gpu::Texture output_texture() const;
 
     void set_view(const SceneViewportView& view) { view_ = view; }
 
@@ -85,7 +85,7 @@ private:
     std::unique_ptr<OffscreenPass> offscreen_;
     std::unique_ptr<PostProcessResources> pp_;
 
-    gpu::Texture last_synced_{};
+    ftk::gpu::Texture last_synced_{};
 };
 
 } // namespace fjell

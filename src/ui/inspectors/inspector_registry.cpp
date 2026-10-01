@@ -42,7 +42,7 @@ namespace {
 // One line per component. A component without an entry has no category
 // and no inspector, which is reported when the list is first built.
 InspectorRegistry build() {
-    using C = theme::Category;
+    using C = ftk::theme::Category;
     InspectorRegistry r;
 
     r.add<MeshComponent>({.category = C::Rendering, .draw = draw_mesh});
@@ -75,7 +75,7 @@ InspectorRegistry build() {
     ComponentRegistry::instance().for_each([&](ComponentTypeId id, const ComponentMeta& meta) {
         const auto* inspector = r.find(id);
         if (inspector == nullptr || inspector->draw == nullptr) {
-            FJELL_CORE_ERROR("Component '{}' has no inspector in ui/inspectors/inspector_registry.cpp",
+            FTK_CORE_ERROR("Component '{}' has no inspector in ui/inspectors/inspector_registry.cpp",
                              meta.display_name);
         }
     });

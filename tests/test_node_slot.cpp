@@ -9,7 +9,7 @@
 
 #include <string>
 
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 using namespace fjell;
 
 namespace {
@@ -70,7 +70,7 @@ struct SlotUnderTest {
         });
         h.step(2);
     }
-    ~SlotUnderTest() { ui::grouped_picker::close(); }
+    ~SlotUnderTest() { ftk::ui::grouped_picker::close(); }
 
     [[nodiscard]] ImVec2 into_field() const { return {field.x + 20.0f, field.y + ImGui::GetFrameHeight() * 0.5f}; }
     [[nodiscard]] ImVec2 source() const {
@@ -140,7 +140,7 @@ TEST_CASE("A required node slot says so under itself while it is empty", "[ui][n
 
     CHECK(empty_required > set_required);
     CHECK(empty_optional == set_required);
-    ui::grouped_picker::close();
+    ftk::ui::grouped_picker::close();
 }
 
 TEST_CASE("A node's parent path runs from the root down", "[ui][node_slot]") {

@@ -21,7 +21,7 @@ static void load_anim_data(SpriteAnimComponent& anim, ResourceManager& resources
         std::string resolved = base_path::resolve_asset(anim.animset_path, project);
         if (std::filesystem::exists(resolved)) {
             if (auto r = anim.state_machine.load(resolved); !r) {
-                FJELL_CORE_WARN("SpriteAnim: failed to load animset {}: {}", anim.animset_path, r.error());
+                FTK_CORE_WARN("SpriteAnim: failed to load animset {}: {}", anim.animset_path, r.error());
             }
         }
     } else if (!anim.animations.empty()) {
@@ -120,7 +120,7 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
 }
 
 void SpriteAnimSubsystem::tick(const TickContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("sprite_anim_tick");
+    FTK_PROFILE_SCOPE_N("sprite_anim_tick");
 
     for (auto [obj, anim] : ctx.scene.view<SpriteAnimComponent>()) {
 

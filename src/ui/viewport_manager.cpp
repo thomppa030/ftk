@@ -26,42 +26,42 @@ ImTextureID shown(const ViewportPanel& panel, VulkanContext& ctx) {
     PostProcessResources& pp = *panel.pp;
     switch (panel.source) {
         case ViewportSource::final_color:
-            return pp.post() ? imgui_texture(pp.post()->texture, ctx.post_pass().output_sampler()) : ImTextureID{};
+            return pp.post() ? ftk::imgui_texture(pp.post()->texture, ctx.post_pass().output_sampler()) : ImTextureID{};
         case ViewportSource::ao:
-            return pp.gtao() ? imgui_texture(pp.gtao()->ao, ctx.gtao_pass().ao_sampler()) : ImTextureID{};
-        case ViewportSource::depth:         return imgui_texture(ctx.depth_viz_pass().picture());
-        case ViewportSource::wireframe:     return imgui_texture(ctx.wireframe_pass().picture());
-        case ViewportSource::normals:       return imgui_texture(ctx.normal_pass().picture());
-        case ViewportSource::overdraw:      return imgui_texture(ctx.overdraw_pass().picture());
-        case ViewportSource::uv:            return imgui_texture(ctx.uv_viz_pass().picture());
-        case ViewportSource::light_heatmap: return imgui_texture(ctx.light_heatmap_pass().picture());
-        case ViewportSource::light_grid:    return imgui_texture(ctx.light_grid_pass().picture());
+            return pp.gtao() ? ftk::imgui_texture(pp.gtao()->ao, ctx.gtao_pass().ao_sampler()) : ImTextureID{};
+        case ViewportSource::depth:         return ftk::imgui_texture(ctx.depth_viz_pass().picture());
+        case ViewportSource::wireframe:     return ftk::imgui_texture(ctx.wireframe_pass().picture());
+        case ViewportSource::normals:       return ftk::imgui_texture(ctx.normal_pass().picture());
+        case ViewportSource::overdraw:      return ftk::imgui_texture(ctx.overdraw_pass().picture());
+        case ViewportSource::uv:            return ftk::imgui_texture(ctx.uv_viz_pass().picture());
+        case ViewportSource::light_heatmap: return ftk::imgui_texture(ctx.light_heatmap_pass().picture());
+        case ViewportSource::light_grid:    return ftk::imgui_texture(ctx.light_grid_pass().picture());
         case ViewportSource::meshlet_viz: {
             const auto* meshlets = ctx.meshlet_viz_pass();
-            return meshlets ? imgui_texture(meshlets->picture()) : ImTextureID{};
+            return meshlets ? ftk::imgui_texture(meshlets->picture()) : ImTextureID{};
         }
         case ViewportSource::gi_indirect: {
             // Screen-space GI once it has drawn, else the probes'.
             if (const auto* ss_gi = pp.ss_gi(); ss_gi && ss_gi->written) {
-                return imgui_texture(ss_gi->indirect, ctx.ss_gi_pass().linear_sampler());
+                return ftk::imgui_texture(ss_gi->indirect, ctx.ss_gi_pass().linear_sampler());
             }
             const auto* ddgi = pp.ddgi();
-            return ddgi && ddgi->indirect_written ? imgui_texture(ddgi->indirect, ctx.ddgi_pass().linear_sampler())
+            return ddgi && ddgi->indirect_written ? ftk::imgui_texture(ddgi->indirect, ctx.ddgi_pass().linear_sampler())
                                                   : ImTextureID{};
         }
         case ViewportSource::gi_irradiance: {
             const auto* ddgi = pp.ddgi();
-            return ddgi ? imgui_texture(ddgi->irradiance, ctx.ddgi_pass().linear_sampler()) : ImTextureID{};
+            return ddgi ? ftk::imgui_texture(ddgi->irradiance, ctx.ddgi_pass().linear_sampler()) : ImTextureID{};
         }
         case ViewportSource::motion_field:
-            return imgui_texture(ctx.motion_field_pass().map(), ctx.ddgi_pass().linear_sampler());
+            return ftk::imgui_texture(ctx.motion_field_pass().map(), ctx.ddgi_pass().linear_sampler());
     }
     return {};
 }
 
 } // namespace
 
-void ViewportManager::init(gpu::Samples msaa_samples) {
+void ViewportManager::init(ftk::gpu::Samples msaa_samples) {
     msaa_samples_ = msaa_samples;
     ready_ = true;
 }
@@ -137,7 +137,7 @@ glm::vec2 ViewportManager::active_viewport_pos() const {
 }
 
 void ViewportManager::draw(VulkanContext& ctx, const Input& input, float dt) {
-    FJELL_PROFILE_SCOPE_N("viewport_draw");
+    FTK_PROFILE_SCOPE_N("viewport_draw");
     bool any_closing = false;
     for (auto it = panels_.begin(); it != panels_.end();) {
         draw_viewport_panel(*it, ctx, input, dt);
@@ -169,7 +169,7 @@ void ViewportManager::draw(VulkanContext& ctx, const Input& input, float dt) {
 }
 
 void ViewportManager::apply_resize(VulkanContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("viewport_apply_resize");
+    FTK_PROFILE_SCOPE_N("viewport_apply_resize");
     for (auto& panel : panels_) {
         // Deferred creation — safe here because begin_frame fence already waited
         if (panel.needs_offscreen && ready_) {
@@ -214,7 +214,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
 }
 
 std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
-    FJELL_PROFILE_SCOPE_N("build_render_requests");
+    FTK_PROFILE_SCOPE_N("build_render_requests");
     std::vector<ViewportRenderRequest> requests;
     requests.reserve(panels_.size());
     for (auto& panel : panels_) {
@@ -258,7 +258,7 @@ uint32_t ViewportManager::active_source_mask() const {
 
 void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                                            const Input& input, float dt) {
-    if (auto window = ui::ViewportWindow(panel.title.c_str(), &panel.open)) {
+    if (auto window = ftk::ui::ViewportWindow(panel.title.c_str(), &panel.open)) {
         panel.hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
         panel.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 
@@ -312,10 +312,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         // replaces the picture of, so it is never left on unseen.
         if (!view_is_lit(panel.source, ctx) && img_w > 0 && img_h > 0) {
             const std::string showing = std::format("Showing {}", view_name(panel.source, ctx));
-            const ui::OverlayPiece line[] = {{showing}};
-            ui::corner_note(ImGui::GetWindowDrawList(),
-                            {panel.img_pos.x + img_w - ui::OVERLAY_INSET, panel.img_pos.y + img_h - ui::OVERLAY_INSET},
-                            ui::Corner::BottomRight, {.icon = ui::icon::debug, .line = line, .ink = theme::warning()});
+            const ftk::ui::OverlayPiece line[] = {{showing}};
+            ftk::ui::corner_note(ImGui::GetWindowDrawList(),
+                            {panel.img_pos.x + img_w - ftk::ui::OVERLAY_INSET, panel.img_pos.y + img_h - ftk::ui::OVERLAY_INSET},
+                            ftk::ui::Corner::BottomRight, {.icon = ftk::ui::icon::debug, .line = line, .ink = ftk::theme::warning()});
         }
 
         if (img_w > 0 && img_h > 0) {
@@ -342,11 +342,11 @@ void ViewportManager::draw_preview_toolbar(ViewportPanel& panel) {
     const ImVec2 max{panel.img_pos.x + panel.img_size.x, panel.img_pos.y + panel.img_size.y};
 
     // Left: what is drawn over the picture, and bringing the asset back.
-    if (auto pill = ui::ViewportPill("##view_left", min, max, ui::PillPlace::TopLeft)) {
-        if (ui::toggle_button("##grid", ui::icon::grid, panel.show_grid, "Grid")) panel.show_grid = !panel.show_grid;
+    if (auto pill = ftk::ui::ViewportPill("##view_left", min, max, ftk::ui::PillPlace::TopLeft)) {
+        if (ftk::ui::toggle_button("##grid", ftk::ui::icon::grid, panel.show_grid, "Grid")) panel.show_grid = !panel.show_grid;
         if (framing_) {
             ImGui::SameLine();
-            if (ui::icon_button("##frame", ui::icon::frame_view, "Frame (F)")) {
+            if (ftk::ui::icon_button("##frame", ftk::ui::icon::frame_view, "Frame (F)")) {
                 panel.camera.focus(framing_->center, framing_->radius);
             }
         }
@@ -360,9 +360,9 @@ void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {
     const ImVec2 min{panel.img_pos.x, panel.img_pos.y};
     const ImVec2 max{panel.img_pos.x + panel.img_size.x, panel.img_pos.y + panel.img_size.y};
     // What the viewport shows, and the projection.
-    if (auto pill = ui::ViewportPill("##view_right", min, max, ui::PillPlace::TopRight)) {
+    if (auto pill = ftk::ui::ViewportPill("##view_right", min, max, ftk::ui::PillPlace::TopRight)) {
         const bool lit = view_is_lit(panel.source, ctx);
-        if (ui::mode_button("##view", lit ? ui::icon::directional_light : ui::icon::debug,
+        if (ftk::ui::mode_button("##view", lit ? ftk::ui::icon::directional_light : ftk::ui::icon::debug,
                             view_name(panel.source, ctx), !lit)) {
             ImGui::OpenPopup("##view_menu");
         }
@@ -373,7 +373,7 @@ void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {
         }
         ImGui::SameLine();
         const bool perspective = panel.camera.mode() == EditorCameraMode::perspective;
-        if (ui::icon_button("##projection", perspective ? ui::icon::perspective : ui::icon::orthographic,
+        if (ftk::ui::icon_button("##projection", perspective ? ftk::ui::icon::perspective : ftk::ui::icon::orthographic,
                             perspective ? "Perspective: click for orthographic"
                                         : "Orthographic: click for perspective")) {
             panel.camera.set_mode(perspective ? EditorCameraMode::orthographic : EditorCameraMode::perspective);

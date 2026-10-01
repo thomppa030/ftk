@@ -11,15 +11,16 @@
 #include <utility>
 #include <vector>
 
+namespace ftk::gpu {
+class Device;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 struct FjFontRecipe;
 
 class Texture;
 class BindlessTextures;
-namespace gpu {
-class Device;
-}
 
 /// What an atlas needs to reach the GPU. Kept by the atlas so it can
 /// rebuild itself in place.
@@ -27,7 +28,7 @@ struct FontAtlasGpu {
     BindlessTextures* bindless{nullptr};
     /// Uploads the atlas, and keeps a reloaded atlas's old texture alive
     /// until the frames drawing with it are done.
-    gpu::Device* gpu_device{nullptr};
+    ftk::gpu::Device* gpu_device{nullptr};
 };
 
 struct GlyphInfo {
@@ -85,12 +86,12 @@ public:
     /// Reads a recipe and its cached atlas, baking the atlas first when the
     /// cache is stale. CPU only, safe on a worker thread; problems are
     /// logged and returned.
-    [[nodiscard]] static Result<FontAtlasData> load_data(const std::string& recipe_path);
+    [[nodiscard]] static ftk::Result<FontAtlasData> load_data(const std::string& recipe_path);
 
     /// Bakes `recipe` as it is, not as its file holds it, and writes no
     /// cache: an editor's unsaved recipe, previewed. `recipe_path` places
     /// the font file the recipe names. CPU only, safe on a worker thread.
-    [[nodiscard]] static Result<FontAtlasData> bake_data(const std::string& recipe_path,
+    [[nodiscard]] static ftk::Result<FontAtlasData> bake_data(const std::string& recipe_path,
                                                          const FjFontRecipe& recipe);
 
     /// Takes the loaded data to the GPU. Main thread, between frames.
@@ -108,8 +109,8 @@ public:
 
     /// The atlas and how it is sampled, for an editor to show; invalid until
     /// loaded. A reload replaces the texture.
-    [[nodiscard]] gpu::Texture texture() const;
-    [[nodiscard]] gpu::Sampler sampler() const;
+    [[nodiscard]] ftk::gpu::Texture texture() const;
+    [[nodiscard]] ftk::gpu::Sampler sampler() const;
     /// The font file the recipe names, resolved; empty until loaded.
     [[nodiscard]] const std::string& source_path() const { return source_path_; }
 

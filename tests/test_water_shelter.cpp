@@ -226,7 +226,7 @@ TEST_CASE("The shore derivation bakes once, and again when the land changes", "[
 TEST_CASE("The shore derivation bakes on a worker and hands out the last meanwhile",
           "[water_shelter]") {
     IslandSea sea;
-    ThreadPool workers(2);
+    ftk::ThreadPool workers(2);
 
     // Baked without a worker: what a body of water copied into play had.
     water::ShoreDerivation earlier;

@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 class CommandHistory {
 public:
@@ -27,4 +27,4 @@ private:
     int current_{-1};
 };
 
-} // namespace fjell
+} // namespace ftk

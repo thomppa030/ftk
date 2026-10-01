@@ -42,7 +42,7 @@ constexpr std::mt19937::result_type JITTER_SEED = 20260925;
 
 } // namespace
 
-Result<std::vector<Pacing>> parse_pacings(std::string_view list) {
+ftk::Result<std::vector<Pacing>> parse_pacings(std::string_view list) {
     std::vector<Pacing> pacings;
     while (!list.empty()) {
         const std::size_t comma = list.find(',');
@@ -56,7 +56,7 @@ Result<std::vector<Pacing>> parse_pacings(std::string_view list) {
             double fps = 0.0;
             const auto [end, error] = std::from_chars(item.data(), item.data() + item.size(), fps);
             if (error != std::errc{} || end != item.data() + item.size() || fps < 1.0 || fps > 1000.0) {
-                return make_error(std::format("--pacing: '{}' is not a frame rate from 1 to 1000 "
+                return ftk::make_error(std::format("--pacing: '{}' is not a frame rate from 1 to 1000 "
                                               "or 'jitter'",
                                               item));
             }
@@ -65,11 +65,11 @@ Result<std::vector<Pacing>> parse_pacings(std::string_view list) {
         }
         const bool repeated = std::any_of(pacings.begin(), pacings.end(),
                                           [&](const Pacing& p) { return p.name == pacing.name; });
-        if (repeated) return make_error(std::format("--pacing: {} is listed twice", pacing.name));
+        if (repeated) return ftk::make_error(std::format("--pacing: {} is listed twice", pacing.name));
         pacings.push_back(std::move(pacing));
     }
     if (pacings.size() < 2) {
-        return make_error("--pacing needs at least two pacings to compare, as in 30,144,jitter");
+        return ftk::make_error("--pacing needs at least two pacings to compare, as in 30,144,jitter");
     }
     return pacings;
 }

@@ -92,7 +92,7 @@ const WaterComponent* PhysicsSubsystem::water_at(std::span<const WaterBody> wate
 }
 
 void PhysicsSubsystem::apply_buoyancy(const FixedTickContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("apply_buoyancy");
+    FTK_PROFILE_SCOPE_N("apply_buoyancy");
     // The sea as it is when this step starts, like every body in the step.
     const auto time = static_cast<float>(ctx.time);
 

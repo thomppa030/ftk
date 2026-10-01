@@ -13,28 +13,28 @@
 
 namespace fjell {
 
-Result<> FogDensityFieldPass::create(const PassResources& resources) {
+ftk::Result<> FogDensityFieldPass::create(const PassResources& resources) {
     device_ = resources.device;
-    FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/fog_density_field.comp",
                              .name = "fog_density_field",
                          }));
     // Outside the box the air is undisturbed, which is what a zero border says.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::border,
-                                 .border = gpu::Border::transparent_black});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::border,
+                                 .border = ftk::gpu::Border::transparent_black});
     // Both fields start undisturbed, so anything reading before the pass has
     // run reads still air.
     for (auto& field : fields_) {
-        FJELL_TRY(field, device_->create(gpu::TextureDesc{
-                             .kind = gpu::TextureKind::tex3d,
+        FTK_TRY(field, device_->create(ftk::gpu::TextureDesc{
+                             .kind = ftk::gpu::TextureKind::tex3d,
                              .format = FIELD_FORMAT,
                              .width = RESOLUTION_XZ,
                              .height = RESOLUTION_Y,
                              .depth = RESOLUTION_XZ,
-                             .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                             .initial = gpu::Clear{0.0f},
+                             .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                             .initial = ftk::gpu::Clear{0.0f},
                              .name = "fog_density_field",
                          }));
     }
@@ -51,7 +51,7 @@ void FogDensityFieldPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/)
     // two a reader should see changes every frame, so the binding is rewritten
     // in prepare_frame; this only points the first frame's descriptor at a real
     // image.
-    gpu.global_bindings().set("fog_density_field", gpu::sampled(fields_[cur_], sampler_));
+    gpu.global_bindings().set("fog_density_field", ftk::gpu::sampled(fields_[cur_], sampler_));
 }
 
 void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
@@ -148,7 +148,7 @@ void FogDensityFieldPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu
     if (active_) { cur_ = prev_index(); }
 
     gpu.global_bindings().set(ctx.frame_index, "fog_density_field",
-                              gpu::sampled(fields_[cur_], sampler_));
+                              ftk::gpu::sampled(fields_[cur_], sampler_));
 }
 
 PassSetup FogDensityFieldPass::setup() const {
@@ -159,23 +159,23 @@ PassSetup FogDensityFieldPass::setup() const {
     };
 }
 
-void FogDensityFieldPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void FogDensityFieldPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Nothing moves and the air has settled, or an earlier viewport already
     // stepped the field this frame: it is left as it is.
     if ((moving_count_ == 0 && settled_) || stepped_this_frame_) { return; }
     // Last frame's field carried forward into this frame's. The graph moves
     // the one written into GENERAL, and back to rest afterwards.
     builder.read(builder.import_named(ctx, "fog_density_field_prev"),
-                 gpu::Access::sampled_compute);
+                 ftk::gpu::Access::sampled_compute);
     builder.write(builder.import_named(ctx, "fog_density_field"),
-                  gpu::Access::storage_write_compute);
+                  ftk::gpu::Access::storage_write_compute);
 }
 
 void FogDensityFieldPass::collect_exports(DeclareContext& ctx) {
     if (!fields_[cur_]) { return; }
     // Both fields rest where the fog samples them, in compute through the
     // global set, and are carried into the next frame's field.
-    const TextureExport how{.persistent = true, .resting = gpu::Access::sampled_compute};
+    const ftk::TextureExport how{.persistent = true, .resting = ftk::gpu::Access::sampled_compute};
     // The field this frame writes is the one the global set binds.
     ctx.export_texture("fog_density_field", fields_[cur_], how);
     ctx.export_texture("fog_density_field_prev", fields_[prev_index()], how);
@@ -186,7 +186,7 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     if (stepped_this_frame_) return;
     stepped_this_frame_ = true;
 
-    FJELL_PROFILE_SCOPE_N("record_fog_density_field");
+    FTK_PROFILE_SCOPE_N("record_fog_density_field");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Fog Density Field");
 
@@ -210,9 +210,9 @@ void FogDensityFieldPass::record(const FrameContext& ctx) {
     // A storage buffer holds at least one source, even in a frame with none.
     const auto sources = cmd.transient(std::span(sources_.data(), std::max(source_count_, 1U)));
     cmd.set_pipeline(pipeline_);
-    cmd.bind({{"SourceBuffer", gpu::storage(sources)},
-              {"density_prev", gpu::sampled(fields_[read], sampler_)},
-              {"density_out", gpu::storage(fields_[write])}});
+    cmd.bind({{"SourceBuffer", ftk::gpu::storage(sources)},
+              {"density_prev", ftk::gpu::sampled(fields_[read], sampler_)},
+              {"density_out", ftk::gpu::storage(fields_[write])}});
     cmd.push(PushConstants{
         .origin_texel = glm::vec4(origin_, texel_xz),
         .prev_origin_texel_y = glm::vec4(prev_origin_, texel_y),

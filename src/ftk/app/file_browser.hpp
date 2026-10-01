@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 namespace gpu {
 class Device;
@@ -138,4 +138,4 @@ private:
     bool sort_ascending_{true};
 };
 
-} // namespace fjell
+} // namespace ftk

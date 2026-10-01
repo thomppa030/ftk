@@ -11,9 +11,12 @@
 
 struct ImGuiPayload;
 
+namespace ftk {
+class CommandHistory;
+} // namespace ftk
+
 namespace fjell {
 
-class CommandHistory;
 class Scene;
 class ViewportManager;
 struct Node;
@@ -21,7 +24,7 @@ struct Node;
 class HierarchyPanel {
 public:
     void init(Scene* scene, ViewportManager* viewports, uint32_t* selected_id,
-              CommandHistory* history);
+              ftk::CommandHistory* history);
 
     void draw();
 
@@ -53,7 +56,7 @@ private:
     // What dragging the row drags: the selection when the row is in it.
     [[nodiscard]] std::vector<uint32_t> dragged_ids(uint32_t row_id) const;
     [[nodiscard]] static std::vector<uint32_t> payload_ids(const ImGuiPayload& payload);
-    [[nodiscard]] Target drop_target(const Node& row, int depth, bool open, ui::DropPlace place,
+    [[nodiscard]] Target drop_target(const Node& row, int depth, bool open, ftk::ui::DropPlace place,
                                      const std::vector<uint32_t>& ids) const;
     // Why the nodes can't go under `parent_id`, or empty when they can.
     [[nodiscard]] std::string refuse_drop(const std::vector<uint32_t>& ids, int32_t parent_id) const;
@@ -65,12 +68,12 @@ private:
 
     // Inline rename of one row, started by F2 on the primary selection or
     // from the row's context menu.
-    ui::RenameBox rename_;
+    ftk::ui::RenameBox rename_;
 
     Scene* scene_{nullptr};
     ViewportManager* viewports_{nullptr};
     uint32_t* selected_id_{nullptr};
-    CommandHistory* history_{nullptr};
+    ftk::CommandHistory* history_{nullptr};
 
     // Delete from a row's context menu, carried out after the tree is drawn.
     bool delete_pending_{false};
@@ -88,12 +91,12 @@ private:
     uint32_t last_clicked_id_{0}; // anchor for shift-click range select
 
 public:
-    Delegate<void(const std::string&)> on_add_primitive;
+    ftk::Delegate<void(const std::string&)> on_add_primitive;
     // Delete everything selected, as one undo step.
-    Delegate<void()> on_delete_selection;
-    Delegate<void()> on_duplicate;
+    ftk::Delegate<void()> on_delete_selection;
+    ftk::Delegate<void()> on_duplicate;
     // Preset: instantiate a .fjp (path, parent_id to instantiate under)
-    Delegate<void(const std::string&, int32_t)> on_instantiate_preset;
+    ftk::Delegate<void(const std::string&, int32_t)> on_instantiate_preset;
 
 private:
 

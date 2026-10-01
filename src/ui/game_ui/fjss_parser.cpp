@@ -910,9 +910,9 @@ void FjssParser::log_diagnostics() const {
     for (const auto& d : sheet_.diagnostics) {
         const auto& name = d.source.empty() ? std::string_view{"<fjss>"} : std::string_view{d.source};
         if (d.severity == FjssSeverity::error) {
-            FJELL_CORE_ERROR("{}:{}:{}: error: {}", name, d.line, d.column, d.message);
+            FTK_CORE_ERROR("{}:{}:{}: error: {}", name, d.line, d.column, d.message);
         } else {
-            FJELL_CORE_WARN("{}:{}:{}: warning: {}", name, d.line, d.column, d.message);
+            FTK_CORE_WARN("{}:{}:{}: warning: {}", name, d.line, d.column, d.message);
         }
     }
 }

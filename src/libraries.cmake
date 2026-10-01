@@ -26,9 +26,9 @@ ftk_library(base
 )
 # Profiler zones compile in wherever ftk/base/profiler.hpp is included, so a
 # Tracy build passes the switch and the client on to everything linking base.
-if(FJELL_ENABLE_TRACY)
+if(FTK_ENABLE_TRACY)
     target_link_libraries(ftk-base PUBLIC TracyClient)
-    target_compile_definitions(ftk-base PUBLIC FJELL_ENABLE_TRACY)
+    target_compile_definitions(ftk-base PUBLIC FTK_ENABLE_TRACY)
     get_target_property(TRACY_INCLUDE_DIRS TracyClient INTERFACE_INCLUDE_DIRECTORIES)
     if(TRACY_INCLUDE_DIRS)
         target_include_directories(ftk-base SYSTEM PUBLIC ${TRACY_INCLUDE_DIRS})

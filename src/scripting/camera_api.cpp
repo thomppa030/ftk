@@ -21,7 +21,7 @@ extern "C" FJELL_SDK_EXPORT void fjell_camera_set_active(uint32_t node_id) {
     const fjell::Node* node = s.scene->find(node_id);
     if (dynamic_cast<const fjell::CameraNode*>(node) == nullptr) {
         const fjell::ScriptCall* call = fjell::current_script_call();
-        FJELL_CORE_ERROR("{} made '{}' the active camera, which is not a camera; the active camera stays as it was",
+        FTK_CORE_ERROR("{} made '{}' the active camera, which is not a camera; the active camera stays as it was",
                          call != nullptr ? fjell::describe(*call) : std::string("A script"),
                          node != nullptr ? node->name : std::string("?"));
         return;

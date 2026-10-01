@@ -15,15 +15,15 @@ namespace fjell {
 // the frame to MeshShaderDepthPass.
 class DepthPrePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// Create a custom depth pipeline for material shader `pipeline_id`, culling
     /// what its material culls.
-    void register_custom_depth(uint32_t pipeline_id, const std::string& vert_spv_path, gpu::Cull cull) {
+    void register_custom_depth(uint32_t pipeline_id, const std::string& vert_spv_path, ftk::gpu::Cull cull) {
         casters_.register_custom(pipeline_id, vert_spv_path, cull);
     }
     /// Forget every custom depth pipeline.
@@ -32,7 +32,7 @@ public:
 private:
     /// The batch's static draws: depth.vert, or a material's own vertex stage.
     DepthVariants casters_;
-    gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_pipeline_;
 };
 
 } // namespace fjell

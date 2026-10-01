@@ -44,7 +44,7 @@ struct WidgetAsset {
     std::unique_ptr<UiNode> markup_root;    // parsed markup body (children of <widget>)
 };
 
-[[nodiscard]] Result<WidgetAsset> load_widget_asset(const std::string& path);
+[[nodiscard]] ftk::Result<WidgetAsset> load_widget_asset(const std::string& path);
 
 /// A tag the engine draws itself; any other tag names a widget.
 [[nodiscard]] bool is_builtin_tag(std::string_view tag);
@@ -65,7 +65,7 @@ void set_prop_defaults(const std::vector<PropDecl>& props, UiContext& context);
 /// markup is passed separately because the tree being saved is usually the
 /// live one, with widgets resolved and editor-assigned ids, which the
 /// serializer collapses back to authored form.
-[[nodiscard]] Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
+[[nodiscard]] ftk::Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
                                          const UiNode* markup);
 
 /// The text save_widget_asset() writes, without writing it.

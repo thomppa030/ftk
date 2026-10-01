@@ -17,7 +17,7 @@ void load_collider_surface(ColliderComponent& col, ResourceManager* resources,
     if (col.surface_path.empty() || resources == nullptr) return;
     auto handle = resources->load_surface_asset(base_path::resolve_asset(col.surface_path, project));
     if (handle) col.surface = handle->id;
-    else FJELL_CORE_ERROR("collider surface: {}", handle.error());
+    else FTK_CORE_ERROR("collider surface: {}", handle.error());
 }
 
 static const bool registered = [] {

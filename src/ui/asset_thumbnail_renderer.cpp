@@ -131,19 +131,19 @@ public:
         auto& resources = *deps.resource_manager;
         auto sphere = resources.create_primitive("sphere");
         if (!sphere) {
-            FJELL_CORE_ERROR("Material thumbnail: {}", sphere.error());
+            FTK_CORE_ERROR("Material thumbnail: {}", sphere.error());
             return false;
         }
         auto material = resources.load_material_asset(path, deps.project);
         if (!material) {
-            FJELL_CORE_WARN("Material thumbnail: {}", material.error());
+            FTK_CORE_WARN("Material thumbnail: {}", material.error());
             return false;
         }
         // A ui material draws quads and a terrain material draws a
         // heightfield, not a sphere; both keep the generic icon.
         if (const auto* loaded = resources.get(*material);
             loaded && loaded->shader_type() != ShaderType::Spatial) {
-            FJELL_CORE_DEBUG("Material thumbnail: '{}' is a {} shader, no sphere preview",
+            FTK_CORE_DEBUG("Material thumbnail: '{}' is a {} shader, no sphere preview",
                              path, shader_type_name(loaded->shader_type()));
             return false;
         }
@@ -182,7 +182,7 @@ public:
         auto& resources = *deps.resource_manager;
         auto model = resources.load_model(path);
         if (!model) {
-            FJELL_CORE_WARN("Mesh thumbnail: {}", model.error());
+            FTK_CORE_WARN("Mesh thumbnail: {}", model.error());
             return false;
         }
         const auto* loaded = resources.get(*model);
@@ -211,7 +211,7 @@ Node3D* add_skeletal_mesh(Scene& scene, const AssetThumbnailRenderer::Deps& deps
     auto& resources = *deps.resource_manager;
     auto model = resources.load_skeletal_model(skel_path);
     if (!model) {
-        FJELL_CORE_WARN("Skeletal mesh thumbnail: {}", model.error());
+        FTK_CORE_WARN("Skeletal mesh thumbnail: {}", model.error());
         return nullptr;
     }
     auto* loaded = resources.get(*model);
@@ -282,12 +282,12 @@ public:
                   const std::string& path, AssetThumbnailRenderer::Framing& framing) override {
         auto skeleton = skeleton_beside(path);
         if (skeleton.empty()) {
-            FJELL_CORE_WARN("Animation thumbnail: no single .fjskel beside {}", path);
+            FTK_CORE_WARN("Animation thumbnail: no single .fjskel beside {}", path);
             return false;
         }
         auto clip = AnimationClip::load(path);
         if (!clip) {
-            FJELL_CORE_WARN("Animation thumbnail: {}", clip.error());
+            FTK_CORE_WARN("Animation thumbnail: {}", clip.error());
             return false;
         }
         // The animator keeps a pointer to the clip, so it lives here until
@@ -298,7 +298,7 @@ public:
         if (!node) return false;
         auto* skinned = node->components.get<SkeletalMeshComponent>();
         if (!skinned || !skinned->skeletal_model->skeleton()) {
-            FJELL_CORE_WARN("Animation thumbnail: {} has no embedded skeleton", skeleton.string());
+            FTK_CORE_WARN("Animation thumbnail: {} has no embedded skeleton", skeleton.string());
             return false;
         }
 
@@ -340,7 +340,7 @@ public:
         if (!stage.ensure(deps)) return std::nullopt;
         const auto* graph = vk.get_or_load_graph(VFX_GRAPH_PATH);
         if (graph == nullptr) {
-            FJELL_CORE_ERROR("Effect thumbnails disabled: failed to load {}", VFX_GRAPH_PATH);
+            FTK_CORE_ERROR("Effect thumbnails disabled: failed to load {}", VFX_GRAPH_PATH);
             return std::nullopt;
         }
 
@@ -353,7 +353,7 @@ public:
             resolve_vfx_textures(loaded, *deps.resource_manager, deps.project);
             effect = std::make_shared<VfxEffect>(std::move(loaded));
         } catch (const std::exception& e) {
-            FJELL_CORE_WARN("Effect thumbnail: {}: {}", path, e.what());
+            FTK_CORE_WARN("Effect thumbnail: {}: {}", path, e.what());
             return std::nullopt;
         }
         if (effect->emitters.empty()) return std::nullopt;
@@ -381,7 +381,7 @@ public:
         // whether the steps reached the emitter at all.
         for (size_t i = 0; i < effect->emitters.size(); ++i) {
             const auto& sub = effect->emitters[i];
-            FJELL_CORE_DEBUG("Effect thumbnail {} emitter {}: {} steps, elapsed {:.2f}s, "
+            FTK_CORE_DEBUG("Effect thumbnail {} emitter {}: {} steps, elapsed {:.2f}s, "
                              "rate {:.1f}/s, burst {}, lifetime {:.2f}s, paused {}, finished {}",
                              fs::path(path).filename().string(), i, steps, sub.emitter_elapsed,
                              sub.emission_rate(), sub.burst_count(), sub.lifetime_max(),
@@ -443,7 +443,7 @@ fs::path stylesheet_for(const fs::path& markup) {
 // The design-frame pixels the tree's content covers: the union of every
 // node below the root. The root itself is laid out to the frame, so it
 // says nothing about the widget's own size.
-gpu::TextureRegion content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame_height) {
+ftk::gpu::TextureRegion content_bounds(const UiNode& root, uint32_t frame_width, uint32_t frame_height) {
     float min_x = std::numeric_limits<float>::max();
     float min_y = std::numeric_limits<float>::max();
     float max_x = std::numeric_limits<float>::lowest();
@@ -465,7 +465,7 @@ gpu::TextureRegion content_bounds(const UiNode& root, uint32_t frame_width, uint
 
     auto fw = static_cast<float>(frame_width);
     auto fh = static_cast<float>(frame_height);
-    const gpu::TextureRegion whole{.width = frame_width, .height = frame_height};
+    const ftk::gpu::TextureRegion whole{.width = frame_width, .height = frame_height};
     if (min_x >= max_x || min_y >= max_y) return whole;
     min_x = std::clamp(std::floor(min_x), 0.0F, fw);
     min_y = std::clamp(std::floor(min_y), 0.0F, fh);
@@ -511,7 +511,7 @@ protected:
             frame_h = deps.project->config().ui.design_height;
         }
         if (!target_ || target_->extent().x != frame_w || target_->extent().y != frame_h) {
-            target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), frame_w, frame_h, gpu::Samples::x1,
+            target_ = std::make_unique<OffscreenPass>(vk.gpu_device(), frame_w, frame_h, ftk::gpu::Samples::x1,
                                                       OffscreenPass::Contents::color);
         }
         return {frame_w, frame_h};
@@ -533,7 +533,7 @@ protected:
 
         // Crop to the content, read it back near its own size, and let the
         // CPU do the real shrink: one linear blit aliases past about 2:1.
-        const gpu::TextureRegion crop = content_bounds(*ui_->root(), frame_w, frame_h);
+        const ftk::gpu::TextureRegion crop = content_bounds(*ui_->root(), frame_w, frame_h);
         constexpr uint32_t READBACK_MAX = 1024;
         float read_scale = std::min(1.0F, static_cast<float>(READBACK_MAX) /
                                               static_cast<float>(std::max(crop.width, crop.height)));
@@ -544,9 +544,9 @@ protected:
             {.region = crop,
              .width = read_w,
              .height = read_h,
-             .use = gpu::Access::sampled_fragment});
+             .use = ftk::gpu::Access::sampled_fragment});
         if (!readback) {
-            FJELL_CORE_ERROR("UI thumbnail: {}", readback.error());
+            FTK_CORE_ERROR("UI thumbnail: {}", readback.error());
             return std::nullopt;
         }
         return AssetThumbnailRenderer::Capture{.read = std::move(*readback), .centre = true};
@@ -581,7 +581,7 @@ public:
         if (markup.extension() == ".fjwidget") {
             auto asset = load_widget_asset(path);
             if (!asset) {
-                FJELL_CORE_WARN("Widget thumbnail: {}", asset.error());
+                FTK_CORE_WARN("Widget thumbnail: {}", asset.error());
                 return std::nullopt;
             }
             if (!asset->markup_root) return std::nullopt;
@@ -711,7 +711,7 @@ ImTextureID AssetThumbnailRenderer::texture(const std::string& path) {
     auto it = entries_.find(path);
     if (it == entries_.end()) return {};
     it->second.last_used = ticks_;
-    return it->second.texture ? imgui_texture(it->second.texture) : ImTextureID{};
+    return it->second.texture ? ftk::imgui_texture(it->second.texture) : ImTextureID{};
 }
 
 void AssetThumbnailRenderer::invalidate(const std::string& path) {
@@ -725,7 +725,7 @@ void AssetThumbnailRenderer::invalidate(const std::string& path) {
 }
 
 void AssetThumbnailRenderer::tick(const Deps& deps, float dt) {
-    FJELL_PROFILE_SCOPE_N("thumbnail_tick");
+    FTK_PROFILE_SCOPE_N("thumbnail_tick");
     if (!deps.vulkan_context || !deps.resource_manager || !deps.icon_cache || !deps.thread_pool) return;
 
     ++ticks_;
@@ -819,7 +819,7 @@ bool AssetThumbnailRenderer::SceneStage::ensure(const Deps& deps) {
     // reported, not papered over with a hand-rolled config.
     graph_ = vk.get_or_load_graph(GRAPH_PATH);
     if (graph_ == nullptr) {
-        FJELL_CORE_ERROR("Scene thumbnails disabled: failed to load {}", GRAPH_PATH);
+        FTK_CORE_ERROR("Scene thumbnails disabled: failed to load {}", GRAPH_PATH);
         return false;
     }
 
@@ -887,13 +887,13 @@ bool AssetThumbnailRenderer::SceneStage::render_view(const Deps& deps, float dt,
 std::optional<AssetThumbnailRenderer::Capture> AssetThumbnailRenderer::SceneStage::read_back(const Deps& deps) {
     auto* output = pp_ ? pp_->post() : nullptr;
     if (output == nullptr || !output->texture) {
-        FJELL_CORE_ERROR("Scene thumbnail: post output unavailable");
+        FTK_CORE_ERROR("Scene thumbnail: post output unavailable");
         return std::nullopt;
     }
     auto readback =
-        deps.vulkan_context->read_back_in_frame(output->texture, {.use = gpu::Access::sampled_fragment});
+        deps.vulkan_context->read_back_in_frame(output->texture, {.use = ftk::gpu::Access::sampled_fragment});
     if (!readback) {
-        FJELL_CORE_ERROR("Scene thumbnail: {}", readback.error());
+        FTK_CORE_ERROR("Scene thumbnail: {}", readback.error());
         return std::nullopt;
     }
     return Capture{.read = std::move(*readback)};
@@ -995,7 +995,7 @@ void AssetThumbnailRenderer::finish_reads(const Deps& deps) {
             if (!ec && stbi_write_png(cached.string().c_str(), static_cast<int>(thumbnail.width),
                                       static_cast<int>(thumbnail.height), 4, thumbnail.rgba.data(),
                                       static_cast<int>(thumbnail.width) * 4) == 0) {
-                FJELL_CORE_WARN("Asset thumbnail: failed to write {}", cached.string());
+                FTK_CORE_WARN("Asset thumbnail: failed to write {}", cached.string());
             }
             std::lock_guard lock(inbox->mutex);
             inbox->finished.push_back({std::move(path), render, newest, std::move(thumbnail)});
@@ -1036,7 +1036,7 @@ void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) 
 
     const auto* graph = deps.vulkan_context->get_or_load_graph(SCENE_GRAPH_PATH);
     if (graph == nullptr) {
-        FJELL_CORE_ERROR("Scene thumbnail: failed to load {}", SCENE_GRAPH_PATH);
+        FTK_CORE_ERROR("Scene thumbnail: failed to load {}", SCENE_GRAPH_PATH);
         return;
     }
     if (!stage_.render_view(deps, dt, *capture.scene, capture.view,
@@ -1053,7 +1053,7 @@ void AssetThumbnailRenderer::render_pending_capture(const Deps& deps, float dt) 
     track(capture.path, newest, std::move(*read));
 }
 
-bool AssetThumbnailRenderer::store(const std::string& path, gpu::Owned<gpu::Texture> texture,
+bool AssetThumbnailRenderer::store(const std::string& path, ftk::gpu::Owned<ftk::gpu::Texture> texture,
                                    fs::file_time_type newest) {
     // The icon cache reported why there is none.
     if (!texture) return false;

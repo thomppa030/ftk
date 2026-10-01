@@ -23,7 +23,7 @@
 //     if (!view_.panning() && ImGui::IsItemActivated()) { ...pick what is under the mouse... }
 //     const ImVec2 at = view_.to_screen(point);
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// How near the mouse must come to a handle, a badge or a line to take it,
 /// in screen pixels. The same on every canvas.
@@ -189,4 +189,4 @@ Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb);
 /// `clip_min`..`clip_max`.
 void canvas_readout(ImDrawList* dl, ImVec2 handle, const char* text, ImVec2 clip_min, ImVec2 clip_max);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

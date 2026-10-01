@@ -4,7 +4,7 @@
 
 #include <array>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -64,4 +64,4 @@ const AssetKind& asset_kind(std::string_view extension) {
     return UNKNOWN;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

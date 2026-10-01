@@ -40,16 +40,16 @@ constexpr float MIN_SEARCH_WIDTH = 60.0f;
 
 // A dot per category composed onto the node, first come first: its
 // components' categories, then Logic for scripts.
-std::vector<theme::Category> node_dots(const Node& obj) {
-    std::vector<theme::Category> dots;
-    auto add = [&](theme::Category category) {
+std::vector<ftk::theme::Category> node_dots(const Node& obj) {
+    std::vector<ftk::theme::Category> dots;
+    auto add = [&](ftk::theme::Category category) {
         if (std::ranges::find(dots, category) == dots.end()) dots.push_back(category);
     };
     const auto& inspectors = component_inspectors();
     obj.components.for_each([&](ComponentTypeId id, const void*) {
         if (const auto* inspector = inspectors.find(id)) add(inspector->category);
     });
-    if (!obj.scripts.empty()) add(theme::Category::Logic);
+    if (!obj.scripts.empty()) add(ftk::theme::Category::Logic);
     return dots;
 }
 
@@ -58,26 +58,26 @@ std::vector<theme::Category> node_dots(const Node& obj) {
 std::string draw_add_object_menu() {
     std::string picked;
     auto item = [&](const char* icon, const char* label, const char* type) {
-        if (ui::menu_item({.icon = icon, .label = label})) picked = type;
+        if (ftk::ui::menu_item({.icon = icon, .label = label})) picked = type;
     };
-    item(ui::icon::mesh, "Cube", "cube");
-    item(ui::icon::plane, "Plane", "plane");
-    item(ui::icon::sphere, "Sphere", "sphere");
+    item(ftk::ui::icon::mesh, "Cube", "cube");
+    item(ftk::ui::icon::plane, "Plane", "plane");
+    item(ftk::ui::icon::sphere, "Sphere", "sphere");
     ImGui::Separator();
-    item(ui::icon::texture, "Sprite", "sprite");
-    item(ui::icon::transform, "Empty", "empty");
-    item(ui::icon::folder, "Folder", "folder");
+    item(ftk::ui::icon::texture, "Sprite", "sprite");
+    item(ftk::ui::icon::transform, "Empty", "empty");
+    item(ftk::ui::icon::folder, "Folder", "folder");
     ImGui::Separator();
-    item(ui::icon::camera, "Camera", "camera");
+    item(ftk::ui::icon::camera, "Camera", "camera");
     ImGui::Separator();
-    item(ui::icon::directional_light, "Directional light", "light:directional");
-    item(ui::icon::point_light, "Point light", "light:point");
-    item(ui::icon::spot_light, "Spot light", "light:spot");
+    item(ftk::ui::icon::directional_light, "Directional light", "light:directional");
+    item(ftk::ui::icon::point_light, "Point light", "light:point");
+    item(ftk::ui::icon::spot_light, "Spot light", "light:spot");
     ImGui::Separator();
-    item(ui::icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
-    item(ui::icon::fog_volume, "Fog volume", "fog_volume");
-    item(ui::icon::post_process_volume, "Post process volume", "post_process_volume");
-    item(ui::icon::world_environment, "World environment", "world_environment");
+    item(ftk::ui::icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
+    item(ftk::ui::icon::fog_volume, "Fog volume", "fog_volume");
+    item(ftk::ui::icon::post_process_volume, "Post process volume", "post_process_volume");
+    item(ftk::ui::icon::world_environment, "World environment", "world_environment");
     return picked;
 }
 
@@ -167,7 +167,7 @@ bool HierarchyPanel::matches_filter(const Node& obj) const {
         if (!type_match) return false;
     }
 
-    return ui::matches(obj.name, filter_text_);
+    return ftk::ui::matches(obj.name, filter_text_);
 }
 
 bool HierarchyPanel::subtree_matches_filter(const Node& obj) const {
@@ -184,7 +184,7 @@ bool HierarchyPanel::subtree_matches_filter(const Node& obj) const {
 // ── Init / Draw ──────────────────────────────────────────────────────────
 
 void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
-                          uint32_t* selected_id, CommandHistory* history) {
+                          uint32_t* selected_id, ftk::CommandHistory* history) {
     scene_ = scene;
     viewports_ = viewports;
     selected_id_ = selected_id;
@@ -193,31 +193,31 @@ void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
 
 void HierarchyPanel::draw_settings_menu() {
     if (!ImGui::BeginPopup("##hierarchy_settings")) return;
-    ui::menu_heading("View");
+    ftk::ui::menu_heading("View");
     // A line of the menu holding a field rather than an entry: the icon
     // column, the label, and the stepper at the right, on the menu's inset
     // field colour. The menu stays open so the tree can be watched change.
     {
         // Its colours are popped before the menu ends.
-        ui::InsetFields inset;
-        auto& settings = editor_view_settings();
+        ftk::ui::InsetFields inset;
+        auto& settings = ftk::editor_view_settings();
         ImGui::AlignTextToFramePadding();
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
-        ImGui::TextUnformatted(ui::icon::ui_text);
+        ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_disabled());
+        ImGui::TextUnformatted(ftk::ui::icon::ui_text);
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImGui::TextUnformatted("Text size");
-        ImGui::SameLine(0.0f, theme::GAP_L);
-        if (ui::stepper("##text_size", settings.hierarchy_text_size, HIERARCHY_TEXT_MIN, HIERARCHY_TEXT_MAX,
-                        ui::Unit::Pixels).changed) {
-            editor_view_settings_changed();
+        ImGui::SameLine(0.0f, ftk::theme::GAP_L);
+        if (ftk::ui::stepper("##text_size", settings.hierarchy_text_size, ftk::HIERARCHY_TEXT_MIN, ftk::HIERARCHY_TEXT_MAX,
+                        ftk::ui::Unit::Pixels).changed) {
+            ftk::editor_view_settings_changed();
         }
     }
     ImGui::EndPopup();
 }
 
 void HierarchyPanel::draw() {
-    if (auto p = ui::Panel(ui::icon::hierarchy, "Hierarchy")) {
+    if (auto p = ftk::ui::Panel(ftk::ui::icon::hierarchy, "Hierarchy")) {
         delete_pending_ = false;
         // A row drawn before the one under the cursor has already shown the
         // drag; it shows why a drop is refused a frame late.
@@ -246,7 +246,7 @@ void HierarchyPanel::draw() {
         draw_order_.clear();
 
         // Toolbar: add, search, and which kind of node to show.
-        if (ui::icon_button("##add", ui::icon::add, "Add object", ui::ButtonKind::Secondary)) {
+        if (ftk::ui::icon_button("##add", ftk::ui::icon::add, "Add object", ftk::ui::ButtonKind::Secondary)) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
         ImGui::SameLine();
@@ -256,13 +256,13 @@ void HierarchyPanel::draw() {
         const float search_w = std::max(ImGui::GetContentRegionAvail().x - type_w - settings_w - spacing * 2.0f,
                                         MIN_SEARCH_WIDTH);
         ImGui::SetNextItemWidth(search_w);
-        ui::search_field("##filter", filter_text_);
+        ftk::ui::search_field("##filter", filter_text_);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(type_w);
         static constexpr const char* TYPE_NAMES[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
-        (void)ui::choice("##type", type_filter_, TYPE_NAMES);
+        (void)ftk::ui::choice("##type", type_filter_, TYPE_NAMES);
         ImGui::SameLine();
-        if (ui::icon_button("##settings", ui::icon::view_options, "Hierarchy settings")) {
+        if (ftk::ui::icon_button("##settings", ftk::ui::icon::view_options, "Hierarchy settings")) {
             ImGui::OpenPopup("##hierarchy_settings");
         }
         draw_settings_menu();
@@ -283,7 +283,7 @@ void HierarchyPanel::draw() {
         // A rename outlives its row only until the node is gone.
         if (rename_.editing() && *selected_id_ == 0) rename_.cancel();
 
-        if (auto tree = ui::Tree("##scene", static_cast<float>(editor_view_settings().hierarchy_text_size))) {
+        if (auto tree = ftk::ui::Tree("##scene", static_cast<float>(ftk::editor_view_settings().hierarchy_text_size))) {
             auto it = children_map_.find(-1);
             if (it != children_map_.end()) {
                 for (auto* obj : it->second) draw_node(*obj, 0);
@@ -341,12 +341,12 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
     const bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
     const NodeVisuals visuals = node_visuals(obj);
-    const std::vector<theme::Category> dots = node_dots(obj);
-    const ui::RowSelection selection = obj.id == *selected_id_  ? ui::RowSelection::Primary
-                                     : selection_.contains(obj.id) ? ui::RowSelection::Secondary
-                                                                   : ui::RowSelection::None;
+    const std::vector<ftk::theme::Category> dots = node_dots(obj);
+    const ftk::ui::RowSelection selection = obj.id == *selected_id_  ? ftk::ui::RowSelection::Primary
+                                     : selection_.contains(obj.id) ? ftk::ui::RowSelection::Secondary
+                                                                   : ftk::ui::RowSelection::None;
     const std::string id = std::to_string(obj.id);
-    const auto row = ui::tree_row({
+    const auto row = ftk::ui::tree_row({
         .id = id.c_str(),
         .name = obj.name,
         .depth = depth,
@@ -399,14 +399,14 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         ImGui::OpenPopup("##NodeContext");
     }
     if (ImGui::BeginPopup("##NodeContext")) {
-        if (ui::menu_item({.icon = ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
             rename_.start(obj.id, obj.name);
         }
-        if (ui::menu_item({.icon = ui::icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"})) {
             on_duplicate.broadcast();
         }
         ImGui::Separator();
-        if (ui::menu_item({.icon = ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
             delete_pending_ = true;
         }
         ImGui::EndPopup();
@@ -418,7 +418,7 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         const std::vector<uint32_t> ids = dragged_ids(obj.id);
         ImGui::SetDragDropPayload(NODES_PAYLOAD, ids.data(), ids.size() * sizeof(uint32_t));
         const std::string what = ids.size() > 1 ? std::to_string(ids.size()) + " objects" : obj.name;
-        ui::drag_preview(visuals.icon, visuals.category, what, refusal_shown_);
+        ftk::ui::drag_preview(visuals.icon, visuals.category, what, refusal_shown_);
         ImGui::EndDragDropSource();
     }
 
@@ -427,11 +427,11 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         if (const ImGuiPayload* dragging = ImGui::GetDragDropPayload();
             dragging != nullptr && dragging->IsDataType(NODES_PAYLOAD)) {
             const std::vector<uint32_t> ids = payload_ids(*dragging);
-            const ui::DropPlace place = ui::drop_place();
+            const ftk::ui::DropPlace place = ftk::ui::drop_place();
             const Target target = drop_target(obj, depth, row.open, place, ids);
             std::string refusal = refuse_drop(ids, target.parent_id);
             if (refusal.empty()) {
-                ui::draw_drop(place, target.depth);
+                ftk::ui::draw_drop(place, target.depth);
                 if (const auto* payload = ImGui::AcceptDragDropPayload(
                         NODES_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery
                                            | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
@@ -482,7 +482,7 @@ std::vector<uint32_t> HierarchyPanel::payload_ids(const ImGuiPayload& payload) {
     return ids;
 }
 
-HierarchyPanel::Target HierarchyPanel::drop_target(const Node& row, int depth, bool open, ui::DropPlace place,
+HierarchyPanel::Target HierarchyPanel::drop_target(const Node& row, int depth, bool open, ftk::ui::DropPlace place,
                                                    const std::vector<uint32_t>& ids) const {
     auto siblings_of = [&](int32_t parent) -> const std::vector<Node*>* {
         auto it = children_map_.find(parent);
@@ -506,11 +506,11 @@ HierarchyPanel::Target HierarchyPanel::drop_target(const Node& row, int depth, b
     };
     const auto self = static_cast<int32_t>(row.id);
     switch (place) {
-        case ui::DropPlace::Before:
+        case ftk::ui::DropPlace::Before:
             return {row.parent_id, first_staying(row.parent_id, index_among_siblings()), depth};
-        case ui::DropPlace::Into:
+        case ftk::ui::DropPlace::Into:
             return {self, 0, depth + 1};
-        case ui::DropPlace::After:
+        case ftk::ui::DropPlace::After:
             // Below an open row is its first child's place.
             if (open) return {self, first_staying(self, 0), depth + 1};
             return {row.parent_id, first_staying(row.parent_id, index_among_siblings() + 1), depth};

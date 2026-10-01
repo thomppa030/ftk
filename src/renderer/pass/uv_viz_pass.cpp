@@ -11,20 +11,20 @@
 
 namespace fjell {
 
-Result<> UvVizPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
-    viz_image_.init(device, gpu::Format::rgba8_srgb, "viz_uv");
+ftk::Result<> UvVizPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
+    viz_image_.init(device, ftk::gpu::Format::rgba8_srgb, "viz_uv");
     // Its own single-sample image and no depth: meshes land in draw order.
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/uv_viz.vert",
                              .fragment = "shaders/uv_viz.frag",
                              .vertex_layout = Vertex::layout(),
-                             .raster = {.cull = gpu::Cull::back},
-                             .color = {{gpu::Format::rgba8_srgb, gpu::Blend::none}},
+                             .raster = {.cull = ftk::gpu::Cull::back},
+                             .color = {{ftk::gpu::Format::rgba8_srgb, ftk::gpu::Blend::none}},
                              .shared = {resources.globals},
                              .name = "uv_viz",
                          }));
-    FJELL_GFX_DEBUG("UV viz pass created");
+    FTK_GFX_DEBUG("UV viz pass created");
     return {};
 }
 
@@ -36,10 +36,10 @@ void UvVizPass::destroy() {
 void UvVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_viz_uv_viz");
+    FTK_PROFILE_SCOPE_N("record_viz_uv_viz");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Viz: UV");
-    auto pass = cmd.render(viz_image_.targets(gpu::Clear{0.1f, 0.1f, 0.1f, 1.0f}));
+    auto pass = cmd.render(viz_image_.targets(ftk::gpu::Clear{0.1f, 0.1f, 0.1f, 1.0f}));
     pass.set_pipeline(pipeline_);
     pass.bind(ctx.globals);
     draw_viz_meshes(ctx, pass);
@@ -54,7 +54,7 @@ PassSetup UvVizPass::setup() const {
     };
 }
 
-void UvVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void UvVizPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::uv))) == 0U) {
         return;
     }

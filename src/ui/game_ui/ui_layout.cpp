@@ -106,7 +106,7 @@ UiLayout::~UiLayout() {
 
 void UiLayout::compute(UiNode& root, float viewport_width, float viewport_height,
                        float pixel_scale) {
-    FJELL_PROFILE_SCOPE_N("ui_layout_compute");
+    FTK_PROFILE_SCOPE_N("ui_layout_compute");
     YGConfigSetPointScaleFactor(config_, pixel_scale);
     // Tear down previous tree
     if (root_yg_) {

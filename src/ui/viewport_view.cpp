@@ -103,10 +103,10 @@ void set_channel(VulkanContext& ctx, DebugLightChannel channel) {
 
 void channel_entries(const char* heading, std::span<const Channel> channels, ViewportSource& source,
                      VulkanContext& ctx, bool lit_source, bool ddgi_view) {
-    ui::menu_heading(heading);
+    ftk::ui::menu_heading(heading);
     for (const Channel& channel : channels) {
         const bool current = lit_source && !ddgi_view && channel_of(ctx) == channel.value;
-        if (ui::menu_item({.label = channel.name, .checked = current})) {
+        if (ftk::ui::menu_item({.label = channel.name, .checked = current})) {
             source = ViewportSource::final_color;
             set_channel(ctx, channel.value);
         }
@@ -146,7 +146,7 @@ void view_menu(ViewportSource& source, VulkanContext& ctx) {
     const DdgiDebugMode ddgi = ctx.ddgi_pass().config().debug_mode;
     const bool ddgi_view = ddgi != DdgiDebugMode::Off;
 
-    if (ui::menu_item({.label = "Lit", .checked = view_is_lit(source, ctx)})) {
+    if (ftk::ui::menu_item({.label = "Lit", .checked = view_is_lit(source, ctx)})) {
         source = ViewportSource::final_color;
         set_channel(ctx, DebugLightChannel::Off);
     }
@@ -157,18 +157,18 @@ void view_menu(ViewportSource& source, VulkanContext& ctx) {
     channel_entries("AO chain, in order", AO_CHAIN, source, ctx, lit_source, ddgi_view);
 
     ImGui::Separator();
-    ui::menu_heading("DDGI probes");
+    ftk::ui::menu_heading("DDGI probes");
     for (const DdgiView& view : DDGI_VIEWS) {
-        if (ui::menu_item({.label = view.name, .checked = lit_source && ddgi == view.value})) {
+        if (ftk::ui::menu_item({.label = view.name, .checked = lit_source && ddgi == view.value})) {
             source = ViewportSource::final_color;
             set_ddgi_view(ctx, view.value);
         }
     }
 
     ImGui::Separator();
-    ui::menu_heading("Buffers");
+    ftk::ui::menu_heading("Buffers");
     for (const BufferView& buffer : BUFFERS) {
-        if (ui::menu_item({.label = buffer.name, .checked = source == buffer.value})) {
+        if (ftk::ui::menu_item({.label = buffer.name, .checked = source == buffer.value})) {
             source = buffer.value;
         }
     }

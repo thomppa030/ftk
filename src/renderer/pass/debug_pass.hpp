@@ -11,14 +11,14 @@ namespace fjell {
 // Draws line-list geometry from DebugDraw over the finished frame.
 class DebugPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
 
 private:
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
     OutputOverlay overlay_;
 };
 

@@ -11,28 +11,28 @@
 
 namespace fjell {
 
-Result<> DebugPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> DebugPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     overlay_.create(device);
 
     // Lines over the post pass's single-sampled output. No depth attachment:
     // the fragment shader tests against the scene depth. The line colour
     // replaces what is there; the output's alpha is left opaque, since ImGui
     // blends the viewport image by it.
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/debug.vert",
                              .fragment = "shaders/debug.frag",
                              .vertex_layout = {.stride = sizeof(glm::vec3),
                                                .attributes = {{.location = 0,
-                                                               .format = gpu::VertexFormat::float3}}},
-                             .topology = gpu::Topology::lines,
+                                                               .format = ftk::gpu::VertexFormat::float3}}},
+                             .topology = ftk::gpu::Topology::lines,
                              .color = {{.format = PostPass::OUTPUT_FORMAT,
-                                        .write = gpu::Channel::r | gpu::Channel::g | gpu::Channel::b}},
+                                        .write = ftk::gpu::Channel::r | ftk::gpu::Channel::g | ftk::gpu::Channel::b}},
                              .shared = {resources.globals},
                              .name = "debug",
                          }));
 
-    FJELL_GFX_DEBUG("Debug pass pipeline created");
+    FTK_GFX_DEBUG("Debug pass pipeline created");
     return {};
 }
 
@@ -49,7 +49,7 @@ PassSetup DebugPass::setup() const {
     };
 }
 
-void DebugPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void DebugPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.debug_lines) return;
     OutputOverlay::declare(builder, ctx);
 }
@@ -59,7 +59,7 @@ void DebugPass::record(const FrameContext& ctx) {
     const auto targets = OutputOverlay::targets(ctx);
     if (!targets) return;
 
-    FJELL_PROFILE_SCOPE_N("record_debug");
+    FTK_PROFILE_SCOPE_N("record_debug");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Viz: Debug");
     auto pass = cmd.render(*targets);

@@ -3,7 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using namespace fjell::gpu;
+using namespace ftk::gpu;
 
 namespace {
 

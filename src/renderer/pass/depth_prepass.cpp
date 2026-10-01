@@ -18,13 +18,13 @@
 
 namespace fjell {
 
-Result<> DepthPrePass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> DepthPrePass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     // Nearer wins; each draw culls what its material culls, as the colour
     // pass does, so the depth holds exactly the faces it shades.
     const DepthVariantState state{
         .vertex_layout = Vertex::layout(),
-        .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+        .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
         .depth_format = resources.scene_depth_format,
         .samples = resources.samples,
     };
@@ -38,7 +38,7 @@ Result<> DepthPrePass::create(const PassResources& resources) {
         !made) {
         return made;
     }
-    FJELL_TRY(skinned_pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(skinned_pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                                      .vertex = "shaders/skinned_depth.vert",
                                      .fragment = "shaders/depth_only.frag",
                                      .vertex_layout = SkinnedVertex::layout(),
@@ -48,7 +48,7 @@ Result<> DepthPrePass::create(const PassResources& resources) {
                                      .shared = {resources.globals, resources.draw_data},
                                      .name = "depth_prepass_skinned",
                                  }));
-    FJELL_GFX_DEBUG("Depth prepass created");
+    FTK_GFX_DEBUG("Depth prepass created");
     return {};
 }
 
@@ -58,7 +58,7 @@ void DepthPrePass::destroy() {
 }
 
 void DepthPrePass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_depth_prepass");
+    FTK_PROFILE_SCOPE_N("record_depth_prepass");
     if (ctx.passes != nullptr) {
         if (auto* msd = ctx.passes->try_get<MeshShaderDepthPass>("mesh_shader_depth")) {
             msd->record(ctx);
@@ -74,8 +74,8 @@ void DepthPrePass::record(const FrameContext& ctx) {
     // write. With nothing at all to draw the clear still has to happen:
     // particles and the sky test against this depth, and an empty scene is a
     // real scene (an effect preview, a thumbnail).
-    auto pass = cmd.render({.depth = gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture(),
-                                                           .load = gpu::Load::clear}});
+    auto pass = cmd.render({.depth = ftk::gpu::DepthAttachment{.view = ctx.target->msaa_depth_texture(),
+                                                           .load = ftk::gpu::Load::clear}});
     if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
 
     if (ctx.mega_buffer && ctx.indirect_batch) {
@@ -83,7 +83,7 @@ void DepthPrePass::record(const FrameContext& ctx) {
         casters_.draw_batch(
             pass, *ctx.indirect_batch, ctx.frame_index,
             [&](uint32_t pipeline_id) {
-                return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : gpu::Cull::none;
+                return ctx.pipeline_cache != nullptr ? ctx.pipeline_cache->cull(pipeline_id) : ftk::gpu::Cull::none;
             },
             [&](bool custom) {
                 pass.bind(ctx.globals);
@@ -132,26 +132,26 @@ PassSetup DepthPrePass::setup() const {
     };
 }
 
-void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void DepthPrePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
-    const bool has_msaa = ctx.msaa_samples != gpu::Samples::x1;
+    const bool has_msaa = ctx.msaa_samples != ftk::gpu::Samples::x1;
     auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
-    builder.write(depth, gpu::Access::depth_attachment);
+    builder.write(depth, ftk::gpu::Access::depth_attachment);
     // On the mesh-shader path the prepass draws what the first meshlet cull
     // found visible. Without mesh shaders nothing exports these, and the
     // imports come back empty.
     builder.read(builder.import_named_buffer(ctx, "meshlet_visible"),
-                 gpu::Access::storage_buffer_read_mesh);
+                 ftk::gpu::Access::storage_buffer_read_mesh);
     builder.read(builder.import_named_buffer(ctx, "meshlet_indirect"),
-                 gpu::Access::indirect_read);
+                 ftk::gpu::Access::indirect_read);
     // The vertex path draws the camera batch's commands, and its instanced
     // draws read the transforms the instance cull kept. The mesh path reads
     // the uploaded transforms instead.
     if (!ctx.mesh_shader_supported) {
         builder.read(builder.import_named_buffer(ctx, "instance_transforms"),
-                     gpu::Access::storage_buffer_read_vertex);
+                     ftk::gpu::Access::storage_buffer_read_vertex);
         builder.read(builder.import_named_buffer(ctx, "batch_indirect"),
-                     gpu::Access::indirect_read);
+                     ftk::gpu::Access::indirect_read);
     }
 }
 

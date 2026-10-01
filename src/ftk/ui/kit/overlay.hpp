@@ -15,7 +15,7 @@
 //     ui::corner_note(dl, bottom_left, ui::Corner::BottomLeft,
 //                     {.line = hint, .ink = theme::text_secondary()});
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// How far a note sits in from the picture's edge, as the toolbar pills do.
 inline constexpr float OVERLAY_INSET = 8.0f;
@@ -48,4 +48,4 @@ struct CornerNoteSpec {
 /// size, for what is placed beside it.
 ImVec2 corner_note(ImDrawList* draw_list, ImVec2 at, Corner corner, const CornerNoteSpec& spec);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

@@ -75,7 +75,7 @@ nlohmann::json Scene::to_json(const Project* project) const {
     return j;
 }
 
-Result<> Scene::save(const std::string& path, const Project* project) {
+ftk::Result<> Scene::save(const std::string& path, const Project* project) {
     // The scene does not model its asset id, so it is carried over from the
     // file being replaced. Dropped, the asset database writes it back on its
     // next scan, and that rewrite leaves the file newer than everything
@@ -87,30 +87,30 @@ Result<> Scene::save(const std::string& path, const Project* project) {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        return make_error("Failed to save scene: " + path);
+        return ftk::make_error("Failed to save scene: " + path);
     }
     file << j.dump(2);
     dirty_ = false;
-    FJELL_CORE_INFO("Scene saved: {}", path);
+    FTK_CORE_INFO("Scene saved: {}", path);
     return {};
 }
 
-Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
+ftk::Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
                           const Project* project) {
     std::ifstream file(path);
     if (!file.is_open()) {
-        return make_error("Scene file not found: " + path);
+        return ftk::make_error("Scene file not found: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error(std::string("Failed to parse scene: ") + e.what());
+        return ftk::make_error(std::string("Failed to parse scene: ") + e.what());
     }
 
     Scene scene = from_json(j, resources, project);
-    FJELL_CORE_INFO("Scene loaded: {} objects from {}", scene.object_count(), path);
+    FTK_CORE_INFO("Scene loaded: {} objects from {}", scene.object_count(), path);
     return scene;
 }
 
@@ -128,12 +128,12 @@ Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
         try {
             node = deserialize_node(jobj, resources, project);
         } catch (const nlohmann::json::exception& e) {
-            FJELL_CORE_ERROR("Scene: node '{}' has a malformed field and was dropped: {}",
+            FTK_CORE_ERROR("Scene: node '{}' has a malformed field and was dropped: {}",
                              jobj.value("name", "?"), e.what());
             continue;
         }
         if (!node) {
-            FJELL_CORE_ERROR("Scene: node '{}' could not be deserialized and was dropped",
+            FTK_CORE_ERROR("Scene: node '{}' could not be deserialized and was dropped",
                              jobj.value("name", "?"));
             continue;
         }

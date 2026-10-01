@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace fjell {
+namespace ftk {
 
 class ThreadPool;
 namespace gpu {
@@ -94,4 +94,4 @@ private:
     std::shared_ptr<Inbox> inbox_;
 };
 
-} // namespace fjell
+} // namespace ftk

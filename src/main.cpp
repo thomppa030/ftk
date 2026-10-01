@@ -43,8 +43,8 @@ static std::string safe_what(const std::exception& e) {
 }
 
 int main(int argc, char* argv[]) {
-    fjell::log::init();
-    fjell::attach_console();
+    ftk::log::init();
+    ftk::attach_console();
 
     std::filesystem::path project_path;
     bool play_immediate = false;
@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
     bool bad_usage = false;
     auto value_for = [&](int& i, const char* flag) -> const char* {
         if (i + 1 >= argc) {
-            FJELL_CORE_ERROR("{} needs a value", flag);
+            FTK_CORE_ERROR("{} needs a value", flag);
             bad_usage = true;
             return nullptr;
         }
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
                 if (auto phase = fjell::weather_phase_from_name(v)) {
                     environment.weather_phase = *phase;
                 } else {
-                    FJELL_CORE_ERROR("--weather-phase: '{}' is not a phase "
+                    FTK_CORE_ERROR("--weather-phase: '{}' is not a phase "
                                      "(approach, onset, sustain, tail)", v);
                     bad_usage = true;
                 }
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (bad_usage) {
-        fjell::log::shutdown();
+        ftk::log::shutdown();
         return EXIT_FAILURE;
     }
 
@@ -144,7 +144,7 @@ int main(int argc, char* argv[]) {
             // A scenario that will not load means the run measures something
             // other than what was asked for, so it does not start.
             if (auto loaded = engine.set_scenario(scenario_path); !loaded) {
-                FJELL_CORE_ERROR("{}", loaded.error());
+                FTK_CORE_ERROR("{}", loaded.error());
                 failed = true;
             }
         }
@@ -152,13 +152,13 @@ int main(int argc, char* argv[]) {
             // Nothing to run, or nothing that can run, means the suite reports
             // no result at all — which must not read as "everything passed".
             if (auto ready = engine.set_run_tests(test_filter); !ready) {
-                FJELL_CORE_ERROR("{}", ready.error());
+                FTK_CORE_ERROR("{}", ready.error());
                 failed = true;
             }
         }
         if (!pacing.empty() && !failed) {
             if (auto paced = engine.set_test_pacing(pacing); !paced) {
-                FJELL_CORE_ERROR("{}", paced.error());
+                FTK_CORE_ERROR("{}", paced.error());
                 failed = true;
             }
         }
@@ -169,15 +169,15 @@ int main(int argc, char* argv[]) {
         if (run_tests && !failed && !engine.tests_passed()) failed = true;
         if (engine.stopped_by_error()) failed = true;
     } catch (const std::exception& e) {
-        FJELL_CORE_CRITICAL("Fatal: {}", safe_what(e));
-        fjell::log::shutdown();
+        FTK_CORE_CRITICAL("Fatal: {}", safe_what(e));
+        ftk::log::shutdown();
         return EXIT_FAILURE;
     } catch (...) {
-        FJELL_CORE_CRITICAL("Fatal: an exception of unknown type");
-        fjell::log::shutdown();
+        FTK_CORE_CRITICAL("Fatal: an exception of unknown type");
+        ftk::log::shutdown();
         return EXIT_FAILURE;
     }
 
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     return failed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

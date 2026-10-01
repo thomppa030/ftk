@@ -59,7 +59,7 @@ std::string clip_name(const std::string& path) {
 
 BlendSpaceEditorContext::BlendSpaceEditorContext(BlendSpaceEditorDeps deps) : deps_{deps} {}
 
-EditorContext::DockPreset BlendSpaceEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset BlendSpaceEditorContext::dock_preset() const {
     return {.tree = {"Points", "Clips"}, .preview = {"Preview"}, .under_preview = {"Canvas"},
             .inspector = {"Properties"}};
 }
@@ -78,20 +78,20 @@ void BlendSpaceEditorContext::open(const std::string& path) {
     if (path.ends_with(".fjblend2D")) {
         auto loaded = BlendSpace2D::load(resolved);
         if (!loaded) {
-            FJELL_CORE_ERROR("Blend space editor: {}", loaded.error());
+            FTK_CORE_ERROR("Blend space editor: {}", loaded.error());
             return;
         }
         blend_space_ = std::move(*loaded);
     } else {
         auto loaded = BlendSpace1D::load(resolved);
         if (!loaded) {
-            FJELL_CORE_ERROR("Blend space editor: {}", loaded.error());
+            FTK_CORE_ERROR("Blend space editor: {}", loaded.error());
             return;
         }
         blend_space_ = std::move(*loaded);
     }
-    view_ = two_d() ? ui::CanvasView({.zoom = ui::CanvasZoom::Both, .y_up = true})
-                    : ui::CanvasView({.zoom = ui::CanvasZoom::Horizontal});
+    view_ = two_d() ? ftk::ui::CanvasView({.zoom = ftk::ui::CanvasZoom::Both, .y_up = true})
+                    : ftk::ui::CanvasView({.zoom = ftk::ui::CanvasZoom::Horizontal});
     frame_pending_ = !view_.recall("blend_space|" + path);
     reload_clips();
     const std::string skeleton = std::visit([](const auto& bs) { return bs.skeleton_path(); }, blend_space_);
@@ -201,11 +201,11 @@ void BlendSpaceEditorContext::draw(float dt) {
 }
 
 void BlendSpaceEditorContext::draw_canvas_panel() {
-    auto panel = ui::Panel(ui::icon::blend_space, ctx_title("Canvas").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::blend_space, ctx_title("Canvas").c_str());
     if (!panel) return;
 
     // What the cursor blends, over the canvas.
-    if (auto t = ui::PropertyTable("##blend")) {
+    if (auto t = ftk::ui::PropertyTable("##blend")) {
         const auto blend = blend_at_cursor();
         std::string text;
         for (const auto& [index, weight] : blend) {
@@ -214,8 +214,8 @@ void BlendSpaceEditorContext::draw_canvas_panel() {
                           clip_name(point_clip(index)).c_str(), weight * 100.0f);
             text += part;
         }
-        ui::row("Blend", "What the preview plays at the cursor: drag on the canvas to move it.",
-                [&] { ui::readout(text.empty() ? "Nothing: no points yet" : text.c_str()); });
+        ftk::ui::row("Blend", "What the preview plays at the cursor: drag on the canvas to move it.",
+                [&] { ftk::ui::readout(text.empty() ? "Nothing: no points yet" : text.c_str()); });
     }
 
     const ImVec2 outer = ImGui::GetCursorScreenPos();
@@ -224,13 +224,13 @@ void BlendSpaceEditorContext::draw_canvas_panel() {
     outer_size.y = two_d() ? std::max(outer_size.y, 80.0f) : LINE_HEIGHT;
     ImVec2 origin;
     ImVec2 size;
-    ui::plot_area(outer, outer_size, plot_axes(), &origin, &size);
+    ftk::ui::plot_area(outer, outer_size, plot_axes(), &origin, &size);
     view_.place(origin, size);
     if (frame_pending_) {
         frame_points();
         frame_pending_ = false;
     }
-    ui::canvas_plot_axes(ImGui::GetWindowDrawList(), view_, plot_axes());
+    ftk::ui::canvas_plot_axes(ImGui::GetWindowDrawList(), view_, plot_axes());
     if (two_d()) {
         draw_canvas_2d(origin, size);
     } else {
@@ -239,11 +239,11 @@ void BlendSpaceEditorContext::draw_canvas_panel() {
     ImGui::SetCursorScreenPos({outer.x, outer.y + outer_size.y});
     ImGui::Dummy({outer_size.x, 0.0f});
     if (point_count() == 0) {
-        ui::hint("Drop a clip on the canvas, or double-click it for an empty point");
+        ftk::ui::hint("Drop a clip on the canvas, or double-click it for an empty point");
     }
 }
 
-ui::PlotAxes BlendSpaceEditorContext::plot_axes() const {
+ftk::ui::PlotAxes BlendSpaceEditorContext::plot_axes() const {
     if (const auto* bs = std::get_if<BlendSpace2D>(&blend_space_)) {
         return {.x_name = bs->parameter_x().c_str(), .y_name = bs->parameter_y().c_str()};
     }
@@ -267,7 +267,7 @@ void BlendSpaceEditorContext::draw_canvas_1d(ImVec2 origin, ImVec2 size) {
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddLine({origin.x, std::floor(axis_y) + 0.5f}, {origin.x + size.x, std::floor(axis_y) + 0.5f},
-                colour(theme::grid_major()));
+                colour(ftk::theme::grid_major()));
 
     canvas_input(origin, size, to_screen, from_screen);
 }
@@ -279,9 +279,9 @@ void BlendSpaceEditorContext::draw_canvas_2d(ImVec2 origin, ImVec2 size) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // The triangles the blend is read from, in the animation colour.
-    ImVec4 fill = theme::category(theme::Category::Animation);
+    ImVec4 fill = ftk::theme::category(ftk::theme::Category::Animation);
     fill.w = 0.10f;
-    ImVec4 edge = theme::category(theme::Category::Animation);
+    ImVec4 edge = ftk::theme::category(ftk::theme::Category::Animation);
     edge.w = 0.45f;
     for (const auto& tri : bs.triangles()) {
         const ImVec2 a = to_screen(bs.points()[tri.a].position);
@@ -313,7 +313,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
             const ImVec2 p = to_screen(point_position(i));
             const float dx = mouse.x - p.x;
             const float dy = mouse.y - p.y;
-            if (dx * dx + dy * dy <= ui::CANVAS_HIT_RADIUS * ui::CANVAS_HIT_RADIUS) hovered_point_ = static_cast<int>(i);
+            if (dx * dx + dy * dy <= ftk::ui::CANVAS_HIT_RADIUS * ftk::ui::CANVAS_HIT_RADIUS) hovered_point_ = static_cast<int>(i);
         }
     }
 
@@ -371,27 +371,27 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         ImGui::OpenPopup(hovered_point_ >= 0 ? "##point_menu" : "##canvas_menu");
     }
     if (ImGui::BeginPopup("##canvas_menu")) {
-        if (ui::menu_item({.icon = ui::icon::add, .label = "Add point here"})) {
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add point here"})) {
             selected_point_ = add_point({}, menu_position_);
             points_changed();
         }
-        if (ui::menu_item({.label = "Move the cursor here"})) cursor_ = menu_position_;
+        if (ftk::ui::menu_item({.label = "Move the cursor here"})) cursor_ = menu_position_;
         ImGui::EndPopup();
     }
     if (ImGui::BeginPopup("##point_menu")) {
-        if (ui::menu_item({.icon = ui::icon::remove, .label = "Remove point", .shortcut = "Del", .destructive = true}) &&
+        if (ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove point", .shortcut = "Del", .destructive = true}) &&
             selected_point_ >= 0) {
             remove_point(static_cast<std::size_t>(selected_point_));
             points_changed();
         }
         ImGui::EndPopup();
     }
-    if (selected_point_ >= 0 && selected_point_ < static_cast<int>(point_count()) && ui::canvas_has_keys() &&
+    if (selected_point_ >= 0 && selected_point_ < static_cast<int>(point_count()) && ftk::ui::canvas_has_keys() &&
         ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         remove_point(static_cast<std::size_t>(selected_point_));
         points_changed();
     }
-    if (ui::canvas_has_keys() && ImGui::IsKeyPressed(ImGuiKey_F, false)) frame_points();
+    if (ftk::ui::canvas_has_keys() && ImGui::IsKeyPressed(ImGuiKey_F, false)) frame_points();
 
     // Points: handles at rest in the secondary text, brighter with a ring
     // under the mouse, the selected one in the accent, each named.
@@ -400,12 +400,12 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         const ImVec2 p = to_screen(point_position(i));
         const bool sel = static_cast<int>(i) == selected_point_;
         const bool hot = static_cast<int>(i) == hovered_point_;
-        ui::canvas_handle(dl, p, hot, sel, {.radius = HANDLE_RADIUS});
+        ftk::ui::canvas_handle(dl, p, hot, sel, {.radius = HANDLE_RADIUS});
         const std::string name = clip_name(point_clip(i));
         const ImVec2 text = ImGui::CalcTextSize(name.c_str());
         const ImVec2 at = two_d() ? ImVec2{p.x + HANDLE_RADIUS + 5.0f, p.y - text.y * 0.5f}
                                   : ImVec2{p.x - text.x * 0.5f, p.y - HANDLE_RADIUS - text.y - 6.0f};
-        dl->AddText(at, colour(sel ? theme::text() : theme::text_secondary()), name.c_str());
+        dl->AddText(at, colour(sel ? ftk::theme::text() : ftk::theme::text_secondary()), name.c_str());
     }
     // While a point moves, where it is reads beside it.
     if (dragging_point_ >= 0 && dragging_point_ < static_cast<int>(point_count())) {
@@ -416,14 +416,14 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         } else {
             std::snprintf(readout, sizeof(readout), "%.2f", at.x);
         }
-        ui::canvas_readout(dl, to_screen(at), readout, origin, {origin.x + size.x, origin.y + size.y});
+        ftk::ui::canvas_readout(dl, to_screen(at), readout, origin, {origin.x + size.x, origin.y + size.y});
     }
     // The cursor: what the preview plays, in the playhead's white.
     const ImVec2 c = two_d() ? to_screen(cursor_) : ImVec2{to_screen(cursor_).x, to_screen(cursor_).y + 20.0f};
     dl->AddQuadFilled({c.x, c.y - CURSOR}, {c.x + CURSOR, c.y}, {c.x, c.y + CURSOR}, {c.x - CURSOR, c.y},
-                      colour(theme::text()));
+                      colour(ftk::theme::text()));
     if (!two_d()) {
-        dl->AddLine({std::floor(c.x) + 0.5f, origin.y}, {std::floor(c.x) + 0.5f, c.y - CURSOR}, colour(theme::text()));
+        dl->AddLine({std::floor(c.x) + 0.5f, origin.y}, {std::floor(c.x) + 0.5f, c.y - CURSOR}, colour(ftk::theme::text()));
     }
     dl->PopClipRect();
     ImGui::SetCursorScreenPos({origin.x, origin.y + size.y});
@@ -431,7 +431,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
 }
 
 void BlendSpaceEditorContext::draw_points_panel() {
-    auto panel = ui::Panel(ui::icon::blend_space, ctx_title("Points").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::blend_space, ctx_title("Points").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
@@ -442,23 +442,23 @@ void BlendSpaceEditorContext::draw_points_panel() {
     std::optional<std::size_t> remove;
     bool add = false;
     {
-        ui::ListEditor list("##points", point_count(), {.reorder = false, .opens = true});
+        ftk::ui::ListEditor list("##points", point_count(), {.reorder = false, .opens = true});
         for (std::size_t i = 0; i < point_count(); ++i) {
             const bool open = selected_point_ == static_cast<int>(i);
             if (!list.begin_item(i, open)) continue;
             const glm::vec2 position = point_position(i);
             if (open) {
-                if (auto t = ui::PropertyTable("##point")) {
-                    ui::row("Position", [&] {
+                if (auto t = ftk::ui::PropertyTable("##point")) {
+                    ftk::ui::row("Position", [&] {
                         glm::vec2 moved = position;
-                        const ui::Edit edit = two_d() ? ui::vec2("##position", moved, {.speed = 0.01f})
-                                                      : ui::drag("##position", moved.x, {.speed = 0.01f});
+                        const ftk::ui::Edit edit = two_d() ? ftk::ui::vec2("##position", moved, {.speed = 0.01f})
+                                                      : ftk::ui::drag("##position", moved.x, {.speed = 0.01f});
                         if (edit.changed) {
                             selected_point_ = set_point(i, point_clip(i), moved);
                         }
                         changed |= edit.committed;
                     });
-                    ui::row("Clip", [&] {
+                    ftk::ui::row("Clip", [&] {
                         static const std::string clip_exts[] = {".fjanim"};
                         std::string clip = point_clip(i);
                         if (asset_slot({.label = "Clip", .id = "##clip", .extensions = clip_exts, .ctx = &ictx}, clip)) {
@@ -498,22 +498,22 @@ void BlendSpaceEditorContext::draw_points_panel() {
 }
 
 void BlendSpaceEditorContext::draw_clips_panel() {
-    auto panel = ui::Panel(ui::icon::animation, ctx_title("Clips").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::animation, ctx_title("Clips").c_str());
     if (!panel) return;
     if (available_clip_names_.empty()) {
-        ui::empty_state(ui::icon::animation, "No clips", "Pick the skeleton in Properties to list its clips");
+        ftk::ui::empty_state(ftk::ui::icon::animation, "No clips", "Pick the skeleton in Properties to list its clips");
         return;
     }
     // Dragged onto the canvas, a clip becomes a point, or a point's clip.
-    if (auto tree = ui::Tree("##clips")) {
+    if (auto tree = ftk::ui::Tree("##clips")) {
         for (std::size_t i = 0; i < available_clip_names_.size(); ++i) {
             const std::string id = std::to_string(i);
-            (void)ui::tree_row({.id = id.c_str(), .name = available_clip_names_[i], .icon = ui::icon::animation,
-                                .category = theme::Category::Animation});
+            (void)ftk::ui::tree_row({.id = id.c_str(), .name = available_clip_names_[i], .icon = ftk::ui::icon::animation,
+                                .category = ftk::theme::Category::Animation});
             if (ImGui::BeginDragDropSource()) {
                 const auto& path = available_clip_paths_[i];
                 ImGui::SetDragDropPayload("ASSET_PATH", path.c_str(), path.size() + 1);
-                ui::drag_preview(ui::icon::animation, theme::Category::Animation, available_clip_names_[i]);
+                ftk::ui::drag_preview(ftk::ui::icon::animation, ftk::theme::Category::Animation, available_clip_names_[i]);
                 ImGui::EndDragDropSource();
             }
         }
@@ -521,33 +521,33 @@ void BlendSpaceEditorContext::draw_clips_panel() {
 }
 
 void BlendSpaceEditorContext::draw_properties_panel() {
-    auto panel = ui::Panel(ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
     ictx.project_mgr = deps_.project_mgr;
     ictx.icons = deps_.icon_cache;
 
-    ui::section("Blend space", ui::icon::blend_space);
-    if (auto t = ui::PropertyTable("##blend_space")) {
-        ui::row("Kind", [&] { ui::readout(two_d() ? "Two parameters" : "One parameter"); });
+    ftk::ui::section("Blend space", ftk::ui::icon::blend_space);
+    if (auto t = ftk::ui::PropertyTable("##blend_space")) {
+        ftk::ui::row("Kind", [&] { ftk::ui::readout(two_d() ? "Two parameters" : "One parameter"); });
         if (auto* one = std::get_if<BlendSpace1D>(&blend_space_)) {
-            ui::row("Parameter", "The animator parameter the position is read from, e.g. speed.", [&] {
+            ftk::ui::row("Parameter", "The animator parameter the position is read from, e.g. speed.", [&] {
                 std::string name = one->parameter();
-                if (ui::text_field("##parameter", name).committed) one->set_parameter(name);
+                if (ftk::ui::text_field("##parameter", name).committed) one->set_parameter(name);
             });
         } else {
             auto& two = std::get<BlendSpace2D>(blend_space_);
-            ui::row("Parameter X", "The animator parameter along the canvas's width.", [&] {
+            ftk::ui::row("Parameter X", "The animator parameter along the canvas's width.", [&] {
                 std::string name = two.parameter_x();
-                if (ui::text_field("##parameter_x", name).committed) two.set_parameters(name, two.parameter_y());
+                if (ftk::ui::text_field("##parameter_x", name).committed) two.set_parameters(name, two.parameter_y());
             });
-            ui::row("Parameter Y", "The animator parameter up the canvas.", [&] {
+            ftk::ui::row("Parameter Y", "The animator parameter up the canvas.", [&] {
                 std::string name = two.parameter_y();
-                if (ui::text_field("##parameter_y", name).committed) two.set_parameters(two.parameter_x(), name);
+                if (ftk::ui::text_field("##parameter_y", name).committed) two.set_parameters(two.parameter_x(), name);
             });
         }
-        ui::row("Skeleton", "The skeleton the clips are made for; its clips are listed in Clips.", [&] {
+        ftk::ui::row("Skeleton", "The skeleton the clips are made for; its clips are listed in Clips.", [&] {
             static const std::string skel_exts[] = {".fjskel"};
             std::string skeleton = std::visit([](const auto& bs) { return bs.skeleton_path(); }, blend_space_);
             if (!asset_slot({.label = "Skeleton", .id = "##skeleton", .extensions = skel_exts, .ctx = &ictx}, skeleton)) {
@@ -563,11 +563,11 @@ void BlendSpaceEditorContext::draw_properties_panel() {
         });
         char count[32];
         std::snprintf(count, sizeof(count), "%zu", point_count());
-        ui::row("Points", [&] { ui::readout(count); });
+        ftk::ui::row("Points", [&] { ftk::ui::readout(count); });
         if (const auto* two = std::get_if<BlendSpace2D>(&blend_space_)) {
             char triangles[32];
             std::snprintf(triangles, sizeof(triangles), "%zu", two->triangles().size());
-            ui::row("Triangles", "The blend reads the three points around the cursor.", [&] { ui::readout(triangles); });
+            ftk::ui::row("Triangles", "The blend reads the three points around the cursor.", [&] { ftk::ui::readout(triangles); });
         }
     }
 }
@@ -584,7 +584,7 @@ void BlendSpaceEditorContext::reload_clips() {
         if (loaded) {
             loaded_clips_[i] = std::make_shared<AnimationClip>(std::move(*loaded));
         } else {
-            FJELL_CORE_ERROR("Blend space editor: clip {}: {}", clip, loaded.error());
+            FTK_CORE_ERROR("Blend space editor: clip {}: {}", clip, loaded.error());
         }
     }
     if (preview_node_id_ != 0 && skeleton_) setup_preview_state_machine();
@@ -596,7 +596,7 @@ void BlendSpaceEditorContext::load_skeleton(const std::string& skel_path) {
 
     auto model = deps_.resource_manager->load_skeletal_model(base_path::resolve_asset(skel_path, deps_.project_mgr->active()));
     if (!model) {
-        FJELL_CORE_ERROR("Blend space editor: {}", model.error());
+        FTK_CORE_ERROR("Blend space editor: {}", model.error());
         return;
     }
     auto* skel_model = deps_.resource_manager->get(*model);
@@ -654,7 +654,7 @@ void BlendSpaceEditorContext::setup_preview_state_machine() {
         f << j.dump(2);
     }
     if (auto r = anim->load_state_machine(tmp.string()); !r) {
-        FJELL_CORE_WARN("Blend space editor: preview state machine: {}", r.error());
+        FTK_CORE_WARN("Blend space editor: preview state machine: {}", r.error());
     }
     fs::remove(tmp);
 }
@@ -707,21 +707,21 @@ std::string BlendSpaceEditorContext::document() const {
     return std::visit([](const auto& bs) { return bs.text(); }, blend_space_);
 }
 
-Result<> BlendSpaceEditorContext::write() {
-    if (asset_path_.empty()) return make_error("no blend space is open");
+ftk::Result<> BlendSpaceEditorContext::write() {
+    if (asset_path_.empty()) return ftk::make_error("no blend space is open");
     const auto resolved = base_path::resolve_asset(asset_path_, deps_.project_mgr->active());
     return std::visit([&](const auto& bs) { return bs.save(resolved); }, blend_space_);
 }
 
-Result<> BlendSpaceEditorContext::restore(const std::string& text) {
+ftk::Result<> BlendSpaceEditorContext::restore(const std::string& text) {
     const std::string before = std::visit([](const auto& bs) { return bs.skeleton_path(); }, blend_space_);
     if (two_d()) {
         auto restored = BlendSpace2D::from_text(text, asset_path_);
-        if (!restored) return make_error(restored.error());
+        if (!restored) return ftk::make_error(restored.error());
         blend_space_ = std::move(*restored);
     } else {
         auto restored = BlendSpace1D::from_text(text, asset_path_);
-        if (!restored) return make_error(restored.error());
+        if (!restored) return ftk::make_error(restored.error());
         blend_space_ = std::move(*restored);
     }
     if (selected_point_ >= static_cast<int>(point_count())) selected_point_ = -1;

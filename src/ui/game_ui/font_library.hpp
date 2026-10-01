@@ -14,9 +14,11 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
-
+namespace ftk {
 class ThreadPool;
+} // namespace ftk
+
+namespace fjell {
 
 /// Every font atlas the renderer has on the GPU, one per `.fjfont` recipe,
 /// shared by every GameUi. A UI names a recipe through `@font-face`; the
@@ -41,7 +43,7 @@ public:
 
     /// Loads run on this pool once it is set; before that, and without one,
     /// they run inline in poll(), still at the frame boundary.
-    void set_thread_pool(ThreadPool* pool) { pool_ = pool; }
+    void set_thread_pool(ftk::ThreadPool* pool) { pool_ = pool; }
 
     [[nodiscard]] const FontAtlas& fallback() const { return *fallback_; }
 
@@ -85,7 +87,7 @@ private:
     // The load's outcome travels through the future behind a pointer: GCC
     // at -O3 misreads the in-place move of the Result inside std::future's
     // task setter as freeing a non-heap object and refuses the build.
-    using LoadResult = std::unique_ptr<Result<FontAtlasData>>;
+    using LoadResult = std::unique_ptr<ftk::Result<FontAtlasData>>;
     using LoadFuture = std::future<LoadResult>;
 
     struct Entry {
@@ -104,18 +106,18 @@ private:
     };
     [[nodiscard]] static std::string key_for(const std::string& path);
     void start_load(Entry& entry);
-    void finish_load(Entry& entry, Result<FontAtlasData> data);
+    void finish_load(Entry& entry, ftk::Result<FontAtlasData> data);
     void watch(const std::string& key, const FontAtlas& atlas);
 
     FontAtlasGpu gpu_{};
-    ThreadPool* pool_{nullptr};
+    ftk::ThreadPool* pool_{nullptr};
     std::unique_ptr<FontAtlas> fallback_;
     std::unordered_map<std::string, Entry> entries_;
     // Prebakes in flight; their outcome is logged when poll() sees them done.
     std::vector<std::future<void>> prebakes_;
 
 #ifndef NDEBUG
-    platform::FileWatcher watcher_;
+    ftk::platform::FileWatcher watcher_;
     bool fallback_changed_{false};
     LoadFuture fallback_pending_;
 #endif

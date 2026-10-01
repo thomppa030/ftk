@@ -26,7 +26,7 @@ struct LogNotify : public AnimNotify {
     char message[128]{"notify fired"};
 
     void notify(Node3D& owner) override {
-        FJELL_CORE_INFO("[AnimNotify] {} on '{}'", message, owner.name);
+        FTK_CORE_INFO("[AnimNotify] {} on '{}'", message, owner.name);
     }
     [[nodiscard]] const char* notify_type_name() const override { return "LogNotify"; }
 };
@@ -59,13 +59,13 @@ struct LogNotifyState : public AnimNotifyState {
     char message[128]{"state notify"};
 
     void notify_begin(Node3D& owner) override {
-        FJELL_CORE_INFO("[AnimNotify] BEGIN '{}' on '{}'", message, owner.name);
+        FTK_CORE_INFO("[AnimNotify] BEGIN '{}' on '{}'", message, owner.name);
     }
     void notify_tick(Node3D& owner, float dt) override {
         (void)owner; (void)dt;
     }
     void notify_end(Node3D& owner) override {
-        FJELL_CORE_INFO("[AnimNotify] END '{}' on '{}'", message, owner.name);
+        FTK_CORE_INFO("[AnimNotify] END '{}' on '{}'", message, owner.name);
     }
     [[nodiscard]] const char* notify_type_name() const override { return "LogNotifyState"; }
 };

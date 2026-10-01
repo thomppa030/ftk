@@ -23,9 +23,9 @@ constexpr float UNORM16_MAX = 65535.0F;
 // them as the bed its sea shoals on, as does the waterline's compute pass —
 // the task shader decides from the patch bounds whether a patch is emitted at
 // all, and the fragment shader blends layers by the weights.
-constexpr gpu::AccessSet HEIGHT_READ = gpu::Access::sampled_mesh | gpu::Access::sampled_compute;
-constexpr gpu::Access BOUNDS_READ = gpu::Access::sampled_mesh;
-constexpr gpu::Access WEIGHT_READ = gpu::Access::sampled_fragment;
+constexpr ftk::gpu::AccessSet HEIGHT_READ = ftk::gpu::Access::sampled_mesh | ftk::gpu::Access::sampled_compute;
+constexpr ftk::gpu::Access BOUNDS_READ = ftk::gpu::Access::sampled_mesh;
+constexpr ftk::gpu::Access WEIGHT_READ = ftk::gpu::Access::sampled_fragment;
 
 // Weight texture of a terrain that has never been painted: layer 0 at full
 // weight, everywhere.
@@ -35,11 +35,11 @@ constexpr std::array<uint8_t, 4> UNPAINTED_WEIGHT = {255, 0, 0, 0};
 
 TerrainAsset::~TerrainAsset() = default;
 
-gpu::Texture TerrainAsset::height_texture() const {
+ftk::gpu::Texture TerrainAsset::height_texture() const {
     return height_texture_;
 }
 
-gpu::Texture TerrainAsset::patch_bounds_texture() const {
+ftk::gpu::Texture TerrainAsset::patch_bounds_texture() const {
     return patch_bounds_texture_;
 }
 
@@ -81,7 +81,7 @@ void TerrainAsset::compute_patch_bounds(uint32_t px, uint32_t pz, uint32_t count
     }
 }
 
-void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
+void TerrainAsset::refresh_patch_bounds(ftk::gpu::Upload& upload) {
     if (!patch_bounds_texture_ || patch_bounds_generation_ == edit_generation_) return;
 
     const uint32_t patches = patches_per_side();
@@ -126,7 +126,7 @@ void TerrainAsset::refresh_patch_bounds(gpu::Upload& upload) {
     patch_bounds_generation_ = edit_generation_;
 }
 
-gpu::Texture TerrainAsset::weight_texture() const {
+ftk::gpu::Texture TerrainAsset::weight_texture() const {
     return weight_texture_;
 }
 
@@ -223,10 +223,10 @@ void TerrainAsset::set_layer_material(uint32_t layer, Material* material) {
     if (layer < FJTERRAIN_MAX_LAYERS) layer_materials_[layer] = material;
 }
 
-Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path, gpu::Device& gpu) {
+ftk::Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path, ftk::gpu::Device& gpu) {
     auto parsed = load_fjterrain(path);
     if (!parsed) {
-        return make_error(parsed.error());
+        return ftk::make_error(parsed.error());
     }
 
     auto asset = std::make_unique<TerrainAsset>();
@@ -253,26 +253,26 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
     asset->min_world_height_ = asset->data_->world_height(lowest);
     asset->max_world_height_ = asset->data_->world_height(highest);
     asset->build_ray_mesh();
-    FJELL_GFX_DEBUG("Terrain '{}': {}x{} samples, ray mesh {} verts / {} tris ({:.1f} MB)",
+    FTK_GFX_DEBUG("Terrain '{}': {}x{} samples, ray mesh {} verts / {} tris ({:.1f} MB)",
                     path, samples, samples, asset->ray_vertices_.size(),
                     asset->ray_indices_.size() / 3,
                     static_cast<double>(asset->ray_vertices_.size() * sizeof(Vertex) +
                                         asset->ray_indices_.size() * sizeof(uint32_t)) / 1e6);
     // The three textures a terrain samples, filled by uploads from here on.
-    auto make = [&gpu](gpu::Format format, uint32_t side,
-                       std::string_view name) -> Result<gpu::Owned<gpu::Texture>> {
-        auto made = gpu.create(gpu::TextureDesc{
+    auto make = [&gpu](ftk::gpu::Format format, uint32_t side,
+                       std::string_view name) -> ftk::Result<ftk::gpu::Owned<ftk::gpu::Texture>> {
+        auto made = gpu.create(ftk::gpu::TextureDesc{
             .format = format,
             .width = side,
             .height = side,
-            .use = gpu::TextureUse::sampled,
+            .use = ftk::gpu::TextureUse::sampled,
             .name = name,
         });
-        if (!made) return make_error("terrain: " + made.error());
+        if (!made) return ftk::make_error("terrain: " + made.error());
         return std::move(*made);
     };
-    FJELL_TRY(asset->height_texture_, make(gpu::Format::r16_unorm, samples, "terrain_height"));
-    gpu::Upload& upload = gpu.upload();
+    FTK_TRY(asset->height_texture_, make(ftk::gpu::Format::r16_unorm, samples, "terrain_height"));
+    ftk::gpu::Upload& upload = gpu.upload();
     upload.to_texture(asset->height_texture_, {}, std::as_bytes(std::span(texels)),
                       {.after = HEIGHT_READ});
 
@@ -284,8 +284,8 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
             asset->patch_bounds_texels_.resize(static_cast<size_t>(patches) * patches * 2);
             asset->compute_patch_bounds(0, 0, patches, patches);
 
-            FJELL_TRY(asset->patch_bounds_texture_,
-                      make(gpu::Format::rg16_unorm, patches, "terrain_patch_bounds"));
+            FTK_TRY(asset->patch_bounds_texture_,
+                      make(ftk::gpu::Format::rg16_unorm, patches, "terrain_patch_bounds"));
             upload.to_texture(asset->patch_bounds_texture_, {},
                               std::as_bytes(std::span(asset->patch_bounds_texels_)),
                               {.after = BOUNDS_READ});
@@ -310,7 +310,7 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(const std::string& path
         const size_t weight_size = static_cast<size_t>(side) * side * 4;
         asset->weight_side_ = side;
 
-        FJELL_TRY(asset->weight_texture_, make(gpu::Format::rgba8_unorm, side, "terrain_weights"));
+        FTK_TRY(asset->weight_texture_, make(ftk::gpu::Format::rgba8_unorm, side, "terrain_weights"));
         upload.to_texture(asset->weight_texture_, {},
                           std::as_bytes(std::span(weight_bytes, weight_size)),
                           {.after = WEIGHT_READ});
@@ -442,7 +442,7 @@ void TerrainAsset::copy_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
 }
 
 void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                                 const float* heights, gpu::Upload& upload) {
+                                 const float* heights, ftk::gpu::Upload& upload) {
     const uint32_t samples = data_->sample_count();
     if (heights == nullptr || !height_texture_ || x >= samples || z >= samples) return;
     const uint32_t x_end = std::min(x + size_x, samples);
@@ -524,7 +524,7 @@ void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_
 }
 
 void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                                 const uint8_t* rgba, gpu::Upload& upload) {
+                                 const uint8_t* rgba, ftk::gpu::Upload& upload) {
     const uint32_t side = weight_side_;
     if (rgba == nullptr || !weight_texture_ || x >= side || z >= side) return;
     const uint32_t x_end = std::min(x + size_x, side);
@@ -556,7 +556,7 @@ void TerrainAsset::apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32
     dirty_ = true;
 }
 
-Result<> TerrainAsset::save() {
+ftk::Result<> TerrainAsset::save() {
     auto result = save_fjterrain(path_, *data_);
     if (result) dirty_ = false;
     return result;

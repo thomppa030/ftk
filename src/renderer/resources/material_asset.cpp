@@ -114,7 +114,7 @@ MaterialBaseParams read_base_params(const MaterialAsset& asset) {
     auto bc = asset.params.find(BASE_COLOR_KEY);
     if (bc != asset.params.end() && bc->second.size() >= 3) {
         const auto& v = bc->second;
-        base.base_color_factor = color_space::srgb_to_linear(
+        base.base_color_factor = ftk::color_space::srgb_to_linear(
             glm::vec4{v[0], v[1], v[2], v.size() >= 4 ? v[3] : 1.0f});
     }
     base.metallic_factor = scalar_or(asset, METALLIC_KEY, base.metallic_factor);
@@ -128,7 +128,7 @@ MaterialBaseParams read_base_params(const MaterialAsset& asset) {
 
 void write_base_params(MaterialAsset& asset, const MaterialBaseParams& base) {
     const MaterialBaseParams defaults;
-    const glm::vec4 bc = color_space::linear_to_srgb(base.base_color_factor);
+    const glm::vec4 bc = ftk::color_space::linear_to_srgb(base.base_color_factor);
     set_or_erase(asset, BASE_COLOR_KEY, {bc.r, bc.g, bc.b, bc.a},
                  base.base_color_factor == defaults.base_color_factor);
     set_or_erase(asset, METALLIC_KEY, {base.metallic_factor},

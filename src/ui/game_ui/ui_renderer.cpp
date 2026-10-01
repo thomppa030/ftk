@@ -22,34 +22,34 @@ constexpr std::string_view WORLD_FRAME = "WorldUiFrameData";
 
 } // namespace
 
-std::vector<gpu::SharedLayout> UiRenderer::shared(bool reads_globals) const {
+std::vector<ftk::gpu::SharedLayout> UiRenderer::shared(bool reads_globals) const {
     if (reads_globals) return {globals_, bindless_};
     return {bindless_};
 }
 
-gpu::GraphicsPipelineDesc UiRenderer::screen_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+ftk::gpu::GraphicsPipelineDesc UiRenderer::screen_desc(ftk::gpu::ShaderCode vertex, ftk::gpu::ShaderCode fragment,
                                                   std::string_view name, bool reads_globals) const {
     return {
         .vertex = vertex,
         .fragment = fragment,
-        .color = {{output_format_, gpu::Blend::alpha}},
+        .color = {{output_format_, ftk::gpu::Blend::alpha}},
         .shared = shared(reads_globals),
         .name = name,
     };
 }
 
-gpu::GraphicsPipelineDesc UiRenderer::world_desc(gpu::ShaderCode vertex, gpu::ShaderCode fragment,
+ftk::gpu::GraphicsPipelineDesc UiRenderer::world_desc(ftk::gpu::ShaderCode vertex, ftk::gpu::ShaderCode fragment,
                                                  std::string_view name, bool reads_globals) const {
     // The UI has no surface to give metallic/roughness or normal; the
     // worldspace fragment shaders compute a real per-pixel motion.
     return {
         .vertex = vertex,
         .fragment = fragment,
-        .depth = {.test = true, .write = false, .compare = gpu::Compare::less_equal},
-        .color = {{world_.scene_color_format, gpu::Blend::alpha},
-                  {world_.scene_mr_format, gpu::Blend::none, gpu::ChannelMask{}},
-                  {world_.scene_normal_format, gpu::Blend::none, gpu::ChannelMask{}},
-                  {world_.scene_velocity_format, gpu::Blend::none, gpu::Channel::r | gpu::Channel::g}},
+        .depth = {.test = true, .write = false, .compare = ftk::gpu::Compare::less_equal},
+        .color = {{world_.scene_color_format, ftk::gpu::Blend::alpha},
+                  {world_.scene_mr_format, ftk::gpu::Blend::none, ftk::gpu::ChannelMask{}},
+                  {world_.scene_normal_format, ftk::gpu::Blend::none, ftk::gpu::ChannelMask{}},
+                  {world_.scene_velocity_format, ftk::gpu::Blend::none, ftk::gpu::Channel::r | ftk::gpu::Channel::g}},
         .depth_format = world_.scene_depth_format,
         .samples = world_.samples,
         .shared = shared(reads_globals),
@@ -57,36 +57,36 @@ gpu::GraphicsPipelineDesc UiRenderer::world_desc(gpu::ShaderCode vertex, gpu::Sh
     };
 }
 
-gpu::Owned<gpu::GraphicsPipeline> UiRenderer::make(const gpu::GraphicsPipelineDesc& desc) const {
+ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> UiRenderer::make(const ftk::gpu::GraphicsPipelineDesc& desc) const {
     auto made = gpu_->create(desc);
     if (!made) throw std::runtime_error("UI: " + made.error());
     return std::move(*made);
 }
 
 void UiRenderer::create(const PassResources& resources, PipelineCache* fjsl_pipelines,
-                        gpu::Format output_format) {
+                        ftk::gpu::Format output_format) {
     gpu_ = resources.device;
     fjsl_pipelines_ = fjsl_pipelines;
     globals_ = resources.globals;
     bindless_ = resources.bindless;
-    output_format_ = output_format != gpu::Format::undefined ? output_format : resources.scene_color_format;
+    output_format_ = output_format != ftk::gpu::Format::undefined ? output_format : resources.scene_color_format;
 
     // Screen UI draws into a scope with no depth: it paints in tree order.
     quad_pipeline_ = make(screen_desc("shaders/ui_quad.vert", "shaders/ui_quad.frag", "ui_quad", true));
     text_pipeline_ = make(screen_desc("shaders/ui_text.vert", "shaders/ui_text.frag", "ui_text", false));
 
     auto buffer = [&](uint64_t size, std::string_view name) {
-        auto made = gpu_->create(gpu::BufferDesc{
-            .size = size, .use = gpu::BufferUse::storage, .memory = gpu::Memory::upload, .name = name});
+        auto made = gpu_->create(ftk::gpu::BufferDesc{
+            .size = size, .use = ftk::gpu::BufferUse::storage, .memory = ftk::gpu::Memory::upload, .name = name});
         if (!made) throw std::runtime_error("UI: " + made.error());
         return std::move(*made);
     };
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < ftk::MAX_FRAMES_IN_FLIGHT; ++i) {
         quad_buffers_[i] = buffer(QUAD_BUFFER_SIZE, "ui_quads");
         glyph_buffers_[i] = buffer(GLYPH_BUFFER_SIZE, "ui_glyphs");
     }
 
-    FJELL_GFX_DEBUG("UI renderer created (quad + text pipelines)");
+    FTK_GFX_DEBUG("UI renderer created (quad + text pipelines)");
 }
 
 void UiRenderer::destroy() {
@@ -101,7 +101,7 @@ void UiRenderer::destroy() {
 
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
                          float frame_scale, uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("ui_renderer_update");
+    FTK_PROFILE_SCOPE_N("ui_renderer_update");
     auto& quads = collected_[frame_index];
     auto& items = paint_items_[frame_index];
     quads.clear();
@@ -363,11 +363,11 @@ bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
     // unchanged, so an existing pipeline is only replaced by a working one.
     const std::string& shader = fjsl_pipelines_->shader_path(pipeline_id);
     const std::string& screen_spv = fjsl_pipelines_->ui_frag_spv(pipeline_id);
-    auto screen_fragment = screen_spv.empty() ? Result<std::vector<uint32_t>>(make_error("no ui fragment"))
-                                              : gpu::read_spirv(screen_spv);
+    auto screen_fragment = screen_spv.empty() ? ftk::Result<std::vector<uint32_t>>(ftk::make_error("no ui fragment"))
+                                              : ftk::gpu::read_spirv(screen_spv);
     if (!screen_fragment) {
         if (it == material_pipelines_.end()) {
-            FJELL_GFX_WARN("UI material '{}' has no ui fragment to draw with", shader);
+            FTK_GFX_WARN("UI material '{}' has no ui fragment to draw with", shader);
             material_pipelines_[pipeline_id].generation = generation;
         }
         return false;
@@ -378,9 +378,9 @@ bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
     fresh.screen =
         make(screen_desc("shaders/ui_quad.vert", std::span<const uint32_t>(*screen_fragment), shader, true));
     if (has_world_pipelines_) {
-        auto world_fragment = gpu::read_spirv(fjsl_pipelines_->ui_world_frag_spv(pipeline_id));
+        auto world_fragment = ftk::gpu::read_spirv(fjsl_pipelines_->ui_world_frag_spv(pipeline_id));
         if (!world_fragment) {
-            FJELL_GFX_ERROR("UI material '{}': {}", shader, world_fragment.error());
+            FTK_GFX_ERROR("UI material '{}': {}", shader, world_fragment.error());
         } else {
             fresh.world = make(world_desc("shaders/ui_quad_world.vert",
                                           std::span<const uint32_t>(*world_fragment), shader, true));
@@ -389,18 +389,18 @@ bool UiRenderer::ensure_material_pipelines(uint32_t pipeline_id) {
 
     // The pipelines replaced go once the frames using them are done.
     material_pipelines_[pipeline_id] = std::move(fresh);
-    FJELL_GFX_DEBUG("UI material pipelines built for '{}' (generation {})", shader, generation);
+    FTK_GFX_DEBUG("UI material pipelines built for '{}' (generation {})", shader, generation);
     return true;
 }
 
-void UiRenderer::record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+void UiRenderer::record(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                         glm::uvec2 extent, uint32_t frame_index) {
-    FJELL_PROFILE_SCOPE_N("ui_renderer_record");
+    FTK_PROFILE_SCOPE_N("ui_renderer_record");
     const auto& runs = runs_[frame_index];
     if (runs.empty()) return;
 
     // Glyphs clip in their shader and draw with the whole target open.
-    const gpu::Rect full{.x = 0, .y = 0, .width = extent.x, .height = extent.y};
+    const ftk::gpu::Rect full{.x = 0, .y = 0, .width = extent.x, .height = extent.y};
 
     // Clip rects are in layout pixels; scissors are in target pixels.
     const float frame_scale = frame_scales_[frame_index];
@@ -410,23 +410,23 @@ void UiRenderer::record(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::B
         const float y = std::max(0.0f, clip.y);
         const float right = std::min(clip.x + clip.z, static_cast<float>(extent.x));
         const float bottom = std::min(clip.y + clip.w, static_cast<float>(extent.y));
-        return gpu::Rect{.x = static_cast<int32_t>(x),
+        return ftk::gpu::Rect{.x = static_cast<int32_t>(x),
                          .y = static_cast<int32_t>(y),
                          .width = static_cast<uint32_t>(std::max(0.0f, right - std::floor(x))),
                          .height = static_cast<uint32_t>(std::max(0.0f, bottom - std::floor(y)))};
     };
 
-    const gpu::BindEntry buffers[] = {
-        {QUAD_BUFFER, gpu::storage(quad_buffers_[frame_index])},
-        {GLYPH_BUFFER, gpu::storage(glyph_buffers_[frame_index])},
+    const ftk::gpu::BindEntry buffers[] = {
+        {QUAD_BUFFER, ftk::gpu::storage(quad_buffers_[frame_index])},
+        {GLYPH_BUFFER, ftk::gpu::storage(glyph_buffers_[frame_index])},
     };
 
     // In tree order. A run of material quads binds that material's
     // pipeline; the fixed fill and the text pipeline are rebound as the runs
     // change, and with them what they read.
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
     for (const PaintRun& run : runs) {
-        const gpu::GraphicsPipeline wanted = run.text ? text_pipeline_.get()
+        const ftk::gpu::GraphicsPipeline wanted = run.text ? text_pipeline_.get()
                                              : run.pipeline_id == UINT32_MAX
                                                  ? quad_pipeline_.get()
                                                  : material_pipelines_[run.pipeline_id].screen.get();
@@ -457,27 +457,27 @@ void UiRenderer::create_world_pipelines(const PassResources& resources) {
     world_text_pipeline_ = make(world_desc("shaders/ui_text_world.vert", "shaders/ui_text_world.frag",
                                            "ui_text_world", false));
 
-    FJELL_GFX_DEBUG("Worldspace UI pipelines created");
+    FTK_GFX_DEBUG("Worldspace UI pipelines created");
 }
 
-void UiRenderer::record_world(gpu::RenderEncoder& pass, gpu::BindGroup globals, gpu::BindGroup bindless,
+void UiRenderer::record_world(ftk::gpu::RenderEncoder& pass, ftk::gpu::BindGroup globals, ftk::gpu::BindGroup bindless,
                               glm::uvec2 extent, uint32_t frame_index, const UiWorldPushConstants& push,
                               const glm::mat4& prev_mvp) {
-    FJELL_PROFILE_SCOPE_N("ui_renderer_record_world");
+    FTK_PROFILE_SCOPE_N("ui_renderer_record_world");
     if (runs_[frame_index].empty()) return;
 
     // Each widget's own: several are drawn in one frame.
-    const gpu::BindEntry reads[] = {
-        {QUAD_BUFFER, gpu::storage(quad_buffers_[frame_index])},
-        {GLYPH_BUFFER, gpu::storage(glyph_buffers_[frame_index])},
-        {WORLD_FRAME, gpu::uniform(pass.transient(UiWorldFrameData{prev_mvp}))},
+    const ftk::gpu::BindEntry reads[] = {
+        {QUAD_BUFFER, ftk::gpu::storage(quad_buffers_[frame_index])},
+        {GLYPH_BUFFER, ftk::gpu::storage(glyph_buffers_[frame_index])},
+        {WORLD_FRAME, ftk::gpu::uniform(pass.transient(UiWorldFrameData{prev_mvp}))},
     };
 
     // In tree order, as the screen UI paints; world UI does not clip.
     pass.set_scissor({.x = 0, .y = 0, .width = extent.x, .height = extent.y});
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
     for (const PaintRun& run : runs_[frame_index]) {
-        const gpu::GraphicsPipeline wanted = run.text ? world_text_pipeline_.get()
+        const ftk::gpu::GraphicsPipeline wanted = run.text ? world_text_pipeline_.get()
                                              : run.pipeline_id == UINT32_MAX
                                                  ? world_quad_pipeline_.get()
                                                  : material_pipelines_[run.pipeline_id].world.get();

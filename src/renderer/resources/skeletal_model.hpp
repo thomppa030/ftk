@@ -15,6 +15,11 @@
 #include <string>
 #include <vector>
 
+namespace ftk::gpu {
+class Device;
+class RenderEncoder;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 // CPU-side data parsed from a .fjskel or skinned .fjmesh file.
@@ -43,22 +48,17 @@ struct SkinInfluence {
 // When loaded from .fjskel, also owns the embedded Skeleton.
 class MeshletBuffer;
 
-namespace gpu {
-class Device;
-class RenderEncoder;
-}
-
 class SkeletalModel {
 public:
     /// Uploads the vertices and indices through `gpu` and adds the meshlets
     /// to `meshlets`. Throws when the buffers cannot be made.
-    SkeletalModel(gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets);
+    SkeletalModel(ftk::gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets);
 
     // Parse a .fjskel file (mesh + embedded skeleton).
     [[nodiscard]] static FjSkinnedMeshData load_fjskel(const std::string& path);
 
     /// Sets the model's own vertices and 32-bit indices.
-    void bind(gpu::RenderEncoder& pass) const;
+    void bind(ftk::gpu::RenderEncoder& pass) const;
 
     [[nodiscard]] uint32_t index_count() const { return index_count_; }
     [[nodiscard]] uint32_t joint_count() const { return joint_count_; }
@@ -100,8 +100,8 @@ public:
                       std::vector<glm::vec3>& out) const;
 
 private:
-    gpu::Owned<gpu::Buffer> vertex_buffer_;
-    gpu::Owned<gpu::Buffer> index_buffer_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> vertex_buffer_;
+    ftk::gpu::Owned<ftk::gpu::Buffer> index_buffer_;
     uint32_t index_count_{0};
     uint32_t joint_count_{0};
     AABB local_aabb_;

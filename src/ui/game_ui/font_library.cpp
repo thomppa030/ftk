@@ -20,8 +20,8 @@ bool ready(const std::future<T>& future) {
            future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-std::unique_ptr<Result<FontAtlasData>> load_boxed(const std::string& path) {
-    return std::make_unique<Result<FontAtlasData>>(FontAtlas::load_data(path));
+std::unique_ptr<ftk::Result<FontAtlasData>> load_boxed(const std::string& path) {
+    return std::make_unique<ftk::Result<FontAtlasData>>(FontAtlas::load_data(path));
 }
 
 // The whole prebake, run wherever the pool puts it; it reports for itself.
@@ -29,9 +29,9 @@ void prebake_now(const std::string& path) {
 #if FJELL_FONT_BAKE
     auto baked = ensure_font_atlas(path);
     if (!baked) {
-        FJELL_CORE_ERROR("FontLibrary: {}", baked.error());
+        FTK_CORE_ERROR("FontLibrary: {}", baked.error());
     } else if (*baked) {
-        FJELL_GFX_INFO("Font atlas baked ahead of use: {}", path);
+        FTK_GFX_INFO("Font atlas baked ahead of use: {}", path);
     }
 #else
     // No baker in this build: the most that can be done ahead of use is to
@@ -42,7 +42,7 @@ void prebake_now(const std::string& path) {
     auto hash = font_source_hash(path, source);
     if (!hash) return;
     if (!font_atlas_is_fresh(path, source, font_atlas_cache_path(path), *hash)) {
-        FJELL_CORE_WARN("FontLibrary: {}: atlas missing or stale and this build cannot bake; "
+        FTK_CORE_WARN("FontLibrary: {}: atlas missing or stale and this build cannot bake; "
                         "run fjimport on it", path);
     }
 #endif
@@ -63,7 +63,7 @@ void FontLibrary::create(const FontAtlasGpu& gpu, const std::string& fallback_re
         fallback_->create(fallback_recipe, gpu_, std::move(*data));
         watch({}, *fallback_);
     } else {
-        FJELL_CORE_ERROR("FontLibrary: the default font {} did not load; text will not draw",
+        FTK_CORE_ERROR("FontLibrary: the default font {} did not load; text will not draw",
                          fallback_recipe);
     }
 }
@@ -144,12 +144,12 @@ void FontLibrary::start_load(Entry& entry) {
     }
 }
 
-void FontLibrary::finish_load(Entry& entry, Result<FontAtlasData> data) {
+void FontLibrary::finish_load(Entry& entry, ftk::Result<FontAtlasData> data) {
     if (!data) {
         if (!entry.atlas) {
             // The load already logged why; this is the one line per path
             // that says what happens next.
-            FJELL_CORE_WARN("FontLibrary: {} is unavailable, text in it uses the default font",
+            FTK_CORE_WARN("FontLibrary: {} is unavailable, text in it uses the default font",
                             entry.path);
             entry.failed = true;
         }
@@ -182,7 +182,7 @@ void FontLibrary::watch(const std::string& key, const FontAtlas& atlas) {
                 }
             }
         });
-        if (!ok) FJELL_GFX_DEBUG("FontLibrary: cannot watch {}", path);
+        if (!ok) FTK_GFX_DEBUG("FontLibrary: cannot watch {}", path);
     }
 #else
     (void)key;
@@ -228,8 +228,8 @@ void FontLibrary::poll() {
             entry.preview.reset();
             auto bake = [path, recipe] {
                 auto data = FontAtlas::bake_data(path, recipe);
-                if (!data) FJELL_CORE_ERROR("FontLibrary: preview of {}: {}", path, data.error());
-                return std::make_unique<Result<FontAtlasData>>(std::move(data));
+                if (!data) FTK_CORE_ERROR("FontLibrary: preview of {}: {}", path, data.error());
+                return std::make_unique<ftk::Result<FontAtlasData>>(std::move(data));
             };
             if (pool_) {
                 entry.pending = pool_->submit(std::move(bake));

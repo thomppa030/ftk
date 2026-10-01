@@ -1,8 +1,11 @@
 #pragma once
 
+namespace ftk {
+class PassBuilder;
+} // namespace ftk
+
 namespace fjell {
 
-class PassBuilder;
 struct DeclareContext;
 
 /// Declares what a lit surface samples through the global descriptor set:
@@ -11,6 +14,6 @@ struct DeclareContext;
 /// the GI outputs. Every pass whose draws run the surface lighting
 /// (spatial, terrain, water, lit sprites, tilemaps and particles) declares
 /// them, so the graph orders their producers first and keeps them alive.
-void declare_lit_surface_reads(PassBuilder& builder, const DeclareContext& ctx);
+void declare_lit_surface_reads(ftk::PassBuilder& builder, const DeclareContext& ctx);
 
 } // namespace fjell

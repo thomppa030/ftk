@@ -63,7 +63,7 @@ struct UiSchema {
 
     [[nodiscard]] static UiSchema from_json(const nlohmann::json& manifest);
     /// The manifest file, read; an error when it cannot be.
-    [[nodiscard]] static Result<UiSchema> load(const std::string& path);
+    [[nodiscard]] static ftk::Result<UiSchema> load(const std::string& path);
     /// `scripts/generated/manifest.json` in the nearest folder at or above
     /// the file's own that has one; empty when none does.
     [[nodiscard]] static std::string find_manifest(const std::string& file);

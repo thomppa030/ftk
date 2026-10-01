@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -159,4 +159,4 @@ void hint(const char* text) {
     ImGui::PopFont();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

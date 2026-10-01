@@ -5,8 +5,8 @@
 
 #include <string>
 
-using fjell::test::ImGuiHarness;
-using fjell::ui::TextField;
+using ftk::test::ImGuiHarness;
+using ftk::ui::TextField;
 
 namespace {
 
@@ -123,7 +123,7 @@ struct PlainField {
 
     PlainField() {
         h.set_ui([this] {
-            if (fjell::ui::text_field("##Default", value).committed) ++commits;
+            if (ftk::ui::text_field("##Default", value).committed) ++commits;
             h.mark("field");
             ImGui::Button("Elsewhere");
             h.mark("elsewhere");

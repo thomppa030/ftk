@@ -18,7 +18,7 @@
 #include <cstdio>
 #include <stdexcept>
 
-namespace fjell::platform {
+namespace ftk::platform {
 namespace {
 
 /// CreateProcess takes one mutable command line rather than an argv array, so
@@ -249,4 +249,4 @@ void close_subprocess(SubprocessHandle& handle) {
     }
 }
 
-} // namespace fjell::platform
+} // namespace ftk::platform

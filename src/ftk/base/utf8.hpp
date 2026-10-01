@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace fjell::utf8 {
+namespace ftk::utf8 {
 
 /// What a byte sequence that is not valid UTF-8 decodes to.
 inline constexpr uint32_t REPLACEMENT = 0xFFFD;
@@ -70,4 +70,4 @@ inline constexpr uint32_t REPLACEMENT = 0xFFFD;
     return cp;
 }
 
-} // namespace fjell::utf8
+} // namespace ftk::utf8

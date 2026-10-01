@@ -48,24 +48,24 @@ struct CompositePushConstants {
 
 // ── SsrCore ─────────────────────────────────────────────────────────────────
 
-Result<> SsrCore::create(const PassResources& resources) {
+ftk::Result<> SsrCore::create(const PassResources& resources) {
     device_ = resources.device;
-    nearest_sampler_ = device_->sampler({.filter = gpu::Filter::nearest,
-                                         .mip_filter = gpu::Filter::nearest,
-                                         .address = gpu::Address::clamp});
-    linear_sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                        .mip_filter = gpu::Filter::nearest,
-                                        .address = gpu::Address::clamp});
-    FJELL_TRY(trace_pipeline_, device_->create(gpu::ComputePipelineDesc{
+    nearest_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::nearest,
+                                         .mip_filter = ftk::gpu::Filter::nearest,
+                                         .address = ftk::gpu::Address::clamp});
+    linear_sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                        .mip_filter = ftk::gpu::Filter::nearest,
+                                        .address = ftk::gpu::Address::clamp});
+    FTK_TRY(trace_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                    .shader = "shaders/ssr_trace.comp",
                                    .shared = {resources.globals},
                                    .name = "ssr_trace",
                                }));
-    FJELL_TRY(composite_pipeline_, device_->create(gpu::ComputePipelineDesc{
+    FTK_TRY(composite_pipeline_, device_->create(ftk::gpu::ComputePipelineDesc{
                                        .shader = "shaders/ssr_composite.comp",
                                        .name = "ssr_composite",
                                    }));
-    FJELL_GFX_DEBUG("SSR pass created");
+    FTK_GFX_DEBUG("SSR pass created");
     return {};
 }
 
@@ -79,16 +79,16 @@ void SsrCore::destroy() {
 void SsrCore::ensure_prev_frame(uint32_t width, uint32_t height) {
     if (prev_frame_ && width == prev_frame_extent_.x && height == prev_frame_extent_.y) return;
     // Black until the first copy, so the first frame's trace reads nothing.
-    auto made = device_->create(gpu::TextureDesc{
-        .format = gpu::Format::rgba16_float,
+    auto made = device_->create(ftk::gpu::TextureDesc{
+        .format = ftk::gpu::Format::rgba16_float,
         .width = width,
         .height = height,
-        .use = gpu::TextureUse::sampled,
-        .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+        .use = ftk::gpu::TextureUse::sampled,
+        .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
         .name = "ssr_prev_frame",
     });
     if (!made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
         prev_frame_.reset();
         prev_frame_extent_ = {0, 0};
         return;
@@ -97,7 +97,7 @@ void SsrCore::ensure_prev_frame(uint32_t width, uint32_t height) {
     prev_frame_extent_ = {width, height};
 }
 
-void SsrCore::copy_prev_frame(gpu::CommandList& cmd, gpu::Texture color, glm::uvec2 extent) {
+void SsrCore::copy_prev_frame(ftk::gpu::CommandList& cmd, ftk::gpu::Texture color, glm::uvec2 extent) {
     if (prev_frame_ && prev_frame_extent_ == extent) cmd.copy(color, prev_frame_);
 }
 
@@ -113,7 +113,7 @@ void SsrCore::collect_exports(DeclareContext& ctx) {
     if (!prev_frame_) { return; }
     // Read by the next frame's trace, and rests where it samples it.
     ctx.export_texture("prev_frame_color", prev_frame_,
-                       {.persistent = true, .resting = gpu::Access::sampled_compute});
+                       {.persistent = true, .resting = ftk::gpu::Access::sampled_compute});
 }
 
 // ── SsrTracePass ────────────────────────────────────────────────────────────
@@ -126,44 +126,44 @@ PassSetup SsrTracePass::setup() const {
     };
 }
 
-void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SsrTracePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
 
-    TextureDesc ssr_desc{};
-    ssr_desc.format = gpu::Format::rgba16_float;
-    ssr_desc.size_class = SizeClass::viewport;
+    ftk::TextureDesc ssr_desc{};
+    ssr_desc.format = ftk::gpu::Format::rgba16_float;
+    ssr_desc.size_class = ftk::SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", ssr_desc);
 
     if (screen_space_active()) {
-        builder.write(ssr_out, gpu::Access::storage_write_compute);
+        builder.write(ssr_out, ftk::gpu::Access::storage_write_compute);
         // The trace steps through the Hi-Z pyramid and takes the colour it
         // hits from the last frame's.
         if (auto hiz = builder.import_named_optional(ctx, "hiz_pyramid"); hiz.valid()) {
-            builder.read(hiz, gpu::Access::sampled_compute);
+            builder.read(hiz, ftk::gpu::Access::sampled_compute);
         }
         if (auto history = builder.import_named_optional(ctx, "prev_frame_color");
             history.valid()) {
-            builder.read(history, gpu::Access::sampled_compute);
+            builder.read(history, ftk::gpu::Access::sampled_compute);
         }
     } else {
         // Off or ray traced: ssr_output is cleared so the composite reads
         // zero from it. (When ray traced, the composite reads
         // rt_reflection_output instead.)
-        builder.write(ssr_out, gpu::Access::clear);
+        builder.write(ssr_out, ftk::gpu::Access::clear);
     }
 }
 
 void SsrTracePass::record(const FrameContext& ctx) {
-    const gpu::Texture ssr_out = ctx.texture("ssr_output");
+    const ftk::gpu::Texture ssr_out = ctx.texture("ssr_output");
     if (!ssr_out.valid()) { return; }
 
-    FJELL_PROFILE_SCOPE_N("record_ssr_trace");
+    FTK_PROFILE_SCOPE_N("record_ssr_trace");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SSR Trace");
 
     if (!screen_space_active()) {
-        cmd.clear(ssr_out, gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f});
+        cmd.clear(ssr_out, ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f});
         return;
     }
 
@@ -174,9 +174,9 @@ void SsrTracePass::record(const FrameContext& ctx) {
     const auto extent = ctx.target->extent();
     cmd.set_pipeline(trace_pipeline());
     cmd.bind(ctx.globals);
-    cmd.bind({{"hiz_texture", gpu::sampled(hiz->texture, nearest_sampler())},
-              {"prev_color", gpu::sampled(prev_frame(), linear_sampler())},
-              {"ssr_output", gpu::storage(ssr_out)}});
+    cmd.bind({{"hiz_texture", ftk::gpu::sampled(hiz->texture, nearest_sampler())},
+              {"prev_color", ftk::gpu::sampled(prev_frame(), linear_sampler())},
+              {"ssr_output", ftk::gpu::storage(ssr_out)}});
     cmd.push(TracePushConstants{
         .viewport_width = extent.x,
         .viewport_height = extent.y,
@@ -193,7 +193,7 @@ void SsrTracePass::record(const FrameContext& ctx) {
 
 // ── SsrCompositePass ────────────────────────────────────────────────────────
 
-Result<> SsrCompositePass::create(const PassResources& /*resources*/) {
+ftk::Result<> SsrCompositePass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -211,27 +211,27 @@ PassSetup SsrCompositePass::setup() const {
     };
 }
 
-void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SsrCompositePass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr) { return; }
 
     // ssr_output is a framegraph transient (created/cleared by SsrTracePass).
     // rt_reflection_output is each viewport's own, exported where it has one;
     // it rests where this samples it, so it is readable whether or not the
     // trace ran this frame.
-    TextureDesc refl_desc{};
-    refl_desc.format = gpu::Format::rgba16_float;
-    refl_desc.size_class = SizeClass::viewport;
+    ftk::TextureDesc refl_desc{};
+    refl_desc.format = ftk::gpu::Format::rgba16_float;
+    refl_desc.size_class = ftk::SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", refl_desc);
-    builder.read(ssr_out, gpu::Access::sampled_compute);
+    builder.read(ssr_out, ftk::gpu::Access::sampled_compute);
 
     if (auto rt = builder.import_named_optional(ctx, RtReflectionPass::OUTPUT_NAME); rt.valid()) {
-        builder.read(rt, gpu::Access::sampled_compute);
+        builder.read(rt, ftk::gpu::Access::sampled_compute);
     }
 
     auto color = builder.import_named(ctx, "color");
     auto mr = builder.import_named(ctx, "mr");
-    builder.read_write(color, gpu::Access::storage_read_write_compute);
-    builder.read(mr, gpu::Access::sampled_compute);
+    builder.read_write(color, ftk::gpu::Access::storage_read_write_compute);
+    builder.read(mr, ftk::gpu::Access::sampled_compute);
 }
 
 void SsrCompositePass::record(const FrameContext& ctx) {
@@ -239,19 +239,19 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     // When mode != ScreenSpace, SsrTracePass clears ssr_output to black so
     // the composite reads zero from this branch. Composite still runs and
     // blends in whichever reflection source matches the active mode.
-    const gpu::Texture ssr = ctx.texture("ssr_output");
-    const gpu::Texture mr = ctx.texture("mr");
+    const ftk::gpu::Texture ssr = ctx.texture("ssr_output");
+    const ftk::gpu::Texture mr = ctx.texture("mr");
     if (!ssr.valid() || !mr.valid()) { return; }
 
     // A viewport without ray-traced reflections of its own has no output to
     // read. The binding falls back to ssr_output, which in RT mode reads
     // black.
     const auto* rt_images = ctx.pp_resources != nullptr ? ctx.pp_resources->rt_reflection() : nullptr;
-    gpu::Texture rt = rt_images != nullptr ? rt_images->output.get() : gpu::Texture{};
+    ftk::gpu::Texture rt = rt_images != nullptr ? rt_images->output.get() : ftk::gpu::Texture{};
     const bool rt_ready = rt.valid();
     if (!rt_ready) rt = ssr;
 
-    FJELL_PROFILE_SCOPE_N("record_ssr_composite");
+    FTK_PROFILE_SCOPE_N("record_ssr_composite");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SSR Composite");
 
@@ -264,12 +264,12 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     }();
 
     const auto extent = ctx.target->extent();
-    const gpu::Sampler nearest = core_->nearest_sampler();
+    const ftk::gpu::Sampler nearest = core_->nearest_sampler();
     cmd.set_pipeline(core_->composite_pipeline());
-    cmd.bind({{"ssr_texture", gpu::sampled(ssr, nearest)},
-              {"scene_color", gpu::storage(ctx.target->color_texture())},
-              {"mr_texture", gpu::sampled(mr, nearest)},
-              {"rt_reflection_texture", gpu::sampled(rt, nearest)}});
+    cmd.bind({{"ssr_texture", ftk::gpu::sampled(ssr, nearest)},
+              {"scene_color", ftk::gpu::storage(ctx.target->color_texture())},
+              {"mr_texture", ftk::gpu::sampled(mr, nearest)},
+              {"rt_reflection_texture", ftk::gpu::sampled(rt, nearest)}});
     cmd.push(CompositePushConstants{
         .viewport_width = extent.x,
         .viewport_height = extent.y,
@@ -283,7 +283,7 @@ void SsrCompositePass::record(const FrameContext& ctx) {
 
 // ── SsrHistoryPass ──────────────────────────────────────────────────────────
 
-Result<> SsrHistoryPass::create(const PassResources& /*resources*/) {
+ftk::Result<> SsrHistoryPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -301,17 +301,17 @@ PassSetup SsrHistoryPass::setup() const {
     };
 }
 
-void SsrHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SsrHistoryPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->screen_space_active()) { return; }
     auto history = builder.import_named_optional(ctx, "prev_frame_color");
     if (!history.valid()) { return; }
-    builder.read(builder.import_named(ctx, "color"), gpu::Access::copy_src);
-    builder.write(history, gpu::Access::copy_dst);
+    builder.read(builder.import_named(ctx, "color"), ftk::gpu::Access::copy_src);
+    builder.write(history, ftk::gpu::Access::copy_dst);
 }
 
 void SsrHistoryPass::record(const FrameContext& ctx) {
     if (core_ == nullptr || !core_->screen_space_active() || ctx.target == nullptr) { return; }
-    FJELL_PROFILE_SCOPE_N("record_ssr_history");
+    FTK_PROFILE_SCOPE_N("record_ssr_history");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SSR History");
     const auto extent = ctx.target->extent();

@@ -12,8 +12,8 @@ namespace fjell {
 
 namespace {
 
-constexpr ui::DragSpec POSITION{.speed = 0.005F, .unit = ui::Unit::Metres, .format = "%.3f"};
-constexpr ui::DragSpec SIZE{.speed = 0.005F, .min = 0.001F, .max = 1000.0F, .unit = ui::Unit::Metres,
+constexpr ftk::ui::DragSpec POSITION{.speed = 0.005F, .unit = ftk::ui::Unit::Metres, .format = "%.3f"};
+constexpr ftk::ui::DragSpec SIZE{.speed = 0.005F, .min = 0.001F, .max = 1000.0F, .unit = ftk::ui::Unit::Metres,
                             .format = "%.3f"};
 
 } // namespace
@@ -43,23 +43,23 @@ std::string collision_shape_summary(const CollisionPrimitive& shape) {
     }
 }
 
-ui::Edit collision_shape_rows(CollisionPrimitive& shape, const char* position_help) {
-    ui::Edit edit;
+ftk::ui::Edit collision_shape_rows(CollisionPrimitive& shape, const char* position_help) {
+    ftk::ui::Edit edit;
     if (shape.kind == CollisionPrimitiveKind::convex_hull || shape.kind == CollisionPrimitiveKind::triangle_mesh) {
-        ui::hint("Built from the geometry; nothing to size");
+        ftk::ui::hint("Built from the geometry; nothing to size");
         return edit;
     }
-    ui::row("Position", position_help, [&] { edit |= ui::vec3("##position", shape.position, POSITION); });
+    ftk::ui::row("Position", position_help, [&] { edit |= ftk::ui::vec3("##position", shape.position, POSITION); });
     switch (shape.kind) {
         case CollisionPrimitiveKind::box:
-            ui::row("Half extents", [&] { edit |= ui::vec3("##extents", shape.extents, SIZE); });
+            ftk::ui::row("Half extents", [&] { edit |= ftk::ui::vec3("##extents", shape.extents, SIZE); });
             break;
         case CollisionPrimitiveKind::sphere:
-            ui::row("Radius", [&] { edit |= ui::drag("##radius", shape.extents.x, SIZE); });
+            ftk::ui::row("Radius", [&] { edit |= ftk::ui::drag("##radius", shape.extents.x, SIZE); });
             break;
         case CollisionPrimitiveKind::capsule:
-            ui::row("Radius", [&] { edit |= ui::drag("##radius", shape.extents.x, SIZE); });
-            ui::row("Height", [&] { edit |= ui::drag("##height", shape.extents.y, SIZE); });
+            ftk::ui::row("Radius", [&] { edit |= ftk::ui::drag("##radius", shape.extents.x, SIZE); });
+            ftk::ui::row("Height", [&] { edit |= ftk::ui::drag("##height", shape.extents.y, SIZE); });
             break;
         default:
             break;
@@ -73,17 +73,17 @@ std::optional<ShapePick> add_shape_menu(const char* id, const char* fit_to) {
     static constexpr CollisionPrimitiveKind KINDS[] = {
         CollisionPrimitiveKind::box, CollisionPrimitiveKind::sphere, CollisionPrimitiveKind::capsule};
     const std::string fitted = std::string("Fitted to ") + fit_to;
-    ui::menu_heading(fitted.c_str());
+    ftk::ui::menu_heading(fitted.c_str());
     for (const auto kind : KINDS) {
         ImGui::PushID(static_cast<int>(kind));
-        if (ui::menu_item({.label = collision_kind_name(kind)})) pick = ShapePick{kind, true};
+        if (ftk::ui::menu_item({.label = collision_kind_name(kind)})) pick = ShapePick{kind, true};
         ImGui::PopID();
     }
     ImGui::Separator();
-    ui::menu_heading("Unit size");
+    ftk::ui::menu_heading("Unit size");
     for (const auto kind : KINDS) {
         ImGui::PushID(100 + static_cast<int>(kind));
-        if (ui::menu_item({.label = collision_kind_name(kind)})) pick = ShapePick{kind, false};
+        if (ftk::ui::menu_item({.label = collision_kind_name(kind)})) pick = ShapePick{kind, false};
         ImGui::PopID();
     }
     ImGui::EndPopup();

@@ -17,7 +17,7 @@
 // curve. The first and last keys stay at 0 and 1; keys between keep their
 // order. The view is kept per editor in ImGui's storage.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct CurveOptions {
     /// Width (-1 for all there is) and height, gutters included.
@@ -36,4 +36,4 @@ Edit curve_editor(const char* id, Curve& curve, const CurveOptions& options = {}
 /// current ID scope is on screen, as last drawn.
 [[nodiscard]] ImVec2 curve_editor_point(const char* id, glm::vec2 at);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

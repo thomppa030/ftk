@@ -12,7 +12,7 @@ static std::filesystem::path compute_dir() {
     if (dir.empty()) {
         throw std::runtime_error("Could not locate shaders/ directory from executable path");
     }
-    FJELL_CORE_INFO("Base path: {}", dir.string());
+    FTK_CORE_INFO("Base path: {}", dir.string());
     return dir;
 }
 
@@ -91,12 +91,12 @@ std::string resolve_shared(const std::string& reference, const Project* project)
 std::string resolve_asset(const std::string& reference, const Project* project) {
     if (is_asset_id(reference)) {
         if (!project) {
-            FJELL_CORE_WARN("Asset id '{}' referenced with no project open", reference);
+            FTK_CORE_WARN("Asset id '{}' referenced with no project open", reference);
             return {};
         }
         auto path = project->resolve(AssetId::from_string(reference));
         if (path.empty()) {
-            FJELL_CORE_WARN("Asset id '{}' is not in the asset database", reference);
+            FTK_CORE_WARN("Asset id '{}' is not in the asset database", reference);
         }
         return path;
     }

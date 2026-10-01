@@ -62,7 +62,7 @@ void AnimatorComponent::play(const std::string& clip_path, const AnimationClip* 
     layers_[0].clip_path = clip_path;
 }
 
-Result<> AnimatorComponent::load_state_machine(const std::string& path) {
+ftk::Result<> AnimatorComponent::load_state_machine(const std::string& path) {
     auto result = state_machine_.load(path);
     if (!result) return result;
     enable_state_machine();
@@ -93,7 +93,7 @@ void AnimatorComponent::enable_state_machine() {
                 layers_[0].looping = state->looping;
                 layers_[0].context->Invalidate();
             } else {
-                FJELL_CORE_WARN("Animator: initial state references unknown clip '{}'", state->clip);
+                FTK_CORE_WARN("Animator: initial state references unknown clip '{}'", state->clip);
             }
         }
     }
@@ -126,7 +126,7 @@ void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
             if (blend_spaces_2d_.contains(bs_path)) continue;
             auto bs_result = BlendSpace2D::load(resolved_bs);
             if (!bs_result) {
-                FJELL_CORE_WARN("Animator: failed to load blend space 2D {}: {}", bs_path, bs_result.error());
+                FTK_CORE_WARN("Animator: failed to load blend space 2D {}: {}", bs_path, bs_result.error());
                 continue;
             }
             for (const auto& pt : bs_result->points()) {
@@ -139,7 +139,7 @@ void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
                     clips.push_back(std::move(clip));
                     clip_paths.push_back(pt.clip);
                 } else {
-                    FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
+                    FTK_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
                 }
             }
             load_blend_space_2d(bs_path, std::move(*bs_result));
@@ -147,7 +147,7 @@ void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
             if (blend_spaces_1d_.contains(bs_path)) continue;
             auto bs_result = BlendSpace1D::load(resolved_bs);
             if (!bs_result) {
-                FJELL_CORE_WARN("Animator: failed to load blend space 1D {}: {}", bs_path, bs_result.error());
+                FTK_CORE_WARN("Animator: failed to load blend space 1D {}: {}", bs_path, bs_result.error());
                 continue;
             }
             for (const auto& pt : bs_result->points()) {
@@ -160,7 +160,7 @@ void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
                     clips.push_back(std::move(clip));
                     clip_paths.push_back(pt.clip);
                 } else {
-                    FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
+                    FTK_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
                 }
             }
             load_blend_space_1d(bs_path, std::move(*bs_result));
@@ -495,7 +495,7 @@ void AnimatorComponent::sample_layer(AnimationLayer& layer, float dt) {
     job.output = ozz::make_span(layer.locals);
 
     if (!job.Run()) {
-        FJELL_CORE_WARN("SamplingJob failed");
+        FTK_CORE_WARN("SamplingJob failed");
     }
 
     // Fire notifies in the time range
@@ -517,7 +517,7 @@ void AnimatorComponent::sample_layer_at_ratio(AnimationLayer& layer, float ratio
     job.output = ozz::make_span(layer.locals);
 
     if (!job.Run()) {
-        FJELL_CORE_WARN("SamplingJob failed");
+        FTK_CORE_WARN("SamplingJob failed");
     }
 
     // Fire notifies in the time range (fixes phase-sync gap)
@@ -576,7 +576,7 @@ void AnimatorComponent::fire_notifies(const AnimationClip* clip, float prev_time
 }
 
 void AnimatorComponent::update(float dt) {
-    FJELL_PROFILE_SCOPE_N("animator_update");
+    FTK_PROFILE_SCOPE_N("animator_update");
     if (!skeleton_) return;
 
     // Need either a clip or an active blend space state
@@ -613,7 +613,7 @@ void AnimatorComponent::update(float dt) {
                         layers_[1].looping = next->looping;
                         layers_[1].context->Invalidate();
                     } else {
-                        FJELL_CORE_WARN("Animator: transition target references unknown clip '{}'", next->clip);
+                        FTK_CORE_WARN("Animator: transition target references unknown clip '{}'", next->clip);
                     }
                 }
             }
@@ -714,7 +714,7 @@ void AnimatorComponent::update(float dt) {
         blend_job.output = ozz::make_span(blended_locals_);
 
         if (!blend_job.Run()) {
-            FJELL_CORE_WARN("BlendingJob failed");
+            FTK_CORE_WARN("BlendingJob failed");
         }
     } else {
         // Single clip — copy directly
@@ -729,7 +729,7 @@ void AnimatorComponent::update(float dt) {
     l2m_job.output = ozz::make_span(model_matrices_);
 
     if (!l2m_job.Run()) {
-        FJELL_CORE_WARN("LocalToModelJob failed");
+        FTK_CORE_WARN("LocalToModelJob failed");
     }
 
     // Compute final skin matrices

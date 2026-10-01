@@ -14,24 +14,24 @@ namespace fjell {
 namespace {
 
 // Full-range normals, signed and unclamped.
-constexpr gpu::Format NORMAL_FORMAT = gpu::Format::rgba16_float;
+constexpr ftk::gpu::Format NORMAL_FORMAT = ftk::gpu::Format::rgba16_float;
 
 } // namespace
 
-Result<> NormalPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> NormalPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     viz_image_.init(device, NORMAL_FORMAT, "viz_normals");
     // Its own single-sample image and no depth: meshes land in draw order.
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/normal_viz.vert",
                              .fragment = "shaders/normal_viz.frag",
                              .vertex_layout = Vertex::layout(),
-                             .raster = {.cull = gpu::Cull::back},
-                             .color = {{NORMAL_FORMAT, gpu::Blend::none}},
+                             .raster = {.cull = ftk::gpu::Cull::back},
+                             .color = {{NORMAL_FORMAT, ftk::gpu::Blend::none}},
                              .shared = {resources.globals},
                              .name = "normal_viz",
                          }));
-    FJELL_GFX_DEBUG("Normal pass created");
+    FTK_GFX_DEBUG("Normal pass created");
     return {};
 }
 
@@ -43,11 +43,11 @@ void NormalPass::destroy() {
 void NormalPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_viz_normal");
+    FTK_PROFILE_SCOPE_N("record_viz_normal");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Viz: Normal");
     // Cleared to a neutral up-facing normal.
-    auto pass = cmd.render(viz_image_.targets(gpu::Clear{0.5f, 0.5f, 1.0f, 1.0f}));
+    auto pass = cmd.render(viz_image_.targets(ftk::gpu::Clear{0.5f, 0.5f, 1.0f, 1.0f}));
     pass.set_pipeline(pipeline_);
     pass.bind(ctx.globals);
     draw_viz_meshes(ctx, pass);
@@ -62,7 +62,7 @@ PassSetup NormalPass::setup() const {
     };
 }
 
-void NormalPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void NormalPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::normals))) != 0U) {
         viz_image_.declare(builder, ctx);
     }

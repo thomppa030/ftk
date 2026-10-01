@@ -14,27 +14,27 @@ namespace fjell {
 
 namespace {
 
-constexpr gpu::Format VIZ_FORMAT = gpu::Format::rgba8_unorm;
+constexpr ftk::gpu::Format VIZ_FORMAT = ftk::gpu::Format::rgba8_unorm;
 constexpr const char* DEPTH_NAME = "meshlet_viz_depth";
 
 } // namespace
 
-Result<> MeshletVizPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> MeshletVizPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     depth_format_ = resources.scene_depth_format;
     viz_image_.init(device, VIZ_FORMAT, "viz_meshlets");
     // Every side drawn, nearer wins, into its own single-sample image.
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .task = "shaders/depth_mesh.task",
                              .mesh = "shaders/meshlet_viz.mesh",
                              .fragment = "shaders/meshlet_viz.frag",
-                             .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
-                             .color = {{VIZ_FORMAT, gpu::Blend::none}},
+                             .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
+                             .color = {{VIZ_FORMAT, ftk::gpu::Blend::none}},
                              .depth_format = depth_format_,
                              .shared = {resources.globals, resources.draw_data, resources.meshlets},
                              .name = "meshlet_viz",
                          }));
-    FJELL_GFX_DEBUG("Meshlet viz pass created");
+    FTK_GFX_DEBUG("Meshlet viz pass created");
     return {};
 }
 
@@ -44,14 +44,14 @@ void MeshletVizPass::destroy() {
 }
 
 void MeshletVizPass::record(const FrameContext& ctx) {
-    const gpu::Texture depth = ctx.texture(DEPTH_NAME);
+    const ftk::gpu::Texture depth = ctx.texture(DEPTH_NAME);
     if (!viz_image_.valid() || !depth.valid()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_viz_meshlet_viz");
+    FTK_PROFILE_SCOPE_N("record_viz_meshlet_viz");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Viz: Meshlet");
-    gpu::RenderTargets targets = viz_image_.targets(gpu::Clear{0.05f, 0.05f, 0.07f, 1.0f});
-    targets.depth = gpu::DepthAttachment{.view = depth, .load = gpu::Load::clear, .store = gpu::Store::discard};
+    ftk::gpu::RenderTargets targets = viz_image_.targets(ftk::gpu::Clear{0.05f, 0.05f, 0.07f, 1.0f});
+    targets.depth = ftk::gpu::DepthAttachment{.view = depth, .load = ftk::gpu::Load::clear, .store = ftk::gpu::Store::discard};
     auto pass = cmd.render(targets);
 
     // The meshlets read the meshlet set, which a viewport graph without the
@@ -71,7 +71,7 @@ void MeshletVizPass::record(const FrameContext& ctx) {
             pass.push(first_draw);
             pass.draw_mesh_tasks_indirect_count(batch.mesh_commands(ctx.frame_index, first_draw, ranges[r].draw_count),
                                                 batch.mesh_count(ctx.frame_index, r), ranges[r].draw_count,
-                                                sizeof(gpu::DrawMeshTasksArgs), most_groups);
+                                                sizeof(ftk::gpu::DrawMeshTasksArgs), most_groups);
         }
     }
     viz_image_.mark_rendered();
@@ -85,17 +85,17 @@ PassSetup MeshletVizPass::setup() const {
     };
 }
 
-void MeshletVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void MeshletVizPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::meshlet_viz))) == 0U) {
         return;
     }
     if (!viz_image_.declare(builder, ctx)) return;
     // The view's own depth, the viewport's size as its image is, dropped
     // once drawn.
-    TextureDesc depth_desc{};
+    ftk::TextureDesc depth_desc{};
     depth_desc.format = depth_format_;
-    depth_desc.size_class = SizeClass::viewport;
-    builder.write(builder.create(DEPTH_NAME, depth_desc), gpu::Access::depth_attachment);
+    depth_desc.size_class = ftk::SizeClass::viewport;
+    builder.write(builder.create(DEPTH_NAME, depth_desc), ftk::gpu::Access::depth_attachment);
 }
 
 void MeshletVizPass::collect_exports(DeclareContext& ctx) {

@@ -32,7 +32,7 @@ PresetTemplate PresetTemplate::from_nodes(std::string name, std::vector<std::uni
     for (const auto& node : preset.nodes_) {
         node->each_node_reference([&](const NodeReferenceSite& site, uint32_t& id) {
             if (own.contains(id)) return;
-            FJELL_CORE_WARN("{}: {} refers to node {}, which is not in the preset; the reference is dropped",
+            FTK_CORE_WARN("{}: {} refers to node {}, which is not in the preset; the reference is dropped",
                             source, describe(site, *node), id);
             id = 0;
         });
@@ -93,7 +93,7 @@ uint32_t PresetTemplate::instantiate(Scene& scene, int32_t parent_id, Transform 
 
 // ── From subtree ─────────────────────────────────────────────────────────
 
-Result<PresetTemplate> PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id) {
+ftk::Result<PresetTemplate> PresetTemplate::from_subtree(const Scene& scene, uint32_t root_id) {
     auto subtree = scene.collect_subtree(root_id);
     if (subtree.empty()) return PresetTemplate{};
 
@@ -149,14 +149,14 @@ Result<PresetTemplate> PresetTemplate::from_subtree(const Scene& scene, uint32_t
             if (i > 0) message += "; ";
             message += outside[i];
         }
-        return make_error(std::move(message));
+        return ftk::make_error(std::move(message));
     }
     return preset;
 }
 
 // ── From selection ───────────────────────────────────────────────────────
 
-Result<PresetTemplate> PresetTemplate::from_selection(const Scene& scene, const std::unordered_set<uint32_t>& ids) {
+ftk::Result<PresetTemplate> PresetTemplate::from_selection(const Scene& scene, const std::unordered_set<uint32_t>& ids) {
     if (ids.empty()) return PresetTemplate{};
 
     // Find the "topmost" selected node — the one whose parent is not in the

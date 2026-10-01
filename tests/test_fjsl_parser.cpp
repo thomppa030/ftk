@@ -869,7 +869,7 @@ std::filesystem::path find_shader_dir() {
     // Both the source tree and the build tree carry shaders/include/; walk
     // up from wherever the test runs until one appears.
     for (auto dir : {std::filesystem::current_path(),
-                     platform::executable_path().parent_path()}) {
+                     ftk::platform::executable_path().parent_path()}) {
         for (int i = 0; i < 6; ++i) {
             if (std::filesystem::exists(dir / "shaders" / "include" / "fjell_spatial_template.glsl")) {
                 return dir / "shaders";
@@ -891,7 +891,7 @@ std::string read_text(const std::filesystem::path& path) {
 // Runs a command and returns its exit status plus captured output.
 std::pair<int, std::string> run(const std::string& cmd) {
     std::string output;
-    int status = platform::run_command(cmd + " 2>&1", output);
+    int status = ftk::platform::run_command(cmd + " 2>&1", output);
     return {status, output};
 }
 

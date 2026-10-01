@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-using fjell::test::ImGuiHarness;
-namespace picker = fjell::ui::grouped_picker;
+using ftk::test::ImGuiHarness;
+namespace picker = ftk::ui::grouped_picker;
 
 namespace {
 

@@ -88,7 +88,7 @@ public:
     }
 
     /// Let all passes register their persistent resources.
-    void register_resources_all(ResourceRegistry& registry) {
+    void register_resources_all(ftk::ResourceRegistry& registry) {
         for (const auto& name : order_) {
             passes_[name]->register_resources(registry);
         }

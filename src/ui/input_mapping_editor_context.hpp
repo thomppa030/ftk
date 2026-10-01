@@ -37,8 +37,8 @@ public:
     void draw(float dt) override;
     bool handle_shortcuts() override;
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext&) override {}

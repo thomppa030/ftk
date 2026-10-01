@@ -32,13 +32,13 @@ struct ShadowTile {
 class LocalShadowPass : public RenderPass {
 public:
     static constexpr uint32_t ATLAS_SIZE = LOCAL_SHADOW_ATLAS_SIZE;
-    static constexpr gpu::Format DEPTH_FORMAT = gpu::Format::d32_float;
+    static constexpr ftk::gpu::Format DEPTH_FORMAT = ftk::gpu::Format::d32_float;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -65,16 +65,16 @@ private:
     void assign_point_tiles(const FrameContext& ctx);
     /// Draws the camera batch's casters into one tile of the atlas, seen
     /// through `light_vp`.
-    void draw_casters(const FrameContext& ctx, gpu::RenderEncoder& pass, uint32_t x, uint32_t y,
+    void draw_casters(const FrameContext& ctx, ftk::gpu::RenderEncoder& pass, uint32_t x, uint32_t y,
                       uint32_t size, const glm::mat4& light_vp) const;
 
-    gpu::Device* device_{nullptr};
-    gpu::Owned<gpu::Texture> atlas_;
-    gpu::Sampler sampler_;
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Owned<ftk::gpu::Texture> atlas_;
+    ftk::gpu::Sampler sampler_;
 
     // Pipelines (the cascades' shadow.vert / depth_only.frag)
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
-    gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_pipeline_;
 
     // Per-frame tile assignments
     std::vector<ShadowTile> spot_tiles_;

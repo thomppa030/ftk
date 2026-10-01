@@ -166,34 +166,34 @@ public:
     static constexpr std::string_view OUTPUT_NAME = "ddgi_indirect";
 
     /// Where the atlases rest between the passes that declare them.
-    static constexpr gpu::AccessSet ATLAS_REST = gpu::Access::sampled_compute | gpu::Access::sampled_fragment;
+    static constexpr ftk::gpu::AccessSet ATLAS_REST = ftk::gpu::Access::sampled_compute | ftk::gpu::Access::sampled_fragment;
 
     /// Per-viewport resolution-dependent state.
     struct Images {
         /// What this frame's batch of probes traced: probe_rays wide, one row
         /// per probe traced this frame. The trace writes it, the update reads it.
-        gpu::Owned<gpu::Texture> radiance;
+        ftk::gpu::Owned<ftk::gpu::Texture> radiance;
         /// The probe field: irradiance (RGBA16F), visibility (RG16F: mean hit
         /// distance and its square) and each probe's offset (RGBA16F,
         /// probes_xy x probes_z). Made cleared.
-        gpu::Owned<gpu::Texture> irradiance;
-        gpu::Owned<gpu::Texture> visibility;
-        gpu::Owned<gpu::Texture> probe_offset;
+        ftk::gpu::Owned<ftk::gpu::Texture> irradiance;
+        ftk::gpu::Owned<ftk::gpu::Texture> visibility;
+        ftk::gpu::Owned<ftk::gpu::Texture> probe_offset;
         /// A uint per probe; made with every probe untraced.
-        gpu::Owned<gpu::Buffer> probe_status;
+        ftk::gpu::Owned<ftk::gpu::Buffer> probe_status;
 
         /// Constants, written by the CPU every frame, so one per frame in
         /// flight: a frame still tracing must not see the next frame's grid
         /// origin or batch cursor. RT reflections read the slot's copy.
-        std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> constants;
+        std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> constants;
 
         // The point and spot lights that reach the grid, as the tracers read
         // them (DDGI_LIGHT_LIST_BYTES): filled on the GPU each frame by the
         // light select, one per frame in flight.
-        std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> light_list;
+        std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> light_list;
 
         /// The indirect light the surfaces sample: screen-res or half-res.
-        gpu::Owned<gpu::Texture> indirect;
+        ftk::gpu::Owned<ftk::gpu::Texture> indirect;
         glm::uvec2 indirect_extent{0, 0};
         /// The sample has written `indirect` since it was made; until it
         /// has, the surfaces sample the fallback.
@@ -224,26 +224,26 @@ public:
 
         /// The sky cubemap the probes last integrated, so a sky that changes
         /// identity (an HDRI loaded or cleared) discards what they hold.
-        gpu::Texture last_sky{};
+        ftk::gpu::Texture last_sky{};
 
-        void create(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        void create(ftk::gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Releases everything; the frames still reading the textures keep
         /// them until they are done.
         void destroy();
         /// Everything is made again when the probe count changes, which
         /// discards what the probes hold; a new screen size makes only the
         /// indirect output again.
-        void resize(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        void resize(ftk::gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
         /// Makes everything again for `config`, discarding what the probes
         /// hold, while frames may still be using what it replaces.
-        void remake(gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
+        void remake(ftk::gpu::Device& gpu, const DdgiConfig& config, uint32_t screen_w, uint32_t screen_h);
     };
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
@@ -272,7 +272,7 @@ public:
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
-    [[nodiscard]] gpu::Sampler linear_sampler() const { return linear_sampler_; }
+    [[nodiscard]] ftk::gpu::Sampler linear_sampler() const { return linear_sampler_; }
 
     void set_backend(DdgiBackend b) { backend_ = b; }
     [[nodiscard]] DdgiBackend backend() const { return backend_; }
@@ -363,12 +363,12 @@ private:
     /// The SDF tracer (set 1 the bindless material set a hit's surface is
     /// read from), the probe update, the screen sample, and the light select
     /// (set 0 the global set, whose light buffer it reads).
-    gpu::Owned<gpu::ComputePipeline> trace_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> probe_update_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> sample_pipeline_;
-    gpu::Owned<gpu::ComputePipeline> light_select_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> probe_update_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> sample_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> light_select_pipeline_;
 
-    gpu::Sampler linear_sampler_;
+    ftk::gpu::Sampler linear_sampler_;
     /// Bumped by refit_grid(). Each viewport compares this against the
     /// generation it last reset at, so every viewport discards its own
     /// atlases exactly once per refit — record_into() runs per viewport,
@@ -388,7 +388,7 @@ private:
 
     /// The ray-traced tracer, tracing with ray queries (set 1 the bindless
     /// material set); null on a device without them.
-    gpu::Owned<gpu::ComputePipeline> rt_trace_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> rt_trace_pipeline_;
 };
 
 } // namespace fjell

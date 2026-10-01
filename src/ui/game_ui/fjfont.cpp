@@ -66,32 +66,32 @@ std::span<const NamedCharset> named_charsets() {
     return kNamedCharsets;
 }
 
-Result<CharsetRange> parse_charset_entry(std::string_view entry) {
+ftk::Result<CharsetRange> parse_charset_entry(std::string_view entry) {
     for (const auto& named : kNamedCharsets) {
         if (entry == named.name) return named.range;
     }
     if (!entry.starts_with("U+")) {
-        return make_error("'" + std::string(entry) + "' is neither a named charset nor a U+ range");
+        return ftk::make_error("'" + std::string(entry) + "' is neither a named charset nor a U+ range");
     }
     auto body = entry.substr(2);
     auto dash = body.find('-');
     CharsetRange range;
     if (dash == std::string_view::npos) {
         if (!parse_hex(body, range.first)) {
-            return make_error("'" + std::string(entry) + "' is not a valid codepoint");
+            return ftk::make_error("'" + std::string(entry) + "' is not a valid codepoint");
         }
         range.last = range.first;
     } else {
         if (!parse_hex(body.substr(0, dash), range.first) ||
             !parse_hex(body.substr(dash + 1), range.last)) {
-            return make_error("'" + std::string(entry) + "' is not a valid codepoint range");
+            return ftk::make_error("'" + std::string(entry) + "' is not a valid codepoint range");
         }
         if (range.last < range.first) {
-            return make_error("'" + std::string(entry) + "' ends before it starts");
+            return ftk::make_error("'" + std::string(entry) + "' ends before it starts");
         }
     }
     if (range.last > 0x10FFFF) {
-        return make_error("'" + std::string(entry) + "' is beyond the last Unicode codepoint");
+        return ftk::make_error("'" + std::string(entry) + "' is beyond the last Unicode codepoint");
     }
     return range;
 }
@@ -128,31 +128,31 @@ std::string font_recipe_text(const FjFontRecipe& recipe) {
     return j.dump(4) + "\n";
 }
 
-Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
+ftk::Result<> save_font_recipe(const fs::path& path, const FjFontRecipe& recipe) {
     std::ofstream file(path);
-    if (!file) return make_error("cannot write " + path.string());
+    if (!file) return ftk::make_error("cannot write " + path.string());
     file << font_recipe_text(recipe);
-    if (!file) return make_error("write failed for " + path.string());
+    if (!file) return ftk::make_error("write failed for " + path.string());
     return {};
 }
 
-Result<FjFontRecipe> load_font_recipe(const fs::path& path, std::vector<std::string>* warnings) {
+ftk::Result<FjFontRecipe> load_font_recipe(const fs::path& path, std::vector<std::string>* warnings) {
     std::ifstream file(path);
-    if (!file) return make_error("cannot open " + path.string());
+    if (!file) return ftk::make_error("cannot open " + path.string());
     std::stringstream buffer;
     buffer << file.rdbuf();
     return font_recipe_from_text(buffer.str(), path.string(), warnings);
 }
 
-Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
+ftk::Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::string& where,
                                            std::vector<std::string>* warnings) {
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(text);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error(where + ": " + e.what());
+        return ftk::make_error(where + ": " + e.what());
     }
-    if (!j.is_object()) return make_error(where + ": recipe is not a JSON object");
+    if (!j.is_object()) return ftk::make_error(where + ": recipe is not a JSON object");
 
     auto warn = [&](const std::string& message) {
         if (warnings) warnings->push_back(where + ": " + message);
@@ -160,13 +160,13 @@ Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::str
 
     FjFontRecipe recipe;
     if (!j.contains("source") || !j["source"].is_string() || j["source"].get<std::string>().empty()) {
-        return make_error(where + ": 'source' must name a font file");
+        return ftk::make_error(where + ": 'source' must name a font file");
     }
     recipe.source = j["source"].get<std::string>();
 
     if (j.contains("charset")) {
         if (!j["charset"].is_array()) {
-            return make_error(where + ": 'charset' must be a list of names or U+ ranges");
+            return ftk::make_error(where + ": 'charset' must be a list of names or U+ ranges");
         }
         for (const auto& entry : j["charset"]) {
             if (!entry.is_string()) {
@@ -187,20 +187,20 @@ Result<FjFontRecipe> font_recipe_from_text(std::string_view text, const std::str
     if (j.contains("em_size")) {
         if (!j["em_size"].is_number_unsigned() || j["em_size"].get<uint32_t>() < 8 ||
             j["em_size"].get<uint32_t>() > 512) {
-            return make_error(where + ": 'em_size' must be a whole number of pixels from 8 to 512");
+            return ftk::make_error(where + ": 'em_size' must be a whole number of pixels from 8 to 512");
         }
         recipe.em_size = j["em_size"].get<uint32_t>();
     }
     if (j.contains("px_range")) {
         if (!j["px_range"].is_number() || j["px_range"].get<float>() <= 0.0f ||
             j["px_range"].get<float>() * 2.0f >= static_cast<float>(recipe.em_size)) {
-            return make_error(where + ": 'px_range' must be positive and less than half the em size");
+            return ftk::make_error(where + ": 'px_range' must be positive and less than half the em size");
         }
         recipe.px_range = j["px_range"].get<float>();
     }
     if (j.contains("kerning")) {
         if (!j["kerning"].is_boolean()) {
-            return make_error(where + ": 'kerning' must be true or false");
+            return ftk::make_error(where + ": 'kerning' must be true or false");
         }
         recipe.kerning = j["kerning"].get<bool>();
     }
@@ -261,7 +261,7 @@ uint64_t font_source_hash(std::string_view recipe_text, std::span<const uint8_t>
     return h;
 }
 
-Result<uint64_t> font_source_hash(const fs::path& recipe_path, const fs::path& source_path) {
+ftk::Result<uint64_t> font_source_hash(const fs::path& recipe_path, const fs::path& source_path) {
     auto read = [](const fs::path& path, std::vector<uint8_t>& out) {
         std::ifstream file(path, std::ios::binary);
         if (!file) return false;
@@ -270,16 +270,16 @@ Result<uint64_t> font_source_hash(const fs::path& recipe_path, const fs::path& s
     };
     std::vector<uint8_t> recipe_bytes;
     std::vector<uint8_t> source_bytes;
-    if (!read(recipe_path, recipe_bytes)) return make_error("cannot read " + recipe_path.string());
-    if (!read(source_path, source_bytes)) return make_error("cannot read " + source_path.string());
+    if (!read(recipe_path, recipe_bytes)) return ftk::make_error("cannot read " + recipe_path.string());
+    if (!read(source_path, source_bytes)) return ftk::make_error("cannot read " + source_path.string());
     std::string_view recipe_text(reinterpret_cast<const char*>(recipe_bytes.data()), recipe_bytes.size());
     return font_source_hash(recipe_text, source_bytes);
 }
 
-Result<> write_font_atlas(const fs::path& path, BakedFontAtlas& atlas) {
+ftk::Result<> write_font_atlas(const fs::path& path, BakedFontAtlas& atlas) {
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
-    if (ec) return make_error("cannot create " + path.parent_path().string() + ": " + ec.message());
+    if (ec) return ftk::make_error("cannot create " + path.parent_path().string() + ": " + ec.message());
 
     auto& h = atlas.header;
     h.magic = FJFONT_ATLAS_MAGIC;
@@ -296,53 +296,53 @@ Result<> write_font_atlas(const fs::path& path, BakedFontAtlas& atlas) {
     auto temp = path;
     temp += ".tmp";
     FilePtr f(std::fopen(temp.string().c_str(), "wb"));
-    if (!f) return make_error("cannot write " + temp.string());
+    if (!f) return ftk::make_error("cannot write " + temp.string());
     bool ok = write_pod(f.get(), h) && write_all(f.get(), atlas.glyphs) &&
               write_all(f.get(), atlas.kerning) && write_all(f.get(), atlas.pixels);
     f.reset();
     if (!ok) {
         fs::remove(temp, ec);
-        return make_error("write failed for " + temp.string());
+        return ftk::make_error("write failed for " + temp.string());
     }
     fs::rename(temp, path, ec);
-    if (ec) return make_error("cannot replace " + path.string() + ": " + ec.message());
+    if (ec) return ftk::make_error("cannot replace " + path.string() + ": " + ec.message());
     return {};
 }
 
-Result<FjFontAtlasHeader> read_font_atlas_header(const fs::path& path) {
+ftk::Result<FjFontAtlasHeader> read_font_atlas_header(const fs::path& path) {
     FilePtr f(std::fopen(path.string().c_str(), "rb"));
-    if (!f) return make_error("cannot open " + path.string());
+    if (!f) return ftk::make_error("cannot open " + path.string());
     FjFontAtlasHeader h{};
     if (std::fread(&h, 1, FJFONT_ATLAS_HEADER_V1_SIZE, f.get()) != FJFONT_ATLAS_HEADER_V1_SIZE) {
-        return make_error(path.string() + " is too short to be a font atlas");
+        return ftk::make_error(path.string() + " is too short to be a font atlas");
     }
-    if (h.magic != FJFONT_ATLAS_MAGIC) return make_error(path.string() + " is not a font atlas");
+    if (h.magic != FJFONT_ATLAS_MAGIC) return ftk::make_error(path.string() + " is not a font atlas");
     if (h.version != FJFONT_ATLAS_VERSION) {
-        return make_error(path.string() + " is atlas version " + std::to_string(h.version) +
+        return ftk::make_error(path.string() + " is atlas version " + std::to_string(h.version) +
                           ", this build reads version " + std::to_string(FJFONT_ATLAS_VERSION));
     }
     return h;
 }
 
-Result<BakedFontAtlas> read_font_atlas(const fs::path& path) {
+ftk::Result<BakedFontAtlas> read_font_atlas(const fs::path& path) {
     auto header = read_font_atlas_header(path);
-    if (!header) return make_error(header.error());
+    if (!header) return ftk::make_error(header.error());
 
     FilePtr f(std::fopen(path.string().c_str(), "rb"));
-    if (!f) return make_error("cannot open " + path.string());
+    if (!f) return ftk::make_error("cannot open " + path.string());
     BakedFontAtlas atlas;
     atlas.header = *header;
     const auto& h = atlas.header;
 
     size_t pixel_count = static_cast<size_t>(h.atlas_width) * h.atlas_height * 4;
     if (h.page_count != 1 || h.atlas_width == 0 || h.atlas_height == 0 || pixel_count == 0) {
-        return make_error(path.string() + " has an empty atlas page");
+        return ftk::make_error(path.string() + " has an empty atlas page");
     }
     auto seek = [&](uint64_t offset) { return std::fseek(f.get(), static_cast<long>(offset), SEEK_SET) == 0; };
     if (!seek(h.glyph_table_offset) || !read_all(f.get(), atlas.glyphs, h.glyph_count) ||
         !seek(h.kerning_offset) || !read_all(f.get(), atlas.kerning, h.kerning_count) ||
         !seek(h.pixels_offset) || !read_all(f.get(), atlas.pixels, pixel_count)) {
-        return make_error(path.string() + " is truncated");
+        return ftk::make_error(path.string() + " is truncated");
     }
     return atlas;
 }

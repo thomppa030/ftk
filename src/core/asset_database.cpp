@@ -17,7 +17,7 @@ AssetDatabase::AssetDatabase(fs::path project_root)
 
 // ── Persistence ─────────────────────────────────────────────────────────
 
-Result<> AssetDatabase::load() {
+ftk::Result<> AssetDatabase::load() {
     std::unique_lock lock(mutex_);
 
     if (!fs::exists(db_path_)) {
@@ -26,14 +26,14 @@ Result<> AssetDatabase::load() {
 
     std::ifstream file(db_path_);
     if (!file.is_open()) {
-        return make_error("Failed to open asset database: " + db_path_.string());
+        return ftk::make_error("Failed to open asset database: " + db_path_.string());
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error("Asset database parse error: " + std::string(e.what()));
+        return ftk::make_error("Asset database parse error: " + std::string(e.what()));
     }
 
     by_id_.clear();
@@ -59,7 +59,7 @@ Result<> AssetDatabase::load() {
     return {};
 }
 
-Result<> AssetDatabase::save() const {
+ftk::Result<> AssetDatabase::save() const {
     std::shared_lock lock(mutex_);
 
     // Ensure .fjell/ directory exists
@@ -67,7 +67,7 @@ Result<> AssetDatabase::save() const {
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) {
-        return make_error("Failed to create .fjell directory: " + ec.message());
+        return ftk::make_error("Failed to create .fjell directory: " + ec.message());
     }
 
     nlohmann::json j;
@@ -94,14 +94,14 @@ Result<> AssetDatabase::save() const {
     {
         std::ofstream out(tmp_path);
         if (!out.is_open()) {
-            return make_error("Failed to write asset database: " + tmp_path.string());
+            return ftk::make_error("Failed to write asset database: " + tmp_path.string());
         }
         out << j.dump(2) << '\n';
     }
 
     fs::rename(tmp_path, db_path_, ec);
     if (ec) {
-        return make_error("Failed to rename asset database: " + ec.message());
+        return ftk::make_error("Failed to rename asset database: " + ec.message());
     }
 
     return {};
@@ -245,7 +245,7 @@ void AssetDatabase::rebuild() {
     }
 
     if (!stale.empty()) {
-        FJELL_CORE_INFO("Asset database: removed {} stale entries", stale.size());
+        FTK_CORE_INFO("Asset database: removed {} stale entries", stale.size());
     }
 
     // Store ids into the assets themselves. A failure here leaves the entry in
@@ -257,7 +257,7 @@ void AssetDatabase::rebuild() {
         }
     }
     if (written > 0) {
-        FJELL_CORE_INFO("Asset database: stored ids in {} assets", written);
+        FTK_CORE_INFO("Asset database: stored ids in {} assets", written);
     }
 }
 

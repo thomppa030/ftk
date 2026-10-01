@@ -66,12 +66,12 @@ private:
         int index{-1};
     };
 
-    [[nodiscard]] ui::NodeGraphDesc describe(VfxEmitter& emitter);
-    bool apply(VfxEmitter& emitter, const ui::NodeGraphEvents& events);
-    bool menu(VfxEmitter& emitter, const ui::NodeGraphMenu& target, bool& changed);
+    [[nodiscard]] ftk::ui::NodeGraphDesc describe(VfxEmitter& emitter);
+    bool apply(VfxEmitter& emitter, const ftk::ui::NodeGraphEvents& events);
+    bool menu(VfxEmitter& emitter, const ftk::ui::NodeGraphMenu& target, bool& changed);
     void remove_selected(VfxEmitter& emitter);
 
-    ui::NodeGraph graph_;
+    ftk::ui::NodeGraph graph_;
     // Rebuilt with every description.
     std::unordered_map<uint64_t, Source> sources_;          // by node id
     std::unordered_map<uint64_t, PinDataType> pin_types_;   // by pin id

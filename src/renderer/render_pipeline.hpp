@@ -10,17 +10,21 @@
 #include <unordered_set>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
+namespace ftk::gpu {
+class CommandList;
+class Frame;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class OffscreenPass;
 class PassRegistry;
 class PostProcessResources;
 class RenderPass;
-class ThreadPool;
-namespace gpu {
-class CommandList;
-class Frame;
-}
 struct FrameContext;
 
 /// Execution phases for render passes. Each phase has a base order value;
@@ -112,10 +116,10 @@ public:
     /// Returns true if any pass recorded to the async compute CB — the
     /// caller uses this to decide whether to submit it and wait on its
     /// timeline semaphore.
-    [[nodiscard]] bool execute(gpu::CommandList& cmd, OffscreenPass& target,
-                               gpu::Samples msaa, uint32_t active_sources,
-                               ThreadPool& pool, gpu::Frame& frame,
-                               uint32_t frame_index, ResourceRegistry& registry,
+    [[nodiscard]] bool execute(ftk::gpu::CommandList& cmd, OffscreenPass& target,
+                               ftk::gpu::Samples msaa, uint32_t active_sources,
+                               ftk::ThreadPool& pool, ftk::gpu::Frame& frame,
+                               uint32_t frame_index, ftk::ResourceRegistry& registry,
                                PassRegistry& passes, PostProcessResources* pp_resources,
                                const FrameContext& ctx,
                                bool async_compute_available,
@@ -135,7 +139,7 @@ private:
 
     /// The one graph every run goes through; it keeps what it learned
     /// about image layouts from one run to the next.
-    FrameGraph graph_;
+    ftk::FrameGraph graph_;
 
     // ── Per-run scratch, kept so a run allocates nothing on its hot path ──
 
@@ -144,9 +148,9 @@ private:
     /// transients by the FNV-1a hash of the name they were declared with,
     /// so two passes naming the same transient resolve to the same key.
     struct ResKey {
-        gpu::Texture texture{};
-        gpu::Buffer buffer{};
-        gpu::AccelerationStructure structure{};
+        ftk::gpu::Texture texture{};
+        ftk::gpu::Buffer buffer{};
+        ftk::gpu::AccelerationStructure structure{};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
         uint64_t virtual_name_hash{0};  // non-zero iff no handle is set
@@ -171,7 +175,7 @@ private:
 
     /// One builder per enabled pass, reset rather than rebuilt each run:
     /// each holds seven vectors whose capacity is worth keeping.
-    std::vector<PassBuilder> builders_;
+    std::vector<ftk::PassBuilder> builders_;
     std::vector<PendingPass> pending_;
     std::unordered_set<uint64_t> viewport_enabled_;
     std::vector<std::vector<size_t>> adj_;
@@ -181,15 +185,15 @@ private:
     std::vector<size_t> work_;
     std::unordered_map<ResKey, size_t, ResKeyHash> last_writer_;
     std::unordered_map<ResKey, std::vector<size_t>, ResKeyHash> writers_of_;
-    std::vector<ResourceLifetime> lifetimes_;
-    std::vector<AliasGroup> groups_;
+    std::vector<ftk::ResourceLifetime> lifetimes_;
+    std::vector<ftk::AliasGroup> groups_;
 
     /// Log the declared-DAG pass count and culled-pass count once per
     /// session instead of every frame.
     bool dag_order_logged_{false};
 
     /// Log resource lifetimes once per session (debug; gated by the
-    /// FJELL_LOG_LIFETIMES env var inside FrameGraph::log_lifetimes).
+    /// FTK_LOG_LIFETIMES env var inside FrameGraph::log_lifetimes).
     bool lifetimes_logged_{false};
 
     /// Master switch for C2 greedy packing. Flipped via the debug UI to

@@ -29,7 +29,7 @@ namespace fjell::hub {
 
 HubUI::HubUI() = default;
 
-void HubUI::set_device(fjell::gpu::Device* device) {
+void HubUI::set_device(ftk::gpu::Device* device) {
     set_up_file_browser(open_browser_, device);
     set_up_file_browser(new_browser_, device);
 
@@ -42,7 +42,7 @@ void HubUI::set_device(fjell::gpu::Device* device) {
                 std::ifstream f(manifest);
                 nlohmann::json j;
                 try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
-                catch (const std::exception& e) { FJELL_CORE_WARN("Failed to parse project manifest: {}", e.what()); }
+                catch (const std::exception& e) { FTK_CORE_WARN("Failed to parse project manifest: {}", e.what()); }
             }
             if (name.empty()) {
                 name = std::filesystem::path(path).filename().string();
@@ -64,7 +64,7 @@ void HubUI::tick_browsers() {
 }
 
 void HubUI::setup_style() {
-    fjell::theme::apply(ImGui::GetStyle());
+    ftk::theme::apply(ImGui::GetStyle());
 }
 
 namespace {
@@ -88,13 +88,13 @@ std::string shown_path(const std::string& path) {
 void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    (void)ui::begin_host_window("##Hub", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+    (void)ftk::ui::begin_host_window("##Hub", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                              ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                              ImGuiWindowFlags_NoBringToFrontOnFocus |
                                              ImGuiWindowFlags_NoScrollbar);
-    if (auto side = ui::Pane("##side", {SIDEBAR_W, window_h}, ui::PaneSurface::Sunken)) draw_sidebar();
+    if (auto side = ftk::ui::Pane("##side", {SIDEBAR_W, window_h}, ftk::ui::PaneSurface::Sunken)) draw_sidebar();
     ImGui::SameLine(0.0f, 0.0f);
-    if (auto main = ui::Pane("##projects", {0.0f, window_h})) draw_projects();
+    if (auto main = ftk::ui::Pane("##projects", {0.0f, window_h})) draw_projects();
     ImGui::End();
 }
 
@@ -105,33 +105,33 @@ void HubUI::draw_sidebar() {
     const ImVec2 top = ImGui::GetCursorScreenPos();
     const float cx = top.x + width * 0.5f;
     constexpr float LOGO_SCALE = 84.0f / 180.0f;
-    ui::draw_logo(dl, {cx, top.y + theme::GAP_M}, LOGO_SCALE);
-    const float word_y = top.y + theme::GAP_M + ui::logo_size(LOGO_SCALE).y + theme::GAP_L;
-    ui::wordmark(dl, {cx, word_y}, 20.0f);
+    ftk::ui::draw_logo(dl, {cx, top.y + ftk::theme::GAP_M}, LOGO_SCALE);
+    const float word_y = top.y + ftk::theme::GAP_M + ftk::ui::logo_size(LOGO_SCALE).y + ftk::theme::GAP_L;
+    ftk::ui::wordmark(dl, {cx, word_y}, 20.0f);
     const char* subtitle = "Game Engine";
     const ImVec2 sub = ImGui::CalcTextSize(subtitle);
-    dl->AddText({cx - sub.x * 0.5f, word_y + 16.0f}, ImGui::GetColorU32(theme::text_secondary()), subtitle);
-    ImGui::Dummy({width, word_y + 16.0f + sub.y + theme::GAP_L * 2.0f - top.y});
+    dl->AddText({cx - sub.x * 0.5f, word_y + 16.0f}, ImGui::GetColorU32(ftk::theme::text_secondary()), subtitle);
+    ImGui::Dummy({width, word_y + 16.0f + sub.y + ftk::theme::GAP_L * 2.0f - top.y});
 
     constexpr float BUTTON_H = 32.0f;
-    if (ui::action(ui::icon::add, "New project", ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
-        new_browser_.open("New project", FileBrowser::Mode::select_location, "Create");
+    if (ftk::ui::action(ftk::ui::icon::add, "New project", ftk::ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
+        new_browser_.open("New project", ftk::FileBrowser::Mode::select_location, "Create");
     }
-    ImGui::Dummy({0.0f, theme::GAP_XS});
-    if (ui::action(ui::icon::open_file, "Open project", ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
-        open_browser_.open("Open project", FileBrowser::Mode::select_directory, "Open");
+    ImGui::Dummy({0.0f, ftk::theme::GAP_XS});
+    if (ftk::ui::action(ftk::ui::icon::open_file, "Open project", ftk::ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
+        open_browser_.open("Open project", ftk::FileBrowser::Mode::select_directory, "Open");
     }
 }
 
 void HubUI::draw_projects() {
-    ui::section("Recent projects", ui::icon::recent);
+    ftk::ui::section("Recent projects", ftk::ui::icon::recent);
     if (recent_.list().empty()) {
-        (void)ui::empty_state(ui::icon::recent, "No recent projects", "Create a project, or open one from its folder");
+        (void)ftk::ui::empty_state(ftk::ui::icon::recent, "No recent projects", "Create a project, or open one from its folder");
         return;
     }
     ImGui::SetNextItemWidth(-1.0f);
-    (void)ui::search_field("##search", search_);
-    ImGui::Dummy({0.0f, theme::GAP_S});
+    (void)ftk::ui::search_field("##search", search_);
+    ImGui::Dummy({0.0f, ftk::theme::GAP_S});
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float width = ImGui::GetContentRegionAvail().x;
@@ -141,7 +141,7 @@ void HubUI::draw_projects() {
         const std::string name = project.name.empty() ? std::filesystem::path(project.path).filename().string()
                                                       : project.name;
         const std::string folder = shown_path(project.path);
-        if (!search_.empty() && !ui::matches(name, search_) && !ui::matches(folder, search_)) continue;
+        if (!search_.empty() && !ftk::ui::matches(name, search_) && !ftk::ui::matches(folder, search_)) continue;
         any = true;
 
         ImGui::PushID(project.path.c_str());
@@ -150,10 +150,10 @@ void HubUI::draw_projects() {
         if (ImGui::InvisibleButton("##row", {width, ROW_H})) launch_project(project.path, name);
         const bool hot = ImGui::IsItemHovered();
         if (ImGui::BeginPopupContextItem("##project")) {
-            if (ui::menu_item({.icon = ui::icon::forget, .label = "Remove from list"})) forget = project.path;
-            if (ui::menu_item({.icon = ui::icon::show_in_files, .label = "Show in file manager"})) {
-                if (auto opened = platform::open_path(project.path); !opened) {
-                    FJELL_CORE_WARN("Couldn't show {}: {}", project.path, opened.error());
+            if (ftk::ui::menu_item({.icon = ftk::ui::icon::forget, .label = "Remove from list"})) forget = project.path;
+            if (ftk::ui::menu_item({.icon = ftk::ui::icon::show_in_files, .label = "Show in file manager"})) {
+                if (auto opened = ftk::platform::open_path(project.path); !opened) {
+                    FTK_CORE_WARN("Couldn't show {}: {}", project.path, opened.error());
                 }
             }
             ImGui::EndPopup();
@@ -161,26 +161,26 @@ void HubUI::draw_projects() {
         const bool menu_open = ImGui::IsPopupOpen("##project");
 
         const float rounding = ImGui::GetStyle().FrameRounding;
-        if (hot || menu_open) dl->AddRectFilled(p0, p1, ImGui::GetColorU32(theme::surface_hover()), rounding);
+        if (hot || menu_open) dl->AddRectFilled(p0, p1, ImGui::GetColorU32(ftk::theme::surface_hover()), rounding);
         const float cy = (p0.y + p1.y) * 0.5f;
-        const ImVec2 t0{p0.x + theme::GAP_M, cy - THUMB * 0.5f};
-        dl->AddRectFilled(t0, {t0.x + THUMB, t0.y + THUMB}, ImGui::GetColorU32(theme::surface_sunken()), 5.0f);
-        const ImVec2 icon = ImGui::CalcTextSize(ui::icon::folder);
+        const ImVec2 t0{p0.x + ftk::theme::GAP_M, cy - THUMB * 0.5f};
+        dl->AddRectFilled(t0, {t0.x + THUMB, t0.y + THUMB}, ImGui::GetColorU32(ftk::theme::surface_sunken()), 5.0f);
+        const ImVec2 icon = ImGui::CalcTextSize(ftk::ui::icon::folder);
         dl->AddText({t0.x + (THUMB - icon.x) * 0.5f, cy - icon.y * 0.5f},
-                    ImGui::GetColorU32(theme::text_secondary()), ui::icon::folder);
+                    ImGui::GetColorU32(ftk::theme::text_secondary()), ftk::ui::icon::folder);
 
-        const float text_x = t0.x + THUMB + theme::GAP_M + theme::GAP_XS;
-        dl->PushClipRect({text_x, p0.y}, {p1.x - theme::GAP_M, p1.y}, true);
+        const float text_x = t0.x + THUMB + ftk::theme::GAP_M + ftk::theme::GAP_XS;
+        dl->PushClipRect({text_x, p0.y}, {p1.x - ftk::theme::GAP_M, p1.y}, true);
         const float line = ImGui::GetTextLineHeight();
-        ui::detail::draw_highlighted(dl, {text_x, cy - line}, name, search_, ImGui::GetColorU32(theme::text()));
-        ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT - 1.0f);
-        ui::detail::draw_highlighted(dl, {text_x, cy + 1.0f}, folder, search_,
-                                     ImGui::GetColorU32(theme::text_secondary()));
+        ftk::ui::detail::draw_highlighted(dl, {text_x, cy - line}, name, search_, ImGui::GetColorU32(ftk::theme::text()));
+        ImGui::PushFont(ftk::theme::mono_font(), ftk::theme::SMALL_TEXT - 1.0f);
+        ftk::ui::detail::draw_highlighted(dl, {text_x, cy + 1.0f}, folder, search_,
+                                     ImGui::GetColorU32(ftk::theme::text_secondary()));
         ImGui::PopFont();
         dl->PopClipRect();
         ImGui::PopID();
     }
-    if (!any) ui::hint("No recent project matches");
+    if (!any) ftk::ui::hint("No recent project matches");
     if (forget) recent_.remove(*forget);
 }
 
@@ -197,7 +197,7 @@ void HubUI::launch_project(const std::string& path, const std::string& name,
 void HubUI::draw_splash(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    (void)ui::begin_host_window("##Splash", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+    (void)ftk::ui::begin_host_window("##Splash", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                                 ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -207,11 +207,11 @@ void HubUI::draw_splash(float window_w, float window_h) {
     // centred content, and a wider window leaves more room around it.
     constexpr float LOGO_SCALE = 1.6f;
     constexpr float LOGO_TOP = 80.0f;
-    ui::draw_logo(dl, {cx, LOGO_TOP}, LOGO_SCALE);
-    const float word_y = LOGO_TOP + ui::logo_size(LOGO_SCALE).y + 30.0f;
-    ui::wordmark(dl, {cx, word_y}, 24.0f);
+    ftk::ui::draw_logo(dl, {cx, LOGO_TOP}, LOGO_SCALE);
+    const float word_y = LOGO_TOP + ftk::ui::logo_size(LOGO_SCALE).y + 30.0f;
+    ftk::ui::wordmark(dl, {cx, word_y}, 24.0f);
 
-    ui::loading(dl, {cx, word_y + 42.0f}, "Opening " + launch_name_ + "\xe2\x80\xa6", splash_timer_);
+    ftk::ui::loading(dl, {cx, word_y + 42.0f}, "Opening " + launch_name_ + "\xe2\x80\xa6", splash_timer_);
     ImGui::End();
 }
 

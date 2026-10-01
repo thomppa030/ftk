@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 struct ComputePipelineTag;
@@ -248,4 +248,4 @@ struct GraphicsPipelineDesc {
     std::string_view name{};
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

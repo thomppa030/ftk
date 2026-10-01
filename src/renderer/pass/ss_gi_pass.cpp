@@ -41,13 +41,13 @@ struct UpsamplePush {
 
 // Where the probe textures rest between frames: sampled by the pass's own
 // compute shaders. They are made cleared, which leaves them there.
-constexpr gpu::Access REST = gpu::Access::sampled_compute;
+constexpr ftk::gpu::Access REST = ftk::gpu::Access::sampled_compute;
 
 } // namespace
 
 // ── Images lifecycle ────────────────────────────────────────────────────
 
-void SsGiPass::Images::create(gpu::Device& gpu, const SsGiConfig& config,
+void SsGiPass::Images::create(ftk::gpu::Device& gpu, const SsGiConfig& config,
                               uint32_t screen_w, uint32_t screen_h) {
     probe_count = {
         (screen_w + config.probe_spacing - 1) / config.probe_spacing,
@@ -56,10 +56,10 @@ void SsGiPass::Images::create(gpu::Device& gpu, const SsGiConfig& config,
     rays_per_probe = config.rays_per_probe;
     indirect_extent = {std::max(1U, screen_w / 2), std::max(1U, screen_h / 2)};
 
-    auto make = [&](glm::uvec2 size, gpu::TextureUses use, std::optional<gpu::Clear> initial,
-                    std::string_view name) -> gpu::Owned<gpu::Texture> {
-        auto made = gpu.create(gpu::TextureDesc{
-            .format = gpu::Format::rgba16_float,
+    auto make = [&](glm::uvec2 size, ftk::gpu::TextureUses use, std::optional<ftk::gpu::Clear> initial,
+                    std::string_view name) -> ftk::gpu::Owned<ftk::gpu::Texture> {
+        auto made = gpu.create(ftk::gpu::TextureDesc{
+            .format = ftk::gpu::Format::rgba16_float,
             .width = size.x,
             .height = size.y,
             .use = use,
@@ -67,16 +67,16 @@ void SsGiPass::Images::create(gpu::Device& gpu, const SsGiConfig& config,
             .name = name,
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             return {};
         }
         return std::move(*made);
     };
-    const gpu::TextureUses storage_sampled = gpu::TextureUse::storage | gpu::TextureUse::sampled;
+    const ftk::gpu::TextureUses storage_sampled = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled;
     raw_radiance = make({probe_count.x, probe_count.y * rays_per_probe}, storage_sampled,
-                        gpu::Clear{}, "ss_gi_raw_radiance");
-    resolved = make(probe_count, storage_sampled, gpu::Clear{}, "ss_gi_resolved");
-    history = make(probe_count, gpu::TextureUse::sampled, gpu::Clear{}, "ss_gi_history");
+                        ftk::gpu::Clear{}, "ss_gi_raw_radiance");
+    resolved = make(probe_count, storage_sampled, ftk::gpu::Clear{}, "ss_gi_resolved");
+    history = make(probe_count, ftk::gpu::TextureUse::sampled, ftk::gpu::Clear{}, "ss_gi_history");
     // Exported to the frame graph, which starts it undefined until written.
     indirect = make(indirect_extent, storage_sampled, std::nullopt, "ss_gi_indirect");
 
@@ -85,7 +85,7 @@ void SsGiPass::Images::create(gpu::Device& gpu, const SsGiConfig& config,
     history_valid = false;
 }
 
-void SsGiPass::Images::resize(gpu::Device& gpu, const SsGiConfig& config,
+void SsGiPass::Images::resize(ftk::gpu::Device& gpu, const SsGiConfig& config,
                               uint32_t screen_w, uint32_t screen_h) {
     if (screen_w == 0 || screen_h == 0) return;
 
@@ -104,23 +104,23 @@ void SsGiPass::Images::resize(gpu::Device& gpu, const SsGiConfig& config,
     create(gpu, config, screen_w, screen_h);
 }
 
-void SsGiPass::Images::fit_prev_depth(gpu::Device& gpu, gpu::Texture scene_depth) {
-    const gpu::TextureInfo want = gpu.info(scene_depth);
+void SsGiPass::Images::fit_prev_depth(ftk::gpu::Device& gpu, ftk::gpu::Texture scene_depth) {
+    const ftk::gpu::TextureInfo want = gpu.info(scene_depth);
     if (prev_depth) {
-        const gpu::TextureInfo& have = gpu.info(prev_depth);
+        const ftk::gpu::TextureInfo& have = gpu.info(prev_depth);
         if (have.width == want.width && have.height == want.height && have.format == want.format) {
             return;
         }
     }
-    auto made = gpu.create(gpu::TextureDesc{
+    auto made = gpu.create(ftk::gpu::TextureDesc{
         .format = want.format,
         .width = want.width,
         .height = want.height,
-        .use = gpu::TextureUse::sampled,
+        .use = ftk::gpu::TextureUse::sampled,
         .name = "ss_gi_prev_depth",
     });
     if (!made) {
-        FJELL_GFX_ERROR("{}", made.error());
+        FTK_GFX_ERROR("{}", made.error());
         prev_depth.reset();
         return;
     }
@@ -143,40 +143,40 @@ void SsGiPass::Images::destroy() {
 
 // ── Pass create ─────────────────────────────────────────────────────────
 
-Result<> SsGiPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
-    linear_sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                                      .mip_filter = gpu::Filter::nearest,
-                                      .address = gpu::Address::clamp});
-    nearest_sampler_ = device.sampler({.filter = gpu::Filter::nearest,
-                                       .mip_filter = gpu::Filter::nearest,
-                                       .address = gpu::Address::clamp});
+ftk::Result<> SsGiPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
+    linear_sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                                      .mip_filter = ftk::gpu::Filter::nearest,
+                                      .address = ftk::gpu::Address::clamp});
+    nearest_sampler_ = device.sampler({.filter = ftk::gpu::Filter::nearest,
+                                       .mip_filter = ftk::gpu::Filter::nearest,
+                                       .address = ftk::gpu::Address::clamp});
 
     if (device.caps().ray_queries) {
         // Set 0 the pass's own, set 1 the bindless material set a hit's
         // surface is read from.
-        auto trace = device.create(gpu::ComputePipelineDesc{
+        auto trace = device.create(ftk::gpu::ComputePipelineDesc{
             .shader = "shaders/ss_gi_trace.comp",
             .shared = {resources.bindless},
             .name = "ss_gi_trace",
         });
         if (trace) {
             trace_pipeline_ = std::move(*trace);
-            FJELL_GFX_INFO("SS-GI trace pipeline created (ray queries)");
+            FTK_GFX_INFO("SS-GI trace pipeline created (ray queries)");
         } else {
-            FJELL_GFX_WARN("Failed to create the SS-GI trace pipeline: {}", trace.error());
+            FTK_GFX_WARN("Failed to create the SS-GI trace pipeline: {}", trace.error());
         }
     }
-    FJELL_TRY(resolve_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(resolve_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                      .shader = "shaders/ss_gi_resolve.comp",
                                      .name = "ss_gi_resolve",
                                  }));
-    FJELL_TRY(upsample_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(upsample_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                       .shader = "shaders/ss_gi_upsample.comp",
                                       .name = "ss_gi_upsample",
                                   }));
 
-    FJELL_GFX_DEBUG("SS-GI pass created");
+    FTK_GFX_DEBUG("SS-GI pass created");
     return {};
 }
 
@@ -218,7 +218,7 @@ GpuSsGiConstants SsGiPass::constants(const Images& imgs, const FrameContext& ctx
 
 void SsGiPass::record_depth_history(const FrameContext& ctx, Images& imgs) {
     if (!imgs.prev_depth || ctx.target == nullptr) return;
-    FJELL_PROFILE_SCOPE_N("record_ss_gi_depth_history");
+    FTK_PROFILE_SCOPE_N("record_ss_gi_depth_history");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SS-GI Depth History");
     // The render pipeline fitted the copy to this target's depth; the graph
@@ -230,7 +230,7 @@ void SsGiPass::record(const FrameContext& ctx) {
     if (!active()) { return; }
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->ss_gi() : nullptr;
     if (imgs == nullptr) { return; }
-    FJELL_PROFILE_SCOPE_N("record_ss_gi");
+    FTK_PROFILE_SCOPE_N("record_ss_gi");
     // Stopping before the upsample leaves the output holding what it held.
     record_into(ctx, *imgs);
 }
@@ -243,21 +243,21 @@ PassSetup SsGiPass::setup() const {
     };
 }
 
-void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SsGiPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!active()) { return; }
     // The emissive light the surfaces sample, kept for them into the next
     // frame, which is also what keeps the pass alive. The graph moves it
     // into GENERAL, and back to rest afterwards however record() ends.
     auto out = builder.import_named_optional(ctx, OUTPUT_NAME);
     if (!out.valid()) { return; }
-    builder.write(out, gpu::Access::storage_write_compute);
+    builder.write(out, ftk::gpu::Access::storage_write_compute);
     // The trace, the resolve and the upsample all read both in compute.
-    builder.read(builder.import_named(ctx, "depth"), gpu::Access::sampled_compute);
-    builder.read(builder.import_named(ctx, "normal"), gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "depth"), ftk::gpu::Access::sampled_compute);
+    builder.read(builder.import_named(ctx, "normal"), ftk::gpu::Access::sampled_compute);
     // The last frame's depth, for the resolve, before the depth history
     // pass copies this frame's over it.
     if (auto prev = builder.import_named_optional(ctx, PREV_DEPTH_NAME); prev.valid()) {
-        builder.read(prev, gpu::Access::sampled_compute);
+        builder.read(prev, ftk::gpu::Access::sampled_compute);
     }
     AccelStructureManager::declare_trace(builder, ctx);
 }
@@ -271,33 +271,33 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // This frame's TLAS for the scene, built by the rt_scene pass; none when
     // no tracer's reach held anything.
     const uint64_t scene_id = ctx.scene->id();
-    const gpu::AccelerationStructure tlas = accel_manager_->tlas(scene_id, ctx.frame_index);
+    const ftk::gpu::AccelerationStructure tlas = accel_manager_->tlas(scene_id, ctx.frame_index);
     if (!tlas.valid()) return;
 
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("SS-GI");
-    const gpu::BufferRange constants = cmd.transient(this->constants(imgs, ctx));
-    const gpu::Texture depth = ctx.target->depth_texture();
-    const gpu::Texture normal = ctx.target->normal_texture();
+    const ftk::gpu::BufferRange constants = cmd.transient(this->constants(imgs, ctx));
+    const ftk::gpu::Texture depth = ctx.target->depth_texture();
+    const ftk::gpu::Texture normal = ctx.target->normal_texture();
 
     // The trace and the resolve each write a whole probe texture, after the
     // last frame's reads of it.
-    const std::array<gpu::TextureView, 2> probe_outputs{imgs.raw_radiance, imgs.resolved};
-    cmd.barrier(probe_outputs, REST, gpu::Access::storage_write_compute);
+    const std::array<ftk::gpu::TextureView, 2> probe_outputs{imgs.raw_radiance, imgs.resolved};
+    cmd.barrier(probe_outputs, REST, ftk::gpu::Access::storage_write_compute);
 
     {
-        FJELL_PROFILE_SCOPE_N("ss_gi_trace");
+        FTK_PROFILE_SCOPE_N("ss_gi_trace");
         auto trace_zone = cmd.zone("SS-GI Trace");
         cmd.set_pipeline(trace_pipeline_);
-        cmd.bind({{"SsGiConstants", gpu::uniform(constants)},
-                  {"tlas", gpu::acceleration(tlas)},
-                  {"depth_tex", gpu::sampled(depth, nearest_sampler_)},
-                  {"normal_tex", gpu::sampled(normal, nearest_sampler_)},
-                  {"radiance_out", gpu::storage(imgs.raw_radiance)},
-                  {"VertexBuffer", gpu::storage(ctx.mega_buffer->vertex_buffer())},
-                  {"IndexBuffer", gpu::storage(ctx.mega_buffer->index_buffer())},
+        cmd.bind({{"SsGiConstants", ftk::gpu::uniform(constants)},
+                  {"tlas", ftk::gpu::acceleration(tlas)},
+                  {"depth_tex", ftk::gpu::sampled(depth, nearest_sampler_)},
+                  {"normal_tex", ftk::gpu::sampled(normal, nearest_sampler_)},
+                  {"radiance_out", ftk::gpu::storage(imgs.raw_radiance)},
+                  {"VertexBuffer", ftk::gpu::storage(ctx.mega_buffer->vertex_buffer())},
+                  {"IndexBuffer", ftk::gpu::storage(ctx.mega_buffer->index_buffer())},
                   {"InstanceDataBuffer",
-                   gpu::storage(accel_manager_->instance_data_buffer(scene_id, ctx.frame_index))}});
+                   ftk::gpu::storage(accel_manager_->instance_data_buffer(scene_id, ctx.frame_index))}});
         cmd.bind(ctx.bindless);
         cmd.push(TracePush{
             .rays_per_probe = imgs.rays_per_probe,
@@ -306,20 +306,20 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         // One invocation per ray: x and y the probe, z the ray.
         cmd.dispatch((imgs.probe_count.x + 7) / 8, (imgs.probe_count.y + 7) / 8, imgs.rays_per_probe);
     }
-    cmd.barrier(imgs.raw_radiance, gpu::Access::storage_write_compute, REST);
+    cmd.barrier(imgs.raw_radiance, ftk::gpu::Access::storage_write_compute, REST);
 
     // Temporal accumulation onto the history.
     {
-        FJELL_PROFILE_SCOPE_N("ss_gi_resolve");
+        FTK_PROFILE_SCOPE_N("ss_gi_resolve");
         auto resolve_zone = cmd.zone("SS-GI Resolve");
         cmd.set_pipeline(resolve_pipeline_);
-        cmd.bind({{"raw_radiance", gpu::sampled(imgs.raw_radiance, nearest_sampler_)},
-                  {"history", gpu::sampled(imgs.history, linear_sampler_)},
-                  {"depth_tex", gpu::sampled(depth, nearest_sampler_)},
-                  {"normal_tex", gpu::sampled(normal, nearest_sampler_)},
-                  {"prev_depth_tex", gpu::sampled(imgs.prev_depth, nearest_sampler_)},
-                  {"resolved_out", gpu::storage(imgs.resolved)},
-                  {"SsGiConstants", gpu::uniform(constants)}});
+        cmd.bind({{"raw_radiance", ftk::gpu::sampled(imgs.raw_radiance, nearest_sampler_)},
+                  {"history", ftk::gpu::sampled(imgs.history, linear_sampler_)},
+                  {"depth_tex", ftk::gpu::sampled(depth, nearest_sampler_)},
+                  {"normal_tex", ftk::gpu::sampled(normal, nearest_sampler_)},
+                  {"prev_depth_tex", ftk::gpu::sampled(imgs.prev_depth, nearest_sampler_)},
+                  {"resolved_out", ftk::gpu::storage(imgs.resolved)},
+                  {"SsGiConstants", ftk::gpu::uniform(constants)}});
         cmd.push(ResolvePush{
             .probe_count = imgs.probe_count,
             .rays_per_probe = imgs.rays_per_probe,
@@ -333,14 +333,14 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // The resolved probes become the next frame's history.
     {
-        FJELL_PROFILE_SCOPE_N("ss_gi_history_copy");
+        FTK_PROFILE_SCOPE_N("ss_gi_history_copy");
         auto copy_zone = cmd.zone("SS-GI History Copy");
-        cmd.barrier(imgs.resolved, gpu::Access::storage_write_compute, gpu::Access::copy_src);
-        cmd.barrier(imgs.history, REST, gpu::Access::copy_dst);
+        cmd.barrier(imgs.resolved, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::copy_src);
+        cmd.barrier(imgs.history, REST, ftk::gpu::Access::copy_dst);
         cmd.copy(imgs.resolved, imgs.history);
-        cmd.barrier(imgs.history, gpu::Access::copy_dst, REST);
+        cmd.barrier(imgs.history, ftk::gpu::Access::copy_dst, REST);
     }
-    cmd.barrier(imgs.resolved, gpu::Access::copy_src, REST);
+    cmd.barrier(imgs.resolved, ftk::gpu::Access::copy_src, REST);
 
     // The resolve has consumed prev_view_proj; the history it just wrote
     // belongs to this frame's camera, so that becomes next frame's reference.
@@ -350,13 +350,13 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // The graph has the indirect output in GENERAL.
     {
-        FJELL_PROFILE_SCOPE_N("ss_gi_upsample");
+        FTK_PROFILE_SCOPE_N("ss_gi_upsample");
         auto upsample_zone = cmd.zone("SS-GI Upsample");
         cmd.set_pipeline(upsample_pipeline_);
-        cmd.bind({{"resolved_probes", gpu::sampled(imgs.resolved, linear_sampler_)},
-                  {"depth_tex", gpu::sampled(depth, nearest_sampler_)},
-                  {"normal_tex", gpu::sampled(normal, nearest_sampler_)},
-                  {"indirect_out", gpu::storage(imgs.indirect)}});
+        cmd.bind({{"resolved_probes", ftk::gpu::sampled(imgs.resolved, linear_sampler_)},
+                  {"depth_tex", ftk::gpu::sampled(depth, nearest_sampler_)},
+                  {"normal_tex", ftk::gpu::sampled(normal, nearest_sampler_)},
+                  {"indirect_out", ftk::gpu::storage(imgs.indirect)}});
         cmd.push(UpsamplePush{
             .output_size = imgs.indirect_extent,
             .probe_count = imgs.probe_count,
@@ -372,7 +372,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
 // ── SsGiDepthHistoryPass ────────────────────────────────────────────────────
 
-Result<> SsGiDepthHistoryPass::create(const PassResources& /*resources*/) {
+ftk::Result<> SsGiDepthHistoryPass::create(const PassResources& /*resources*/) {
     return {};
 }
 
@@ -390,14 +390,14 @@ PassSetup SsGiDepthHistoryPass::setup() const {
     };
 }
 
-void SsGiDepthHistoryPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SsGiDepthHistoryPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr || !core_->active()) { return; }
     auto prev = builder.import_named_optional(ctx, SsGiPass::PREV_DEPTH_NAME);
     if (!prev.valid()) { return; }
-    builder.read(builder.import_named(ctx, "depth"), gpu::Access::copy_src);
+    builder.read(builder.import_named(ctx, "depth"), ftk::gpu::Access::copy_src);
     // Persistent, which keeps the pass alive: the next frame's SS-GI reads
     // it, and this frame's has read it before the copy lands.
-    builder.write(prev, gpu::Access::copy_dst);
+    builder.write(prev, ftk::gpu::Access::copy_dst);
 }
 
 void SsGiDepthHistoryPass::record(const FrameContext& ctx) {

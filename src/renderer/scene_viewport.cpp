@@ -4,7 +4,7 @@
 
 namespace fjell {
 
-SceneViewport::SceneViewport(gpu::Device& gpu, const SceneViewportConfig& config,
+SceneViewport::SceneViewport(ftk::gpu::Device& gpu, const SceneViewportConfig& config,
                              const PostProcessResources::PassRefs& pass_refs,
                              uint32_t reserved_bindless_index)
     : config_(config)
@@ -15,7 +15,7 @@ SceneViewport::SceneViewport(gpu::Device& gpu, const SceneViewportConfig& config
     pp_ = std::make_unique<PostProcessResources>(gpu, config_.width, config_.height, config_.pp_config,
                                                  pass_refs);
 
-    FJELL_GFX_DEBUG("SceneViewport '{}' created ({}x{}, bindless index {})",
+    FTK_GFX_DEBUG("SceneViewport '{}' created ({}x{}, bindless index {})",
                     config_.name, config_.width, config_.height, bindless_index_);
 }
 
@@ -33,7 +33,7 @@ void SceneViewport::resize(uint32_t width, uint32_t height) {
     last_synced_ = {}; // force bindless update on next sync
 }
 
-gpu::Texture SceneViewport::output_texture() const {
+ftk::gpu::Texture SceneViewport::output_texture() const {
     if (!config_.expose_hdr && config_.pp_config.post) {
         auto* output = pp_->post();
         if (output && output->texture) return output->texture;
@@ -42,7 +42,7 @@ gpu::Texture SceneViewport::output_texture() const {
 }
 
 void SceneViewport::sync_bindless(BindlessTextures& bindless) {
-    const gpu::Texture current = output_texture();
+    const ftk::gpu::Texture current = output_texture();
     if (!current.valid() || current == last_synced_) return;
 
     bindless.update_entry(bindless_index_, current);

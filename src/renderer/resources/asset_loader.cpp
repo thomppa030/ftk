@@ -7,7 +7,7 @@
 
 namespace fjell {
 
-AssetLoader::AssetLoader(ThreadPool& pool, ResourceManager& resources, MegaBuffer& mega,
+AssetLoader::AssetLoader(ftk::ThreadPool& pool, ResourceManager& resources, MegaBuffer& mega,
                          MeshletBuffer& meshlets)
     : pool_{pool}
     , resources_{resources}
@@ -41,7 +41,7 @@ ModelHandle AssetLoader::load_model_async(const std::string& path) {
                 completed_.push_back({handle, std::move(data)});
             }
         } catch (const std::exception& e) {
-            FJELL_GFX_ERROR("Async model load failed for '{}': {}", path, e.what());
+            FTK_GFX_ERROR("Async model load failed for '{}': {}", path, e.what());
             {
                 std::lock_guard lock(completed_mutex_);
                 // Push empty data — poll() will mark as Failed

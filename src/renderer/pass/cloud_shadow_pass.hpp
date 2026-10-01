@@ -25,13 +25,13 @@ public:
     static constexpr uint32_t RESOLUTION = 256;
     static constexpr float EXTENT_METRES = 512.0f;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
 
     /// Whether the map holds shadows this frame: there is cloud to cast them
@@ -41,9 +41,9 @@ public:
     [[nodiscard]] const glm::mat4& world_to_uv() const { return frame_.world_to_uv; }
 
 private:
-    gpu::Owned<gpu::Texture> map_;
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
-    gpu::Sampler sampler_;
+    ftk::gpu::Owned<ftk::gpu::Texture> map_;
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Sampler sampler_;
 
     CloudShadowFrame frame_{};
     float ground_y_{0.0f};

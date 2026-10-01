@@ -27,9 +27,9 @@ namespace fjell {
 namespace {
 
 // One mip of a cubemap as its six faces, the layers a compute shader writes.
-gpu::TextureView faces(gpu::Texture cubemap, uint32_t mip) {
-    gpu::TextureView view = gpu::mip(cubemap, mip);
-    view.kind = gpu::ViewKind::tex2d_array;
+ftk::gpu::TextureView faces(ftk::gpu::Texture cubemap, uint32_t mip) {
+    ftk::gpu::TextureView view = ftk::gpu::mip(cubemap, mip);
+    view.kind = ftk::gpu::ViewKind::tex2d_array;
     return view;
 }
 
@@ -40,56 +40,56 @@ uint32_t groups(uint32_t size) {
 
 } // namespace
 
-Result<> SkyCubemapPass::create(const PassResources& resources) {
+ftk::Result<> SkyCubemapPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
-    gpu::Device& device = *device_;
+    ftk::gpu::Device& device = *device_;
 
     // Cleared until generated in the first frame this pass runs, so anything
     // sampling them before reads something defined.
-    FJELL_TRY(cubemap_, device.create(gpu::TextureDesc{
-                            .kind = gpu::TextureKind::cube,
-                            .format = gpu::Format::rgba16_float,
+    FTK_TRY(cubemap_, device.create(ftk::gpu::TextureDesc{
+                            .kind = ftk::gpu::TextureKind::cube,
+                            .format = ftk::gpu::Format::rgba16_float,
                             .width = CUBEMAP_SIZE,
                             .height = CUBEMAP_SIZE,
                             .mips = MIP_LEVELS,
-                            .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                            .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
+                            .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                            .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f},
                             .name = "sky_cubemap",
                         }));
-    FJELL_TRY(brdf_lut_, device.create(gpu::TextureDesc{
-                             .format = gpu::Format::rg16_float,
+    FTK_TRY(brdf_lut_, device.create(ftk::gpu::TextureDesc{
+                             .format = ftk::gpu::Format::rg16_float,
                              .width = BRDF_LUT_SIZE,
                              .height = BRDF_LUT_SIZE,
-                             .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
-                             .initial = gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
+                             .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
+                             .initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 0.0f},
                              .name = "brdf_lut",
                          }));
-    cubemap_sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                                       .mip_filter = gpu::Filter::linear,
-                                       .address = gpu::Address::clamp});
-    brdf_lut_sampler_ = device.sampler({.filter = gpu::Filter::linear,
-                                        .mip_filter = gpu::Filter::nearest,
-                                        .address = gpu::Address::clamp});
+    cubemap_sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                                       .mip_filter = ftk::gpu::Filter::linear,
+                                       .address = ftk::gpu::Address::clamp});
+    brdf_lut_sampler_ = device.sampler({.filter = ftk::gpu::Filter::linear,
+                                        .mip_filter = ftk::gpu::Filter::nearest,
+                                        .address = ftk::gpu::Address::clamp});
 
-    FJELL_TRY(cubemap_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(cubemap_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                      .shader = "shaders/sky_cubemap.comp",
                                      .name = "sky_cubemap",
                                  }));
-    FJELL_TRY(brdf_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(brdf_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                   .shader = "shaders/brdf_lut.comp",
                                   .name = "brdf_lut",
                               }));
-    FJELL_TRY(equirect_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(equirect_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                       .shader = "shaders/equirect_to_cube.comp",
                                       .name = "equirect_to_cube",
                                   }));
-    FJELL_TRY(prefilter_pipeline_, device.create(gpu::ComputePipelineDesc{
+    FTK_TRY(prefilter_pipeline_, device.create(ftk::gpu::ComputePipelineDesc{
                                        .shader = "shaders/prefilter_envmap.comp",
                                        .name = "prefilter_envmap",
                                    }));
 
-    FJELL_GFX_DEBUG("Sky cubemap pass created");
+    FTK_GFX_DEBUG("Sky cubemap pass created");
     return {};
 }
 
@@ -100,12 +100,12 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
     set_colors(sky.top_color(), sky.bottom_color());
 
     bind_sky(gpu);
-    gpu.global_bindings().set("brdf_lut", gpu::sampled(brdf_lut_, brdf_lut_sampler_));
+    gpu.global_bindings().set("brdf_lut", ftk::gpu::sampled(brdf_lut_, brdf_lut_sampler_));
 }
 
-void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
+void SkyCubemapPass::register_resources(ftk::ResourceRegistry& registry) {
     registry_ = &registry;
-    const gpu::Texture sky = sky_texture();
+    const ftk::gpu::Texture sky = sky_texture();
     registry.register_image("sky_cubemap", {.frame_graph_id = 0, .texture = sky});
 }
 
@@ -126,7 +126,7 @@ void SkyCubemapPass::bind_sky(GpuContext& gpu) {
     // Every frame slot's global set takes the new sky; a frame still reading
     // the old one keeps the set it bound, and previews take it when they are
     // next refreshed.
-    gpu.global_bindings().set("sky_cubemap", gpu::sampled(sky_texture(), cubemap_sampler_));
+    gpu.global_bindings().set("sky_cubemap", ftk::gpu::sampled(sky_texture(), cubemap_sampler_));
 }
 
 void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
@@ -222,7 +222,7 @@ void SkyCubemapPass::set_atmosphere(bool enabled, const glm::vec3& sun_dir,
 }
 
 void SkyCubemapPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_sky_cubemap");
+    FTK_PROFILE_SCOPE_N("record_sky_cubemap");
     // Everything that decides what is written was read in prepare_frame(),
     // before declare() told the graph about this frame's writes; nothing may
     // change it here or a write would go unbarriered.
@@ -244,15 +244,15 @@ void SkyCubemapPass::record(const FrameContext& ctx) {
     }
 }
 
-void SkyCubemapPass::generate_brdf_lut(gpu::CommandList& cmd) {
+void SkyCubemapPass::generate_brdf_lut(ftk::gpu::CommandList& cmd) {
     cmd.set_pipeline(brdf_pipeline_);
-    cmd.bind({{"lut", gpu::storage(brdf_lut_)}});
+    cmd.bind({{"lut", ftk::gpu::storage(brdf_lut_)}});
     cmd.dispatch(groups(BRDF_LUT_SIZE), groups(BRDF_LUT_SIZE), 1);
     brdf_generated_ = true;
-    FJELL_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
+    FTK_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
 }
 
-void SkyCubemapPass::generate(gpu::CommandList& cmd) {
+void SkyCubemapPass::generate(ftk::gpu::CommandList& cmd) {
     struct PushConstants {
         glm::vec4 top_color;
         glm::vec4 bottom_color;
@@ -282,17 +282,17 @@ void SkyCubemapPass::generate(gpu::CommandList& cmd) {
     };
 
     cmd.set_pipeline(cubemap_pipeline_);
-    cmd.bind({{"cubemap", gpu::storage(faces(cubemap_, 0))}});
+    cmd.bind({{"cubemap", ftk::gpu::storage(faces(cubemap_, 0))}});
     cmd.push(push);
     cmd.dispatch(groups(CUBEMAP_SIZE), groups(CUBEMAP_SIZE), 6);
     finish_cubemap(cmd);
     dirty_ = false;
 }
 
-void SkyCubemapPass::finish_cubemap(gpu::CommandList& cmd) {
+void SkyCubemapPass::finish_cubemap(ftk::gpu::CommandList& cmd) {
     // Mip 0 as the compute shader wrote it, the rest to be filled from it:
     // all as copy targets, which is where the chain starts and ends.
-    cmd.barrier(cubemap_, gpu::Access::storage_write_compute, gpu::Access::copy_dst);
+    cmd.barrier(cubemap_, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::copy_dst);
     cmd.generate_mipmaps(cubemap_);
 }
 
@@ -311,19 +311,19 @@ void SkyCubemapPass::ensure_fjsl_pipeline() {
     if (cache == nullptr) return;
     const std::string& spv = cache->sky_cubemap_spv(pid);
     if (spv.empty()) return;
-    auto code = gpu::read_spirv(spv);
+    auto code = ftk::gpu::read_spirv(spv);
     if (!code) {
-        FJELL_GFX_ERROR("Sky cubemap: {}", code.error());
+        FTK_GFX_ERROR("Sky cubemap: {}", code.error());
         return;
     }
     // Set 0 the globals, set 1 the bindless material set, set 2 the faces.
-    auto made = device_->create(gpu::ComputePipelineDesc{
+    auto made = device_->create(ftk::gpu::ComputePipelineDesc{
         .shader = std::span<const uint32_t>(*code),
         .shared = {resources_.globals, resources_.bindless},
         .name = "sky_cubemap_fjsl",
     });
     if (!made) {
-        FJELL_GFX_ERROR("Sky cubemap: {}", made.error());
+        FTK_GFX_ERROR("Sky cubemap: {}", made.error());
         return;
     }
     fjsl_pipeline_ = std::move(*made);
@@ -350,7 +350,7 @@ void SkyCubemapPass::generate_fjsl(const FrameContext& ctx) {
     cmd.set_pipeline(fjsl_pipeline_);
     cmd.bind(ctx.globals);
     cmd.bind(ctx.bindless);
-    cmd.bind({{"sky_cube", gpu::storage(faces(cubemap_, 0))}});
+    cmd.bind({{"sky_cube", ftk::gpu::storage(faces(cubemap_, 0))}});
     cmd.push(push);
     cmd.dispatch(groups(CUBEMAP_SIZE), groups(CUBEMAP_SIZE), 6);
     finish_cubemap(cmd);
@@ -366,13 +366,13 @@ PassSetup SkyCubemapPass::setup() const {
     };
 }
 
-void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void SkyCubemapPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Each write is declared only in the frame that makes it; in any other
     // the pass declares nothing and the graph culls it. The declared write
     // brings the whole texture to storage for the compute shaders.
     if (!brdf_generated_) {
         if (auto lut = builder.import_named(ctx, "brdf_lut"); lut.valid()) {
-            builder.write(lut, gpu::Access::storage_write_compute);
+            builder.write(lut, ftk::gpu::Access::storage_write_compute);
             // Surfaces sample it through the global set, which the graph
             // does not see.
             builder.has_side_effects();
@@ -381,10 +381,10 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (hdri_pending_ || generates_this_frame()) {
         auto cubemap = builder.import_named(ctx, "sky_cubemap");
         if (!cubemap.valid()) return;
-        builder.write(cubemap, gpu::Access::storage_write_compute);
+        builder.write(cubemap, ftk::gpu::Access::storage_write_compute);
         // The procedural cubemap's mips are filled by copies from the first,
         // after the compute write; the HDRI's are all written as storage.
-        if (!hdri_pending_) builder.leaves(cubemap, gpu::Access::copy_dst, gpu::Access::copy_dst);
+        if (!hdri_pending_) builder.leaves(cubemap, ftk::gpu::Access::copy_dst, ftk::gpu::Access::copy_dst);
     }
 }
 
@@ -392,7 +392,7 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     // Both rest where the sky and every material sample them through the
     // global set: a reader can come first, as it does on every frame the
     // pass does not write them.
-    const TextureExport sampled{.persistent = true, .resting = gpu::Access::sampled_fragment};
+    const ftk::TextureExport sampled{.persistent = true, .resting = ftk::gpu::Access::sampled_fragment};
     ctx.export_texture("sky_cubemap", sky_texture(), sampled);
     ctx.export_texture("brdf_lut", brdf_lut_, sampled);
 }
@@ -406,49 +406,49 @@ void SkyCubemapPass::load_hdri(const std::string& path) {
     const std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
         stbi_loadf(path.c_str(), &width, &height, &channels, 4), stbi_image_free);
     if (!pixels) {
-        FJELL_GFX_ERROR("Failed to load HDRI: {}", path);
+        FTK_GFX_ERROR("Failed to load HDRI: {}", path);
         return;
     }
-    FJELL_GFX_INFO("Loaded HDRI: {}x{} from {}", width, height, path);
+    FTK_GFX_INFO("Loaded HDRI: {}x{} from {}", width, height, path);
 
-    gpu::Device& device = *device_;
-    const auto made = [&](const gpu::TextureDesc& desc) {
+    ftk::gpu::Device& device = *device_;
+    const auto made = [&](const ftk::gpu::TextureDesc& desc) {
         auto texture = device.create(desc);
-        if (!texture) FJELL_GFX_ERROR("HDRI '{}': {}", path, texture.error());
-        return texture ? std::move(*texture) : gpu::Owned<gpu::Texture>{};
+        if (!texture) FTK_GFX_ERROR("HDRI '{}': {}", path, texture.error());
+        return texture ? std::move(*texture) : ftk::gpu::Owned<ftk::gpu::Texture>{};
     };
-    const gpu::TextureDesc cube{
-        .kind = gpu::TextureKind::cube,
-        .format = gpu::Format::rgba16_float,
+    const ftk::gpu::TextureDesc cube{
+        .kind = ftk::gpu::TextureKind::cube,
+        .format = ftk::gpu::Format::rgba16_float,
         .width = HDRI_CUBEMAP_SIZE,
         .height = HDRI_CUBEMAP_SIZE,
         .mips = HDRI_MIP_LEVELS,
-        .use = gpu::TextureUse::storage | gpu::TextureUse::sampled,
+        .use = ftk::gpu::TextureUse::storage | ftk::gpu::TextureUse::sampled,
     };
-    auto equirect = made(gpu::TextureDesc{
-        .format = gpu::Format::rgba32_float,
+    auto equirect = made(ftk::gpu::TextureDesc{
+        .format = ftk::gpu::Format::rgba32_float,
         .width = static_cast<uint32_t>(width),
         .height = static_cast<uint32_t>(height),
-        .use = gpu::TextureUse::sampled,
+        .use = ftk::gpu::TextureUse::sampled,
         .name = "hdri_equirect",
     });
-    gpu::TextureDesc source_desc = cube;
+    ftk::gpu::TextureDesc source_desc = cube;
     source_desc.name = "hdri_source";
     auto source = made(source_desc);
     // Cleared until the frame that converts it, as surfaces sample it from
     // the moment it is bound.
-    gpu::TextureDesc cubemap_desc = cube;
-    cubemap_desc.initial = gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f};
+    ftk::gpu::TextureDesc cubemap_desc = cube;
+    cubemap_desc.initial = ftk::gpu::Clear{0.0f, 0.0f, 0.0f, 1.0f};
     cubemap_desc.name = "hdri_cubemap";
     auto cubemap = made(cubemap_desc);
     if (!equirect || !source || !cubemap) return;
 
     const size_t floats = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
     device.upload().to_texture(equirect,
-                               gpu::TextureRegion{.width = static_cast<uint32_t>(width),
+                               ftk::gpu::TextureRegion{.width = static_cast<uint32_t>(width),
                                                   .height = static_cast<uint32_t>(height)},
                                std::as_bytes(std::span(pixels.get(), floats)),
-                               {.after = gpu::Access::sampled_compute});
+                               {.after = ftk::gpu::Access::sampled_compute});
 
     hdri_equirect_ = std::move(equirect);
     hdri_source_ = std::move(source);
@@ -456,25 +456,25 @@ void SkyCubemapPass::load_hdri(const std::string& path) {
     hdri_pending_ = true;
 }
 
-void SkyCubemapPass::convert_hdri(gpu::CommandList& cmd) {
-    gpu::Device& device = *device_;
+void SkyCubemapPass::convert_hdri(ftk::gpu::CommandList& cmd) {
+    ftk::gpu::Device& device = *device_;
 
     // The image as a cube, then that cube's plain mip chain, which the
     // prefilter samples at the mip its roughness asks for. The prefilter
     // cannot read the cubemap it writes: its lower mips hold what it has
     // already filtered, not the image.
-    const gpu::Sampler equirect_sampler = device.sampler({.filter = gpu::Filter::linear,
-                                                          .mip_filter = gpu::Filter::nearest,
-                                                          .address = gpu::Address::repeat});
-    cmd.barrier(hdri_source_, {}, gpu::Access::storage_write_compute);
+    const ftk::gpu::Sampler equirect_sampler = device.sampler({.filter = ftk::gpu::Filter::linear,
+                                                          .mip_filter = ftk::gpu::Filter::nearest,
+                                                          .address = ftk::gpu::Address::repeat});
+    cmd.barrier(hdri_source_, {}, ftk::gpu::Access::storage_write_compute);
     cmd.set_pipeline(equirect_pipeline_);
-    cmd.bind({{"equirect_map", gpu::sampled(hdri_equirect_, equirect_sampler)},
-              {"cubemap_out", gpu::storage(faces(hdri_source_, 0))}});
+    cmd.bind({{"equirect_map", ftk::gpu::sampled(hdri_equirect_, equirect_sampler)},
+              {"cubemap_out", ftk::gpu::storage(faces(hdri_source_, 0))}});
     cmd.push(HDRI_CUBEMAP_SIZE);
     cmd.dispatch(groups(HDRI_CUBEMAP_SIZE), groups(HDRI_CUBEMAP_SIZE), 6);
-    cmd.barrier(hdri_source_, gpu::Access::storage_write_compute, gpu::Access::copy_dst);
+    cmd.barrier(hdri_source_, ftk::gpu::Access::storage_write_compute, ftk::gpu::Access::copy_dst);
     cmd.generate_mipmaps(hdri_source_);
-    cmd.barrier(hdri_source_, gpu::Access::copy_dst, gpu::Access::sampled_compute);
+    cmd.barrier(hdri_source_, ftk::gpu::Access::copy_dst, ftk::gpu::Access::sampled_compute);
 
     // Each mip of the cubemap surfaces sample, filtered for the roughness it
     // stands for; mip 0, roughness 0, is the image itself.
@@ -487,8 +487,8 @@ void SkyCubemapPass::convert_hdri(gpu::CommandList& cmd) {
     for (uint32_t mip = 0; mip < HDRI_MIP_LEVELS; ++mip) {
         const uint32_t mip_size = std::max(HDRI_CUBEMAP_SIZE >> mip, 1U);
         const float roughness = static_cast<float>(mip) / static_cast<float>(HDRI_MIP_LEVELS - 1);
-        cmd.bind({{"env_cubemap", gpu::sampled(hdri_source_, cubemap_sampler_)},
-                  {"filtered_out", gpu::storage(faces(hdri_cubemap_, mip))}});
+        cmd.bind({{"env_cubemap", ftk::gpu::sampled(hdri_source_, cubemap_sampler_)},
+                  {"filtered_out", ftk::gpu::storage(faces(hdri_cubemap_, mip))}});
         cmd.push(PrefilterPush{mip_size, roughness, std::min(1024U, 64U * std::max(mip, 1U))});
         cmd.dispatch(groups(mip_size), groups(mip_size), 6);
     }
@@ -497,7 +497,7 @@ void SkyCubemapPass::convert_hdri(gpu::CommandList& cmd) {
     hdri_equirect_.reset();
     hdri_source_.reset();
     hdri_pending_ = false;
-    FJELL_GFX_INFO("HDRI cubemap created: {}x{}, {} mips, prefiltered", HDRI_CUBEMAP_SIZE,
+    FTK_GFX_INFO("HDRI cubemap created: {}x{}, {} mips, prefiltered", HDRI_CUBEMAP_SIZE,
                    HDRI_CUBEMAP_SIZE, HDRI_MIP_LEVELS);
 }
 

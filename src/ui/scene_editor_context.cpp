@@ -290,7 +290,7 @@ void SceneEditorContext::init() {
             auto resolved = base_path::resolve_asset(rel_path, project);
             auto result = PresetTemplate::load(resolved, *deps_.resource_manager, project);
             if (!result) {
-                FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
+                FTK_CORE_ERROR("Failed to load preset: {}", result.error());
                 return;
             }
             auto root_id = result->instantiate(*deps_.scene, parent_id);
@@ -321,7 +321,7 @@ void SceneEditorContext::draw(float dt) {
     if (camera_preview_rendered_ && camera_preview_pp_ && camera_preview_pp_->post()) {
         auto* vp = viewport_manager_.active_panel();
         if (vp && vp->img_size.x > 0 && vp->img_size.y > 0) {
-            const ImTextureID tex = imgui_texture(camera_preview_pp_->post()->texture,
+            const ImTextureID tex = ftk::imgui_texture(camera_preview_pp_->post()->texture,
                                                   deps_.vulkan_context->post_pass().output_sampler());
             if (tex) {
                 bool visible = ImGui::Begin(vp->title.c_str());
@@ -337,8 +337,8 @@ void SceneEditorContext::draw(float dt) {
                         preview_h *= scale;
                     }
 
-                    const ImVec2 min{vp->img_pos.x + vp->img_size.x - preview_w - ui::OVERLAY_INSET,
-                                     vp->img_pos.y + vp->img_size.y - preview_h - ui::OVERLAY_INSET};
+                    const ImVec2 min{vp->img_pos.x + vp->img_size.x - preview_w - ftk::ui::OVERLAY_INSET,
+                                     vp->img_pos.y + vp->img_size.y - preview_h - ftk::ui::OVERLAY_INSET};
                     const ImVec2 max{min.x + preview_w, min.y + preview_h};
 
                     // The picture alone with a black edge like the pills',
@@ -347,15 +347,15 @@ void SceneEditorContext::draw(float dt) {
                     const float rounding = ImGui::GetStyle().FrameRounding;
                     dl->AddImageRounded(tex, min, max, {0.0f, 0.0f}, {1.0f, 1.0f}, IM_COL32_WHITE, rounding);
                     dl->AddRect({min.x - 1.0f, min.y - 1.0f}, {max.x + 1.0f, max.y + 1.0f},
-                                ImGui::GetColorU32(theme::border()), rounding);
+                                ImGui::GetColorU32(ftk::theme::border()), rounding);
                     if (auto* cam_node = dynamic_cast<CameraNode*>(deps_.scene->find(selected_id_))) {
                         constexpr float TAG_INSET = 6.0f;
-                        const ui::OverlayPiece name[] = {{cam_node->name}};
-                        ui::corner_note(dl, {min.x + TAG_INSET, min.y + TAG_INSET}, ui::Corner::TopLeft,
-                                        {.icon = ui::icon::camera,
+                        const ftk::ui::OverlayPiece name[] = {{cam_node->name}};
+                        ftk::ui::corner_note(dl, {min.x + TAG_INSET, min.y + TAG_INSET}, ftk::ui::Corner::TopLeft,
+                                        {.icon = ftk::ui::icon::camera,
                                          .line = name,
-                                         .ink = theme::text(),
-                                         .icon_ink = theme::category(theme::Category::Camera)});
+                                         .ink = ftk::theme::text(),
+                                         .icon_ink = ftk::theme::category(ftk::theme::Category::Camera)});
                     }
                 }
                 ImGui::End();
@@ -857,7 +857,7 @@ void SceneEditorContext::draw_spline_visuals() {
 void SceneEditorContext::draw_play_pill(ImVec2 image_min, ImVec2 image_max) {
     const bool playing = deps_.play->playing();
     const bool paused = deps_.play->paused();
-    auto pill = ui::ViewportPill("##play", image_min, image_max, ui::PillPlace::TopCenter);
+    auto pill = ftk::ui::ViewportPill("##play", image_min, image_max, ftk::ui::PillPlace::TopCenter);
 
     // Before Play, how the game starts: offline, hosting or joining. The
     // engine never acts on it; the game's script reads it in begin_play.
@@ -865,7 +865,7 @@ void SceneEditorContext::draw_play_pill(ImVec2 image_min, ImVec2 image_max) {
         static constexpr const char* MODES[] = {"Offline", "Host", "Join"};
         int mode = static_cast<int>(deps_.net_manager->launch_mode());
         ImGui::SetNextItemWidth(90.0f);
-        if (ui::choice("##net_mode", mode, MODES).changed) {
+        if (ftk::ui::choice("##net_mode", mode, MODES).changed) {
             deps_.net_manager->set_launch_mode(static_cast<NetLaunchMode>(mode));
         }
         ImGui::SetItemTooltip("How the game starts: offline, as the host, or joining one");
@@ -873,34 +873,34 @@ void SceneEditorContext::draw_play_pill(ImVec2 image_min, ImVec2 image_max) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
             std::string address = deps_.net_manager->join_address();
-            if (ui::text_field("##net_address", address).committed) deps_.net_manager->set_join_address(address);
+            if (ftk::ui::text_field("##net_address", address).committed) deps_.net_manager->set_join_address(address);
             ImGui::SetItemTooltip("The host's address");
         }
         ImGui::SameLine();
     }
 
-    if (ui::icon_button("##play", playing ? ui::icon::stop : ui::icon::play, playing ? "Stop (Ctrl P)" : "Play (Ctrl P)",
-                        playing ? ui::ButtonKind::Ghost : ui::ButtonKind::Secondary)) {
+    if (ftk::ui::icon_button("##play", playing ? ftk::ui::icon::stop : ftk::ui::icon::play, playing ? "Stop (Ctrl P)" : "Play (Ctrl P)",
+                        playing ? ftk::ui::ButtonKind::Ghost : ftk::ui::ButtonKind::Secondary)) {
         deps_.play->toggle();
     }
     if (!playing) return;
 
     ImGui::SameLine();
-    if (ui::toggle_button("##pause", ui::icon::pause, paused, paused ? "Resume (Ctrl Shift P)" : "Pause (Ctrl Shift P)")) {
+    if (ftk::ui::toggle_button("##pause", ftk::ui::icon::pause, paused, paused ? "Resume (Ctrl Shift P)" : "Pause (Ctrl Shift P)")) {
         deps_.play->toggle_pause();
     }
     ImGui::SameLine();
-    if (ui::icon_button("##step", ui::icon::step_frame, "Step one frame (Ctrl Alt P)")) deps_.play->step();
+    if (ftk::ui::icon_button("##step", ftk::ui::icon::step_frame, "Step one frame (Ctrl Alt P)")) deps_.play->step();
     ImGui::SameLine();
     const bool ejected = deps_.play->ejected();
-    if (ui::toggle_button("##eject", ejected ? ui::icon::possess_camera : ui::icon::eject_camera, ejected,
+    if (ftk::ui::toggle_button("##eject", ejected ? ftk::ui::icon::possess_camera : ftk::ui::icon::eject_camera, ejected,
                           ejected ? "Back to the game's camera (F10)" : "Leave the game's camera (F10)")) {
         deps_.play->toggle_eject();
     }
     ImGui::SameLine();
     float scale = deps_.play->time_scale();
     ImGui::SetNextItemWidth(72.0f);
-    if (ui::drag("##time_scale", scale, {.speed = 0.01f, .min = 0.1f, .max = 4.0f, .unit = ui::Unit::Times}).changed) {
+    if (ftk::ui::drag("##time_scale", scale, {.speed = 0.01f, .min = 0.1f, .max = 4.0f, .unit = ftk::ui::Unit::Times}).changed) {
         deps_.play->set_time_scale(scale);
     }
     ImGui::SetItemTooltip("Time scale");
@@ -940,40 +940,40 @@ void SceneEditorContext::draw_play_toolbar() {
 
         // How input reaches the game, bottom-left of the image, out of the
         // toolbar's way.
-        static constexpr ui::OverlayPiece RELEASE[] = {{"Shift", true}, {"Esc", true}, {"releases input"}};
-        static constexpr ui::OverlayPiece GIVE[] = {{"Click to give the game input"}};
-        ui::corner_note(ImGui::GetWindowDrawList(), {min.x + ui::OVERLAY_INSET, max.y - ui::OVERLAY_INSET},
-                        ui::Corner::BottomLeft,
-                        {.line = deps_.play->input_focused() ? std::span<const ui::OverlayPiece>(RELEASE)
-                                                             : std::span<const ui::OverlayPiece>(GIVE),
-                         .ink = theme::text_secondary()});
+        static constexpr ftk::ui::OverlayPiece RELEASE[] = {{"Shift", true}, {"Esc", true}, {"releases input"}};
+        static constexpr ftk::ui::OverlayPiece GIVE[] = {{"Click to give the game input"}};
+        ftk::ui::corner_note(ImGui::GetWindowDrawList(), {min.x + ftk::ui::OVERLAY_INSET, max.y - ftk::ui::OVERLAY_INSET},
+                        ftk::ui::Corner::BottomLeft,
+                        {.line = deps_.play->input_focused() ? std::span<const ftk::ui::OverlayPiece>(RELEASE)
+                                                             : std::span<const ftk::ui::OverlayPiece>(GIVE),
+                         .ink = ftk::theme::text_secondary()});
     }
 
     // Left: the gizmo's tool, then what is drawn over the scene and how
     // things snap (sheet 28).
-    if (auto pill = ui::ViewportPill("##tools", min, max, ui::PillPlace::TopLeft)) {
-        if (ui::toggle_button("##move", ui::icon::move_tool, tool_ == ViewportTool::move, "Move (W)")) {
+    if (auto pill = ftk::ui::ViewportPill("##tools", min, max, ftk::ui::PillPlace::TopLeft)) {
+        if (ftk::ui::toggle_button("##move", ftk::ui::icon::move_tool, tool_ == ViewportTool::move, "Move (W)")) {
             tool_ = ViewportTool::move;
         }
         ImGui::SameLine();
-        if (ui::toggle_button("##rotate", ui::icon::rotate_tool, tool_ == ViewportTool::rotate, "Rotate (E)")) {
+        if (ftk::ui::toggle_button("##rotate", ftk::ui::icon::rotate_tool, tool_ == ViewportTool::rotate, "Rotate (E)")) {
             tool_ = ViewportTool::rotate;
         }
         ImGui::SameLine();
-        if (ui::toggle_button("##scale", ui::icon::scale_tool, tool_ == ViewportTool::scale, "Scale (R)")) {
+        if (ftk::ui::toggle_button("##scale", ftk::ui::icon::scale_tool, tool_ == ViewportTool::scale, "Scale (R)")) {
             tool_ = ViewportTool::scale;
         }
         if (deps_.vulkan_context != nullptr) {
             auto& grid = deps_.vulkan_context->grid_pass().settings();
-            ImGui::SameLine(0.0f, theme::GAP_M);
-            if (ui::toggle_button("##grid", ui::icon::grid, grid.visible, "Grid")) grid.visible = !grid.visible;
+            ImGui::SameLine(0.0f, ftk::theme::GAP_M);
+            if (ftk::ui::toggle_button("##grid", ftk::ui::icon::grid, grid.visible, "Grid")) grid.visible = !grid.visible;
             ImGui::SameLine();
-            if (ui::toggle_button("##snap", ui::icon::snap, grid.snap_enabled, "Snap to grid (Ctrl inverts)")) {
+            if (ftk::ui::toggle_button("##snap", ftk::ui::icon::snap, grid.snap_enabled, "Snap to grid (Ctrl inverts)")) {
                 grid.snap_enabled = !grid.snap_enabled;
             }
             ImGui::SameLine();
             const bool colliders = deps_.vulkan_context->show_colliders();
-            if (ui::toggle_button("##colliders", ui::icon::collision, colliders, "Colliders")) {
+            if (ftk::ui::toggle_button("##colliders", ftk::ui::icon::collision, colliders, "Colliders")) {
                 deps_.vulkan_context->set_show_colliders(!colliders);
             }
         }
@@ -1078,7 +1078,7 @@ void SceneEditorContext::draw_play_overlay() {
         ImGuiWindowFlags_NoScrollbar;
 
     {
-        ui::ViewportWindow play_view("##PlayView", nullptr, flags);
+        ftk::ui::ViewportWindow play_view("##PlayView", nullptr, flags);
 
         scene_image_rect_.pos = {viewport->WorkPos.x, viewport->WorkPos.y};
         scene_image_rect_.size = {viewport->WorkSize.x, viewport->WorkSize.y};
@@ -1119,12 +1119,12 @@ void SceneEditorContext::draw_play_overlay() {
             if (play_fps_value_ > 0.0f) {
                 const std::string frame_time =
                     std::format("{:.1f} ms \xc2\xb7 {:.0f} fps", 1000.0f / play_fps_value_, play_fps_value_);
-                const ui::OverlayPiece line[] = {{frame_time}};
-                ImGui::PushFont(theme::mono_font(), 0.0f);
-                ui::corner_note(ImGui::GetWindowDrawList(),
-                                {viewport->WorkPos.x + viewport->WorkSize.x - ui::OVERLAY_INSET,
-                                 viewport->WorkPos.y + ui::OVERLAY_INSET},
-                                ui::Corner::TopRight, {.line = line, .ink = theme::text()});
+                const ftk::ui::OverlayPiece line[] = {{frame_time}};
+                ImGui::PushFont(ftk::theme::mono_font(), 0.0f);
+                ftk::ui::corner_note(ImGui::GetWindowDrawList(),
+                                {viewport->WorkPos.x + viewport->WorkSize.x - ftk::ui::OVERLAY_INSET,
+                                 viewport->WorkPos.y + ftk::ui::OVERLAY_INSET},
+                                ftk::ui::Corner::TopRight, {.line = line, .ink = ftk::theme::text()});
                 ImGui::PopFont();
             }
         }
@@ -1181,7 +1181,7 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
     // the mono face (sheet 33): a watch's name in the secondary colour and
     // its value in the script's, then the messages. Each world-anchored
     // line gets a small plate of its own.
-    ImGui::PushFont(theme::mono_font(), 0.0f);
+    ImGui::PushFont(ftk::theme::mono_font(), 0.0f);
     const float line_h = ImGui::GetTextLineHeightWithSpacing();
     constexpr float PAD_X = 8.0f;
     constexpr float PAD_Y = 5.0f;
@@ -1200,12 +1200,12 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
         const float height = line_h * static_cast<float>(watches.size() + messages.size()) -
                              ImGui::GetStyle().ItemSpacing.y;
 
-        const ImVec2 min{origin.x + ui::OVERLAY_INSET, ui::pill_row_bottom({origin.x, origin.y}) + theme::GAP_M};
-        ui::overlay_plate(dl, min, {min.x + width + PAD_X * 2.0f, min.y + height + PAD_Y * 2.0f});
+        const ImVec2 min{origin.x + ftk::ui::OVERLAY_INSET, ftk::ui::pill_row_bottom({origin.x, origin.y}) + ftk::theme::GAP_M};
+        ftk::ui::overlay_plate(dl, min, {min.x + width + PAD_X * 2.0f, min.y + height + PAD_Y * 2.0f});
         float y = min.y + PAD_Y;
         const float x = min.x + PAD_X;
         for (const auto* e : watches) {
-            dl->AddText({x, y}, ImGui::GetColorU32(theme::text_secondary()), e->name.c_str());
+            dl->AddText({x, y}, ImGui::GetColorU32(ftk::theme::text_secondary()), e->name.c_str());
             dl->AddText({x + name_w + COLUMN_GAP, y}, ink(e->color), e->text.c_str());
             y += line_h;
         }
@@ -1243,7 +1243,7 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
     if (!have_camera) return;
 
     const glm::mat4 view_proj = proj * view;
-    ImGui::PushFont(theme::mono_font(), 0.0f);
+    ImGui::PushFont(ftk::theme::mono_font(), 0.0f);
     for (const auto* e : world) {
         glm::vec4 clip = view_proj * glm::vec4(e->world_pos, 1.0f);
         if (clip.w <= 0.0f) continue;  // behind the camera
@@ -1262,7 +1262,7 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
         const ImVec2 text_size = ImGui::CalcTextSize(e->text.c_str());
         pos.x = std::floor(pos.x - text_size.x * 0.5f);
         pos.y = std::floor(pos.y);
-        ui::overlay_plate(dl, {pos.x - TAG_PAD_X, pos.y - TAG_PAD_Y},
+        ftk::ui::overlay_plate(dl, {pos.x - TAG_PAD_X, pos.y - TAG_PAD_Y},
                           {pos.x + text_size.x + TAG_PAD_X, pos.y + text_size.y + TAG_PAD_Y});
         dl->AddText(pos, ink(e->color), e->text.c_str());
     }
@@ -1284,7 +1284,7 @@ std::vector<ViewportRenderRequest> SceneEditorContext::build_render_requests() {
 }
 
 void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float dt,
-                                          const EnvironmentState& environment, ThreadPool& pool) {
+                                          const EnvironmentState& environment, ftk::ThreadPool& pool) {
     if (!camera_preview_target_ || !camera_preview_pp_ || selected_id_ == 0) return;
 
     auto* cam = dynamic_cast<CameraNode*>(scene->find(selected_id_));
@@ -1354,7 +1354,7 @@ void SceneEditorContext::add_model(const std::string& path) {
     auto model_result = deps_.resource_manager->load_model(
         base_path::resolve_asset(path, deps_.project_mgr->active()));
     if (!model_result) {
-        FJELL_CORE_ERROR("{}", model_result.error());
+        FTK_CORE_ERROR("{}", model_result.error());
         return;
     }
     auto model_handle = *model_result;
@@ -1385,7 +1385,7 @@ void SceneEditorContext::add_model(const std::string& path) {
         }
     }
 
-    FJELL_CORE_INFO("Added model to scene: {}", path);
+    FTK_CORE_INFO("Added model to scene: {}", path);
 }
 
 void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
@@ -1398,13 +1398,13 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
 
     auto skel_result = deps_.resource_manager->load_skeletal_model(resolved_mesh);
     if (!skel_result) {
-        FJELL_CORE_ERROR("{}", skel_result.error());
+        FTK_CORE_ERROR("{}", skel_result.error());
         return;
     }
     auto skel_model_handle = *skel_result;
     auto* skel_model = deps_.resource_manager->get(skel_model_handle);
     if (!skel_model) {
-        FJELL_CORE_ERROR("Failed to load skeletal model: {}", mesh_path);
+        FTK_CORE_ERROR("Failed to load skeletal model: {}", mesh_path);
         return;
     }
 
@@ -1440,14 +1440,14 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
             anim.play(clip.get());
             anim.clips.push_back(clip);
             anim.clip_paths.push_back(anim_path);
-            FJELL_CORE_INFO("Playing animation: {}", anim_path);
+            FTK_CORE_INFO("Playing animation: {}", anim_path);
         } else {
-            FJELL_CORE_WARN("Failed to load animation {}: {}", anim_path, clip_result.error());
+            FTK_CORE_WARN("Failed to load animation {}: {}", anim_path, clip_result.error());
         }
     }
 
     selected_id_ = deps_.scene->add_node(std::move(node));
-    FJELL_CORE_INFO("Added skeletal model to scene: {}", mesh_path);
+    FTK_CORE_INFO("Added skeletal model to scene: {}", mesh_path);
 }
 
 void SceneEditorContext::add_primitive(const std::string& type) {
@@ -1716,12 +1716,11 @@ void SceneEditorContext::delete_selection() {
     if (ids.size() == 1) {
         command_history().execute(remove(ids.front()));
     } else {
-        auto group = std::make_unique<CommandGroup>("Delete " + std::to_string(ids.size()) + " objects");
+        auto group = std::make_unique<ftk::CommandGroup>("Delete " + std::to_string(ids.size()) + " objects");
         for (uint32_t id : ids) group->add(remove(id));
         command_history().execute(std::move(group));
     }
     hierarchy_panel_.clear_selection();
 }
-
 
 } // namespace fjell

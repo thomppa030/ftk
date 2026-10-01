@@ -1,6 +1,6 @@
 #pragma once
-#ifndef FJELL_DELEGATE_HPP
-#define FJELL_DELEGATE_HPP
+#ifndef FTK_DELEGATE_HPP
+#define FTK_DELEGATE_HPP
 
 #include <algorithm>
 #include <concepts>
@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 // Forward declaration
 template <typename Signature>
@@ -190,6 +190,6 @@ private:
     std::shared_ptr<State> state_;
 };
 
-} // namespace fjell
+} // namespace ftk
 
-#endif // FJELL_DELEGATE_HPP
+#endif // FTK_DELEGATE_HPP

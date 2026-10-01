@@ -8,22 +8,22 @@
 
 namespace fjell {
 
-Result<> GridPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
+ftk::Result<> GridPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
     overlay_.create(device);
 
     // No vertex input: a fullscreen triangle from gl_VertexIndex, the plane
     // intersected per pixel. Blended over the output by the coverage the
     // fragment writes; the output's alpha stays opaque.
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/grid.vert",
                              .fragment = "shaders/grid.frag",
-                             .color = {{PostPass::OUTPUT_FORMAT, gpu::Blend::alpha}},
+                             .color = {{PostPass::OUTPUT_FORMAT, ftk::gpu::Blend::alpha}},
                              .shared = {resources.globals},
                              .name = "grid",
                          }));
 
-    FJELL_GFX_DEBUG("Grid pass pipeline created");
+    FTK_GFX_DEBUG("Grid pass pipeline created");
     return {};
 }
 
@@ -40,7 +40,7 @@ PassSetup GridPass::setup() const {
     };
 }
 
-void GridPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void GridPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     if (!ctx.grid_shown) return;
     OutputOverlay::declare(builder, ctx);
 }
@@ -50,7 +50,7 @@ void GridPass::record(const FrameContext& ctx) {
     const auto targets = OutputOverlay::targets(ctx);
     if (!targets) return;
 
-    FJELL_PROFILE_SCOPE_N("record_grid");
+    FTK_PROFILE_SCOPE_N("record_grid");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Grid");
     auto pass = cmd.render(*targets);

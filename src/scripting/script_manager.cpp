@@ -326,9 +326,9 @@ ScriptManager::~ScriptManager() {
 
 // ── Load / Unload / Reload ──────────────────────────────────────────────
 
-Result<> ScriptManager::load(const std::filesystem::path& so_path) {
+ftk::Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     if (!std::filesystem::exists(so_path)) {
-        return make_error("Script library not found: " + so_path.string());
+        return ftk::make_error("Script library not found: " + so_path.string());
     }
 
     // Clean up stale temp .so files from previous loads or crashes
@@ -336,7 +336,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     for (const auto& entry : fs::directory_iterator(so_path.parent_path())) {
         if (entry.is_regular_file()) {
             auto name = entry.path().filename().string();
-            if (name.starts_with("game_") && name.ends_with(platform::SHARED_LIB_EXT) &&
+            if (name.starts_with("game_") && name.ends_with(ftk::platform::SHARED_LIB_EXT) &&
                 entry.path() != loaded_temp_path_) {
                 fs::remove(entry.path());
             }
@@ -345,13 +345,13 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
 
     static uint32_t s_reload_counter = 0;
     auto temp = so_path.parent_path() /
-        ("game_" + std::to_string(++s_reload_counter) + platform::SHARED_LIB_EXT);
+        ("game_" + std::to_string(++s_reload_counter) + ftk::platform::SHARED_LIB_EXT);
     std::filesystem::copy_file(so_path, temp,
                                std::filesystem::copy_options::overwrite_existing);
 
     if (!library_.load(temp)) {
         std::filesystem::remove(temp);
-        return make_error("Failed to load script library: " + library_.error());
+        return ftk::make_error("Failed to load script library: " + library_.error());
     }
 
     so_path_ = so_path;
@@ -366,7 +366,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     ++library_revision_;
 
     int total = static_cast<int>(script_type_list_.size());
-    FJELL_CORE_INFO("Scripts loaded: {} type(s)", total);
+    FTK_CORE_INFO("Scripts loaded: {} type(s)", total);
     return {};
 }
 
@@ -396,8 +396,8 @@ void ScriptManager::unload(Scene& scene) {
     for (auto& t : script_type_list_) t.loaded = false;
 }
 
-Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
-    FJELL_CORE_INFO("Hot-reloading scripts...");
+ftk::Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
+    FTK_CORE_INFO("Hot-reloading scripts...");
     // In a running game a reload is the scripts ending and new ones starting:
     // the ones going away get their end_play, and the new ones their
     // begin_play, which is where they bind input again.
@@ -406,7 +406,7 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
 
     auto result = load(so_path);
     if (!result) {
-        return make_error("Reload failed — scripts unloaded: " + result.error());
+        return ftk::make_error("Reload failed — scripts unloaded: " + result.error());
     }
 
     deserialize_all(scene);
@@ -416,7 +416,7 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
     last_reload_time_ = std::chrono::steady_clock::now();
 #endif
 
-    FJELL_CORE_INFO("Scripts reloaded");
+    FTK_CORE_INFO("Scripts reloaded");
     return {};
 }
 
@@ -433,12 +433,12 @@ void ScriptManager::build_registry() {
     if (version_fn) {
         uint32_t so_version = version_fn();
         if (so_version != FJELL_API_VERSION) {
-            FJELL_CORE_ERROR("Script .so API version mismatch: engine={}, .so={} — recompile scripts",
+            FTK_CORE_ERROR("Script .so API version mismatch: engine={}, .so={} — recompile scripts",
                              FJELL_API_VERSION, so_version);
             return;
         }
     } else {
-        FJELL_CORE_WARN("No fjell_api_version symbol — .so may be outdated");
+        FTK_CORE_WARN("No fjell_api_version symbol — .so may be outdated");
     }
 
     // The version catches deliberate ABI changes; this catches the mirrored
@@ -453,20 +453,20 @@ void ScriptManager::build_registry() {
             const auto* meta = ComponentRegistry::instance().find_by_script_name(layouts[i].type_name);
             if (meta == nullptr) continue;
             if (meta->type_size != layouts[i].size) {
-                FJELL_CORE_ERROR("Script .so was built against a different {} layout "
+                FTK_CORE_ERROR("Script .so was built against a different {} layout "
                                  "({} bytes, engine has {}) — recompile scripts",
                                  layouts[i].type_name, layouts[i].size, meta->type_size);
                 return;
             }
         }
     } else {
-        FJELL_CORE_WARN("No fjell_engine_component_layouts symbol — .so may be outdated");
+        FTK_CORE_WARN("No fjell_engine_component_layouts symbol — .so may be outdated");
     }
 
     using RegFn = void (*)(FjellTypeRegistry*);
     auto* reg_fn = library_.symbol_as<RegFn>("fjell_register");
     if (!reg_fn) {
-        FJELL_CORE_WARN("No fjell_register symbol found in .so");
+        FTK_CORE_WARN("No fjell_register symbol found in .so");
         return;
     }
 
@@ -482,7 +482,7 @@ void ScriptManager::build_registry() {
     for (const auto& ct : registry.scripts) {
         for (const FjellComponentLayout& layout : mirrored) {
             if (ct.name == layout.type_name) {
-                FJELL_CORE_ERROR("Script type {} has the name of an engine component — rename it",
+                FTK_CORE_ERROR("Script type {} has the name of an engine component — rename it",
                                  ct.name);
                 return;
             }
@@ -557,7 +557,7 @@ ScriptComponent* ScriptManager::add_script(Node3D& obj, const std::string& type_
                                            const nlohmann::json& fields, std::size_t index) {
     if (auto it = std::ranges::find(obj.scripts, type_name, &ScriptEntry::type_name);
         it != obj.scripts.end()) {
-        FJELL_CORE_WARN("'{}' already has a {}, so adding another gives back that one", obj.name,
+        FTK_CORE_WARN("'{}' already has a {}, so adding another gives back that one", obj.name,
                         type_name);
         return it->instance.get();
     }
@@ -786,7 +786,7 @@ void ScriptManager::report_outside_writes(const Node& node, const std::string& t
 
 void ScriptManager::report_write(const std::string& key, std::string message) {
     if (!reported_writes_.insert(key).second) return;
-    FJELL_CORE_WARN("{}", message);
+    FTK_CORE_WARN("{}", message);
     write_reports_.push_back(std::move(message));
 }
 
@@ -841,7 +841,7 @@ void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock
 
 void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
                            PhysicsWorld* physics) {
-    FJELL_PROFILE_SCOPE_N("script_update");
+    FTK_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
     scene.set_script_host(this);
@@ -876,7 +876,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 }
 
 void ScriptManager::fixed_update(Scene& scene, const FixedStep& step) {
-    FJELL_PROFILE_SCOPE_N("script_fixed_update");
+    FTK_PROFILE_SCOPE_N("script_fixed_update");
     if (!is_loaded()) return;
 
     // Inside the step, the time a script reads is the step's: code that asks
@@ -906,7 +906,7 @@ void ScriptManager::fixed_update(Scene& scene, const FixedStep& step) {
 }
 
 void ScriptManager::late_update(Scene& scene, float dt) {
-    FJELL_PROFILE_SCOPE_N("script_late_update");
+    FTK_PROFILE_SCOPE_N("script_late_update");
     if (!is_loaded()) return;
 
     Scene::TickLock tick_lock(scene);
@@ -994,7 +994,7 @@ bool ScriptManager::refuse_unset_required(Scene& scene) {
 }
 
 void ScriptManager::call_begin_play(Scene& scene) {
-    FJELL_PROFILE_SCOPE_N("script_begin_play");
+    FTK_PROFILE_SCOPE_N("script_begin_play");
     // begin_play() may spawn nodes (e.g. a server spawning a player on connect);
     // defer those adds so they don't invalidate this loop's iterator. They
     // are started with everything else that joins the game, by whoever
@@ -1030,7 +1030,7 @@ void ScriptManager::initialize_spawned(Scene& scene, const std::vector<uint32_t>
 }
 
 void ScriptManager::call_end_play(Scene& scene) {
-    FJELL_PROFILE_SCOPE_N("script_end_play");
+    FTK_PROFILE_SCOPE_N("script_end_play");
     // An end_play that spawns must not move the list under this loop.
     Scene::TickLock tick_lock(scene);
     // Only a script whose begin_play ran ends: a scene refused as it was
@@ -1300,7 +1300,7 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                             // Missing, not empty: the field keeps the file it
                             // names, so saving writes it back and using it
                             // says which file failed.
-                            if (!failed_before) FJELL_CORE_ERROR("`{}`: {}", f.name, loaded.error());
+                            if (!failed_before) FTK_CORE_ERROR("`{}`: {}", f.name, loaded.error());
                             *ref = {.handle_id = entry->find(*s_services.resources, path),
                                     .asset_type_id = entry->type_id};
                         }
@@ -1358,11 +1358,11 @@ void ScriptManager::watch(const std::filesystem::path& so_path) {
         }
     });
 
-    FJELL_CORE_INFO("Script hot-reload watching: {}", so_path.parent_path().string());
+    FTK_CORE_INFO("Script hot-reload watching: {}", so_path.parent_path().string());
 }
 
-Result<> ScriptManager::poll_reload(Scene& scene) {
-    FJELL_PROFILE_SCOPE_N("script_poll_reload");
+ftk::Result<> ScriptManager::poll_reload(Scene& scene) {
+    FTK_PROFILE_SCOPE_N("script_poll_reload");
     if (so_path_.empty()) return {};
 
     reload_pending_ = false;

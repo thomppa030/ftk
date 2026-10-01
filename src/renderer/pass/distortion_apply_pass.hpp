@@ -12,16 +12,16 @@ namespace fjell {
 // msaa_color for the transparent pass to blend on top.
 class DistortionApplyPass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
 
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
 private:
-    gpu::Owned<gpu::GraphicsPipeline> pipeline_;
-    gpu::Sampler sampler_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> pipeline_;
+    ftk::gpu::Sampler sampler_;
 };
 
 } // namespace fjell

@@ -14,7 +14,7 @@
 // textures on the graphics queue, where their mips are filtered. A texture's
 // barriers are the command list's, from the accesses the caller names.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -114,4 +114,4 @@ void Upload::clear(const TextureView& view, const Clear& value, AccessSet after)
     cmd.barrier(view, Access::clear, after);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

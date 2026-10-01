@@ -7,11 +7,11 @@
 #include "ftk/framegraph/frame_graph.hpp"
 
 int main() {
-    fjell::log::init({.level = spdlog::level::warn});
+    ftk::log::init({.level = spdlog::level::warn});
 
-    fjell::FrameGraph graph;
+    ftk::FrameGraph graph;
     graph.new_frame();
 
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     return 0;
 }

@@ -21,10 +21,10 @@ public:
     explicit AssetDatabase(std::filesystem::path project_root);
 
     /// Load from .fjell/asset_db.json. Creates empty db if file doesn't exist.
-    Result<> load();
+    ftk::Result<> load();
 
     /// Save to .fjell/asset_db.json. Atomic write (tmp + rename).
-    Result<> save() const;
+    ftk::Result<> save() const;
 
     /// Walk the project, assign UUIDs to new files, remove stale entries,
     /// recover UUIDs from __uuid fields in Fjell JSON formats.

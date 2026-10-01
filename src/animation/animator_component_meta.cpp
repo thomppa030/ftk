@@ -47,7 +47,7 @@ static const bool registered = [] {
                         anim.clips.push_back(clip);
                         if (anim.clips.size() == 1) anim.play(clip.get());
                     } else {
-                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, result.error());
+                        FTK_CORE_ERROR("Failed to load clip {}: {}", clip_rel, result.error());
                     }
                 }
             }
@@ -55,7 +55,7 @@ static const bool registered = [] {
                 anim.animset_path = j["animset"].get<std::string>();
                 auto resolved = base_path::resolve_asset(anim.animset_path, proj);
                 if (auto r = anim.load_state_machine(resolved); !r) {
-                    FJELL_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
+                    FTK_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
                 }
                 for (size_t i = 0; i < anim.clips.size(); ++i) {
                     if (i < anim.clip_paths.size()) anim.set_clip(anim.clip_paths[i], anim.clips[i].get());

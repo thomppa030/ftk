@@ -15,14 +15,14 @@
 #include <string>
 #include <vector>
 
+namespace ftk::gpu {
+class Device;
+class Upload;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class Material;
-
-namespace gpu {
-class Device;
-class Upload;
-}
 
 /// A loaded .fjterrain: the CPU height data plus the GPU texture the mesh
 /// shader samples to place vertices.
@@ -44,8 +44,8 @@ public:
     TerrainAsset& operator=(TerrainAsset&&) = delete;
 
     /// Load a .fjterrain and upload its heights as a single-channel texture.
-    [[nodiscard]] static Result<std::unique_ptr<TerrainAsset>> load(const std::string& path,
-                                                                    gpu::Device& gpu);
+    [[nodiscard]] static ftk::Result<std::unique_ptr<TerrainAsset>> load(const std::string& path,
+                                                                    ftk::gpu::Device& gpu);
 
     [[nodiscard]] const FjTerrainData& data() const { return *data_; }
 
@@ -58,7 +58,7 @@ public:
 
     /// The heights, one normalized 16-bit sample per texel, which the mesh
     /// stage places vertices from.
-    [[nodiscard]] gpu::Texture height_texture() const;
+    [[nodiscard]] ftk::gpu::Texture height_texture() const;
 
     /// Per-patch height bounds, one texel per patch, holding the lowest and
     /// highest normalized height that patch reaches. The task shader reads it
@@ -68,13 +68,13 @@ public:
     /// One texel per patch rather than a mip of the height texture, because
     /// the patch grid is the sample grid over `patch_quads` (11, prime) and no
     /// mip level lines up with it.
-    [[nodiscard]] gpu::Texture patch_bounds_texture() const;
+    [[nodiscard]] ftk::gpu::Texture patch_bounds_texture() const;
 
     /// Painted layer weights, one layer per channel, sampled by the fragment
     /// stage. The texture always covers the field at weight_count() texels a
     /// side; until the first paint stroke the CPU array stays empty and the
     /// texture reads as layer 0 everywhere.
-    [[nodiscard]] gpu::Texture weight_texture() const;
+    [[nodiscard]] ftk::gpu::Texture weight_texture() const;
 
     /// Weight texels per side. One per height sample unless the file was
     /// painted at another resolution.
@@ -91,7 +91,7 @@ public:
     /// what makes the weights part of the saved file. Same shape as
     /// apply_heights; there is nothing to tell physics.
     void apply_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                       const uint8_t* rgba, gpu::Upload& upload);
+                       const uint8_t* rgba, ftk::gpu::Upload& upload);
 
     // ── Material layers ──
     // Up to FJTERRAIN_MAX_LAYERS ordinary .fjmat materials, blended by the
@@ -256,7 +256,7 @@ public:
     /// no physics world, and a play-time body is the caller's to refresh
     /// through PhysicsWorld::update_terrain_heights.
     void apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
-                       const float* heights, gpu::Upload& upload);
+                       const float* heights, ftk::gpu::Upload& upload);
 
     /// A rectangle of height samples: what an edit touched.
     struct SampleRect {
@@ -289,7 +289,7 @@ public:
     [[nodiscard]] bool dirty() const { return dirty_; }
 
     /// Write the current heights back to the .fjterrain this was loaded from.
-    [[nodiscard]] Result<> save();
+    [[nodiscard]] ftk::Result<> save();
 
     /// Normalized height at a sample index, clamped at the edges.
     [[nodiscard]] float height_at_sample(uint32_t x, uint32_t z) const;
@@ -305,7 +305,7 @@ public:
     /// pass calls it every frame it draws. Kept off apply_heights() so a
     /// stroke of many dabs rebuilds each patch once per frame rather than once
     /// per dab.
-    void refresh_patch_bounds(gpu::Upload& upload);
+    void refresh_patch_bounds(ftk::gpu::Upload& upload);
 
 private:
     /// Decimate the height array into the triangle mesh ray tracing needs.
@@ -342,9 +342,9 @@ private:
     /// A consumer further behind than this is handed the whole field.
     static constexpr uint32_t EDIT_HISTORY = 64;
     std::array<SampleRect, EDIT_HISTORY> edit_history_{};
-    gpu::Owned<gpu::Texture> height_texture_;
-    gpu::Owned<gpu::Texture> weight_texture_;
-    gpu::Owned<gpu::Texture> patch_bounds_texture_;
+    ftk::gpu::Owned<ftk::gpu::Texture> height_texture_;
+    ftk::gpu::Owned<ftk::gpu::Texture> weight_texture_;
+    ftk::gpu::Owned<ftk::gpu::Texture> patch_bounds_texture_;
     /// Two unorm16 per patch, min then max, row-major over the patch grid.
     std::vector<uint16_t> patch_bounds_texels_;
     /// The edit generation `patch_bounds_texture_` is current as of.

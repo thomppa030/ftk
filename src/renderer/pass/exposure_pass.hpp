@@ -17,11 +17,11 @@ namespace fjell {
 /// Two dispatches per frame: histogram build (parallel) + reduce (single workgroup).
 class ExposurePass : public RenderPass {
 public:
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
 
     /// The average luminance the frame that last used `frame_index`'s slot
     /// computed. Complete once the GPU has finished that frame.
@@ -37,14 +37,14 @@ public:
     }
 
 private:
-    gpu::Device* device_{nullptr};
-    gpu::Owned<gpu::ComputePipeline> pipeline_;
-    gpu::Sampler sampler_;
+    ftk::gpu::Device* device_{nullptr};
+    ftk::gpu::Owned<ftk::gpu::ComputePipeline> pipeline_;
+    ftk::gpu::Sampler sampler_;
 
     // Per frame slot: the histogram (256 bins and the average), and the
     // average copied where the CPU reads it once the GPU is done with the slot.
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> histograms_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> readbacks_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> histograms_;
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> readbacks_;
 
     bool enabled_{false};
     float min_log_lum_{-10.0f};

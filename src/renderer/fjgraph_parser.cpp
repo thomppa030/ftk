@@ -36,7 +36,7 @@ int line_for_byte(std::string_view text, std::size_t byte_offset) {
 
 /// Convert a JSON scalar into our `PassParamValue`. Arrays/objects are
 /// rejected — params are intentionally flat in v1.
-Result<PassParamValue> param_from_json(const nlohmann::json& v,
+ftk::Result<PassParamValue> param_from_json(const nlohmann::json& v,
                                        const std::string& path,
                                        const std::string& key) {
     if (v.is_string()) { return PassParamValue{v.get<std::string>()}; }
@@ -46,23 +46,23 @@ Result<PassParamValue> param_from_json(const nlohmann::json& v,
     }
     if (v.is_number_float()) { return PassParamValue{v.get<double>()}; }
     if (v.is_null()) { return PassParamValue{std::monostate{}}; }
-    return make_error(format_error(
+    return ftk::make_error(format_error(
         path, "param '" + key + "': arrays/objects are not allowed in v1"));
 }
 
 } // namespace
 
-Result<FjGraph> FjGraphParser::load(const std::string& path) {
+ftk::Result<FjGraph> FjGraphParser::load(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        return make_error("Failed to open .fjgraph: " + path);
+        return ftk::make_error("Failed to open .fjgraph: " + path);
     }
     std::stringstream ss;
     ss << f.rdbuf();
     return parse(ss.str(), path);
 }
 
-Result<FjGraph> FjGraphParser::parse(std::string_view text,
+ftk::Result<FjGraph> FjGraphParser::parse(std::string_view text,
                                      std::string source_path) {
     nlohmann::json j;
     try {
@@ -74,11 +74,11 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
                                   /*ignore_comments*/ true);
     } catch (const nlohmann::json::parse_error& e) {
         const int line = line_for_byte(text, e.byte);
-        return make_error(format_error(source_path, e.what(), line));
+        return ftk::make_error(format_error(source_path, e.what(), line));
     }
 
     if (!j.is_object()) {
-        return make_error(format_error(source_path,
+        return ftk::make_error(format_error(source_path,
             "top-level value must be a JSON object"));
     }
 
@@ -89,18 +89,18 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
     // Keys that pass for settings and are not read: resources come from each
     // pass's declare(), order and queue from its setup().
     if (j.contains("resources")) {
-        FJELL_GFX_WARN("{}: 'resources' is not read; each pass declares its own",
+        FTK_GFX_WARN("{}: 'resources' is not read; each pass declares its own",
                        graph.source_path);
     }
 
     // ── passes block (required) ──────────────────────────────────────
     if (!j.contains("passes")) {
-        return make_error(format_error(graph.source_path,
+        return ftk::make_error(format_error(graph.source_path,
             "missing required 'passes' array"));
     }
     const auto& passes = j["passes"];
     if (!passes.is_array()) {
-        return make_error(format_error(graph.source_path,
+        return ftk::make_error(format_error(graph.source_path,
             "'passes' must be an array"));
     }
 
@@ -108,11 +108,11 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
     for (std::size_t i = 0; i < passes.size(); ++i) {
         const auto& entry = passes[i];
         if (!entry.is_object()) {
-            return make_error(format_error(graph.source_path,
+            return ftk::make_error(format_error(graph.source_path,
                 "passes[" + std::to_string(i) + "] must be an object"));
         }
         if (!entry.contains("class") || !entry["class"].is_string()) {
-            return make_error(format_error(graph.source_path,
+            return ftk::make_error(format_error(graph.source_path,
                 "passes[" + std::to_string(i) + "] missing 'class' string"));
         }
 
@@ -123,12 +123,12 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
         if (entry.contains("params")) {
             const auto& params = entry["params"];
             if (!params.is_object()) {
-                return make_error(format_error(graph.source_path,
+                return ftk::make_error(format_error(graph.source_path,
                     "passes[" + std::to_string(i) + "].params must be an object"));
             }
             for (const auto& [k, v] : params.items()) {
                 auto pv = param_from_json(v, graph.source_path, k);
-                if (!pv) { return make_error(pv.error()); }
+                if (!pv) { return ftk::make_error(pv.error()); }
                 p.params.set(k, std::move(*pv));
             }
         }
@@ -138,7 +138,7 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
         }
         for (const char* key : {"queue", "phase", "sub_order"}) {
             if (entry.contains(key)) {
-                FJELL_GFX_WARN("{}: passes[{}].{} is not read; the pass's setup() decides it",
+                FTK_GFX_WARN("{}: passes[{}].{} is not read; the pass's setup() decides it",
                                graph.source_path, i, key);
             }
         }
@@ -152,7 +152,7 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
     return validate(std::move(graph));
 }
 
-Result<FjGraph> FjGraphParser::validate(FjGraph graph) {
+ftk::Result<FjGraph> FjGraphParser::validate(FjGraph graph) {
     std::unordered_set<std::string> names_seen;
 
     for (std::size_t i = 0; i < graph.passes.size(); ++i) {
@@ -161,7 +161,7 @@ Result<FjGraph> FjGraphParser::validate(FjGraph graph) {
                                   p.class_name + "')";
 
         if (!PassFactory::has(p.class_name)) {
-            return make_error(format_error(graph.source_path,
+            return ftk::make_error(format_error(graph.source_path,
                 locus + ": unknown pass class — not registered with PassFactory"));
         }
 
@@ -172,7 +172,7 @@ Result<FjGraph> FjGraphParser::validate(FjGraph graph) {
             p.name = p.class_name;
         }
         if (!names_seen.insert(p.name).second) {
-            return make_error(format_error(graph.source_path,
+            return ftk::make_error(format_error(graph.source_path,
                 locus + ": duplicate pass name '" + p.name +
                 "' — set 'name' explicitly to disambiguate"));
         }

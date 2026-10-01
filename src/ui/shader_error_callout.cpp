@@ -20,7 +20,7 @@ bool shader_error_callout(const PipelineCache& cache, uint32_t pipeline_id, cons
 
     const std::string& path = cache.shader_path(pipeline_id);
     const std::string name = std::filesystem::path(path).filename().string();
-    const ShaderDiagnostic error = first_shader_error(cache.compile_error(pipeline_id));
+    const ftk::ShaderDiagnostic error = ftk::first_shader_error(cache.compile_error(pipeline_id));
 
     std::string text;
     if (error.line > 0) {
@@ -40,9 +40,9 @@ bool shader_error_callout(const PipelineCache& cache, uint32_t pipeline_id, cons
     const std::string title = name + " failed to compile";
     const std::string action = "Open " + name;
     ImGui::PushID(static_cast<int>(pipeline_id));
-    if (ui::callout(ui::Severity::Error, title.c_str(), text.c_str(), ui::icon::shader, action.c_str())) {
-        if (auto opened = platform::open_path(base_path::resolve_shared(path, project)); !opened) {
-            FJELL_CORE_ERROR("Couldn't open {}: {}", path, opened.error());
+    if (ftk::ui::callout(ftk::ui::Severity::Error, title.c_str(), text.c_str(), ftk::ui::icon::shader, action.c_str())) {
+        if (auto opened = ftk::platform::open_path(base_path::resolve_shared(path, project)); !opened) {
+            FTK_CORE_ERROR("Couldn't open {}: {}", path, opened.error());
         }
     }
     ImGui::PopID();

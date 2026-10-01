@@ -600,8 +600,8 @@ namespace {
 
 } // namespace
 
-void Scene::compute_world_matrices(ThreadPool* pool) {
-    FJELL_PROFILE_SCOPE_N("compute_world_matrices");
+void Scene::compute_world_matrices(ftk::ThreadPool* pool) {
+    FTK_PROFILE_SCOPE_N("compute_world_matrices");
 
     if (index_dirty_) {
         rebuild_id_index();

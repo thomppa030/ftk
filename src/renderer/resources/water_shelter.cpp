@@ -315,7 +315,7 @@ void ShoreDerivation::collect() {
 }
 
 std::shared_ptr<const ShoreExposure> ShoreDerivation::derive(
-    const ShoreBed& bed, const FjWaterData& water, ThreadPool* workers,
+    const ShoreBed& bed, const FjWaterData& water, ftk::ThreadPool* workers,
     std::shared_ptr<const ShoreExposure> previous) {
     const LandKey key{bed.terrain.get(), bed.generation, bed.min_corner, bed.ground_y,
                       bed.surface_y};

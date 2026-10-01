@@ -10,11 +10,11 @@
 #include <cstdint>
 #include <vector>
 
-namespace fjell {
-
-namespace gpu {
+namespace ftk::gpu {
 class Device;
-}
+} // namespace ftk::gpu
+
+namespace fjell {
 
 /// The bone matrices of every skinned instance drawn this frame, one after
 /// another, for the skinning shaders to read at each instance's offset.
@@ -22,7 +22,7 @@ class Device;
 /// frame still in flight reads the one before.
 class BoneBuffer {
 public:
-    explicit BoneBuffer(gpu::Device& gpu);
+    explicit BoneBuffer(ftk::gpu::Device& gpu);
 
     /// Starts gathering the frame's matrices anew.
     void begin_frame();
@@ -36,7 +36,7 @@ public:
     /// until they are done.
     void end_frame(uint32_t frame_index);
 
-    [[nodiscard]] gpu::Buffer buffer(uint32_t frame_index) const { return buffers_[frame_index]; }
+    [[nodiscard]] ftk::gpu::Buffer buffer(uint32_t frame_index) const { return buffers_[frame_index]; }
 
     /// Bytes gathered this frame.
     [[nodiscard]] uint64_t byte_size() const { return matrices_.size() * sizeof(glm::mat4); }
@@ -44,10 +44,10 @@ public:
     [[nodiscard]] uint32_t total_bones() const { return static_cast<uint32_t>(matrices_.size()); }
 
 private:
-    gpu::Device& gpu_;
+    ftk::gpu::Device& gpu_;
     std::vector<glm::mat4> matrices_;
-    std::array<gpu::Owned<gpu::Buffer>, MAX_FRAMES_IN_FLIGHT> buffers_;
-    std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
+    std::array<ftk::gpu::Owned<ftk::gpu::Buffer>, ftk::MAX_FRAMES_IN_FLIGHT> buffers_;
+    std::array<uint64_t, ftk::MAX_FRAMES_IN_FLIGHT> capacities_{};
 
     static constexpr uint32_t INITIAL_CAPACITY = 4096; // mat4s (~64 characters * 64 bones)
 };

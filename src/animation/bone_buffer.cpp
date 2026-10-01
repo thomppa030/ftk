@@ -8,7 +8,7 @@
 
 namespace fjell {
 
-BoneBuffer::BoneBuffer(gpu::Device& gpu) : gpu_(gpu) {
+BoneBuffer::BoneBuffer(ftk::gpu::Device& gpu) : gpu_(gpu) {
     matrices_.reserve(INITIAL_CAPACITY);
 }
 
@@ -29,14 +29,14 @@ void BoneBuffer::end_frame(uint32_t frame_index) {
     if (!buffer || matrices_.size() > capacity) {
         uint64_t wanted = std::max<uint64_t>(capacity, INITIAL_CAPACITY);
         while (wanted < matrices_.size()) wanted *= 2;
-        auto made = gpu_.create(gpu::BufferDesc{
+        auto made = gpu_.create(ftk::gpu::BufferDesc{
             .size = wanted * sizeof(glm::mat4),
-            .use = gpu::BufferUse::storage,
-            .memory = gpu::Memory::upload,
+            .use = ftk::gpu::BufferUse::storage,
+            .memory = ftk::gpu::Memory::upload,
             .name = "bone_matrices",
         });
         if (!made) {
-            FJELL_GFX_ERROR("{}", made.error());
+            FTK_GFX_ERROR("{}", made.error());
             return;
         }
         buffer = std::move(*made);

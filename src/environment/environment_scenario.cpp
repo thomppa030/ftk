@@ -40,10 +40,10 @@ std::string line_error(const std::string& path, size_t line, const std::string& 
 
 } // namespace
 
-Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
+ftk::Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) {
-        return make_error("Cannot open scenario file: " + path);
+        return ftk::make_error("Cannot open scenario file: " + path);
     }
 
     EnvironmentScenario scenario;
@@ -61,16 +61,16 @@ Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
 
         EnvironmentScenario::Step step;
         if (!parse_float(time_token, step.time)) {
-            return make_error(line_error(path, line_number,
+            return ftk::make_error(line_error(path, line_number,
                                          "'" + time_token + "' is not a time in seconds"));
         }
         if (step.time < 0.0f) {
-            return make_error(line_error(path, line_number, "a step cannot be before the start"));
+            return ftk::make_error(line_error(path, line_number, "a step cannot be before the start"));
         }
 
         std::string command;
         if (!(tokens >> command)) {
-            return make_error(line_error(path, line_number, "a time with no command"));
+            return ftk::make_error(line_error(path, line_number, "a time with no command"));
         }
 
         if (command == "quit") {
@@ -79,21 +79,21 @@ Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
             std::string value;
             float hour = 0.0f;
             if (!(tokens >> value) || !parse_float(value, hour)) {
-                return make_error(line_error(path, line_number, "hour needs a number, 0 to 24"));
+                return ftk::make_error(line_error(path, line_number, "hour needs a number, 0 to 24"));
             }
             step.change.hour = hour;
         } else if (command == "day-length") {
             std::string value;
             float seconds = 0.0f;
             if (!(tokens >> value) || !parse_float(value, seconds)) {
-                return make_error(line_error(path, line_number,
+                return ftk::make_error(line_error(path, line_number,
                                              "day-length needs seconds, 0 to freeze the clock"));
             }
             step.change.day_length = seconds;
         } else if (command == "weather") {
             std::string event;
             if (!(tokens >> event)) {
-                return make_error(line_error(path, line_number,
+                return ftk::make_error(line_error(path, line_number,
                                              "weather needs a .fjweather path"));
             }
             step.change.weather = event;
@@ -102,7 +102,7 @@ Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
             if (std::string phase_name; tokens >> phase_name) {
                 const auto phase = weather_phase_from_name(phase_name);
                 if (!phase) {
-                    return make_error(line_error(path, line_number,
+                    return ftk::make_error(line_error(path, line_number,
                                                  "'" + phase_name + "' is not a phase "
                                                  "(approach, onset, sustain, tail)"));
                 }
@@ -112,7 +112,7 @@ Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
             std::string value;
             float amount = 0.0f;
             if (!(tokens >> value) || !parse_float(value, amount)) {
-                return make_error(line_error(path, line_number,
+                return ftk::make_error(line_error(path, line_number,
                                              command + " needs a number, 0 to 1"));
             }
             if (command == "wetness") step.change.wetness = amount;
@@ -125,11 +125,11 @@ Result<EnvironmentScenario> load_environment_scenario(const std::string& path) {
             std::string value;
             uint32_t seed = 0;
             if (!(tokens >> value) || !parse_uint(value, seed)) {
-                return make_error(line_error(path, line_number, "seed needs a whole number"));
+                return ftk::make_error(line_error(path, line_number, "seed needs a whole number"));
             }
             step.change.seed = seed;
         } else {
-            return make_error(line_error(path, line_number, "'" + command + "' is not a command "
+            return ftk::make_error(line_error(path, line_number, "'" + command + "' is not a command "
                                          "(hour, day-length, weather, wetness, snow, "
                                          "hold-weather, release-weather, seed, quit)"));
         }

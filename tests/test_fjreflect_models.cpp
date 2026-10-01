@@ -55,7 +55,7 @@ struct Project {
 };
 
 Project read_project(const std::vector<std::pair<std::string, std::string>>& headers) {
-    const auto dir = fs::temp_directory_path() / ("fjreflect_models_" + std::to_string(fjell::platform::process_id()));
+    const auto dir = fs::temp_directory_path() / ("fjreflect_models_" + std::to_string(ftk::platform::process_id()));
     fs::create_directories(dir);
     Project project;
     for (const auto& [name, text] : headers) {

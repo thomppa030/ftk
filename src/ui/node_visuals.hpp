@@ -18,7 +18,7 @@ inline constexpr const char* NODES_PAYLOAD = "HIERARCHY_NODE";
 /// empty, a mesh) has none: what it is shows in its component dots.
 struct NodeVisuals {
     const char* icon;
-    std::optional<theme::Category> category;
+    std::optional<ftk::theme::Category> category;
     std::optional<ImVec4> tint{};
 };
 

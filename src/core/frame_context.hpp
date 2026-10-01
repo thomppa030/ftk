@@ -2,6 +2,10 @@
 
 #include <cstdint>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class Clock;
@@ -9,7 +13,6 @@ class Input;
 class PhysicsWorld;
 class Project;
 class ResourceManager;
-class ThreadPool;
 class Scene;
 
 struct TickContext {
@@ -23,7 +26,7 @@ struct TickContext {
     ResourceManager* resources{nullptr};
     /// The engine's worker threads, for a subsystem with work too slow for the
     /// tick it is asked in. Null where a context is put together without them.
-    ThreadPool*      workers{nullptr};
+    ftk::ThreadPool*      workers{nullptr};
 };
 
 /// What a subsystem sees inside one fixed step. It has no Clock and no frame
@@ -47,7 +50,7 @@ struct FixedTickContext {
     PhysicsWorld*    physics{nullptr};
     const Project*   project{nullptr};
     ResourceManager* resources{nullptr};
-    ThreadPool*      workers{nullptr};
+    ftk::ThreadPool*      workers{nullptr};
 };
 
 } // namespace fjell

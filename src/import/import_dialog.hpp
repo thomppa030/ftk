@@ -12,10 +12,12 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
-
+namespace ftk {
 class ImGuiLayer;
 class Window;
+} // namespace ftk
+
+namespace fjell {
 
 /// Standalone OS window for configuring and running mesh imports.
 /// Shares the editor's GPU device but creates its own window, swapchain and
@@ -30,7 +32,7 @@ public:
     ImportDialog& operator=(const ImportDialog&) = delete;
 
     /// Set the device to share. Must be called before open().
-    void set_device(gpu::Device* device) { device_ = device; }
+    void set_device(ftk::gpu::Device* device) { device_ = device; }
 
     /// Project root and the project's texture import directory. Texture paths
     /// in generated .fjmat files are written relative to the root. Set before
@@ -53,10 +55,10 @@ public:
     [[nodiscard]] bool is_open() const { return window_ != nullptr; }
 
     /// Fired on the main thread when an import finishes.
-    Delegate<void(bool success, const std::vector<std::string>& output_files)> on_import_complete;
+    ftk::Delegate<void(bool success, const std::vector<std::string>& output_files)> on_import_complete;
 
     /// Fired when the user asks to see an imported file in the content browser.
-    Delegate<void(const std::filesystem::path& file)> on_show_result;
+    ftk::Delegate<void(const std::filesystem::path& file)> on_show_result;
 
 private:
     /// Draw the ImGui UI. Returns true if the window should close.
@@ -67,16 +69,16 @@ private:
     bool draw_bottom_bar();
 
     // Shared from the editor (not owned)
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     std::filesystem::path project_root_;
     std::string project_texture_dir_{"assets/textures"};
 
-    std::unique_ptr<StandaloneWindow> window_;
+    std::unique_ptr<ftk::StandaloneWindow> window_;
 
     // Import state
     MeshImportSettings settings_;
     ImportJob job_;
-    Connection job_connection_;
+    ftk::Connection job_connection_;
     SourceInspection inspection_;
 
     std::string source_filename_;

@@ -36,7 +36,7 @@ public:
 private:
     std::string graph_path_;
     ReloadCallback callback_;
-    platform::FileWatcher watcher_;
+    ftk::platform::FileWatcher watcher_;
     bool changed_{false};
 };
 

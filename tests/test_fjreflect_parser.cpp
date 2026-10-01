@@ -15,7 +15,7 @@ namespace {
 // project's scripts.
 fjreflect::ParseResult parse_header(const std::string& name, const std::string& text) {
     auto path = fs::temp_directory_path() /
-                ("fjreflect_test_" + std::to_string(fjell::platform::process_id()) + "_" + name);
+                ("fjreflect_test_" + std::to_string(ftk::platform::process_id()) + "_" + name);
     std::ofstream(path) << text;
     auto result = fjreflect::parse_file(path.string());
     fs::remove(path);

@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class Scene;
@@ -17,7 +21,7 @@ class VulkanContext;
 /// docking it says how its viewports render through the engine's renderer,
 /// shows the play overlay if it hosts play, and adds Stats to the tabs along
 /// the bottom. Every one of Fjell's editors derives from it.
-class EngineEditorContext : public EditorContext {
+class EngineEditorContext : public ftk::EditorContext {
 public:
     /// Console, Stats and History, in that order.
     [[nodiscard]] std::vector<std::string> bottom_tabs() const override;
@@ -37,7 +41,7 @@ public:
     // of its views. Called after apply_resize but before record_frame.
     virtual void render_previews(VulkanContext& /*vk*/, Scene* /*scene*/, float /*dt*/,
                                   const struct EnvironmentState& /*environment*/,
-                                  class ThreadPool& /*pool*/) {}
+                                  ftk::ThreadPool& /*pool*/) {}
 
     /// The requests of an asset preview: the same viewports, drawn over the
     /// editor's studio backdrop instead of the scene's sky, so the asset is

@@ -12,14 +12,17 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class ContentBrowser;
-class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
-class ThreadPool;
 class Scene;
 class VulkanContext;
 
@@ -29,10 +32,10 @@ struct WaterEditorDeps {
     ProjectManager* project_mgr;
     Input* input;
     /// For shaping the previewed sea off the UI thread while a dial is dragged.
-    ThreadPool* thread_pool{nullptr};
+    ftk::ThreadPool* thread_pool{nullptr};
     /// For the preview material picker: its thumbnail, and the two browsers
     /// that give it [Use Selected] and [Browse].
-    IconCache* icon_cache{nullptr};
+    ftk::IconCache* icon_cache{nullptr};
     ContentBrowser* content_browser{nullptr};
     /// The scene the engine ticks. The editor previews a sea of its own, but
     /// a water node in the open scene that names this asset follows the edits
@@ -63,8 +66,8 @@ public:
     [[nodiscard]] DockPreset dock_preset() const override;
     [[nodiscard]] std::string asset_path() const override { return water_path_; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     void init() override;
     void draw(float dt) override;

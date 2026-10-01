@@ -34,8 +34,8 @@ std::string file_size_text(std::uintmax_t bytes) {
 // The squares behind the picture, fixed to the screen so they don't swim
 // as the view moves, and only where the picture is.
 void checkerboard(ImDrawList* dl, ImVec2 min, ImVec2 max) {
-    const ImU32 light = ImGui::GetColorU32(theme::surface_active());
-    dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::surface_raised()));
+    const ImU32 light = ImGui::GetColorU32(ftk::theme::surface_active());
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(ftk::theme::surface_raised()));
     const float x0 = std::floor(min.x / CHECKER) * CHECKER;
     const float y0 = std::floor(min.y / CHECKER) * CHECKER;
     for (float y = y0; y < max.y; y += CHECKER) {
@@ -85,7 +85,7 @@ void TexturePreview::load() {
     int channels = 0;
     stbi_uc* data = stbi_load(path_.c_str(), &w, &h, &channels, 4);
     if (data == nullptr) {
-        FJELL_CORE_WARN("Texture preview couldn't read {}: {}", path_, stbi_failure_reason());
+        FTK_CORE_WARN("Texture preview couldn't read {}: {}", path_, stbi_failure_reason());
         failed_ = true;
         return;
     }
@@ -132,19 +132,19 @@ void TexturePreview::pixel_for_pixel() {
 void TexturePreview::draw() {
     if (!open_) return;
     ImGui::SetNextWindowSize({520.0f, 560.0f}, ImGuiCond_FirstUseEver);
-    if (auto panel = ui::Panel(ui::icon::texture, "Texture Preview", &open_)) {
+    if (auto panel = ftk::ui::Panel(ftk::ui::icon::texture, "Texture Preview", &open_)) {
         if (failed_) {
-            ui::status(ui::Severity::Error, "The file couldn't be read as an image; the console says why.");
+            ftk::ui::status(ftk::ui::Severity::Error, "The file couldn't be read as an image; the console says why.");
             return;
         }
         if (!picture_) return;  // read at the next update()
 
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const float info_h = ImGui::GetFrameHeight() + theme::GAP_S;
+        const float info_h = ImGui::GetFrameHeight() + ftk::theme::GAP_S;
         const ImVec2 size{std::max(avail.x, 1.0f), std::max(avail.y - info_h, 1.0f)};
         draw_canvas(origin, size);
-        ImGui::SetCursorScreenPos({origin.x, origin.y + size.y + theme::GAP_S});
+        ImGui::SetCursorScreenPos({origin.x, origin.y + size.y + ftk::theme::GAP_S});
         draw_info();
     }
 }
@@ -160,7 +160,7 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
         if (!view_.recall("texture:" + path_)) fit();
         framed_ = true;
     }
-    if (ui::canvas_has_keys()) {
+    if (ftk::ui::canvas_has_keys()) {
         if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fit();
         if (ImGui::IsKeyPressed(ImGuiKey_1, false)) pixel_for_pixel();
     }
@@ -168,14 +168,14 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
     const ImVec2 max{origin.x + size.x, origin.y + size.y};
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(origin, max, true);
-    dl->AddRectFilled(origin, max, ImGui::GetColorU32(theme::surface_sunken()));
+    dl->AddRectFilled(origin, max, ImGui::GetColorU32(ftk::theme::surface_sunken()));
     const ImVec2 a = view_.to_screen({0.0f, 0.0f});
     const ImVec2 b = view_.to_screen({static_cast<float>(width_), static_cast<float>(height_)});
     checkerboard(dl, {std::max(a.x, origin.x), std::max(a.y, origin.y)}, {std::min(b.x, max.x), std::min(b.y, max.y)});
     // Enlarged, each pixel is a square rather than a blur between them.
     const ImTextureID picture = view_.scale_x() >= 1.0f && icons_ != nullptr
-                                    ? imgui_texture(picture_, icons_->pixel_sampler())
-                                    : imgui_texture(picture_);
+                                    ? ftk::imgui_texture(picture_, icons_->pixel_sampler())
+                                    : ftk::imgui_texture(picture_);
     dl->AddImage(picture, a, b);
 
     // The pixel under the mouse, and what it holds as read from the file.
@@ -188,16 +188,16 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
                                    static_cast<std::size_t>(x)) * 4;
             const std::string text = std::format("{}, {} \xc2\xb7 {} {} {} {}", x, y, pixels_[i], pixels_[i + 1],
                                                  pixels_[i + 2], pixels_[i + 3]);
-            ui::canvas_readout(dl, ImGui::GetMousePos(), text.c_str(), origin, max);
+            ftk::ui::canvas_readout(dl, ImGui::GetMousePos(), text.c_str(), origin, max);
         }
     }
     dl->PopClipRect();
 
     // Left: the channels. One alone shows in grey; the last one shown
     // stays on, since a picture of nothing tells nothing.
-    if (auto pill = ui::ViewportPill("##channels", origin, max, ui::PillPlace::TopLeft)) {
+    if (auto pill = ftk::ui::ViewportPill("##channels", origin, max, ftk::ui::PillPlace::TopLeft)) {
         const auto channel = [&](const char* id, const char* letter, bool& on, const char* tooltip) {
-            if (ui::toggle_button(id, letter, on, tooltip) && (!on || mask_.count() > 1)) on = !on;
+            if (ftk::ui::toggle_button(id, letter, on, tooltip) && (!on || mask_.count() > 1)) on = !on;
         };
         channel("##r", "R", mask_.r, "Red");
         ImGui::SameLine();
@@ -208,15 +208,15 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
         channel("##a", "A", mask_.a, "Alpha");
     }
     // Right: how large it is shown, fitting it, and one pixel a pixel.
-    if (auto pill = ui::ViewportPill("##zoom", origin, max, ui::PillPlace::TopRight)) {
+    if (auto pill = ftk::ui::ViewportPill("##zoom", origin, max, ftk::ui::PillPlace::TopRight)) {
         ImGui::AlignTextToFramePadding();
         ImGui::Text(" %.0f", view_.scale_x() * 100.0f);
         ImGui::SameLine(0.0f, 2.0f);
-        ImGui::TextColored(theme::text_secondary(), "%% ");
+        ImGui::TextColored(ftk::theme::text_secondary(), "%% ");
         ImGui::SameLine();
-        if (ui::icon_button("##fit", ui::icon::frame_view, "Fit (F)")) fit();
+        if (ftk::ui::icon_button("##fit", ftk::ui::icon::frame_view, "Fit (F)")) fit();
         ImGui::SameLine();
-        if (ui::icon_button("##one", "1:1", "Pixel for pixel (1)")) pixel_for_pixel();
+        if (ftk::ui::icon_button("##one", "1:1", "Pixel for pixel (1)")) pixel_for_pixel();
     }
 }
 
@@ -230,8 +230,8 @@ void TexturePreview::draw_info() {
                                           folder.generic_string());
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(path.filename().string().c_str());
-    ImGui::SameLine(0.0f, theme::GAP_M * 1.5f);
-    ImGui::TextColored(theme::text_secondary(), "%s", facts.c_str());
+    ImGui::SameLine(0.0f, ftk::theme::GAP_M * 1.5f);
+    ImGui::TextColored(ftk::theme::text_secondary(), "%s", facts.c_str());
 }
 
 } // namespace fjell

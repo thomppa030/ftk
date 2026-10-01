@@ -15,13 +15,13 @@
 // pictures (material previews, file and texture thumbnails), where a font
 // can't help, and give file types their ui::icon glyph.
 
-namespace fjell::theme {
+namespace ftk::theme {
 
 inline constexpr float ICON_LC_FONT_SIZE = 14.0f;  // px, packed at this size
 inline constexpr unsigned short ICON_LC_RANGE_MIN = 0xE042;
 inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 
-} // namespace fjell::theme
+} // namespace ftk::theme
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage) — must be macros for string-literal
 // concatenation with adjacent text, e.g. ICON_LC_PLAY " Play".

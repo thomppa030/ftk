@@ -16,7 +16,7 @@ namespace fjell {
 
 namespace {
 
-constexpr float MODULE_W = ui::NODE_WIDTH;
+constexpr float MODULE_W = ftk::ui::NODE_WIDTH;
 constexpr float EXPRESSION_W = 150.0f;
 constexpr float COLUMN_X[] = {50.0f, 400.0f, 750.0f};   // where each stage's modules start
 constexpr float COLUMN_GAP = 140.0f;
@@ -26,22 +26,22 @@ constexpr const char* STAGE_NAMES[] = {"Spawn", "Update", "Render"};
 // Each stage its own hue, so the three read apart at a glance (sheet 30).
 ImVec4 stage_colour(int stage) {
     switch (stage) {
-        case 0: return theme::category(theme::Category::Environment);
-        case 1: return theme::category(theme::Category::Vfx);
-        case 2: return theme::category(theme::Category::Rendering);
-        default: return theme::category(theme::Category::Logic);
+        case 0: return ftk::theme::category(ftk::theme::Category::Environment);
+        case 1: return ftk::theme::category(ftk::theme::Category::Vfx);
+        case 2: return ftk::theme::category(ftk::theme::Category::Rendering);
+        default: return ftk::theme::category(ftk::theme::Category::Logic);
     }
 }
 
 ImVec4 pin_colour(PinDataType type) {
     switch (type) {
-        case PinDataType::float_type: return theme::category(theme::Category::Rendering);
-        case PinDataType::vec3_type: return theme::category(theme::Category::Environment);
-        case PinDataType::vec4_type: return theme::category(theme::Category::Ui);
-        case PinDataType::uint_type: return theme::category(theme::Category::Light);
-        case PinDataType::enum_type: return theme::category(theme::Category::Logic);
+        case PinDataType::float_type: return ftk::theme::category(ftk::theme::Category::Rendering);
+        case PinDataType::vec3_type: return ftk::theme::category(ftk::theme::Category::Environment);
+        case PinDataType::vec4_type: return ftk::theme::category(ftk::theme::Category::Ui);
+        case PinDataType::uint_type: return ftk::theme::category(ftk::theme::Category::Light);
+        case PinDataType::enum_type: return ftk::theme::category(ftk::theme::Category::Logic);
     }
-    return theme::text_secondary();
+    return ftk::theme::text_secondary();
 }
 
 bool types_compatible(PinDataType source, PinDataType target) {
@@ -56,25 +56,25 @@ std::vector<std::unique_ptr<VfxModule>>& stack_of(VfxEmitter& emitter, int stack
 }
 
 // The node a VFX pin is on: pins are numbered `node * 100 + i`.
-ui::NodeEnd end_of(uint64_t pin) {
+ftk::ui::NodeEnd end_of(uint64_t pin) {
     return {pin / 100, pin};
 }
 
 // A module value's field in the node, by its type and widget.
-ui::NodeValue value_of(const PinDescriptor& d) {
-    const ui::NumberSpec spec{.speed = d.drag_speed, .lo = d.range_min, .hi = d.range_max,
+ftk::ui::NodeValue value_of(const PinDescriptor& d) {
+    const ftk::ui::NumberSpec spec{.speed = d.drag_speed, .lo = d.range_min, .hi = d.range_max,
                               .format = d.format != nullptr ? d.format : "%.2f"};
     switch (d.data_type) {
         case PinDataType::float_type: {
             auto& value = *static_cast<float*>(d.value_ptr);
-            return d.radians ? ui::NodeValue::angle(value, spec) : ui::NodeValue::number(value, spec);
+            return d.radians ? ftk::ui::NodeValue::angle(value, spec) : ftk::ui::NodeValue::number(value, spec);
         }
-        case PinDataType::uint_type: return ui::NodeValue::count(*static_cast<uint32_t*>(d.value_ptr), spec);
+        case PinDataType::uint_type: return ftk::ui::NodeValue::count(*static_cast<uint32_t*>(d.value_ptr), spec);
         case PinDataType::vec3_type: {
             auto& value = *static_cast<glm::vec3*>(d.value_ptr);
-            return d.widget == PinWidget::colour ? ui::NodeValue::colour(value) : ui::NodeValue::vector(value, spec);
+            return d.widget == PinWidget::colour ? ftk::ui::NodeValue::colour(value) : ftk::ui::NodeValue::vector(value, spec);
         }
-        case PinDataType::vec4_type: return ui::NodeValue::colour(*static_cast<glm::vec4*>(d.value_ptr));
+        case PinDataType::vec4_type: return ftk::ui::NodeValue::colour(*static_cast<glm::vec4*>(d.value_ptr));
         case PinDataType::enum_type: break;
     }
     return {};
@@ -105,8 +105,8 @@ ImVec2 VfxGraph::pin_position(uint64_t pin) const {
 
 // ── What the emitter holds ───────────────────────────────────────────────
 
-ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
-    ui::NodeGraphDesc desc;
+ftk::ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
+    ftk::ui::NodeGraphDesc desc;
     sources_.clear();
     pin_types_.clear();
     std::unordered_set<uint64_t> linked;
@@ -116,7 +116,7 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
     }
     const auto pin = [&](uint64_t id, std::string label, PinDataType type) {
         pin_types_[id] = type;
-        return ui::NodePin{.id = id, .label = std::move(label), .type = static_cast<int>(type),
+        return ftk::ui::NodePin{.id = id, .label = std::move(label), .type = static_cast<int>(type),
                            .colour = pin_colour(type)};
     };
 
@@ -124,7 +124,7 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
         auto& modules = stack_of(emitter, stack);
         for (int i = 0; i < static_cast<int>(modules.size()); ++i) {
             VfxModule& module = *modules[static_cast<size_t>(i)];
-            ui::NodeDesc node;
+            ftk::ui::NodeDesc node;
             node.id = module_node_id(stack, i);
             node.position = module.position_set ? glm::vec2(module.editor_x, module.editor_y)
                                                 : glm::vec2(COLUMN_X[stack], 30.0f + COLUMN_GAP * static_cast<float>(i));
@@ -141,8 +141,8 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
                 // As the Module Stack: what the module's mode leaves unused
                 // is not shown, unless a link runs into it.
                 if (!d.shown && !linked.contains(id)) continue;
-                ui::NodeRow row;
-                row.input = pin(id, d.label.empty() ? display_name(d.name) : d.label, d.data_type);
+                ftk::ui::NodeRow row;
+                row.input = pin(id, d.label.empty() ? ftk::display_name(d.name) : d.label, d.data_type);
                 // Its value while nothing is linked in and nothing else decides it.
                 if (!linked.contains(id) && !d.disabled && d.value_ptr != nullptr) row.value = value_of(d);
                 node.rows.push_back(std::move(row));
@@ -155,27 +155,27 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
     auto& graph = emitter.expression_graph;
     for (int n = 0; n < static_cast<int>(graph.nodes.size()); ++n) {
         ExpressionNode& expr = *graph.nodes[static_cast<size_t>(n)];
-        ui::NodeDesc node;
+        ftk::ui::NodeDesc node;
         node.id = expr.node_id;
         node.position = {expr.editor_x, expr.editor_y};
         node.width = EXPRESSION_W;
         node.title = expr_node_name(expr.type);
         // A constant's value, on a row of its own under the title.
-        const ui::NumberSpec spec{.speed = 0.01f};
-        ui::NodeRow constant;
+        const ftk::ui::NumberSpec spec{.speed = 0.01f};
+        ftk::ui::NodeRow constant;
         if (auto* f = std::get_if<float>(&expr.constant_value); f != nullptr && expr.type == ExprNodeType::constant_float) {
-            constant.value = ui::NodeValue::number(*f, spec);
+            constant.value = ftk::ui::NodeValue::number(*f, spec);
         } else if (auto* v3 = std::get_if<glm::vec3>(&expr.constant_value);
                    v3 != nullptr && expr.type == ExprNodeType::constant_vec3) {
-            constant.value = ui::NodeValue::vector(*v3, spec);
+            constant.value = ftk::ui::NodeValue::vector(*v3, spec);
         } else if (auto* v4 = std::get_if<glm::vec4>(&expr.constant_value);
                    v4 != nullptr && expr.type == ExprNodeType::constant_vec4) {
-            constant.value = ui::NodeValue::colour(*v4);
+            constant.value = ftk::ui::NodeValue::colour(*v4);
         }
-        if (constant.value.kind != ui::NodeValue::Kind::None) node.rows.push_back(std::move(constant));
+        if (constant.value.kind != ftk::ui::NodeValue::Kind::None) node.rows.push_back(std::move(constant));
         // Inputs down the left and outputs down the right, side by side.
-        std::vector<ui::NodePin> ins;
-        std::vector<ui::NodePin> outs;
+        std::vector<ftk::ui::NodePin> ins;
+        std::vector<ftk::ui::NodePin> outs;
         const auto defs = expr_node_pins(expr.type);
         for (int p = 0; p < static_cast<int>(defs.size()); ++p) {
             const auto& d = defs[static_cast<size_t>(p)];
@@ -183,7 +183,7 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
             (d.is_output ? outs : ins).push_back(pin(id, d.name, d.type));
         }
         for (size_t r = 0; r < std::max(ins.size(), outs.size()); ++r) {
-            ui::NodeRow row;
+            ftk::ui::NodeRow row;
             if (r < ins.size()) row.input = ins[r];
             if (r < outs.size()) row.output = outs[r];
             node.rows.push_back(std::move(row));
@@ -195,7 +195,7 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
     for (const auto& link : graph.links) {
         desc.links.push_back({.id = link.link_id, .from = end_of(link.source_pin_id), .to = end_of(link.target_pin_id)});
     }
-    desc.can_link = [this](const ui::NodeEnd& from, const ui::NodeEnd& to) {
+    desc.can_link = [this](const ftk::ui::NodeEnd& from, const ftk::ui::NodeEnd& to) {
         const auto a = pin_types_.find(from.pin);
         const auto b = pin_types_.find(to.pin);
         return a != pin_types_.end() && b != pin_types_.end() && types_compatible(a->second, b->second);
@@ -207,15 +207,15 @@ ui::NodeGraphDesc VfxGraph::describe(VfxEmitter& emitter) {
 // ── What the user did ────────────────────────────────────────────────────
 
 bool VfxGraph::draw(VfxEmitter& emitter) {
-    const ui::NodeGraphDesc desc = describe(emitter);
+    const ftk::ui::NodeGraphDesc desc = describe(emitter);
     bool menu_changed = false;
-    const ui::NodeGraphEvents events = graph_.draw(desc, [&](const ui::NodeGraphMenu& target) {
+    const ftk::ui::NodeGraphEvents events = graph_.draw(desc, [&](const ftk::ui::NodeGraphMenu& target) {
         return menu(emitter, target, menu_changed);
     });
     return apply(emitter, events) || menu_changed;
 }
 
-bool VfxGraph::apply(VfxEmitter& emitter, const ui::NodeGraphEvents& events) {
+bool VfxGraph::apply(VfxEmitter& emitter, const ftk::ui::NodeGraphEvents& events) {
     auto& graph = emitter.expression_graph;
     bool changed = false;
     if (events.moved) {
@@ -275,21 +275,21 @@ void VfxGraph::remove_selected(VfxEmitter& emitter) {
     graph_.clear_selection();
 }
 
-bool VfxGraph::menu(VfxEmitter& emitter, const ui::NodeGraphMenu& target, bool& changed) {
+bool VfxGraph::menu(VfxEmitter& emitter, const ftk::ui::NodeGraphMenu& target, bool& changed) {
     if (target.node != 0) {
         const auto it = sources_.find(target.node);
         const bool module = it != sources_.end() && it->second.stack >= 0;
-        return ui::menu_item({.icon = ui::icon::remove, .label = module ? "Remove module" : "Remove node",
+        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = module ? "Remove module" : "Remove node",
                               .shortcut = "Del", .destructive = true});
     }
     if (target.link != 0) {
-        return ui::menu_item({.icon = ui::icon::remove, .label = "Remove link", .shortcut = "Del",
+        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove link", .shortcut = "Del",
                               .destructive = true});
     }
 
     // On empty canvas: add a module to a stage, or an expression node, there.
     for (int stack = 0; stack < 3 && add_module_items_; ++stack) {
-        if (!ui::begin_menu(ui::icon::vfx, STAGE_NAMES[stack])) continue;
+        if (!ftk::ui::begin_menu(ftk::ui::icon::vfx, STAGE_NAMES[stack])) continue;
         auto& modules = stack_of(emitter, stack);
         const std::size_t before = modules.size();
         add_module_items_(emitter, stack);
@@ -304,10 +304,10 @@ bool VfxGraph::menu(VfxEmitter& emitter, const ui::NodeGraphMenu& target, bool& 
         ImGui::EndMenu();
     }
     ImGui::Separator();
-    if (ui::begin_menu(ui::icon::curve, "Expression")) {
+    if (ftk::ui::begin_menu(ftk::ui::icon::curve, "Expression")) {
         auto& graph = emitter.expression_graph;
         const auto add = [&](const char* label, ExprNodeType type) {
-            if (!ui::menu_item({.label = label})) return;
+            if (!ftk::ui::menu_item({.label = label})) return;
             ExpressionNode* node = graph.add_node(type);
             node->editor_x = target.at.x;
             node->editor_y = target.at.y;
@@ -315,16 +315,16 @@ bool VfxGraph::menu(VfxEmitter& emitter, const ui::NodeGraphMenu& target, bool& 
             graph_.select_node(node->node_id);
             changed = true;
         };
-        ui::menu_heading("Constants");
+        ftk::ui::menu_heading("Constants");
         add("Float", ExprNodeType::constant_float);
         add("Vec3", ExprNodeType::constant_vec3);
         add("Color", ExprNodeType::constant_vec4);
-        ui::menu_heading("Sources");
+        ftk::ui::menu_heading("Sources");
         add("Time", ExprNodeType::time);
         add("Delta time", ExprNodeType::delta_time);
         add("Random", ExprNodeType::random);
         add("Global wind", ExprNodeType::global_wind);
-        ui::menu_heading("Math");
+        ftk::ui::menu_heading("Math");
         add("Add", ExprNodeType::add);
         add("Subtract", ExprNodeType::subtract);
         add("Multiply", ExprNodeType::multiply);
@@ -333,11 +333,11 @@ bool VfxGraph::menu(VfxEmitter& emitter, const ui::NodeGraphMenu& target, bool& 
         add("Abs", ExprNodeType::abs_node);
         add("Sin", ExprNodeType::sin_node);
         add("Cos", ExprNodeType::cos_node);
-        ui::menu_heading("Interpolation");
+        ftk::ui::menu_heading("Interpolation");
         add("Lerp", ExprNodeType::lerp);
         add("Remap", ExprNodeType::remap);
         add("Clamp", ExprNodeType::clamp);
-        ui::menu_heading("Conversion");
+        ftk::ui::menu_heading("Conversion");
         add("Split vec3", ExprNodeType::split_vec3);
         add("Combine vec3", ExprNodeType::combine_vec3);
         add("Split vec4", ExprNodeType::split_vec4);

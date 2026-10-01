@@ -28,7 +28,7 @@ std::string quoted(const std::filesystem::path& path) {
 /// per-config subdirectories, and the install layout.
 std::filesystem::path find_fjreflect() {
     namespace fs = std::filesystem;
-    const auto exe = std::string("fjreflect") + platform::EXE_EXT;
+    const auto exe = std::string("fjreflect") + ftk::platform::EXE_EXT;
     const auto& root = base_path::dir();
 
     const std::array candidates{
@@ -47,7 +47,7 @@ std::filesystem::path find_fjreflect() {
     for (const auto& path : candidates) {
         searched += "\n  " + path.string();
     }
-    FJELL_CORE_ERROR(
+    FTK_CORE_ERROR(
         "fjreflect not found — component reflection will be skipped, so [[fj::property]] "
         "fields and FJELL_COMPONENT types will not appear in the editor. Searched:{}",
         searched);
@@ -142,7 +142,7 @@ void ProjectManager::scan_models() {
 void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/) {
     if (!project_) return;
     if (build_future_.valid()) {
-        FJELL_CORE_WARN("Script build already in progress");
+        FTK_CORE_WARN("Script build already in progress");
         return;
     }
 
@@ -154,12 +154,12 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
     auto scripts_dir = project_root / "scripts";
     auto build_dir = scripts_dir / "build";
     auto generated_dir = scripts_dir / "generated";
-    auto so_path = project_root / (std::string("game") + platform::SHARED_LIB_EXT);
+    auto so_path = project_root / (std::string("game") + ftk::platform::SHARED_LIB_EXT);
 
     auto fjreflect_path = find_fjreflect();
     auto sdk_include = base_path::sdk_include();
 
-    FJELL_CORE_INFO("Building scripts...");
+    FTK_CORE_INFO("Building scripts...");
 
     build_future_ = std::async(std::launch::async,
         [scripts_dir, build_dir, generated_dir, so_path,
@@ -193,7 +193,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                                    " --register " + quoted(register_path) + source_list + " 2>&1";
 
                 std::string reflect_output;
-                int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
+                int reflect_ret = ftk::platform::run_command(reflect_cmd, reflect_output);
                 if (reflect_ret != 0) {
                     return {.success = false,
                             .output = "[fjreflect] codegen failed:\n" + reflect_output,
@@ -219,7 +219,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                              "cmake --build " + build_q + " --parallel 2>&1";
 
             std::string build_output;
-            int ret = platform::run_command(cmd, build_output);
+            int ret = ftk::platform::run_command(cmd, build_output);
             all_output += build_output;
             return {.success = (ret == 0), .output = std::move(all_output), .so_path = so_path};
         });
@@ -233,7 +233,7 @@ void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene) {
         auto elapsed = std::chrono::steady_clock::now() - last_source_change_;
         if (elapsed >= std::chrono::milliseconds(500)) {
             source_changed_ = false;
-            FJELL_CORE_INFO("Source files changed — auto-building scripts");
+            FTK_CORE_INFO("Source files changed — auto-building scripts");
             build_scripts(scripts, scene);
         }
     }
@@ -251,23 +251,23 @@ void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene) {
         while (!s.empty() && (s.back() == '\r')) s.pop_back();
         if (s.empty()) continue;
         if (s.find("error") != std::string::npos) {
-            FJELL_CORE_ERROR("[build] {}", s);
+            FTK_CORE_ERROR("[build] {}", s);
         } else if (s.find("warning") != std::string::npos) {
-            FJELL_CORE_WARN("[build] {}", s);
+            FTK_CORE_WARN("[build] {}", s);
         } else {
-            FJELL_CORE_INFO("[build] {}", s);
+            FTK_CORE_INFO("[build] {}", s);
         }
     }
 
     if (result.success) {
-        FJELL_CORE_INFO("Scripts built successfully");
+        FTK_CORE_INFO("Scripts built successfully");
         if (std::filesystem::exists(result.so_path)) {
             if (auto r = scripts.reload(scene, result.so_path); !r) {
-                FJELL_CORE_ERROR("{}", r.error());
+                FTK_CORE_ERROR("{}", r.error());
             }
         }
     } else {
-        FJELL_CORE_ERROR("Script build failed");
+        FTK_CORE_ERROR("Script build failed");
     }
 }
 
@@ -295,7 +295,7 @@ void ProjectManager::setup_script_watcher() {
         }
     });
 
-    FJELL_CORE_INFO("Watching scripts/ for changes: {}", scripts_dir.string());
+    FTK_CORE_INFO("Watching scripts/ for changes: {}", scripts_dir.string());
 }
 #endif
 
@@ -348,7 +348,7 @@ void ProjectManager::create_script(const std::string& class_name) {
         }
     }
 
-    FJELL_CORE_INFO("Created script: {}", hpp_path.string());
+    FTK_CORE_INFO("Created script: {}", hpp_path.string());
 }
 
 } // namespace fjell

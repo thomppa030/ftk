@@ -11,13 +11,13 @@
 
 namespace fjell {
 
-Result<> LightCullPass::create(const PassResources& resources) {
-    FJELL_TRY(pipeline_, resources.device->create(gpu::ComputePipelineDesc{
+ftk::Result<> LightCullPass::create(const PassResources& resources) {
+    FTK_TRY(pipeline_, resources.device->create(ftk::gpu::ComputePipelineDesc{
                              .shader = "shaders/light_cull.comp",
                              .shared = {resources.globals},
                              .name = "light_cull",
                          }));
-    FJELL_GFX_DEBUG("Light cull compute pipeline created");
+    FTK_GFX_DEBUG("Light cull compute pipeline created");
     return {};
 }
 
@@ -30,7 +30,7 @@ void LightCullPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
 }
 
 void LightCullPass::record(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("record_light_cull");
+    FTK_PROFILE_SCOPE_N("record_light_cull");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Light Cull");
 
@@ -57,17 +57,17 @@ void LightCullPass::collect_exports(DeclareContext& ctx) {
     // shader reads them through the global set; the passes that draw those
     // surfaces import them by this name so the graph sees them wait.
     if (!output_.valid()) { return; }
-    ctx.buffer_imports.emplace(fg_name_hash("tile_light_ssbo"),
-                               BufferImport{.buffer = output_});
+    ctx.buffer_imports.emplace(ftk::fg_name_hash("tile_light_ssbo"),
+                               ftk::BufferImport{.buffer = output_});
 }
 
-void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void LightCullPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
-    builder.read(depth, gpu::Access::sampled_compute);
+    builder.read(depth, ftk::gpu::Access::sampled_compute);
     // No reader, no reason to run: the opaque and transparent passes read
     // the tile lists, and a viewport without them culls this pass.
     auto tiles = builder.import_named_buffer(ctx, "tile_light_ssbo");
-    builder.write(tiles, gpu::Access::storage_buffer_write_compute);
+    builder.write(tiles, ftk::gpu::Access::storage_buffer_write_compute);
 }
 
 } // namespace fjell

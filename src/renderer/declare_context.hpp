@@ -15,8 +15,8 @@ namespace fjell {
 /// read, with how the draws read it. A run that only draws what an earlier
 /// run wrote declares the reads and not the write.
 struct SubsystemDrawInput {
-    BufferImport buffer;
-    gpu::Access draw_access{gpu::Access::storage_buffer_read_vertex};
+    ftk::BufferImport buffer;
+    ftk::gpu::Access draw_access{ftk::gpu::Access::storage_buffer_read_vertex};
     /// Whether this run's compute step writes it.
     bool written{true};
 };
@@ -26,9 +26,9 @@ struct SubsystemDrawInput {
 /// before any pass's declare() runs. Smaller than FrameContext on purpose:
 /// only what is legal to read while the graph is being built (no command
 /// buffer, no transient pointers).
-struct DeclareContext : ImportCatalog {
+struct DeclareContext : ftk::ImportCatalog {
     glm::uvec2 viewport_extent{0, 0};
-    gpu::Samples msaa_samples{gpu::Samples::x1};
+    ftk::gpu::Samples msaa_samples{ftk::gpu::Samples::x1};
     uint32_t frame_index{0};
     /// The scene the viewport renders; 0 for none.
     uint64_t scene_id{0};

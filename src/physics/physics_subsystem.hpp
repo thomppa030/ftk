@@ -56,7 +56,7 @@ public:
 protected:
     void fixed_tick(const FixedTickContext& ctx) override {
         if (!world_) return;
-        FJELL_PROFILE_SCOPE_N("physics_step");
+        FTK_PROFILE_SCOPE_N("physics_step");
         apply_wind(ctx);
         apply_buoyancy(ctx);
         world_->step(ctx.dt, ctx.scene, ctx.frame_steps_left);

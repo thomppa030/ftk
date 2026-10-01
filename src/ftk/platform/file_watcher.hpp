@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 /// Cross-platform file/directory watcher.
 ///
@@ -44,4 +44,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace fjell::platform
+} // namespace ftk::platform

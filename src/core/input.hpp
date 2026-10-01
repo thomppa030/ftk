@@ -14,9 +14,11 @@
 
 union SDL_Event;
 
-namespace fjell {
-
+namespace ftk {
 class Window;
+} // namespace ftk
+
+namespace fjell {
 
 /// Which kind of device the player is currently using. Drives prompts and
 /// anything else that should follow the player between keyboard and pad; it
@@ -45,7 +47,7 @@ public:
 
     /// Read this window's keyboard and mouse from now on, and start reading
     /// gamepads with SDL's mappings and the engine's own additions.
-    void attach(Window& window);
+    void attach(ftk::Window& window);
     void update();
 
     /// These read idle/zero while docked play mode has focus and the game
@@ -150,7 +152,7 @@ public:
     [[nodiscard]] InputDevice active_device() const { return active_device_; }
 
     /// Fires when active_device() changes, with the new device.
-    Delegate<void(InputDevice)> on_device_changed;
+    ftk::Delegate<void(InputDevice)> on_device_changed;
 
 private:
     /// A mouse button's index among the buttons, counted from the left one.
@@ -211,8 +213,8 @@ private:
     glm::dvec2 mouse_pos_{0.0};
     glm::dvec2 mouse_delta_{0.0};
     glm::dvec2 scroll_delta_{0.0};
-    Window* window_{nullptr};
-    Connection event_connection_;
+    ftk::Window* window_{nullptr};
+    ftk::Connection event_connection_;
     bool cursor_captured_{false};
     bool cursor_lock_wanted_{false};
 

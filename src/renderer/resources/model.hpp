@@ -72,7 +72,7 @@ public:
 
     // Load from glTF/GLB file (existing path); `gpu` makes the file's own
     // textures.
-    Model(gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets);
+    Model(ftk::gpu::Device& gpu, const std::string& path, MegaBuffer& mega, MeshletBuffer& meshlets);
 
     // Create from primitive mesh data (cube/plane/sphere)
     Model(const PrimitiveMeshData& data, MegaBuffer& mega, MeshletBuffer& meshlets);
@@ -82,7 +82,6 @@ public:
 
     // Load .fjmesh binary file into CPU-side data (no GPU upload)
     [[nodiscard]] static FjMeshData load_fjmesh(const std::string& path);
-
 
     [[nodiscard]] const std::vector<std::unique_ptr<Texture>>& textures() const {
         return textures_;

@@ -37,7 +37,7 @@ void FolderColors::load(const fs::path& project_root) {
     std::ifstream in(file_);
     nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
     if (j.is_discarded() || !j.contains("folders") || !j["folders"].is_object()) {
-        FJELL_CORE_WARN("Ignoring unreadable folder colours: {}", file_.string());
+        FTK_CORE_WARN("Ignoring unreadable folder colours: {}", file_.string());
         return;
     }
 
@@ -53,12 +53,12 @@ void FolderColors::load(const fs::path& project_root) {
     }
 }
 
-Result<> FolderColors::save() {
+ftk::Result<> FolderColors::save() {
     if (!dirty_ || file_.empty()) return {};
 
     std::error_code ec;
     fs::create_directories(file_.parent_path(), ec);
-    if (ec) return make_error("Failed to create .fjell directory: " + ec.message());
+    if (ec) return ftk::make_error("Failed to create .fjell directory: " + ec.message());
 
     nlohmann::json j;
     j["version"] = 1;
@@ -74,11 +74,11 @@ Result<> FolderColors::save() {
     tmp += ".tmp";
     {
         std::ofstream out(tmp);
-        if (!out.is_open()) return make_error("Failed to write " + tmp.string());
+        if (!out.is_open()) return ftk::make_error("Failed to write " + tmp.string());
         out << j.dump(2) << '\n';
     }
     fs::rename(tmp, file_, ec);
-    if (ec) return make_error("Failed to replace " + file_.string() + ": " + ec.message());
+    if (ec) return ftk::make_error("Failed to replace " + file_.string() + ": " + ec.message());
 
     dirty_ = false;
     return {};

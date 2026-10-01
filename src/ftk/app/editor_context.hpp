@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// One tab of an editor: the document it edits, its undo history, its docked
 /// panels and how it draws. A host derives its own kind of context from this,
@@ -174,4 +174,4 @@ private:
     bool dockspace_built_{false};
 };
 
-} // namespace fjell
+} // namespace ftk

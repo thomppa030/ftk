@@ -56,7 +56,7 @@ DayProfileEditorContext::DayProfileEditorContext(TrackAssetEditorDeps deps)
 bool DayProfileEditorContext::load() {
     auto loaded = load_day_profile_file(abs_path());
     if (!loaded) {
-        FJELL_CORE_ERROR("Day profile editor: {}", loaded.error());
+        FTK_CORE_ERROR("Day profile editor: {}", loaded.error());
         return false;
     }
     profile_ = std::move(*loaded);
@@ -69,20 +69,20 @@ std::string DayProfileEditorContext::document() const {
     return loaded() ? day_profile_text(profile_) : std::string{};
 }
 
-Result<> DayProfileEditorContext::write() {
-    if (!loaded()) return make_error("no day profile is open");
+ftk::Result<> DayProfileEditorContext::write() {
+    if (!loaded()) return ftk::make_error("no day profile is open");
     if (auto written = save_day_profile_file(abs_path(), profile_); !written) return written;
     if (deps_.resource_manager != nullptr) {
         if (auto reloaded = deps_.resource_manager->reload_day_profile(path()); !reloaded) {
-            FJELL_CORE_ERROR("Day profile editor: {}", reloaded.error());
+            FTK_CORE_ERROR("Day profile editor: {}", reloaded.error());
         }
     }
     return {};
 }
 
-Result<> DayProfileEditorContext::restore(const std::string& text) {
+ftk::Result<> DayProfileEditorContext::restore(const std::string& text) {
     auto profile = day_profile_from_text(text, abs_path());
-    if (!profile) return make_error(profile.error());
+    if (!profile) return ftk::make_error(profile.error());
     profile_ = std::move(*profile);
     push_live();
     return {};
@@ -129,7 +129,7 @@ void DayProfileEditorContext::draw_header_actions() {
     auto* env = find_world_environment(*deps_.scene);
     if (env == nullptr || env->day_profile == path()) return;
     ImGui::SameLine();
-    if (ui::action(ui::icon::world_environment, "Use in scene", ui::ButtonKind::Ghost)) {
+    if (ftk::ui::action(ftk::ui::icon::world_environment, "Use in scene", ftk::ui::ButtonKind::Ghost)) {
         env->day_profile = path();
         deps_.scene->mark_dirty();
     }
@@ -142,11 +142,11 @@ void DayProfileEditorContext::draw_status() {
     if (deps_.scene == nullptr) return;
     const auto* env = find_world_environment(*deps_.scene);
     if (env == nullptr) {
-        ui::status(ui::Severity::Warning, "The open scene has no World Environment to preview in");
+        ftk::ui::status(ftk::ui::Severity::Warning, "The open scene has no World Environment to preview in");
     } else if (env->day_profile != path()) {
-        ui::status(ui::Severity::Warning, "The open scene uses another day profile");
+        ftk::ui::status(ftk::ui::Severity::Warning, "The open scene uses another day profile");
     } else if (!env->time_of_day_enabled) {
-        ui::status(ui::Severity::Warning, "Time of Day is off, so the scene reads the profile at noon");
+        ftk::ui::status(ftk::ui::Severity::Warning, "Time of Day is off, so the scene reads the profile at noon");
     }
 }
 

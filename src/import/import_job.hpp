@@ -34,7 +34,7 @@ public:
     [[nodiscard]] const std::vector<std::string>& output_files() const { return output_files_; }
 
     /// Fired when import completes (success or failure).
-    Delegate<void(bool success, const std::vector<std::string>& output_files)> on_complete;
+    ftk::Delegate<void(bool success, const std::vector<std::string>& output_files)> on_complete;
 
     /// Where the fjimport executable is: beside the engine when installed,
     /// in the build tree during development; empty when it isn't found.
@@ -47,7 +47,7 @@ private:
 
     ImportState state_{ImportState::idle};
     ImportProgress progress_;
-    platform::SubprocessHandle subprocess_;
+    ftk::platform::SubprocessHandle subprocess_;
     std::string line_buffer_;
     std::filesystem::path settings_file_;
     std::vector<std::string> output_files_;

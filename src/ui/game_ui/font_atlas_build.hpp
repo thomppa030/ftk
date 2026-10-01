@@ -24,7 +24,7 @@ namespace fjell {
 /// header for the freshness check. Codepoints the font has no glyph for are
 /// left out and listed in `missing` when it is given; glyphs whose contours
 /// could not be merged are baked as drawn and listed in `unmerged`.
-[[nodiscard]] Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
+[[nodiscard]] ftk::Result<BakedFontAtlas> bake_font_atlas(const FjFontRecipe& recipe,
                                                      const std::filesystem::path& source_path,
                                                      uint64_t source_hash,
                                                      std::vector<uint32_t>* missing = nullptr,
@@ -43,11 +43,11 @@ struct FontBake {
 /// Loads the recipe, bakes it and writes the atlas to its cache path. The
 /// whole job from a path, for the engine on a stale cache, fjimport and the
 /// content browser alike.
-[[nodiscard]] Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path);
+[[nodiscard]] ftk::Result<FontBake> bake_font_recipe(const std::filesystem::path& recipe_path);
 
 /// Bakes only when the cached atlas is missing or stale, so a project's
 /// fonts can be readied ahead of use without redoing work. True when a bake
 /// ran.
-[[nodiscard]] Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path);
+[[nodiscard]] ftk::Result<bool> ensure_font_atlas(const std::filesystem::path& recipe_path);
 
 } // namespace fjell

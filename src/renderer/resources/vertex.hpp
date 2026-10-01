@@ -17,14 +17,14 @@ struct Vertex {
 
     /// The layout a pipeline reads these vertices with, as the GPU interface
     /// describes it.
-    [[nodiscard]] static gpu::VertexLayout layout() {
+    [[nodiscard]] static ftk::gpu::VertexLayout layout() {
         return {.stride = sizeof(Vertex),
                 .attributes = {
-                    {.location = 0, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, position)},
-                    {.location = 1, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, color)},
-                    {.location = 2, .format = gpu::VertexFormat::float2, .offset = offsetof(Vertex, tex_coord)},
-                    {.location = 3, .format = gpu::VertexFormat::float3, .offset = offsetof(Vertex, normal)},
-                    {.location = 4, .format = gpu::VertexFormat::float4, .offset = offsetof(Vertex, tangent)},
+                    {.location = 0, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(Vertex, position)},
+                    {.location = 1, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(Vertex, color)},
+                    {.location = 2, .format = ftk::gpu::VertexFormat::float2, .offset = offsetof(Vertex, tex_coord)},
+                    {.location = 3, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(Vertex, normal)},
+                    {.location = 4, .format = ftk::gpu::VertexFormat::float4, .offset = offsetof(Vertex, tangent)},
                 }};
     }
 };
@@ -40,16 +40,16 @@ struct SkinnedVertex {
 
     /// The layout a pipeline reads these vertices with, as the GPU interface
     /// describes it.
-    [[nodiscard]] static gpu::VertexLayout layout() {
+    [[nodiscard]] static ftk::gpu::VertexLayout layout() {
         return {.stride = sizeof(SkinnedVertex),
                 .attributes = {
-                    {.location = 0, .format = gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, position)},
-                    {.location = 1, .format = gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, color)},
-                    {.location = 2, .format = gpu::VertexFormat::float2, .offset = offsetof(SkinnedVertex, tex_coord)},
-                    {.location = 3, .format = gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, normal)},
-                    {.location = 4, .format = gpu::VertexFormat::float4, .offset = offsetof(SkinnedVertex, tangent)},
-                    {.location = 5, .format = gpu::VertexFormat::uint4, .offset = offsetof(SkinnedVertex, bone_ids)},
-                    {.location = 6, .format = gpu::VertexFormat::float4, .offset = offsetof(SkinnedVertex, bone_weights)},
+                    {.location = 0, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, position)},
+                    {.location = 1, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, color)},
+                    {.location = 2, .format = ftk::gpu::VertexFormat::float2, .offset = offsetof(SkinnedVertex, tex_coord)},
+                    {.location = 3, .format = ftk::gpu::VertexFormat::float3, .offset = offsetof(SkinnedVertex, normal)},
+                    {.location = 4, .format = ftk::gpu::VertexFormat::float4, .offset = offsetof(SkinnedVertex, tangent)},
+                    {.location = 5, .format = ftk::gpu::VertexFormat::uint4, .offset = offsetof(SkinnedVertex, bone_ids)},
+                    {.location = 6, .format = ftk::gpu::VertexFormat::float4, .offset = offsetof(SkinnedVertex, bone_weights)},
                 }};
     }
 };

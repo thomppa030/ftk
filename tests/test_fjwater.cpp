@@ -1622,7 +1622,7 @@ TEST_CASE("A sea being reshaped goes on showing the last one, then changes once"
     // a worker while the last one stays in use, and both halves — the spectrum
     // the renderer uploads and the waves physics sums — change together, in
     // the frame the worker is done. Never a frame with one new and one old.
-    ThreadPool workers(2);
+    ftk::ThreadPool workers(2);
     water::SeaDerivation derivation;
     FjWaterData authored = sea_physics_feels(16);
 

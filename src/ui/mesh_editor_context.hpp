@@ -14,11 +14,14 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class AssetThumbnailRenderer;
 class Clock;
-class IconCache;
 class Input;
 class Model;
 class ProjectManager;
@@ -31,7 +34,7 @@ struct MeshEditorDeps {
     Input* input;
     Clock* clock;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
     AssetThumbnailRenderer* asset_thumbnails;
 
     /// Opens the import dialog for a source file. Lets the editor offer a
@@ -49,8 +52,8 @@ public:
     void draw_header_actions() override;
     [[nodiscard]] std::string asset_path() const override { return fjmesh_path_; }
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
 
     void init() override;
 

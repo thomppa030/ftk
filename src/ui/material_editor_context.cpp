@@ -34,7 +34,7 @@ namespace fjell {
 MaterialEditorContext::MaterialEditorContext(MaterialEditorDeps deps)
     : deps_{deps} {}
 
-EditorContext::DockPreset MaterialEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset MaterialEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .inspector = {"Parameters", "Textures"}};
 }
 
@@ -79,7 +79,7 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
     auto result = deps_.resource_manager->load_material_asset(
         fjmat_abs_path_, deps_.project_mgr->active());
     if (!result) {
-        FJELL_CORE_ERROR("Failed to load material: {}", result.error());
+        FTK_CORE_ERROR("Failed to load material: {}", result.error());
         return;
     }
     material_handle_ = *result;
@@ -94,7 +94,7 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
     viewport_manager_.frame({0.0f, 0.0f, 0.0f}, 1.5f);
 
     document_opened();
-    FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);
+    FTK_CORE_INFO("Material editor opened: {}", fjmat_path);
 }
 
 MaterialAsset MaterialEditorContext::current_asset() const {
@@ -134,27 +134,27 @@ std::string MaterialEditorContext::document() const {
     return material_asset_text(current_asset());
 }
 
-Result<> MaterialEditorContext::write() {
-    if (fjmat_abs_path_.empty() || !material_) return make_error("no material is open");
+ftk::Result<> MaterialEditorContext::write() {
+    if (fjmat_abs_path_.empty() || !material_) return ftk::make_error("no material is open");
     asset_ = current_asset();
     try {
         save_material_asset(fjmat_abs_path_, asset_);
     } catch (const std::exception& e) {
-        return make_error(e.what());
+        return ftk::make_error(e.what());
     }
     if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmat_abs_path_);
-    FJELL_CORE_INFO("Material saved: {}", fjmat_abs_path_);
+    FTK_CORE_INFO("Material saved: {}", fjmat_abs_path_);
     return {};
 }
 
-Result<> MaterialEditorContext::restore(const std::string& text) {
+ftk::Result<> MaterialEditorContext::restore(const std::string& text) {
     MaterialAsset asset;
     try {
         asset = material_asset_from_text(text);
     } catch (const std::exception& e) {
-        return make_error(e.what());
+        return ftk::make_error(e.what());
     }
-    if (!material_) return make_error("no material is open");
+    if (!material_) return ftk::make_error("no material is open");
 
     if (asset.shader != asset_.shader || asset.textures != asset_.textures) {
         asset_ = std::move(asset);
@@ -172,7 +172,7 @@ Result<> MaterialEditorContext::restore(const std::string& text) {
 
 void MaterialEditorContext::save_and_reload() {
     if (auto saved = save(); !saved) {
-        FJELL_CORE_ERROR("Couldn't save {}: {}", fjmat_path_, saved.error());
+        FTK_CORE_ERROR("Couldn't save {}: {}", fjmat_path_, saved.error());
         return;
     }
     auto result = deps_.resource_manager->load_material_asset(fjmat_abs_path_, deps_.project_mgr->active());
@@ -206,10 +206,10 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    auto panel = ui::Panel(ui::icon::properties, ctx_title("Parameters").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Parameters").c_str());
     if (!panel) return;
     if (!material_) {
-        ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::material, "No material open", "Open one from the content browser");
         return;
     }
 
@@ -249,7 +249,7 @@ void MaterialEditorContext::draw_params_panel() {
                         "looks. Put the material on a Post Process Volume and look at the scene.";
             break;
     }
-    if (elsewhere != nullptr) ui::status(ui::Severity::Warning, elsewhere);
+    if (elsewhere != nullptr) ftk::ui::status(ftk::ui::Severity::Warning, elsewhere);
 
     if (pid < cache->shader_count()) {
         (void)draw_material_params(cache->metadata(pid), deps_.vulkan_context->bindless_textures(), *material_);
@@ -257,10 +257,10 @@ void MaterialEditorContext::draw_params_panel() {
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    auto panel = ui::Panel(ui::icon::texture, ctx_title("Textures").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::texture, ctx_title("Textures").c_str());
     if (!panel) return;
     if (!material_) {
-        ui::empty_state(ui::icon::material, "No material open", "Open one from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::material, "No material open", "Open one from the content browser");
         return;
     }
 
@@ -289,11 +289,11 @@ void MaterialEditorContext::draw_texture_panel() {
     static const std::string texture_exts[] = {".png", ".jpg", ".jpeg", ".tga"};
     static const std::string lut_exts[] = {".fjlut"};
     bool changed = false;
-    if (auto t = ui::PropertyTable("##textures")) {
+    if (auto t = ftk::ui::PropertyTable("##textures")) {
         for (const auto& slot : slots) {
             ImGui::PushID(slot.name.c_str());
-            const std::string label = display_name(slot.name);
-            ui::row(label.c_str(), [&] {
+            const std::string label = ftk::display_name(slot.name);
+            ftk::ui::row(label.c_str(), [&] {
                 auto it = asset_.textures.find(slot.name);
                 std::string path = it != asset_.textures.end() ? it->second : std::string{};
                 if (asset_slot({.label = label.c_str(),
@@ -322,10 +322,10 @@ void MaterialEditorContext::draw_header_actions() {
     // The shader this material is made from, opened in the external editor.
     const std::filesystem::path shader = material_->shader_path();
     ImGui::SameLine();
-    if (ui::action(ui::icon::shader, shader.filename().string().c_str(), ui::ButtonKind::Ghost)) {
+    if (ftk::ui::action(ftk::ui::icon::shader, shader.filename().string().c_str(), ftk::ui::ButtonKind::Ghost)) {
         const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active() : nullptr;
-        if (auto opened = platform::open_path(base_path::resolve_shared(shader.string(), project)); !opened) {
-            FJELL_CORE_ERROR("Couldn't open {}: {}", shader.string(), opened.error());
+        if (auto opened = ftk::platform::open_path(base_path::resolve_shared(shader.string(), project)); !opened) {
+            FTK_CORE_ERROR("Couldn't open {}: {}", shader.string(), opened.error());
         }
     }
     ImGui::SetItemTooltip("Open %s", shader.string().c_str());

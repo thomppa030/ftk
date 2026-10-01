@@ -9,14 +9,18 @@
 #include <string>
 #include <vector>
 
+namespace ftk {
+class CommandHistory;
+} // namespace ftk
+
+namespace ftk::gpu {
+class Upload;
+} // namespace ftk::gpu
+
 namespace fjell {
 
-class CommandHistory;
 class PhysicsSubsystem;
 class TerrainAsset;
-namespace gpu {
-class Upload;
-}
 
 /// A rectangle of samples on one of the terrain's grids — height samples or
 /// weight texels — in that grid's units.
@@ -36,14 +40,14 @@ struct HeightRect {
 /// asset (CPU array and GPU texture) and, when a play session has built a
 /// collision body for the node, that body. One call, so the two can never be
 /// updated separately and drift apart.
-void apply_terrain_rect(TerrainAsset& terrain, gpu::Upload& upload, PhysicsSubsystem* physics,
+void apply_terrain_rect(TerrainAsset& terrain, ftk::gpu::Upload& upload, PhysicsSubsystem* physics,
                         uint32_t node_id, const HeightRect& rect, const float* heights);
 
 /// Write a rect of RGBA layer weights to everything that holds them: the
 /// asset (CPU array and GPU texture) and, when a play session has built a
 /// collision body for the node, that body's per-quad surfaces. `rect` is in
 /// weight texels.
-void apply_terrain_weights(TerrainAsset& terrain, gpu::Upload& upload,
+void apply_terrain_weights(TerrainAsset& terrain, ftk::gpu::Upload& upload,
                            PhysicsSubsystem* physics, uint32_t node_id, const HeightRect& rect,
                            const uint8_t* rgba);
 
@@ -57,9 +61,9 @@ void apply_terrain_weights(TerrainAsset& terrain, gpu::Upload& upload,
 /// One sculpt stroke, mouse down to mouse up, as a single undo step. Holds the
 /// touched rect before and after; a step per dab would make undoing one drag
 /// take dozens of presses.
-class SculptStrokeCommand final : public Command {
+class SculptStrokeCommand final : public ftk::Command {
 public:
-    SculptStrokeCommand(TerrainAsset& terrain, gpu::Upload& upload, PhysicsSubsystem* physics,
+    SculptStrokeCommand(TerrainAsset& terrain, ftk::gpu::Upload& upload, PhysicsSubsystem* physics,
                         uint32_t node_id, HeightRect rect, std::vector<float> before,
                         std::vector<float> after);
 
@@ -69,7 +73,7 @@ public:
 
 private:
     TerrainAsset& terrain_;
-    gpu::Upload& upload_;
+    ftk::gpu::Upload& upload_;
     PhysicsSubsystem* physics_;
     uint32_t node_id_;
     HeightRect rect_;
@@ -79,9 +83,9 @@ private:
 
 /// One paint stroke as a single undo step, the weight-texture twin of
 /// SculptStrokeCommand.
-class PaintStrokeCommand final : public Command {
+class PaintStrokeCommand final : public ftk::Command {
 public:
-    PaintStrokeCommand(TerrainAsset& terrain, gpu::Upload& upload, PhysicsSubsystem* physics,
+    PaintStrokeCommand(TerrainAsset& terrain, ftk::gpu::Upload& upload, PhysicsSubsystem* physics,
                        uint32_t node_id, HeightRect rect, std::vector<uint8_t> before,
                        std::vector<uint8_t> after);
 
@@ -91,7 +95,7 @@ public:
 
 private:
     TerrainAsset& terrain_;
-    gpu::Upload& upload_;
+    ftk::gpu::Upload& upload_;
     PhysicsSubsystem* physics_;
     uint32_t node_id_;
     HeightRect rect_;
@@ -116,9 +120,9 @@ public:
         glm::vec3 terrain_origin{0.0f};  ///< the field's min corner in world space
         uint32_t node_id{0};
         ViewportBrush::Frame brush;
-        gpu::Upload* upload{nullptr};
+        ftk::gpu::Upload* upload{nullptr};
         PhysicsSubsystem* physics{nullptr};
-        CommandHistory* history{nullptr};
+        ftk::CommandHistory* history{nullptr};
     };
 
     explicit TerrainSculptTool(ViewportBrush& brush) : brush_{brush} {}
@@ -160,9 +164,9 @@ private:
     /// deselect under the brush — so it must not read `frame_`.
     struct StrokeContext {
         TerrainAsset* terrain{nullptr};
-        gpu::Upload* upload{nullptr};
+        ftk::gpu::Upload* upload{nullptr};
         PhysicsSubsystem* physics{nullptr};
-        CommandHistory* history{nullptr};
+        ftk::CommandHistory* history{nullptr};
         uint32_t node_id{0};
         bool painting{false};
     };

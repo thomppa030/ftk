@@ -144,7 +144,7 @@ static void load_components(Node& node, const nlohmann::json& j,
             ec.effect = std::make_shared<VfxEffect>(std::move(effect));
             ec.vfx_path = vfx_path;
         } catch (const std::exception& e) {
-            FJELL_CORE_ERROR("Failed to load VFX: {}", e.what());
+            FTK_CORE_ERROR("Failed to load VFX: {}", e.what());
         }
     }
 
@@ -155,7 +155,7 @@ static void load_components(Node& node, const nlohmann::json& j,
             // A node holds one script of a type; a file that lists one twice
             // was written by hand or by an engine that allowed it.
             if (std::ranges::find(node.scripts, comp.type_name, &ScriptEntry::type_name) != node.scripts.end()) {
-                FJELL_CORE_WARN("'{}' lists {} more than once; the first is kept", node.name,
+                FTK_CORE_WARN("'{}' lists {} more than once; the first is kept", node.name,
                                 comp.type_name);
                 continue;
             }
@@ -218,7 +218,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             node = std::make_unique<WorldEnvironmentNode>();
         } else if (node_type == "game_ui") {
             // Legacy: GameUiNode no longer supported, load as empty Node3D
-            FJELL_CORE_WARN("game_ui node type is deprecated — use UiWidgetComponent with .fjwidget");
+            FTK_CORE_WARN("game_ui node type is deprecated — use UiWidgetComponent with .fjwidget");
             node = std::make_unique<Node3D>();
         }
 
@@ -243,7 +243,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         auto skel_model_result = resources.load_skeletal_model(
             base_path::resolve_asset(source, project));
         if (!skel_model_result) {
-            FJELL_CORE_ERROR("deserialize_node: skeletal '{}' load failed: {}",
+            FTK_CORE_ERROR("deserialize_node: skeletal '{}' load failed: {}",
                              source, skel_model_result.error());
             return nullptr;
         }
@@ -251,7 +251,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         auto skel_model_handle = *skel_model_result;
         auto* skel_model = resources.get(skel_model_handle);
         if (!skel_model) {
-            FJELL_CORE_ERROR("deserialize_node: skeletal '{}' handle resolved null", source);
+            FTK_CORE_ERROR("deserialize_node: skeletal '{}' handle resolved null", source);
             return nullptr;
         }
 
@@ -306,7 +306,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                             anim.play(clip.get());
                         }
                     } else {
-                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, clip_result.error());
+                        FTK_CORE_ERROR("Failed to load clip {}: {}", clip_rel, clip_result.error());
                     }
                 }
             }
@@ -314,7 +314,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 anim.animset_path = ja["animset"].get<std::string>();
                 auto resolved = base_path::resolve_asset(anim.animset_path, project);
                 if (auto r = anim.load_state_machine(resolved); !r) {
-                    FJELL_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
+                    FTK_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
                 }
                 for (size_t i = 0; i < anim.clips.size(); ++i) {
                     if (i < anim.clip_paths.size())
@@ -354,14 +354,14 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         } else if (!source.empty()) {
             auto resolved = base_path::resolve_asset(source, project);
             if (resolved.empty()) {
-                FJELL_CORE_WARN("Object '{}': model reference '{}' does not resolve",
+                FTK_CORE_WARN("Object '{}': model reference '{}' does not resolve",
                                 name, source);
             } else {
                 auto result = resources.load_model(resolved);
                 if (result) {
                     model_handle = *result;
                 } else {
-                    FJELL_CORE_WARN("Object '{}': {}", name, result.error());
+                    FTK_CORE_WARN("Object '{}': {}", name, result.error());
                 }
             }
         }
@@ -371,7 +371,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         // scene afterwards makes that permanent — for what is usually a
         // renamed or temporarily missing asset.
         if (!model_handle.valid()) {
-            FJELL_CORE_WARN("Object '{}' has no usable model; keeping it without one", name);
+            FTK_CORE_WARN("Object '{}' has no usable model; keeping it without one", name);
         }
 
         auto default_tex = resources.load_texture(
@@ -386,14 +386,14 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         if (has_material_ref) {
             std::string mat_path = base_path::resolve_asset(mat_name, project);
             if (mat_path.empty()) {
-                FJELL_CORE_WARN("Object '{}': material reference '{}' does not resolve",
+                FTK_CORE_WARN("Object '{}': material reference '{}' does not resolve",
                                 name, mat_name);
             } else {
                 auto result = resources.load_material_asset(mat_path, project);
                 if (result) {
                     mat_handle = *result;
                 } else {
-                    FJELL_CORE_WARN("Object '{}': {}", name, result.error());
+                    FTK_CORE_WARN("Object '{}': {}", name, result.error());
                 }
             }
         } else if (!color_json.is_null()) {

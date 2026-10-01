@@ -30,12 +30,13 @@
 #include <unordered_set>
 #include <vector>
 
+namespace ftk::gpu {
+class Device;
+} // namespace ftk::gpu
+
 namespace fjell {
 
 class BindlessTextures;
-namespace gpu {
-class Device;
-}
 struct LutStrip;
 class MegaBuffer;
 class MeshletBuffer;
@@ -49,22 +50,22 @@ struct MaterialAsset;
 
 class ResourceManager {
 public:
-    ResourceManager(gpu::Device& gpu,
+    ResourceManager(ftk::gpu::Device& gpu,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
                     MeshletBuffer* meshlet_buffer = nullptr,
                     PipelineCache* pipeline_cache = nullptr);
 
     void set_cache_dir(const std::filesystem::path& dir) { cache_dir_ = dir; }
 
-    Result<ModelHandle> load_model(const std::string& path);
-    Result<ModelHandle> create_primitive(const std::string& type);
-    Result<TextureHandle> load_texture(const std::string& path);
-    Result<TextureHandle> load_texture_nearest(const std::string& path);
+    ftk::Result<ModelHandle> load_model(const std::string& path);
+    ftk::Result<ModelHandle> create_primitive(const std::string& type);
+    ftk::Result<TextureHandle> load_texture(const std::string& path);
+    ftk::Result<TextureHandle> load_texture_nearest(const std::string& path);
     /// A colour grading table from a `.fjlut` recipe, as a 16-bit strip:
     /// clamped, filtered, one mip. Cached by path. In debug builds an edit to
     /// the recipe or its source reloads it in place through
     /// poll_lut_changes(), keeping its bindless index.
-    Result<TextureHandle> load_lut(const std::string& path);
+    ftk::Result<TextureHandle> load_lut(const std::string& path);
     /// Re-read every loaded table whose recipe or source changed on disk.
     /// Debug builds; once a frame, before anything records.
     void poll_lut_changes();
@@ -77,7 +78,7 @@ public:
     [[nodiscard]] LoadState model_state(ModelHandle handle) const;
 
     // Skeletal models
-    Result<SkeletalModelHandle> load_skeletal_model(const std::string& path);
+    ftk::Result<SkeletalModelHandle> load_skeletal_model(const std::string& path);
     [[nodiscard]] SkeletalModelHandle find_skeletal_model(const std::string& path) const;
     SkeletalModelHandle reserve_skeletal_model(const std::string& path);
     void emplace_skeletal_model(SkeletalModelHandle handle, std::unique_ptr<SkeletalModel> model);
@@ -104,15 +105,15 @@ public:
     [[nodiscard]] std::vector<Material*> load_slot_materials(ModelHandle model,
                                                             const Project* project);
 
-    Result<MaterialHandle> load_material_asset(const std::string& path,
+    ftk::Result<MaterialHandle> load_material_asset(const std::string& path,
                                                const Project* project = nullptr);
 
     // VFX assets (.fjvfx)
-    Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
+    ftk::Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
 
     // Terrain assets (.fjterrain). project resolves the layer materials the
     // file names relative to the project root.
-    Result<TerrainAssetHandle> load_terrain_asset(const std::string& path,
+    ftk::Result<TerrainAssetHandle> load_terrain_asset(const std::string& path,
                                                   const Project* project = nullptr);
 
     /// Load (or reload) the .fjmat and .fjsurface behind each of a terrain's
@@ -123,37 +124,36 @@ public:
     void resolve_terrain_layers(TerrainAsset& terrain, const Project* project);
 
     // Audio assets (.fjaudio)
-    Result<AudioAssetHandle> load_audio_asset(const std::string& path);
+    ftk::Result<AudioAssetHandle> load_audio_asset(const std::string& path);
 
     // Surface assets (.fjsurface). The handle's id is the surface id physics
     // reports, so loading through here is what gives a surface its identity.
-    Result<SurfaceAssetHandle> load_surface_asset(const std::string& path);
+    ftk::Result<SurfaceAssetHandle> load_surface_asset(const std::string& path);
 
     // Day profiles (.fjday). A reload replaces the pooled asset in place, so
     // a World Environment node keeps pointing at the same object.
-    Result<DayProfileAssetHandle> load_day_profile(const std::string& path);
-    Result<> reload_day_profile(const std::string& path);
+    ftk::Result<DayProfileAssetHandle> load_day_profile(const std::string& path);
+    ftk::Result<> reload_day_profile(const std::string& path);
 
     // Weather events (.fjweather). Reloads replace the pooled asset in place.
-    Result<WeatherAssetHandle> load_weather_asset(const std::string& path);
-    Result<> reload_weather_asset(const std::string& path);
+    ftk::Result<WeatherAssetHandle> load_weather_asset(const std::string& path);
+    ftk::Result<> reload_weather_asset(const std::string& path);
 
     // Climates (.fjclimate). Reloads replace the pooled asset in place.
-    Result<ClimateAssetHandle> load_climate_asset(const std::string& path);
-    Result<> reload_climate_asset(const std::string& path);
+    ftk::Result<ClimateAssetHandle> load_climate_asset(const std::string& path);
+    ftk::Result<> reload_climate_asset(const std::string& path);
 
     // Input action assets (.fjaction)
-    Result<InputActionHandle> load_input_action(const std::string& path);
+    ftk::Result<InputActionHandle> load_input_action(const std::string& path);
 
     // Preset assets (.fjp). project resolves asset paths inside the preset
     // (skeletal meshes, materials, …) relative to the project root.
-    Result<PresetAssetHandle> load_preset_asset(const std::string& path,
+    ftk::Result<PresetAssetHandle> load_preset_asset(const std::string& path,
                                                 const Project* project = nullptr);
-
 
     // Generic asset loading by ref_type_name (for inspector picker)
     // Returns raw handle id (0 on failure). Caller must cast to the right Handle type.
-    Result<uint32_t> load_asset_by_type(const std::string& type_name, const std::string& path);
+    ftk::Result<uint32_t> load_asset_by_type(const std::string& type_name, const std::string& path);
 
     // Reverse lookup: handle → path
     [[nodiscard]] std::string asset_path_of(VfxAssetHandle handle) const;
@@ -234,7 +234,7 @@ public:
 private:
     /// Uploads what is loaded, and keeps a texture being replaced alive
     /// until the frames still reading it are done.
-    gpu::Device& gpu_;
+    ftk::gpu::Device& gpu_;
     BindlessTextures& bindless_;
     MegaBuffer* mega_buffer_;
     MeshletBuffer* meshlet_buffer_;
@@ -289,7 +289,7 @@ private:
     void reload_lut(LoadedLut& lut);
 
     std::vector<LoadedLut> luts_;
-    platform::FileWatcher lut_watcher_;
+    ftk::platform::FileWatcher lut_watcher_;
     std::unordered_set<std::string> lut_watched_dirs_;
     std::vector<std::string> lut_changed_;
 };

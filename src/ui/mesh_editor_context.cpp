@@ -50,7 +50,7 @@ std::string group_digits(uint64_t value) {
 MeshEditorContext::MeshEditorContext(MeshEditorDeps deps)
     : deps_{deps} {}
 
-EditorContext::DockPreset MeshEditorContext::dock_preset() const {
+ftk::EditorContext::DockPreset MeshEditorContext::dock_preset() const {
     return {.preview = {"Preview"}, .inspector = {"Materials", "Collision", "Info"}};
 }
 
@@ -115,7 +115,7 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
 
     auto result = deps_.resource_manager->load_model(abs_path);
     if (!result) {
-        FJELL_CORE_ERROR("Failed to load mesh: {}", result.error());
+        FTK_CORE_ERROR("Failed to load mesh: {}", result.error());
         return;
     }
     model_handle_ = *result;
@@ -147,7 +147,7 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
     frame_camera();
 
     document_opened();
-    FJELL_CORE_INFO("Mesh editor opened: {}", fjmesh_path);
+    FTK_CORE_INFO("Mesh editor opened: {}", fjmesh_path);
 }
 
 // ── Preview scene ────────────────────────────────────────────────────────
@@ -203,14 +203,14 @@ void MeshEditorContext::frame_camera() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MeshEditorContext::draw_slots_panel() {
-    auto panel = ui::Panel(ui::icon::material, ctx_title("Materials").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::material, ctx_title("Materials").c_str());
     if (!panel) return;
     if (!model_) {
-        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
     if (authored_.material_slots.empty()) {
-        ui::empty_state(ui::icon::material, "No material slots",
+        ftk::ui::empty_state(ftk::ui::icon::material, "No material slots",
                         "Reimport the mesh to record the materials its parts were made with");
         return;
     }
@@ -221,11 +221,11 @@ void MeshEditorContext::draw_slots_panel() {
     static const std::string material_exts[] = {".fjmat"};
     bool changed = false;
     // Each slot is named by the material its part had in the source file.
-    if (auto t = ui::PropertyTable("##slots")) {
+    if (auto t = ftk::ui::PropertyTable("##slots")) {
         for (std::size_t i = 0; i < authored_.material_slots.size(); ++i) {
             auto& slot = authored_.material_slots[i];
             ImGui::PushID(static_cast<int>(i));
-            ui::row(slot.name.c_str(), [&] {
+            ftk::ui::row(slot.name.c_str(), [&] {
                 changed |= asset_slot({.label = slot.name.c_str(), .id = "##material", .extensions = material_exts,
                                        .ctx = &ictx, .shader_types = only_shader_type(ShaderType::Spatial)},
                                       slot.path);
@@ -258,8 +258,8 @@ std::string MeshEditorContext::document() const {
     return j.dump();
 }
 
-Result<> MeshEditorContext::write() {
-    if (fjmesh_abs_path_.empty()) return make_error("no mesh is open");
+ftk::Result<> MeshEditorContext::write() {
+    if (fjmesh_abs_path_.empty()) return ftk::make_error("no mesh is open");
 
     // Slots written by the importer hold a path, since nothing has an id at
     // import time. Upgrade them here so they survive the material moving.
@@ -300,17 +300,17 @@ Result<> MeshEditorContext::write() {
     bool written = collision_dirty_
         ? rewrite_collision_data(fjmesh_abs_path_, section, authored_)
         : rewrite_authored_data(fjmesh_abs_path_, authored_);
-    if (!written) return make_error("the mesh file couldn't be rewritten");
+    if (!written) return ftk::make_error("the mesh file couldn't be rewritten");
 
     collision_dirty_ = false;
     if (deps_.asset_thumbnails) deps_.asset_thumbnails->refresh(fjmesh_abs_path_);
-    FJELL_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
+    FTK_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
     return {};
 }
 
-Result<> MeshEditorContext::restore(const std::string& text) {
+ftk::Result<> MeshEditorContext::restore(const std::string& text) {
     auto j = nlohmann::json::parse(text, nullptr, false);
-    if (!j.is_object()) return make_error("the mesh document isn't JSON");
+    if (!j.is_object()) return ftk::make_error("the mesh document isn't JSON");
 
     std::vector<MeshMaterialSlot> slots;
     for (const auto& slot : j.value("slots", nlohmann::json::array())) {
@@ -404,15 +404,15 @@ void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_b
 }
 
 void MeshEditorContext::draw_primitive_list() {
-    ui::subheading("Shapes");
+    ftk::ui::subheading("Shapes");
     if (model_ != nullptr && model_->authored_version() < FJMESH_LAYOUT_VERSION) {
-        ui::status(ui::Severity::Warning,
+        ftk::ui::status(ftk::ui::Severity::Warning,
                    "This mesh was written by an older version of the format and has no room for shapes. "
                    "Reimport it to add some.");
         return;
     }
 
-    auto list = ui::ListEditor("##shapes", collision_primitives_.size(), {.reorder = false, .opens = true});
+    auto list = ftk::ui::ListEditor("##shapes", collision_primitives_.size(), {.reorder = false, .opens = true});
     if (collision_primitives_.empty()) {
         list.empty("No shapes: the mesh collides as its geometry above. Add one to collide as something "
                    "simpler, or as convex pieces so it can move");
@@ -425,7 +425,7 @@ void MeshEditorContext::draw_primitive_list() {
         // Only the selected shape shows its fields; the others one line each.
         if (selected) {
             ImGui::TextUnformatted(collision_kind_name(prim.kind));
-            if (auto t = ui::PropertyTable("##shape")) {
+            if (auto t = ftk::ui::PropertyTable("##shape")) {
                 if (collision_shape_rows(prim, "Relative to the mesh's origin").changed) collision_dirty_ = true;
             }
         } else {
@@ -444,10 +444,10 @@ void MeshEditorContext::draw_primitive_list() {
 }
 
 void MeshEditorContext::draw_collision_panel() {
-    auto panel = ui::Panel(ui::icon::collision, ctx_title("Collision").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::collision, ctx_title("Collision").c_str());
     if (!panel) return;
     if (!model_) {
-        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
 
@@ -455,7 +455,7 @@ void MeshEditorContext::draw_collision_panel() {
         FjMeshCollisionSource value;
         const char* help;
     };
-    static constexpr ui::Choice<FjMeshCollisionSource> SOURCES[] = {
+    static constexpr ftk::ui::Choice<FjMeshCollisionSource> SOURCES[] = {
         {FjMeshCollisionSource::render_mesh, "Render mesh"},
         {FjMeshCollisionSource::convex_hull, "Convex hull"},
         {FjMeshCollisionSource::simplified, "Simplified mesh"},
@@ -473,7 +473,7 @@ void MeshEditorContext::draw_collision_panel() {
     // compound the loss it already carries.
     const bool can_rebuild = model_->has_full_collision();
     if (!can_rebuild) {
-        ui::status(ui::Severity::Warning,
+        ftk::ui::status(ftk::ui::Severity::Warning,
                    "This mesh predates the format that keeps what collision is built from. "
                    "Reimport it to change the source.");
     }
@@ -482,30 +482,30 @@ void MeshEditorContext::draw_collision_panel() {
     ictx.project_mgr = deps_.project_mgr;
     ictx.icons = deps_.icon_cache;
     static const std::string mesh_exts[] = {".fjmesh"};
-    if (auto t = ui::PropertyTable("##collision")) {
+    if (auto t = ftk::ui::PropertyTable("##collision")) {
         ImGui::BeginDisabled(!can_rebuild);
-        ui::row("Source", [&] {
-            if (ui::combo("##source", authored_.collision_source, SOURCES).changed) rebuild_collision();
+        ftk::ui::row("Source", [&] {
+            if (ftk::ui::combo("##source", authored_.collision_source, SOURCES).changed) rebuild_collision();
         });
         ImGui::EndDisabled();
         for (const auto& h : HELP) {
-            if (h.value == authored_.collision_source) ui::hint(h.help);
+            if (h.value == authored_.collision_source) ftk::ui::hint(h.help);
         }
         if (authored_.collision_source == FjMeshCollisionSource::simplified) {
             ImGui::BeginDisabled(!can_rebuild);
             // Rebuilt when the drag lets go: simplifying the helmet takes
             // about a millisecond, enough to make a drag stutter.
-            ui::row("Detail", [&] {
-                if (ui::slider("##detail", authored_.collision_simplify_ratio, 0.01F, 1.0F)
+            ftk::ui::row("Detail", [&] {
+                if (ftk::ui::slider("##detail", authored_.collision_simplify_ratio, 0.01F, 1.0F)
                         .committed) {
                     rebuild_collision();
                 }
             });
             ImGui::EndDisabled();
-            ui::hint("The share of the original triangles kept");
+            ftk::ui::hint("The share of the original triangles kept");
         }
         if (authored_.collision_source == FjMeshCollisionSource::custom_mesh) {
-            ui::row("Proxy", [&] {
+            ftk::ui::row("Proxy", [&] {
                 (void)asset_slot({.label = "Proxy", .id = "##proxy", .extensions = mesh_exts, .ctx = &ictx},
                                  authored_.collision_mesh);
             });
@@ -514,35 +514,35 @@ void MeshEditorContext::draw_collision_panel() {
 
     draw_primitive_list();
 
-    ui::subheading("Current geometry");
+    ftk::ui::subheading("Current geometry");
     // A hull is a point cloud, so it reports no triangles by design.
     const bool is_hull = authored_.collision_source == FjMeshCollisionSource::convex_hull;
-    if (auto t = ui::PropertyTable("##geometry")) {
-        ui::row("Show in preview", [&] {
-            if (ui::checkbox("##show", show_collision_).changed) {
+    if (auto t = ftk::ui::PropertyTable("##geometry")) {
+        ftk::ui::row("Show in preview", [&] {
+            if (ftk::ui::checkbox("##show", show_collision_).changed) {
                 deps_.vulkan_context->set_show_colliders(show_collision_);
             }
         });
-        ui::row("Vertices", [&] { ui::readout(group_digits(collision_vertices_.size()).c_str()); });
-        ui::row("Triangles", [&] { ui::readout(group_digits(collision_indices_.size() / 3).c_str()); });
-        ui::row("Moving bodies", [&] { ui::readout(is_hull ? "Yes" : "No"); });
+        ftk::ui::row("Vertices", [&] { ftk::ui::readout(group_digits(collision_vertices_.size()).c_str()); });
+        ftk::ui::row("Triangles", [&] { ftk::ui::readout(group_digits(collision_indices_.size() / 3).c_str()); });
+        ftk::ui::row("Moving bodies", [&] { ftk::ui::readout(is_hull ? "Yes" : "No"); });
     }
 }
 
 void MeshEditorContext::draw_info_panel() {
-    auto panel = ui::Panel(ui::icon::info, ctx_title("Info").c_str());
+    auto panel = ftk::ui::Panel(ftk::ui::icon::info, ctx_title("Info").c_str());
     if (!panel) return;
     if (!model_) {
-        ui::empty_state(ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
 
     auto readout = [](const char* label, const std::string& value) {
-        ui::row(label, [&] { ui::readout(value.c_str()); });
+        ftk::ui::row(label, [&] { ftk::ui::readout(value.c_str()); });
     };
     auto vec = [](const glm::vec3& v) { return std::format("{:.3f}, {:.3f}, {:.3f} m", v.x, v.y, v.z); };
 
-    if (auto t = ui::PropertyTable("##info")) {
+    if (auto t = ftk::ui::PropertyTable("##info")) {
         if (!authored_.source_file.empty()) readout("Imported from", authored_.source_file);
         // total_indices() covers every LOD, so triangles are per LOD below.
         readout("Parts", group_digits(model_->mega_entry_count()));
@@ -550,17 +550,17 @@ void MeshEditorContext::draw_info_panel() {
         readout("Indices", group_digits(model_->total_indices()));
     }
 
-    ui::subheading("Bounds");
+    ftk::ui::subheading("Bounds");
     const auto& aabb = model_->local_aabb();
-    if (auto t = ui::PropertyTable("##bounds")) {
+    if (auto t = ftk::ui::PropertyTable("##bounds")) {
         readout("Min", vec(aabb.min));
         readout("Max", vec(aabb.max));
         readout("Size", vec(aabb.max - aabb.min));
         readout("Radius", std::format("{:.3f} m", model_->bounding_radius()));
     }
 
-    ui::subheading("Levels of detail");
-    if (auto t = ui::PropertyTable("##lods")) {
+    ftk::ui::subheading("Levels of detail");
+    if (auto t = ftk::ui::PropertyTable("##lods")) {
         const auto& entries = model_->mega_entries();
         uint32_t lod_index = 0;
         for (const auto& lod : model_->lod_levels()) {
@@ -577,8 +577,8 @@ void MeshEditorContext::draw_info_panel() {
         }
     }
 
-    ui::subheading("Distance field");
-    if (auto t = ui::PropertyTable("##sdf")) {
+    ftk::ui::subheading("Distance field");
+    if (auto t = ftk::ui::PropertyTable("##sdf")) {
         if (model_->has_sdf()) {
             const uint32_t res = model_->sdf_grid_resolution();
             readout("Grid", std::format("{} \xc3\x97 {} \xc3\x97 {}", res, res, res));
@@ -595,7 +595,7 @@ void MeshEditorContext::draw_header_actions() {
     const auto source = find_import_source(fjmesh_abs_path_);
     ImGui::SameLine();
     ImGui::BeginDisabled(source.empty() || !deps_.import_model);
-    if (ui::action(ui::icon::reload, "Reimport", ui::ButtonKind::Ghost)) deps_.import_model(source);
+    if (ftk::ui::action(ftk::ui::icon::reload, "Reimport", ftk::ui::ButtonKind::Ghost)) deps_.import_model(source);
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("%s", source.empty() ? "The source file isn't next to the mesh any more"
                                                : ("Import " + authored_.source_file + " again").c_str());

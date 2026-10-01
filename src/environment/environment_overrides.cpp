@@ -15,7 +15,7 @@ void apply_environment_overrides(const EnvironmentOverrides& overrides,
                                  ResourceManager& resources) {
     WorldEnvironmentNode* env = find_world_environment(scene);
     if (env == nullptr) {
-        FJELL_CORE_WARN("Environment overrides: the scene has no World Environment node, "
+        FTK_CORE_WARN("Environment overrides: the scene has no World Environment node, "
                         "so there is nothing to override");
         return;
     }
@@ -43,7 +43,7 @@ void apply_environment_overrides(const EnvironmentOverrides& overrides,
         // Checked here so a bad path is reported now, with the flag that
         // named it, rather than as a load failure during the first tick.
         if (auto handle = resources.load_weather_asset(*overrides.weather); !handle) {
-            FJELL_CORE_ERROR("Weather override: {}", handle.error());
+            FTK_CORE_ERROR("Weather override: {}", handle.error());
         } else {
             env->weather = *overrides.weather;
         }

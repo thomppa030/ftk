@@ -10,7 +10,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// A vector that keeps its first `N` elements inside itself and goes to the
 /// heap only past them: for short lists made often on hot paths, such as the
@@ -125,4 +125,4 @@ private:
     size_t size_{0};
 };
 
-} // namespace fjell
+} // namespace ftk

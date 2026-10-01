@@ -37,7 +37,7 @@ struct Track {
     std::string name;
     TrackKind kind{TrackKind::Float};
     TrackMode mode{TrackMode::Override};
-    Curve curve;                 // Float tracks
+    ftk::Curve curve;                 // Float tracks
     ColorGradient gradient;      // Color tracks
 };
 
@@ -73,7 +73,7 @@ struct TrackSet {
 
 /// A Curve read periodically: outside its first and last key the gap wraps
 /// around the domain instead of holding the end values.
-[[nodiscard]] float evaluate_periodic(const Curve& curve, float t);
+[[nodiscard]] float evaluate_periodic(const ftk::Curve& curve, float t);
 
 /// Fold a track's value into a named uniform value by the track's mode,
 /// faded in by `weight` (1 applies it whole, as a day profile does; a weather

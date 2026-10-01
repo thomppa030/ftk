@@ -30,7 +30,7 @@ public:
     /// Write the colours back if anything changed since the last load or save.
     /// Callers save when an edit is finished rather than on every change, so
     /// dragging a colour picker does not rewrite the file each frame.
-    Result<> save();
+    ftk::Result<> save();
 
     /// The colour of `folder`, or nothing when it has none.
     [[nodiscard]] std::optional<glm::vec3> find(const std::filesystem::path& folder) const;

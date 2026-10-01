@@ -19,7 +19,7 @@ namespace fjell {
 
 // ── Transform ────────────────────────────────────────────────────────────
 
-class TransformCommand : public Command {
+class TransformCommand : public ftk::Command {
 public:
     TransformCommand(Scene& scene, uint32_t id,
                      const Transform& old_t, const Transform& new_t,
@@ -57,11 +57,11 @@ public:
         };
 
         if (moved && !scaled) {
-            return describe_change("Move " + name_, fmt_vec3(old_transform_.position),
+            return ftk::describe_change("Move " + name_, fmt_vec3(old_transform_.position),
                                    fmt_vec3(new_transform_.position));
         }
         if (scaled && !moved) {
-            return describe_change("Scale " + name_, fmt_vec3(old_transform_.scale),
+            return ftk::describe_change("Scale " + name_, fmt_vec3(old_transform_.scale),
                                    fmt_vec3(new_transform_.scale));
         }
         if (rotated) return "Rotate " + name_;
@@ -78,7 +78,7 @@ private:
 
 // ── Rename ───────────────────────────────────────────────────────────────
 
-class RenameCommand : public Command {
+class RenameCommand : public ftk::Command {
 public:
     RenameCommand(Scene& scene, uint32_t id,
                   std::string old_name, std::string new_name)
@@ -110,7 +110,7 @@ private:
 
 // ── Add Object (capture-after-creation pattern) ─────────────────────────
 
-class AddObjectCommand : public Command {
+class AddObjectCommand : public ftk::Command {
 public:
     AddObjectCommand(Scene& scene, uint32_t id, uint32_t* selected_id)
         : scene_{scene}, id_{id}, selected_id_{selected_id} {
@@ -155,7 +155,7 @@ private:
 
 // ── Remove Object ────────────────────────────────────────────────────────
 
-class RemoveObjectCommand : public Command {
+class RemoveObjectCommand : public ftk::Command {
 public:
     RemoveObjectCommand(Scene& scene, uint32_t id, uint32_t* selected_id,
                         std::function<void()> pre_remove = {})
@@ -211,7 +211,7 @@ private:
 
 // ── Reparent ─────────────────────────────────────────────────────────────
 
-class ReparentCommand : public Command {
+class ReparentCommand : public ftk::Command {
 public:
     ReparentCommand(Scene& scene, uint32_t child_id,
                     int32_t old_parent, int32_t new_parent,
@@ -240,7 +240,7 @@ private:
 /// where they are in the world: a drag in the hierarchy. Each node's parent
 /// and place are noted as it moves, so undo puts them back one by one in
 /// reverse and the scene's order comes back exactly.
-class MoveNodesCommand : public Command {
+class MoveNodesCommand : public ftk::Command {
 public:
     MoveNodesCommand(Scene& scene, std::vector<uint32_t> ids, int32_t parent_id, uint32_t before_id,
                      std::string description)
@@ -277,7 +277,7 @@ private:
     std::vector<Place> from_;
 };
 
-class AddPointLightCommand : public Command {
+class AddPointLightCommand : public ftk::Command {
 public:
     explicit AddPointLightCommand(Scene& scene) : scene_{scene} {}
     void execute() override {
@@ -296,7 +296,7 @@ private:
     int index_{-1};
 };
 
-class RemovePointLightCommand : public Command {
+class RemovePointLightCommand : public ftk::Command {
 public:
     RemovePointLightCommand(Scene& scene, int index)
         : scene_{scene}, index_{index}
@@ -313,7 +313,7 @@ private:
 
 // ── Spot Light ───────────────────────────────────────────────────────────
 
-class AddSpotLightCommand : public Command {
+class AddSpotLightCommand : public ftk::Command {
 public:
     explicit AddSpotLightCommand(Scene& scene) : scene_{scene} {}
     void execute() override {
@@ -332,7 +332,7 @@ private:
     int index_{-1};
 };
 
-class RemoveSpotLightCommand : public Command {
+class RemoveSpotLightCommand : public ftk::Command {
 public:
     RemoveSpotLightCommand(Scene& scene, int index)
         : scene_{scene}, index_{index}
@@ -349,7 +349,7 @@ private:
 
 // ── Duplicate Objects ────────────────────────────────────────────────────
 
-class DuplicateCommand : public Command {
+class DuplicateCommand : public ftk::Command {
 public:
     DuplicateCommand(Scene& scene, std::vector<uint32_t> source_ids,
                      uint32_t* selected_id)
@@ -409,7 +409,7 @@ private:
 // Keeps the removed component alive instead of destroying it, so undo puts
 // the same object back, in its old place among the node's components.
 
-class RemoveComponentCommand : public Command {
+class RemoveComponentCommand : public ftk::Command {
 public:
     RemoveComponentCommand(Scene& scene, uint32_t node_id, ComponentTypeId type,
                            std::string display_name)
@@ -444,7 +444,7 @@ private:
 /// what the component draws and set the node's source. Undo takes the
 /// component off and puts the source back; redo returns that same
 /// component rather than making a new one.
-class AddComponentCommand : public Command {
+class AddComponentCommand : public ftk::Command {
 public:
     AddComponentCommand(Scene& scene, uint32_t node_id, ComponentTypeId type,
                         std::function<void(Node3D&)> add, std::string display_name)
@@ -512,7 +512,7 @@ struct ComponentState {
 /// rule, the same one Duplicate uses, so the component that comes back is
 /// complete and shares its loaded model, materials and effects; what it was
 /// doing at runtime (a playing sound, an animation's time) starts over.
-class ComponentEditCommand : public Command {
+class ComponentEditCommand : public ftk::Command {
 public:
     /// `before` and `after` hold the component of `type` as the edit found
     /// and left it. The node already has `after` when the command is
@@ -563,7 +563,7 @@ private:
 /// fog's reach), undone by applying them as they were. The settings travel
 /// as the scene file writes them, which is all of them: a node type holds
 /// nothing of its own that the file doesn't.
-class NodeEditCommand : public Command {
+class NodeEditCommand : public ftk::Command {
 public:
     /// `before` and `after` are serialize_node_type() of the node at the
     /// start and the end of the edit. The node already has `after` when the

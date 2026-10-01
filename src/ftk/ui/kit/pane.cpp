@@ -2,7 +2,7 @@
 
 #include "ftk/ui/theme.hpp"
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 Pane::Pane(const char* id, ImVec2 size, PaneSurface surface) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg,
@@ -18,4 +18,4 @@ Pane::~Pane() {
     ImGui::EndChild();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

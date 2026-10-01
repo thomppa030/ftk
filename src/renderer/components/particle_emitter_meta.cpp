@@ -94,7 +94,7 @@ void load_emitter_effect(EmitterComponent& emitter, ResourceManager& resources, 
         resolve_vfx_textures(effect, resources, project);
         emitter.effect = std::make_shared<VfxEffect>(std::move(effect));
     } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("Failed to load VFX '{}': {}", emitter.vfx_path, e.what());
+        FTK_CORE_ERROR("Failed to load VFX '{}': {}", emitter.vfx_path, e.what());
     }
 }
 

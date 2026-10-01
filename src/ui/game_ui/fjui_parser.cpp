@@ -71,7 +71,7 @@ std::unique_ptr<UiNode> FjuiParser::parse_element() {
     node->tag = parse_tag_name();
 
     if (node->tag.empty()) {
-        FJELL_CORE_WARN("fjui: empty tag name at line {}", line_);
+        FTK_CORE_WARN("fjui: empty tag name at line {}", line_);
         return nullptr;
     }
 
@@ -111,7 +111,7 @@ std::unique_ptr<UiNode> FjuiParser::parse_element() {
                 skip_whitespace();
                 expect('>');
                 if (close_tag != node->tag) {
-                    FJELL_CORE_WARN("fjui: mismatched closing tag </{}>, expected </{}> at line {}",
+                    FTK_CORE_WARN("fjui: mismatched closing tag </{}>, expected </{}> at line {}",
                                     close_tag, node->tag, line_);
                 }
                 break;
@@ -262,7 +262,7 @@ char FjuiParser::advance() {
 
 bool FjuiParser::expect(char c) {
     if (at_end() || peek() != c) {
-        FJELL_CORE_WARN("fjui: expected '{}' at line {}", c, line_);
+        FTK_CORE_WARN("fjui: expected '{}' at line {}", c, line_);
         return false;
     }
     advance();

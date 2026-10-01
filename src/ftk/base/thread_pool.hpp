@@ -13,7 +13,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 class ThreadPool {
 public:
@@ -121,4 +121,4 @@ void ThreadPool::parallel_for(uint32_t begin, uint32_t end, uint32_t grain, F&& 
     wait_finished(*fork);
 }
 
-} // namespace fjell
+} // namespace ftk

@@ -21,10 +21,10 @@ UiWatcher::UiWatcher(const std::vector<std::string>& paths, ChangeCallback callb
         if (ok) {
             ++watched;
         } else {
-            FJELL_GFX_DEBUG("UiWatcher: cannot watch {}", path);
+            FTK_GFX_DEBUG("UiWatcher: cannot watch {}", path);
         }
     }
-    FJELL_GFX_DEBUG("UiWatcher: watching {} files", watched);
+    FTK_GFX_DEBUG("UiWatcher: watching {} files", watched);
 }
 
 void UiWatcher::expect_change(const std::string& path) {
@@ -42,7 +42,7 @@ bool UiWatcher::poll() {
     expected_hit_.clear();
 
     if (changed_ && callback_) {
-        FJELL_CORE_INFO("UiWatcher: source file changed, reload requested");
+        FTK_CORE_INFO("UiWatcher: source file changed, reload requested");
         callback_();
         return true;
     }

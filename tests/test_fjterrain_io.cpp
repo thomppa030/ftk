@@ -14,7 +14,7 @@ namespace {
 
 fs::path temp_terrain(const char* name) {
     auto dir = fs::temp_directory_path() /
-               ("fjell_fjterrain_test_" + std::to_string(platform::process_id()));
+               ("fjell_fjterrain_test_" + std::to_string(ftk::platform::process_id()));
     fs::create_directories(dir);
     return dir / name;
 }

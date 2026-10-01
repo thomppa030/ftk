@@ -46,7 +46,7 @@ backend is a second set of those files, chosen at configure time.
 ## The device
 
 ```cpp
-fjell::Window window{"Fjell", 1600, 900};
+ftk::Window window{"Fjell", 1600, 900};
 auto device = gpu::Device::create(window);          // Result<std::unique_ptr<Device>>
 if (!device) throw std::runtime_error(device.error());
 auto swapchain = gpu::Swapchain::create(**device, window);
@@ -98,7 +98,7 @@ build. A pipeline names its shaders, and its layout comes from reflecting
 them:
 
 ```cpp
-FJELL_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
+FTK_TRY(pipeline_, device_->create(gpu::ComputePipelineDesc{
     .shader = "shaders/contact_shadow.comp",
     .shared = {resources.globals},
     .name = "contact_shadow",
@@ -201,11 +201,11 @@ already wait for their frames.
 
 ## Tracing
 
-- `FJELL_LOG_BARRIERS=<file>` writes every barrier the frame graph records,
+- `FTK_LOG_BARRIERS=<file>` writes every barrier the frame graph records,
   as the backend recorded it, for three frames starting
-  `FJELL_LOG_BARRIERS_FRAME` frames in (300 by default). Diff two builds'
+  `FTK_LOG_BARRIERS_FRAME` frames in (300 by default). Diff two builds'
   traces to see what a change did to synchronisation.
-- `FJELL_TRACE_LAYOUT=1` logs how the frame graph moves each texture it
+- `FTK_TRACE_LAYOUT=1` logs how the frame graph moves each texture it
   tracks from state to state.
 
 ## Where things are

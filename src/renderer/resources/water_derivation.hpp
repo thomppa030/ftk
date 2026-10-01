@@ -9,9 +9,11 @@
 #include <memory>
 #include <optional>
 
-namespace fjell {
-
+namespace ftk {
 class ThreadPool;
+} // namespace ftk
+
+namespace fjell {
 
 namespace water {
 
@@ -44,7 +46,7 @@ public:
     /// The field to run on this frame. `wind_xz` as `apply_wind()` takes it.
     /// With no `workers`, a new sea is drawn here and now.
     [[nodiscard]] FjWaterData derive(const FjWaterData& authored, glm::vec2 wind_xz,
-                                     ThreadPool* workers);
+                                     ftk::ThreadPool* workers);
 
 private:
     /// Take the worker's sea if it has finished one that still fits.

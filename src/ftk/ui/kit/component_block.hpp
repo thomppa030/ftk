@@ -7,7 +7,7 @@
 // and a trash icon that removes it. The middle of the three heading levels
 // (ftk/ui/kit/section.hpp has the other two).
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// Draws the block's heading and returns whether it is open; the caller
 /// draws the body only then. `remove` is set when the trash icon is
@@ -35,4 +35,4 @@ private:
     bool faded_;
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

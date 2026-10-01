@@ -10,7 +10,7 @@ std::vector<std::string> EngineEditorContext::bottom_tabs() const {
 void EngineEditorContext::draw_shared_panels(float dt) {
     const auto stats_title = ctx_title("Stats");
     stats_panel_.draw(dt, stats_title.c_str());
-    EditorContext::draw_shared_panels(dt);
+    ftk::EditorContext::draw_shared_panels(dt);
 }
 
 void EngineEditorContext::name_preview(ViewportManager& viewports) const {

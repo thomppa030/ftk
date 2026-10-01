@@ -28,9 +28,9 @@ struct PresetHeader {
 /// that node, and a preset belongs to no one scene.
 class PresetTemplate {
 public:
-    [[nodiscard]] static Result<PresetTemplate> load(const std::string& path, ResourceManager& resources,
+    [[nodiscard]] static ftk::Result<PresetTemplate> load(const std::string& path, ResourceManager& resources,
                                                      const Project* project = nullptr);
-    [[nodiscard]] Result<> save(const std::string& path, const Project* project = nullptr) const;
+    [[nodiscard]] ftk::Result<> save(const std::string& path, const Project* project = nullptr) const;
 
     /// The preset `nodes` make, their ids and parents already the preset's
     /// own, the root first. A reference to a node that is not among them is
@@ -50,10 +50,10 @@ public:
     /// reference to any other node is refused, naming each. The subtree's
     /// scripts are read as their entries hold them, so live scripts are saved
     /// into their entries first.
-    [[nodiscard]] static Result<PresetTemplate> from_subtree(const Scene& scene, uint32_t root_id);
+    [[nodiscard]] static ftk::Result<PresetTemplate> from_subtree(const Scene& scene, uint32_t root_id);
 
     /// The same for a selection, rooted at its topmost node.
-    [[nodiscard]] static Result<PresetTemplate> from_selection(const Scene& scene,
+    [[nodiscard]] static ftk::Result<PresetTemplate> from_selection(const Scene& scene,
                                                                const std::unordered_set<uint32_t>& ids);
 
     [[nodiscard]] const PresetHeader& header() const { return header_; }

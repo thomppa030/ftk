@@ -2,7 +2,7 @@
 
 #include <fstream>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 Result<std::vector<uint32_t>> read_spirv(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -16,4 +16,4 @@ Result<std::vector<uint32_t>> read_spirv(const std::string& path) {
     return words;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

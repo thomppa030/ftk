@@ -47,7 +47,7 @@ void RpcRouter::send(Scene& scene, ScriptManager& scripts, const NetScene& net_s
 
     NetId net_id = net_scene.net_id_for(node_id);
     if (net_id == NET_ID_NONE) {
-        FJELL_CORE_WARN("NetManager: RPC on un-networked node {}", node_id);
+        FTK_CORE_WARN("NetManager: RPC on un-networked node {}", node_id);
         return;
     }
 

@@ -16,19 +16,19 @@ namespace fjell {
 
 namespace {
 
-gpu::Owned<gpu::Buffer> make_buffer(gpu::Device& gpu, uint64_t size, gpu::BufferUses use,
+ftk::gpu::Owned<ftk::gpu::Buffer> make_buffer(ftk::gpu::Device& gpu, uint64_t size, ftk::gpu::BufferUses use,
                                     std::string_view name) {
-    auto made = gpu.create(gpu::BufferDesc{.size = size, .use = use, .name = name});
+    auto made = gpu.create(ftk::gpu::BufferDesc{.size = size, .use = use, .name = name});
     if (!made) throw std::runtime_error(made.error());
     return std::move(*made);
 }
 
 } // namespace
 
-SkeletalModel::SkeletalModel(gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets)
+SkeletalModel::SkeletalModel(ftk::gpu::Device& gpu, FjSkinnedMeshData&& data, MeshletBuffer& meshlets)
     : vertex_buffer_{make_buffer(gpu, data.vertices.size() * sizeof(SkinnedVertex),
-                                 gpu::BufferUse::vertex | gpu::BufferUse::storage, "skinned_vertices")}
-    , index_buffer_{make_buffer(gpu, data.indices.size() * sizeof(uint32_t), gpu::BufferUse::index,
+                                 ftk::gpu::BufferUse::vertex | ftk::gpu::BufferUse::storage, "skinned_vertices")}
+    , index_buffer_{make_buffer(gpu, data.indices.size() * sizeof(uint32_t), ftk::gpu::BufferUse::index,
                                 "skinned_indices")}
     , index_count_{static_cast<uint32_t>(data.indices.size())}
     , joint_count_{data.joint_count}
@@ -75,20 +75,20 @@ SkeletalModel::SkeletalModel(gpu::Device& gpu, FjSkinnedMeshData&& data, Meshlet
             for (auto& col : skel_result->colliders()) {
                 col.shape.bone = skel_result->find_joint(col.bone_name);
                 if (col.shape.bone < 0 && !col.bone_name.empty()) {
-                    FJELL_CORE_WARN("Skeleton: collider references unknown bone '{}'",
+                    FTK_CORE_WARN("Skeleton: collider references unknown bone '{}'",
                                     col.bone_name);
                 }
             }
             skeleton_ = std::make_shared<Skeleton>(std::move(*skel_result));
         } else {
-            FJELL_CORE_ERROR("Failed to build skeleton: {}", skel_result.error());
+            FTK_CORE_ERROR("Failed to build skeleton: {}", skel_result.error());
         }
     }
 
     gpu.upload().to_buffer(vertex_buffer_, 0, data.vertices);
     gpu.upload().to_buffer(index_buffer_, 0, data.indices);
 
-    FJELL_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
+    FTK_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
                     data.vertices.size(), data.indices.size(), joint_count_,
                     skeleton_ ? " (with skeleton)" : "");
 }
@@ -117,9 +117,9 @@ void SkeletalModel::pose_surface(const std::vector<glm::mat4>& skin_matrices,
     }
 }
 
-void SkeletalModel::bind(gpu::RenderEncoder& pass) const {
-    pass.set_vertex_buffer(gpu::BufferRange(vertex_buffer_));
-    pass.set_index_buffer(gpu::BufferRange(index_buffer_), gpu::IndexType::u32);
+void SkeletalModel::bind(ftk::gpu::RenderEncoder& pass) const {
+    pass.set_vertex_buffer(ftk::gpu::BufferRange(vertex_buffer_));
+    pass.set_index_buffer(ftk::gpu::BufferRange(index_buffer_), ftk::gpu::IndexType::u32);
 }
 
 // ── .fjskel loading (mesh + skeleton) ───────────────────────────────────
@@ -246,7 +246,7 @@ FjSkinnedMeshData SkeletalModel::load_fjskel(const std::string& path) {
 
     std::fclose(f);
 
-    FJELL_GFX_DEBUG("Loaded .fjskel: {} ({} verts, {} indices, {} joints)",
+    FTK_GFX_DEBUG("Loaded .fjskel: {} ({} verts, {} indices, {} joints)",
                     path, data.vertices.size(), data.indices.size(), data.joint_count);
     return data;
 }

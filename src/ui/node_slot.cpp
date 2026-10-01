@@ -44,34 +44,34 @@ std::string drop_refusal(const NodeSlotConfig& config, const ImGuiPayload& paylo
 /// What the field shows: the node as the hierarchy draws it, the empty text
 /// while it holds nothing, and a node that is gone in the error colour, never
 /// as empty. `text` holds the characters the face points at.
-ui::SlotFace describe(const NodeSlotConfig& config, uint32_t node, const Node* held, std::string& text) {
-    ui::SlotFace face;
+ftk::ui::SlotFace describe(const NodeSlotConfig& config, uint32_t node, const Node* held, std::string& text) {
+    ftk::ui::SlotFace face;
     if (node == 0) {
-        face.glyph = config.empty_glyph != nullptr ? config.empty_glyph : ui::icon::transform;
-        face.glyph_colour = theme::text_disabled();
+        face.glyph = config.empty_glyph != nullptr ? config.empty_glyph : ftk::ui::icon::transform;
+        face.glyph_colour = ftk::theme::text_disabled();
         text = config.empty_text;
-        face.text_colour = theme::text_secondary();
+        face.text_colour = ftk::theme::text_secondary();
     } else if (held == nullptr) {
-        face.glyph = ui::icon::warning;
-        face.glyph_colour = theme::error();
+        face.glyph = ftk::ui::icon::warning;
+        face.glyph_colour = ftk::theme::error();
         text = "missing: the node is gone";
-        face.text_colour = theme::error();
+        face.text_colour = ftk::theme::error();
     } else {
         const NodeVisuals visuals = node_visuals(*held);
         face.glyph = visuals.icon;
         face.glyph_colour = visuals.tint       ? *visuals.tint
-                            : visuals.category ? theme::category(*visuals.category)
-                                               : theme::text_secondary();
+                            : visuals.category ? ftk::theme::category(*visuals.category)
+                                               : ftk::theme::text_secondary();
         text = held->name;
-        face.text_colour = theme::text();
+        face.text_colour = ftk::theme::text();
     }
     face.text = text;
     return face;
 }
 
 /// Every node the slot takes, in scene order, for its picker.
-std::vector<ui::grouped_picker::Group> gather(const NodeSlotConfig& config) {
-    std::vector<ui::grouped_picker::Group> groups(1);
+std::vector<ftk::ui::grouped_picker::Group> gather(const NodeSlotConfig& config) {
+    std::vector<ftk::ui::grouped_picker::Group> groups(1);
     for (const auto& node : config.scene->objects()) {
         if (config.refusal && !config.refusal(*node).empty()) continue;
         std::string path = node_parent_path(*config.scene, *node);
@@ -111,9 +111,9 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
     const std::string name_before = name_of(node);
 
     ImGui::PushID(config.id);
-    ui::Slot slot(scene != nullptr ? NODES_PAYLOAD : nullptr,
+    ftk::ui::Slot slot(scene != nullptr ? NODES_PAYLOAD : nullptr,
                   [&](const ImGuiPayload& payload) { return drop_refusal(config, payload); });
-    if (slot.clicked()) ui::grouped_picker::open(config.id);
+    if (slot.clicked()) ftk::ui::grouped_picker::open(config.id);
     const Node* held = node != 0 && scene != nullptr ? scene->find(node) : nullptr;
     if (slot.hovered() && held != nullptr) {
         const std::string path = node_parent_path(*scene, *held);
@@ -126,10 +126,10 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
 
     // The picker hangs under the field, so it draws right after it. Its list
     // is a walk over the scene, taken only while it is open.
-    if (scene != nullptr && ui::grouped_picker::is_open(config.id)) {
+    if (scene != nullptr && ftk::ui::grouped_picker::is_open(config.id)) {
         const auto groups = gather(config);
         std::string picked;
-        if (ui::grouped_picker::draw(config.id, groups,
+        if (ftk::ui::grouped_picker::draw(config.id, groups,
                                      {.empty_message = "No node in the scene fits.", .hide_group_headers = true},
                                      picked)) {
             uint32_t id = 0;
@@ -142,11 +142,11 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
 
     held = node != 0 && scene != nullptr ? scene->find(node) : nullptr;
     std::string text;
-    const ui::SlotFace face = describe(config, node, held, text);
+    const ftk::ui::SlotFace face = describe(config, node, held, text);
     // A node that was taken and has since stopped fitting: a script removed
     // from it, say.
     std::string problem = held != nullptr && config.refusal ? config.refusal(*held) : std::string();
-    if (node == 0 && config.required) problem = ui::REQUIRED_PROBLEM;
+    if (node == 0 && config.required) problem = ftk::ui::REQUIRED_PROBLEM;
     if (slot.finish(face, node == 0, problem)) {
         node = 0;
         changed = true;
@@ -154,7 +154,7 @@ bool node_slot(const NodeSlotConfig& config, uint32_t& node) {
 
     ImGui::PopID();
     if (changed) {
-        ui::detail::track_field(ImGui::GetID(config.id), name_before, name_of(node), false, {true, true});
+        ftk::ui::detail::track_field(ImGui::GetID(config.id), name_before, name_of(node), false, {true, true});
     }
     return changed;
 }

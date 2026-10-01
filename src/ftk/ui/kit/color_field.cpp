@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -123,4 +123,4 @@ Edit color(const char* id, glm::vec4& value, ColorSpace space) {
     return edit;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

@@ -15,12 +15,11 @@
 
 namespace fjell {
 
-
 class ShadowPass : public RenderPass {
 public:
     static constexpr uint32_t CASCADE_COUNT = FrameContext::MAX_SHADOW_CASCADES;
     static constexpr uint32_t MAP_SIZE = 4096;
-    static constexpr gpu::Format DEPTH_FORMAT = gpu::Format::d32_float;
+    static constexpr ftk::gpu::Format DEPTH_FORMAT = ftk::gpu::Format::d32_float;
     /// Slope-scaled depth bias every caster is rasterized with. Shared so a
     /// pass that draws into a cascade with its own pipeline — terrain does —
     /// biases the same way; a cascade written half at one bias reads as bands
@@ -29,13 +28,13 @@ public:
     static constexpr float DEPTH_BIAS_SLOPE = 1.75F;
     /// Every caster's front faces are culled, whatever its material culls:
     /// with the bias, it keeps acne off lit surfaces.
-    static constexpr gpu::Cull CASTER_CULL = gpu::Cull::front;
+    static constexpr ftk::gpu::Cull CASTER_CULL = ftk::gpu::Cull::front;
 
-    Result<> create(const PassResources& resources) override;
+    ftk::Result<> create(const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    void declare(ftk::PassBuilder& builder, const DeclareContext& ctx) override;
     void collect_exports(DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
@@ -60,18 +59,18 @@ private:
     void update_cascades(const glm::mat4& view, const glm::mat4& projection,
                          const glm::vec3& light_direction, float near, float far);
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
 
     /// The cascades, one layer each.
-    gpu::Owned<gpu::Texture> atlas_;
+    ftk::gpu::Owned<ftk::gpu::Texture> atlas_;
     /// Whether the pass has drawn into the cascades since they were made.
     bool written_{false};
     /// Compares against the cascades for filtered shadow lookups.
-    gpu::Sampler sampler_;
+    ftk::gpu::Sampler sampler_;
 
     /// The batched casters' pipelines, custom vertex stages included.
     DepthVariants casters_;
-    gpu::Owned<gpu::GraphicsPipeline> skinned_pipeline_;
+    ftk::gpu::Owned<ftk::gpu::GraphicsPipeline> skinned_pipeline_;
 
     // Per-frame cascade data
     std::array<glm::mat4, CASCADE_COUNT> light_matrices_{};

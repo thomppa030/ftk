@@ -11,7 +11,7 @@ using fjell::ExpressionGraph;
 using fjell::VfxEmitter;
 using fjell::VfxGraph;
 using fjell::module_node_id;
-using fjell::test::ImGuiHarness;
+using ftk::test::ImGuiHarness;
 
 namespace {
 

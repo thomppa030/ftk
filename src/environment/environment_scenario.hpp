@@ -59,7 +59,7 @@ struct EnvironmentScenario {
 /// Parse a scenario file. Reports the line a bad step is on rather than
 /// skipping it, since a capture built on a misread script measures the
 /// wrong thing without saying so.
-[[nodiscard]] Result<EnvironmentScenario> load_environment_scenario(const std::string& path);
+[[nodiscard]] ftk::Result<EnvironmentScenario> load_environment_scenario(const std::string& path);
 
 /// Plays a scenario against the environment: applies each step as its time
 /// arrives, once. Advanced from the engine loop with the frame's delta.

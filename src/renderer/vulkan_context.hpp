@@ -63,6 +63,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class Project;
@@ -70,11 +74,10 @@ class Scene;
 struct EnvironmentState;
 class Input;
 class ResourceManager;
-class ThreadPool;
 
 class VulkanContext {
 public:
-  explicit VulkanContext(Window &window);
+  explicit VulkanContext(ftk::Window &window);
   ~VulkanContext();
 
   VulkanContext(const VulkanContext &) = delete;
@@ -110,7 +113,7 @@ public:
 
   void record_frame(const std::vector<ViewportRenderRequest> &viewports,
                     const EnvironmentState &environment, Scene *scene,
-                    float dt, uint32_t selected_id, ThreadPool &pool);
+                    float dt, uint32_t selected_id, ftk::ThreadPool &pool);
 
   void wait_idle();
   void reload_pipeline();
@@ -138,12 +141,12 @@ public:
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
   /// The main window's images' format, what ImGui and the game UI draw into.
-  [[nodiscard]] gpu::Format swapchain_format() const;
+  [[nodiscard]] ftk::gpu::Format swapchain_format() const;
   [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
   /// The GPU interface's device.
-  [[nodiscard]] gpu::Device &gpu_device() { return gpu_.device(); }
-  [[nodiscard]] gpu::Samples msaa_samples() const { return gpu_.msaa_samples(); }
+  [[nodiscard]] ftk::gpu::Device &gpu_device() { return gpu_.device(); }
+  [[nodiscard]] ftk::gpu::Samples msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
   [[nodiscard]] bool async_compute_supported() const { return gpu_.async_compute_supported(); }
   /// The project's choice; whether a frame actually uses the compute queue
@@ -227,7 +230,7 @@ public:
   [[nodiscard]] SubsystemComputePass &subsystem_compute_pass() { return passes_.get<SubsystemComputePass>("subsystem_compute"); }
   [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
 
-  using OverlayCallback = std::function<void(gpu::RenderEncoder&)>;
+  using OverlayCallback = std::function<void(ftk::gpu::RenderEncoder&)>;
   void set_overlay_callback(OverlayCallback callback) {
     overlay_callback_ = std::move(callback);
   }
@@ -251,7 +254,7 @@ public:
   /// Initialize a GameUi with the renderer's resources and font library.
   /// Ownership stays with the caller. `world` also builds the worldspace
   /// pipelines (HDR format + scene MSAA) for a widget drawn in the scene.
-  void init_game_ui(class GameUi& ui, gpu::Format output_format = gpu::Format::rgba8_srgb,
+  void init_game_ui(class GameUi& ui, ftk::gpu::Format output_format = ftk::gpu::Format::rgba8_srgb,
                     bool world = false);
 
   /// Every font atlas on the GPU, shared by all GameUi instances.
@@ -348,12 +351,12 @@ public:
 
   /// Render all scene viewports. Call before the main frame's record_frame().
   void render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
-                              const EnvironmentState& environment, ThreadPool& pool);
+                              const EnvironmentState& environment, ftk::ThreadPool& pool);
 
   // The render target, clear and barriers every offscreen UI draw shares,
   // recorded into whatever list is open: the frame's for previews and the
   // HUD, a one-shot for readbacks.
-  void record_game_ui_into(gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
+  void record_game_ui_into(ftk::gpu::CommandList& cmd, const GameUiRecordFn& record_fn,
                            OffscreenPass& target, uint32_t frame_index);
 
   /// Renders `req`, a view with a target and post-process resources of its
@@ -361,34 +364,34 @@ public:
   /// Called between begin_frame() and record_frame().
   void render_preview(const ViewportRenderRequest& req,
                       const EnvironmentState& environment, Scene* scene,
-                      float dt, uint32_t selected_id, ThreadPool& pool);
+                      float dt, uint32_t selected_id, ftk::ThreadPool& pool);
   /// Reads `view` back to the CPU from the frame being recorded, after all
   /// it has recorded so far (a preview, or its views and the editor's UI):
   /// ready once the frame has finished (gpu::CommandList::read_back). Called
   /// between begin_frame() and the frame's submit.
-  [[nodiscard]] Result<gpu::Readback> read_back_in_frame(const gpu::TextureView& view,
-                                                         const gpu::ReadbackDesc& desc = {});
+  [[nodiscard]] ftk::Result<ftk::gpu::Readback> read_back_in_frame(const ftk::gpu::TextureView& view,
+                                                         const ftk::gpu::ReadbackDesc& desc = {});
 
   /// The swapchain image the frame being recorded draws into and presents,
   /// resting as `gpu::Access::present` once the frame is recorded: for the
   /// editor's screenshot capture to read the composited frame back from.
-  [[nodiscard]] gpu::Texture frame_swapchain_texture() const { return acquired_image_.texture; }
+  [[nodiscard]] ftk::gpu::Texture frame_swapchain_texture() const { return acquired_image_.texture; }
 
 private:
   /// Whether `req` carries everything a preview needs, reporting what it
   /// lacks.
   [[nodiscard]] bool preview_complete(const ViewportRenderRequest &req) const;
   void
-  record_command_buffer(gpu::CommandList &cmd, const gpu::SwapchainImage &image,
+  record_command_buffer(ftk::gpu::CommandList &cmd, const ftk::gpu::SwapchainImage &image,
                         const std::vector<ViewportRenderRequest> &viewports,
                         const EnvironmentState &environment, Scene *scene,
-                        float dt, uint32_t selected_id, ThreadPool &pool);
+                        float dt, uint32_t selected_id, ftk::ThreadPool &pool);
   /// Renders `view` into its target: what it carries besides the camera
   /// (shadows, graph, backdrop, grid) decides how.
   /// The frame's main view alone records into its async lists.
-  void render_scene_to(gpu::CommandList &cmd, const ViewportRenderRequest &view,
+  void render_scene_to(ftk::gpu::CommandList &cmd, const ViewportRenderRequest &view,
                        Scene *scene, float dt, uint32_t selected_id,
-                       ThreadPool &pool, PostProcessResources *pp, bool main_view);
+                       ftk::ThreadPool &pool, PostProcessResources *pp, bool main_view);
   /// Writes `view`'s uniforms, environment, lights and fog volumes into the
   /// frame's memory and points the global set the view binds at them and at
   /// its own depth, AO, GI, contact shadows and screen colour: the slot's set
@@ -406,9 +409,9 @@ private:
                                         glm::uvec2 extent, PostProcessResources &pp);
   /// The scene's point and spot lights in the frame's memory, laid out as
   /// the light SSBO.
-  [[nodiscard]] gpu::BufferRange write_lights(Scene *scene);
+  [[nodiscard]] ftk::gpu::BufferRange write_lights(Scene *scene);
   /// The environment's fog volumes in the frame's memory.
-  [[nodiscard]] gpu::BufferRange write_fog_volumes(const EnvironmentState &environment);
+  [[nodiscard]] ftk::gpu::BufferRange write_fog_volumes(const EnvironmentState &environment);
 
   /// `view.viewport_graph` decides which passes this call runs, and so
   /// whether the GPU-driven meshlet buffers may be handed to the color
@@ -420,7 +423,7 @@ private:
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
   RenderPipeline render_pipeline_;
-  ResourceRegistry resource_registry_;
+  ftk::ResourceRegistry resource_registry_;
   FrameContext current_ctx_{};
   // The environment of the scene being recorded, handed to every FrameContext
   // built until the next record_frame or render_preview call replaces it.
@@ -456,24 +459,24 @@ private:
   PostProcessConfig view_config_{};
   uint64_t view_resources_generation_{0};
   /// The frame begun and not yet recorded, and its slot.
-  gpu::Frame* frame_{nullptr};
+  ftk::gpu::Frame* frame_{nullptr};
   uint32_t current_frame_{0};
 
   // Split-frame state: carried between begin_frame / record_frame / submit_and_present
   /// The frame recorded and not yet submitted, and the lists it recorded
   /// into: pre, and the compute and post lists where there is a compute
   /// queue.
-  gpu::Frame* recorded_gpu_frame_{nullptr};
+  ftk::gpu::Frame* recorded_gpu_frame_{nullptr};
   /// The lists of the frame from begin_frame() until it is sent: pre, and
   /// where there is a compute queue the compute list and the graphics list
   /// after it.
-  gpu::CommandList* pre_list_{nullptr};
-  gpu::CommandList* async_list_{nullptr};
-  gpu::CommandList* post_list_{nullptr};
+  ftk::gpu::CommandList* pre_list_{nullptr};
+  ftk::gpu::CommandList* async_list_{nullptr};
+  ftk::gpu::CommandList* post_list_{nullptr};
   /// The swapchain image `frame_` draws into, and the one
   /// `recorded_gpu_frame_` drew into, which it presents.
-  gpu::SwapchainImage acquired_image_{};
-  gpu::SwapchainImage recorded_image_{};
+  ftk::gpu::SwapchainImage acquired_image_{};
+  ftk::gpu::SwapchainImage recorded_image_{};
   bool has_recorded_frame_{false};
   // True when the main-viewport pipeline actually recorded commands
   // into the async compute CB this frame — drives whether submit_and_
@@ -482,14 +485,13 @@ private:
   bool async_compute_enabled_{false};
   /// The images the view being recorded binds at the GI slots, null for the
   /// fallback; written with its bindings and handed to its graph.
-  gpu::Texture bound_gi_indirect_{};
-  gpu::Texture bound_ss_gi_emissive_{};
+  ftk::gpu::Texture bound_gi_indirect_{};
+  ftk::gpu::Texture bound_ss_gi_emissive_{};
   /// The view being recorded's inverse view-projection, jitter included.
   glm::mat4 view_inv_view_proj_{1.0f};
   /// The serial of the frame begun last: what the transient pool dates its
   /// textures by.
   uint64_t frame_serial_{0};
-
 
   // ── Editor / game state ───────────────────────────────────────────────
   std::unique_ptr<DebugDraw> debug_draw_;

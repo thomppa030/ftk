@@ -7,13 +7,16 @@
 #include <string_view>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class ResourceManager;
 
 using AssetTypeId = uint8_t;
 
-class IconCache;
 class Project;
 
 struct AssetTypeEntry {
@@ -24,7 +27,7 @@ struct AssetTypeEntry {
 
     void*            (*resolve)(ResourceManager& rm, uint32_t handle_id){nullptr};
     std::string      (*path_of)(const ResourceManager& rm, uint32_t handle_id){nullptr};
-    Result<uint32_t> (*load)(ResourceManager& rm, const std::string& path){nullptr};
+    ftk::Result<uint32_t> (*load)(ResourceManager& rm, const std::string& path){nullptr};
     /// The handle kept for `path`, whether it loaded or failed to load; 0
     /// when nothing was ever loaded under it. What a field that names a file
     /// which failed to load holds, so the file is still known.
@@ -34,7 +37,7 @@ struct AssetTypeEntry {
     /// Draws a type-specific preview (thumbnail, metadata, etc.) at the given width.
     /// path is project-relative, project may be null.
     void (*draw_preview)(const std::string& path, ResourceManager& rm,
-                         IconCache* icons, const Project* project,
+                         ftk::IconCache* icons, const Project* project,
                          float width){nullptr};
 };
 

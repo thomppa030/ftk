@@ -12,7 +12,7 @@ namespace fjell {
 void InputActionMap::load_action(const std::string& path) {
     auto def = parse_action_file(path);
     if (def.name.empty()) {
-        FJELL_CORE_WARN("InputActionMap: failed to load action from {}", path);
+        FTK_CORE_WARN("InputActionMap: failed to load action from {}", path);
         return;
     }
 
@@ -33,11 +33,11 @@ void InputActionMap::load_actions_dir(const std::string& dir) {
 void InputActionMap::load_context(const std::string& path) {
     auto ctx = parse_input_context(path);
     if (ctx.name.empty()) {
-        FJELL_CORE_WARN("InputActionMap: failed to load context from {}", path);
+        FTK_CORE_WARN("InputActionMap: failed to load context from {}", path);
         return;
     }
 
-    FJELL_CORE_INFO("InputActionMap: loaded context '{}' ({} bindings)",
+    FTK_CORE_INFO("InputActionMap: loaded context '{}' ({} bindings)",
                     ctx.name, ctx.bindings.size());
     contexts_[ctx.name] = std::move(ctx);
 }

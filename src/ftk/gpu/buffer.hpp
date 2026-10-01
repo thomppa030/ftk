@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 struct BufferTag;
@@ -76,4 +76,4 @@ struct BufferDesc {
     std::string_view name{};
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

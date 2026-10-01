@@ -15,7 +15,7 @@ namespace fjell {
 // project (no "render" key in its JSON) renders identically to before.
 struct RenderSettings {
     // ── Quality ──
-    gpu::Samples msaa_samples{gpu::Samples::x4};
+    ftk::gpu::Samples msaa_samples{ftk::gpu::Samples::x4};
 
     // ── Global Illumination ──
     struct Ddgi {

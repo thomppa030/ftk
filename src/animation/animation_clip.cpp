@@ -15,7 +15,7 @@ namespace fjell {
 namespace {
 
 // Build an ozz compressed Animation from raw track data
-Result<ozz::animation::Animation> build_ozz_animation(
+ftk::Result<ozz::animation::Animation> build_ozz_animation(
         const std::string& name,
         const std::vector<AnimJointTrack>& tracks) {
     ozz::animation::offline::RawAnimation raw;
@@ -56,13 +56,13 @@ Result<ozz::animation::Animation> build_ozz_animation(
     }
 
     if (!raw.Validate()) {
-        return make_error("Invalid animation data for clip: " + name);
+        return ftk::make_error("Invalid animation data for clip: " + name);
     }
 
     ozz::animation::offline::AnimationBuilder builder;
     auto result = builder(raw);
     if (!result) {
-        return make_error("Failed to build ozz animation for clip: " + name);
+        return ftk::make_error("Failed to build ozz animation for clip: " + name);
     }
 
     return std::move(*result);
@@ -92,7 +92,7 @@ std::vector<AnimNotifyInstance> notifies_from_json(const nlohmann::json& notifie
                     deserialize_reflected_fields(info->fields, ni.instance.get(), jn);
                 }
             } else {
-                FJELL_CORE_WARN("Animation {}: unknown notify type '{}' at t={:.2f}",
+                FTK_CORE_WARN("Animation {}: unknown notify type '{}' at t={:.2f}",
                                 where, ni.type_name, ni.time);
             }
         }
@@ -103,17 +103,17 @@ std::vector<AnimNotifyInstance> notifies_from_json(const nlohmann::json& notifie
 
 } // namespace
 
-Result<AnimationClip> AnimationClip::load(const std::string& path) {
+ftk::Result<AnimationClip> AnimationClip::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) {
-        return make_error("Failed to open animation: " + path);
+        return ftk::make_error("Failed to open animation: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        return make_error("Failed to parse animation JSON: " + path + " — " + e.what());
+        return ftk::make_error("Failed to parse animation JSON: " + path + " — " + e.what());
     }
 
     AnimationClip clip;
@@ -121,7 +121,7 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
 
     // Parse tracks
     if (!j.contains("tracks") || !j["tracks"].is_array()) {
-        return make_error("Animation missing 'tracks' array: " + path);
+        return ftk::make_error("Animation missing 'tracks' array: " + path);
     }
 
     const auto& jtracks = j["tracks"];
@@ -184,18 +184,18 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
         if (it.key() != "name" && it.key() != "tracks" &&
             it.key() != "notifies" && it.key() != "events" &&
             it.key() != asset_identity::UUID_KEY) {
-            FJELL_CORE_WARN("Animation {}: unknown field '{}'", path, it.key());
+            FTK_CORE_WARN("Animation {}: unknown field '{}'", path, it.key());
         }
     }
 
     // Build ozz compressed animation
     auto anim_result = build_ozz_animation(clip.name_, clip.tracks_);
     if (!anim_result) {
-        return make_error(anim_result.error());
+        return ftk::make_error(anim_result.error());
     }
     clip.animation_ = std::move(*anim_result);
 
-    FJELL_CORE_DEBUG("Loaded animation clip: {} ({:.2f}s, {} tracks)",
+    FTK_CORE_DEBUG("Loaded animation clip: {} ({:.2f}s, {} tracks)",
                     clip.name_, clip.animation_.duration(), clip.animation_.num_tracks());
     return clip;
 }
@@ -238,14 +238,14 @@ std::string AnimationClip::notifies_text() const {
     return notifies_json(notifies_).dump(2);
 }
 
-Result<> AnimationClip::set_notifies_from_text(std::string_view text) {
+ftk::Result<> AnimationClip::set_notifies_from_text(std::string_view text) {
     auto j = nlohmann::json::parse(text, nullptr, false);
-    if (!j.is_array()) return make_error("notifies aren't a JSON list");
+    if (!j.is_array()) return ftk::make_error("notifies aren't a JSON list");
     notifies_ = notifies_from_json(j, name_);
     return {};
 }
 
-Result<> AnimationClip::save(const std::string& path) const {
+ftk::Result<> AnimationClip::save(const std::string& path) const {
     nlohmann::json j;
     j["name"] = name_;
     j["tracks"] = nlohmann::json::array();
@@ -276,10 +276,10 @@ Result<> AnimationClip::save(const std::string& path) const {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        return make_error("Failed to save animation: " + path);
+        return ftk::make_error("Failed to save animation: " + path);
     }
     file << j.dump(2);
-    FJELL_CORE_INFO("Saved animation clip: {}", path);
+    FTK_CORE_INFO("Saved animation clip: {}", path);
     return {};
 }
 

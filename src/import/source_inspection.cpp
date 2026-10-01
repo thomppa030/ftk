@@ -28,7 +28,7 @@ SourceInspection::~SourceInspection() {
 }
 
 void SourceInspection::stop() {
-    if (state_ == State::reading) platform::close_subprocess(process_);
+    if (state_ == State::reading) ftk::platform::close_subprocess(process_);
 }
 
 void SourceInspection::start(const std::filesystem::path& source) {
@@ -37,12 +37,12 @@ void SourceInspection::start(const std::filesystem::path& source) {
     buffer_.clear();
     const auto fjimport = ImportJob::find_fjimport();
     if (fjimport.empty()) {
-        FJELL_CORE_ERROR("Could not find fjimport to read {}", source.string());
+        FTK_CORE_ERROR("Could not find fjimport to read {}", source.string());
         return;
     }
-    auto process = platform::spawn_with_pipe({fjimport.string(), source.string(), "--inspect"});
+    auto process = ftk::platform::spawn_with_pipe({fjimport.string(), source.string(), "--inspect"});
     if (!process) {
-        FJELL_CORE_ERROR("Failed to start fjimport --inspect: {}", process.error());
+        FTK_CORE_ERROR("Failed to start fjimport --inspect: {}", process.error());
         return;
     }
     process_ = *process;
@@ -59,12 +59,12 @@ void SourceInspection::poll() {
             }
         }
     };
-    take(platform::read_lines(process_, buffer_));
-    if (state_ == State::reading && platform::poll_exit(process_)) {
-        take(platform::read_lines(process_, buffer_));
+    take(ftk::platform::read_lines(process_, buffer_));
+    if (state_ == State::reading && ftk::platform::poll_exit(process_)) {
+        take(ftk::platform::read_lines(process_, buffer_));
         if (state_ == State::reading) state_ = State::failed;
     }
-    if (state_ != State::reading) platform::close_subprocess(process_);
+    if (state_ != State::reading) ftk::platform::close_subprocess(process_);
 }
 
 } // namespace fjell

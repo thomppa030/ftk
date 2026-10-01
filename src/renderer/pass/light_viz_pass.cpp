@@ -19,16 +19,16 @@ struct LightVizPush {
 
 } // namespace
 
-Result<> LightVizPass::create(const PassResources& resources) {
-    gpu::Device& device = *resources.device;
-    viz_image_.init(device, gpu::Format::rgba8_srgb, mode_ == 0 ? "viz_light_heatmap" : "viz_light_grid");
-    FJELL_TRY(pipeline_, device.create(gpu::GraphicsPipelineDesc{
+ftk::Result<> LightVizPass::create(const PassResources& resources) {
+    ftk::gpu::Device& device = *resources.device;
+    viz_image_.init(device, ftk::gpu::Format::rgba8_srgb, mode_ == 0 ? "viz_light_heatmap" : "viz_light_grid");
+    FTK_TRY(pipeline_, device.create(ftk::gpu::GraphicsPipelineDesc{
                              .vertex = "shaders/light_heatmap.vert",
                              .fragment = "shaders/light_heatmap.frag",
-                             .color = {{gpu::Format::rgba8_srgb, gpu::Blend::none}},
+                             .color = {{ftk::gpu::Format::rgba8_srgb, ftk::gpu::Blend::none}},
                              .name = "light_viz",
                          }));
-    FJELL_GFX_DEBUG("Light visualization pass created");
+    FTK_GFX_DEBUG("Light visualization pass created");
     return {};
 }
 
@@ -41,12 +41,12 @@ void LightVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || !viz_image_.valid()) return;
     if (!tile_buffer_.valid()) return;
 
-    FJELL_PROFILE_SCOPE_N("record_viz_light_viz");
+    FTK_PROFILE_SCOPE_N("record_viz_light_viz");
     auto& cmd = ctx.commands();
     auto zone = cmd.zone("Viz: Light");
     auto pass = cmd.render(viz_image_.targets());
     pass.set_pipeline(pipeline_);
-    pass.bind({{"TileLightData", gpu::storage(tile_buffer_)}});
+    pass.bind({{"TileLightData", ftk::gpu::storage(tile_buffer_)}});
     const auto target_extent = ctx.target->extent();
     pass.push(LightVizPush{
         .tiles_x = (target_extent.x + 15) / 16,
@@ -65,17 +65,17 @@ PassSetup LightVizPass::setup() const {
     };
 }
 
-void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void LightVizPass::declare(ftk::PassBuilder& builder, const DeclareContext& ctx) {
     // Registered twice, once per view; each instance draws only while its
     // own view is showing.
     tile_buffer_ = {};
     const auto source = mode_ == 0 ? ViewportSource::light_heatmap : ViewportSource::light_grid;
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(source))) == 0U) { return; }
-    const auto tiles = ctx.buffer_imports.find(fg_name_hash("tile_light_ssbo"));
+    const auto tiles = ctx.buffer_imports.find(ftk::fg_name_hash("tile_light_ssbo"));
     if (tiles == ctx.buffer_imports.end()) { return; }
     tile_buffer_ = tiles->second.buffer;
     builder.read(builder.import_named_buffer(ctx, "tile_light_ssbo"),
-                 gpu::Access::storage_buffer_read_fragment);
+                 ftk::gpu::Access::storage_buffer_read_fragment);
     viz_image_.declare(builder, ctx);
 }
 

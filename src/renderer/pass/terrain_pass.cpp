@@ -31,19 +31,19 @@ constexpr const char* FALLBACK_TERRAIN_SHADER = "shaders/terrain.fjsl";
 
 // Terrain is a heightfield seen from above: only its upward faces are ever
 // drawn, whichever view it is drawn for.
-constexpr gpu::Raster SURFACE_RASTER{.cull = gpu::Cull::back,
-                                     .front_face = gpu::FrontFace::counter_clockwise};
+constexpr ftk::gpu::Raster SURFACE_RASTER{.cull = ftk::gpu::Cull::back,
+                                     .front_face = ftk::gpu::FrontFace::counter_clockwise};
 
 // Depth is already written by the prepass, which draws this same surface
 // from the same height texture. Testing LESS against our own prepass depth
 // rejects every fragment, so the colour draws test equal-or-nearer and do not
 // write — the same arrangement every other opaque pipeline uses.
-constexpr gpu::Depth COLOR_DEPTH{.test = true, .write = false,
-                                 .compare = gpu::Compare::less_equal};
+constexpr ftk::gpu::Depth COLOR_DEPTH{.test = true, .write = false,
+                                 .compare = ftk::gpu::Compare::less_equal};
 
 } // namespace
 
-Result<> TerrainPass::create(const PassResources& resources) {
+ftk::Result<> TerrainPass::create(const PassResources& resources) {
     device_ = resources.device;
     resources_ = resources;
 
@@ -52,9 +52,9 @@ Result<> TerrainPass::create(const PassResources& resources) {
     // instead of wrapping to the far side of the terrain. The weight texture
     // shares it: layer transitions should blend, not step. The patch bounds
     // are fetched by texel, so the filter does not reach them.
-    sampler_ = device_->sampler({.filter = gpu::Filter::linear,
-                                 .mip_filter = gpu::Filter::nearest,
-                                 .address = gpu::Address::clamp});
+    sampler_ = device_->sampler({.filter = ftk::gpu::Filter::linear,
+                                 .mip_filter = ftk::gpu::Filter::nearest,
+                                 .address = ftk::gpu::Address::clamp});
 
     // Every pipeline shares the task stage, which drops the patches outside
     // the view, and the push block. Set 0 is the globals and set 2 the
@@ -64,12 +64,12 @@ Result<> TerrainPass::create(const PassResources& resources) {
     //
     // Depth for the prepass: a mesh stage that emits position alone, and an
     // empty fragment stage like the other depth-only pipelines.
-    FJELL_TRY(depth_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(depth_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                    .task = "shaders/terrain.task",
                                    .mesh = "shaders/terrain_depth.mesh",
                                    .fragment = "shaders/depth_only.frag",
                                    .raster = SURFACE_RASTER,
-                                   .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+                                   .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
                                    .depth_format = resources.scene_depth_format,
                                    .samples = resources.samples,
                                    .shared = {resources.globals},
@@ -85,16 +85,16 @@ Result<> TerrainPass::create(const PassResources& resources) {
     // casters, so ground between the cascade and the sun still lands in the
     // map; the task stage keeps it for shadow views. The cascades are
     // single-sampled whatever the camera target is doing.
-    gpu::Raster shadow_raster = SURFACE_RASTER;
+    ftk::gpu::Raster shadow_raster = SURFACE_RASTER;
     shadow_raster.depth_clamp = true;
     shadow_raster.depth_bias = ShadowPass::DEPTH_BIAS_CONSTANT;
     shadow_raster.depth_bias_slope = ShadowPass::DEPTH_BIAS_SLOPE;
-    FJELL_TRY(shadow_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(shadow_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                     .task = "shaders/terrain.task",
                                     .mesh = "shaders/terrain_depth.mesh",
                                     .fragment = "shaders/depth_only.frag",
                                     .raster = shadow_raster,
-                                    .depth = {.test = true, .write = true, .compare = gpu::Compare::less},
+                                    .depth = {.test = true, .write = true, .compare = ftk::gpu::Compare::less},
                                     .depth_format = ShadowPass::DEPTH_FORMAT,
                                     .shared = {resources.globals},
                                     .name = "terrain_shadow",
@@ -105,11 +105,11 @@ Result<> TerrainPass::create(const PassResources& resources) {
     // its own shading. No culling, so both sides of a ridge show. Colour
     // only: GTAO, SSR and TAA read the other targets, and an editor overlay
     // must not disturb what the fill pass wrote into them.
-    FJELL_TRY(wireframe_pipeline_, device_->create(gpu::GraphicsPipelineDesc{
+    FTK_TRY(wireframe_pipeline_, device_->create(ftk::gpu::GraphicsPipelineDesc{
                                        .task = "shaders/terrain.task",
                                        .mesh = "shaders/terrain.mesh",
                                        .fragment = "shaders/terrain_wire.frag",
-                                       .raster = {.cull = gpu::Cull::none, .fill = gpu::Fill::lines},
+                                       .raster = {.cull = ftk::gpu::Cull::none, .fill = ftk::gpu::Fill::lines},
                                        .depth = COLOR_DEPTH,
                                        .color = {{.format = resources.scene_color_format},
                                                  {.format = resources.scene_mr_format, .write = {}},
@@ -167,7 +167,7 @@ void TerrainPass::ensure_fallback_material() {
 
     const uint32_t pid = pipeline_cache_->register_shader(FALLBACK_TERRAIN_SHADER);
     if (pipeline_cache_->has_compile_error(pid)) {
-        FJELL_GFX_ERROR("TerrainPass: '{}' failed to compile: {}", FALLBACK_TERRAIN_SHADER,
+        FTK_GFX_ERROR("TerrainPass: '{}' failed to compile: {}", FALLBACK_TERRAIN_SHADER,
                         pipeline_cache_->compile_error(pid));
         return;
     }
@@ -199,7 +199,7 @@ void TerrainPass::ensure_fallback_material() {
     fallback_ready_ = ensure_material_pipeline(pid).valid();
 }
 
-gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id) {
+ftk::gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id) {
     if (pipeline_cache_ == nullptr || pipeline_id >= pipeline_cache_->shader_count()) {
         return {};
     }
@@ -209,15 +209,15 @@ gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id
         return it->second.pipeline;
     }
     // A failed rebuild keeps the pipeline built from the last good shader.
-    auto kept = [&]() -> gpu::GraphicsPipeline {
-        return it != material_pipelines_.end() ? gpu::GraphicsPipeline(it->second.pipeline)
-                                               : gpu::GraphicsPipeline{};
+    auto kept = [&]() -> ftk::gpu::GraphicsPipeline {
+        return it != material_pipelines_.end() ? ftk::gpu::GraphicsPipeline(it->second.pipeline)
+                                               : ftk::gpu::GraphicsPipeline{};
     };
 
     const auto& meta = pipeline_cache_->metadata(pipeline_id);
     if (meta.shader_type != ShaderType::Terrain) {
         if (reported_entries_.insert(pipeline_id).second) {
-            FJELL_GFX_ERROR("TerrainPass: '{}' is shader_type '{}', a terrain needs "
+            FTK_GFX_ERROR("TerrainPass: '{}' is shader_type '{}', a terrain needs "
                             "shader_type terrain",
                             pipeline_cache_->shader_path(pipeline_id), shader_type_name(meta.shader_type));
         }
@@ -227,13 +227,13 @@ gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id
         return kept();
     }
 
-    auto fragment = gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
+    auto fragment = ftk::gpu::read_spirv(pipeline_cache_->frag_spv_path(pipeline_id));
     if (!fragment) {
-        FJELL_GFX_ERROR("TerrainPass: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
+        FTK_GFX_ERROR("TerrainPass: '{}': {}", pipeline_cache_->shader_path(pipeline_id), fragment.error());
         return kept();
     }
 
-    auto made = device_->create(gpu::GraphicsPipelineDesc{
+    auto made = device_->create(ftk::gpu::GraphicsPipelineDesc{
         .task = "shaders/terrain.task",
         .mesh = "shaders/terrain.mesh",
         .fragment = std::span<const uint32_t>(*fragment),
@@ -249,7 +249,7 @@ gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id
         .name = pipeline_cache_->shader_path(pipeline_id),
     });
     if (!made) {
-        FJELL_GFX_ERROR("TerrainPass: failed to create pipeline for '{}': {}",
+        FTK_GFX_ERROR("TerrainPass: failed to create pipeline for '{}': {}",
                         pipeline_cache_->shader_path(pipeline_id), made.error());
         return kept();
     }
@@ -259,13 +259,13 @@ gpu::GraphicsPipeline TerrainPass::ensure_material_pipeline(uint32_t pipeline_id
     auto& slot = material_pipelines_[pipeline_id];
     slot.pipeline = std::move(*made);
     slot.generation = generation;
-    FJELL_GFX_DEBUG("TerrainPass: built pipeline for '{}'",
+    FTK_GFX_DEBUG("TerrainPass: built pipeline for '{}'",
                     pipeline_cache_->shader_path(pipeline_id));
     return slot.pipeline;
 }
 
 void TerrainPass::resolve_node_material(const TerrainComponent& comp,
-                                        gpu::GraphicsPipeline& out_pipeline,
+                                        ftk::gpu::GraphicsPipeline& out_pipeline,
                                         uint32_t& out_material_id) {
     out_pipeline = {};
     out_material_id = fallback_material_id_;
@@ -296,9 +296,9 @@ bool TerrainPass::scene_has_terrain(const FrameContext& ctx) {
     return false;
 }
 
-void TerrainPass::draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContext& ctx,
+void TerrainPass::draw_terrain_nodes(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx,
                                      Variant variant, uint32_t view_index, glm::uvec2 extent) {
-    gpu::GraphicsPipeline bound{};
+    ftk::gpu::GraphicsPipeline bound{};
 
     for (auto [node, terrain_comp] : ctx.scene->view<TerrainComponent>()) {
         if (terrain_comp->terrain == nullptr) {
@@ -316,7 +316,7 @@ void TerrainPass::draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContex
 
         // Only the colour variant reads the material; the others push the
         // same block with the fallback row, which they never look at.
-        gpu::GraphicsPipeline pipeline{};
+        ftk::gpu::GraphicsPipeline pipeline{};
         uint32_t material_id = fallback_material_id_;
         switch (variant) {
             case Variant::color:
@@ -343,12 +343,12 @@ void TerrainPass::draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContex
             bound = pipeline;
         }
         // The layer weights are read by the material's fragment stage alone.
-        const gpu::BindEntry heights{"height_tex", gpu::sampled(terrain.height_texture(), sampler_)};
-        const gpu::BindEntry bounds{"patch_bounds_tex",
-                                    gpu::sampled(terrain.patch_bounds_texture(), sampler_)};
+        const ftk::gpu::BindEntry heights{"height_tex", ftk::gpu::sampled(terrain.height_texture(), sampler_)};
+        const ftk::gpu::BindEntry bounds{"patch_bounds_tex",
+                                    ftk::gpu::sampled(terrain.patch_bounds_texture(), sampler_)};
         if (variant == Variant::color) {
             pass.bind({heights, bounds,
-                       {"weight_tex", gpu::sampled(terrain.weight_texture(), sampler_)}});
+                       {"weight_tex", ftk::gpu::sampled(terrain.weight_texture(), sampler_)}});
         } else {
             pass.bind({heights, bounds});
         }
@@ -398,12 +398,12 @@ void TerrainPass::draw_terrain_nodes(gpu::RenderEncoder& pass, const FrameContex
 
 void TerrainPass::record(const FrameContext& /*ctx*/) {}
 
-void TerrainPass::draw(gpu::RenderEncoder& pass, const FrameContext& ctx) {
+void TerrainPass::draw(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx) {
     if (ctx.scene == nullptr || ctx.target == nullptr) {
         return;
     }
 
-    FJELL_PROFILE_SCOPE_N("record_terrain");
+    FTK_PROFILE_SCOPE_N("record_terrain");
     auto zone = ctx.commands().zone("Terrain");
     const auto extent = ctx.target->extent();
     const glm::uvec2 size{extent.x, extent.y};
@@ -415,23 +415,23 @@ void TerrainPass::draw(gpu::RenderEncoder& pass, const FrameContext& ctx) {
     draw_terrain_nodes(pass, ctx, Variant::wireframe, 0, size);
 }
 
-void TerrainPass::draw_shadow(gpu::RenderEncoder& pass, const FrameContext& ctx,
+void TerrainPass::draw_shadow(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx,
                               uint32_t cascade) {
     if (ctx.scene == nullptr) {
         return;
     }
 
-    FJELL_PROFILE_SCOPE_N("record_terrain_shadow");
+    FTK_PROFILE_SCOPE_N("record_terrain_shadow");
     draw_terrain_nodes(pass, ctx, Variant::shadow, cascade + 1,
                        glm::uvec2(ShadowPass::MAP_SIZE));
 }
 
-void TerrainPass::draw_depth(gpu::RenderEncoder& pass, const FrameContext& ctx) {
+void TerrainPass::draw_depth(ftk::gpu::RenderEncoder& pass, const FrameContext& ctx) {
     if (ctx.scene == nullptr || ctx.target == nullptr) {
         return;
     }
 
-    FJELL_PROFILE_SCOPE_N("record_terrain_depth");
+    FTK_PROFILE_SCOPE_N("record_terrain_depth");
     const auto extent = ctx.target->extent();
     draw_terrain_nodes(pass, ctx, Variant::depth, 0, {extent.x, extent.y});
 }

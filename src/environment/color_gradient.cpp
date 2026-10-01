@@ -43,7 +43,7 @@ void ColorGradient::sort_keys() {
 void ColorGradient::to_json(nlohmann::json& j) const {
     j = nlohmann::json::array();
     for (const auto& key : keys) {
-        const glm::vec3 srgb = color_space::linear_to_srgb(key.color);
+        const glm::vec3 srgb = ftk::color_space::linear_to_srgb(key.color);
         j.push_back({{"t", key.time}, {"c", {srgb.r, srgb.g, srgb.b}}});
     }
 }
@@ -56,7 +56,7 @@ void ColorGradient::from_json(const nlohmann::json& j) {
         key.time = jk.value("t", 0.0f);
         if (jk.contains("c") && jk["c"].is_array() && jk["c"].size() >= 3) {
             const auto& c = jk["c"];
-            key.color = color_space::srgb_to_linear(
+            key.color = ftk::color_space::srgb_to_linear(
                 glm::vec3{c[0].get<float>(), c[1].get<float>(), c[2].get<float>()});
         }
         keys.push_back(key);

@@ -18,11 +18,14 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+} // namespace ftk
+
 namespace fjell {
 
 class Clock;
 class GameUi;
-class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
@@ -38,7 +41,7 @@ struct UiEditorDeps {
     Input* input;
     Clock* clock;
     ProjectManager* project_mgr;
-    IconCache* icon_cache;
+    ftk::IconCache* icon_cache;
     ScriptManager* script_manager; // for looking up UiComponent types
     const WidgetChecks* widget_checks; // the project's widgets against the game as built
     const Scene* scene;                // where the preview's Models find their components
@@ -57,8 +60,8 @@ public:
     /// node styled from the inspector gets an id there, and the stylesheet
     /// rule written for it only means something if the id is in the file.
     [[nodiscard]] std::string document() const override;
-    [[nodiscard]] Result<> write() override;
-    [[nodiscard]] Result<> restore(const std::string& text) override;
+    [[nodiscard]] ftk::Result<> write() override;
+    [[nodiscard]] ftk::Result<> restore(const std::string& text) override;
     [[nodiscard]] std::string saved_files() const override;
 
     void init() override;
@@ -106,7 +109,7 @@ private:
     // element (its #id rule, which is what an edit writes), names where the
     // value comes from on hover, and offers Unset on a right-click.
     void style_edit_float(UiNode& node, const char* property, float resolved_value,
-                          const ui::DragSpec& spec);
+                          const ftk::ui::DragSpec& spec);
     void style_edit_color(UiNode& node, const char* property, const UiColor& resolved_value);
     // A length: the number, and a unit choice beside it (px, %, em, rem, vw,
     // vh and auto where the property accepts it).
@@ -190,7 +193,7 @@ private:
     // module; the module going away takes it along, and the preview is
     // opened again from the module that replaces it.
     std::unique_ptr<UiPreviewData> preview_data_;
-    Connection library_unloading_;
+    ftk::Connection library_unloading_;
     bool reopen_{false};
 
     // What the widget check found in the open file and the widgets it

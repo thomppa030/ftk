@@ -26,21 +26,21 @@ struct DepthVariantShaders {
 /// What a depth-only pipeline is made of besides its shaders. The raster
 /// state's cull is chosen per draw: see DepthVariants.
 struct DepthVariantState {
-    gpu::VertexLayout vertex_layout{};
-    gpu::Raster raster{};
-    gpu::Depth depth{};
-    gpu::Format depth_format{gpu::Format::undefined};
-    gpu::Samples samples{gpu::Samples::x1};
+    ftk::gpu::VertexLayout vertex_layout{};
+    ftk::gpu::Raster raster{};
+    ftk::gpu::Depth depth{};
+    ftk::gpu::Format depth_format{ftk::gpu::Format::undefined};
+    ftk::gpu::Samples samples{ftk::gpu::Samples::x1};
 };
 
 /// The engine's shared layouts a depth-only pipeline binds: the globals and
 /// the draw data, the meshlets for a mesh pipeline, and the bindless table
 /// for a material's own stage, which reads its material.
 struct DepthVariantLayouts {
-    gpu::SharedLayout globals{};
-    gpu::SharedLayout bindless{};
-    gpu::SharedLayout draw_data{};
-    gpu::SharedLayout meshlets{};
+    ftk::gpu::SharedLayout globals{};
+    ftk::gpu::SharedLayout bindless{};
+    ftk::gpu::SharedLayout draw_data{};
+    ftk::gpu::SharedLayout meshlets{};
 };
 
 /// A depth-only pass's pipelines over the batch's static draws: its own, one
@@ -51,12 +51,12 @@ class DepthVariants {
 public:
     /// The pipeline a range of material shader `pipeline_id` draws with.
     struct Variant {
-        gpu::GraphicsPipeline pipeline{};
+        ftk::gpu::GraphicsPipeline pipeline{};
         /// The material's own stage: its pipeline names the bindless table.
         bool custom{false};
     };
 
-    Result<> create(gpu::Device& device, const DepthVariantShaders& shaders,
+    ftk::Result<> create(ftk::gpu::Device& device, const DepthVariantShaders& shaders,
                     const DepthVariantState& state, const DepthVariantLayouts& layouts,
                     std::string name);
     void destroy();
@@ -64,13 +64,13 @@ public:
     /// Builds, or builds again, the pipeline for material shader
     /// `pipeline_id` from its compiled stage at `spirv_path`, culling `cull`.
     /// A failure is logged, and the shader draws with what it had.
-    void register_custom(uint32_t pipeline_id, const std::string& spirv_path, gpu::Cull cull);
+    void register_custom(uint32_t pipeline_id, const std::string& spirv_path, ftk::gpu::Cull cull);
     /// Forgets every material shader's pipeline: they draw with the default.
     void clear_custom();
 
     /// The pipeline material shader `pipeline_id` draws with: its own, or the
     /// pass's culling `cull`.
-    [[nodiscard]] Variant variant(uint32_t pipeline_id, gpu::Cull cull) const {
+    [[nodiscard]] Variant variant(uint32_t pipeline_id, ftk::gpu::Cull cull) const {
         const auto custom = custom_.find(pipeline_id);
         return custom != custom_.end() ? Variant{custom->second, true}
                                        : Variant{defaults_[static_cast<size_t>(cull)], false};
@@ -83,9 +83,9 @@ public:
     /// `bind(custom)` runs after every pipeline change to bind what the
     /// pipeline reads: the bindless table too when `custom`.
     template <typename CullOf, typename Bind>
-    void draw_batch(gpu::RenderEncoder& pass, const IndirectBatch& batch, uint32_t frame_index,
+    void draw_batch(ftk::gpu::RenderEncoder& pass, const IndirectBatch& batch, uint32_t frame_index,
                     CullOf&& cull_of, Bind&& bind) const {
-        gpu::GraphicsPipeline bound{};
+        ftk::gpu::GraphicsPipeline bound{};
         for (const auto& range : batch.pipeline_ranges(frame_index)) {
             const Variant needed = variant(range.pipeline_id, cull_of(range.pipeline_id));
             if (needed.pipeline != bound) {
@@ -94,22 +94,22 @@ public:
                 bound = needed.pipeline;
             }
             pass.draw_indexed_indirect(batch.indirect_commands(frame_index, range.first_draw, range.draw_count),
-                                       range.draw_count, sizeof(gpu::DrawIndexedArgs));
+                                       range.draw_count, sizeof(ftk::gpu::DrawIndexedArgs));
         }
     }
 
 private:
-    [[nodiscard]] gpu::GraphicsPipelineDesc description(const DepthVariantShaders& shaders, bool custom,
-                                                        gpu::Cull cull, std::string_view name) const;
+    [[nodiscard]] ftk::gpu::GraphicsPipelineDesc description(const DepthVariantShaders& shaders, bool custom,
+                                                        ftk::gpu::Cull cull, std::string_view name) const;
 
-    gpu::Device* device_{nullptr};
+    ftk::gpu::Device* device_{nullptr};
     DepthVariantShaders shaders_{};
     DepthVariantState state_{};
     DepthVariantLayouts layouts_{};
     std::string name_;
     /// The pass's own, one per gpu::Cull.
-    std::array<gpu::Owned<gpu::GraphicsPipeline>, 3> defaults_;
-    std::unordered_map<uint32_t, gpu::Owned<gpu::GraphicsPipeline>> custom_;
+    std::array<ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>, 3> defaults_;
+    std::unordered_map<uint32_t, ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>> custom_;
 };
 
 } // namespace fjell

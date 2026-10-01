@@ -72,7 +72,7 @@ void UiModels::bind() {
         const void* component = type ? resolve(entry) : nullptr;
         if (!type && !entry.reported) {
             entry.reported = true;
-            FJELL_CORE_WARN("{}:{}: model '{}' reads '{}', which is not a loaded script component",
+            FTK_CORE_WARN("{}:{}: model '{}' reads '{}', which is not a loaded script component",
                             entry.decl.source_file, entry.decl.source_line, entry.decl.name,
                             entry.decl.component);
         }
@@ -196,7 +196,7 @@ const void* UiModels::find_local(Entry& entry) {
 void UiModels::report_once(const std::string& message) {
     if (std::ranges::find(reported_, message) != reported_.end()) return;
     reported_.push_back(message);
-    FJELL_CORE_WARN("Game UI: {}", message);
+    FTK_CORE_WARN("Game UI: {}", message);
 }
 
 } // namespace fjell

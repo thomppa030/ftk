@@ -3,7 +3,7 @@
 #include <expected>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 /// Rust-style Result type. Success holds T, failure holds a string message.
 /// For void results, use Result<void> (or just Result<>).
@@ -17,17 +17,17 @@ struct [[nodiscard]] Result : std::expected<T, std::string> {
     return std::unexpected(std::move(msg));
 }
 
-} // namespace fjell
+} // namespace ftk
 
 /// Moves the value of `expr`, a `Result`, into `target`, or returns its error
 /// from the function it is in, which returns a `Result` too.
 ///
 /// @code
-/// FJELL_TRY(pipeline_, device.create(gpu::ComputePipelineDesc{...}));
+/// FTK_TRY(pipeline_, device.create(gpu::ComputePipelineDesc{...}));
 /// @endcode
-#define FJELL_TRY(target, expr)                                                   \
+#define FTK_TRY(target, expr)                                                   \
     do {                                                                          \
-        auto fjell_try_result = (expr);                                           \
-        if (!fjell_try_result) return std::unexpected(std::move(fjell_try_result).error()); \
-        (target) = std::move(*fjell_try_result);                                  \
+        auto ftk_try_result = (expr);                                           \
+        if (!ftk_try_result) return std::unexpected(std::move(ftk_try_result).error()); \
+        (target) = std::move(*ftk_try_result);                                  \
     } while (false)

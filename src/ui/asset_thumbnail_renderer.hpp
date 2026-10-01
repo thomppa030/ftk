@@ -20,15 +20,18 @@
 #include <unordered_set>
 #include <vector>
 
+namespace ftk {
+class IconCache;
+class ThreadPool;
+} // namespace ftk
+
 namespace fjell {
 
 class GameUi;
-class IconCache;
 class OffscreenPass;
 class PostProcessResources;
 class Project;
 class ResourceManager;
-class ThreadPool;
 class VulkanContext;
 struct FjGraph;
 
@@ -61,8 +64,8 @@ public:
     struct Deps {
         VulkanContext* vulkan_context{nullptr};
         ResourceManager* resource_manager{nullptr};
-        IconCache* icon_cache{nullptr};
-        ThreadPool* thread_pool{nullptr};
+        ftk::IconCache* icon_cache{nullptr};
+        ftk::ThreadPool* thread_pool{nullptr};
         const Project* project{nullptr};
     };
 
@@ -146,7 +149,7 @@ public:
     /// read, and whether it is to be fitted and centred in the SIZE square
     /// (a crop of a UI) or is the thumbnail as read (the scene stage's).
     struct Capture {
-        gpu::Readback read;
+        ftk::gpu::Readback read;
         bool centre{false};
     };
 
@@ -247,7 +250,7 @@ private:
 
     struct Entry {
         // The thumbnail; none for one that failed.
-        gpu::Owned<gpu::Texture> texture;
+        ftk::gpu::Owned<ftk::gpu::Texture> texture;
         // Newest timestamp among the asset and the files it references when
         // this entry was produced.
         std::filesystem::file_time_type source_time;
@@ -274,7 +277,7 @@ private:
     void render_pending_capture(const Deps& deps, float dt);
     void evict_least_recent();
     // Store a fresh upload, or fail when there is none.
-    bool store(const std::string& path, gpu::Owned<gpu::Texture> texture,
+    bool store(const std::string& path, ftk::gpu::Owned<ftk::gpu::Texture> texture,
                std::filesystem::file_time_type newest);
 
     std::deque<std::string> queue_;

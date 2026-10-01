@@ -19,7 +19,7 @@ std::vector<ShaderType> parse_shader_types(const char* names, const char* owner,
         if (auto type = shader_type_from_name(word)) {
             types.push_back(*type);
         } else {
-            FJELL_CORE_ERROR("Script '{}': [[fj::shader_type]] on '{}' names '{}', which is not "
+            FTK_CORE_ERROR("Script '{}': [[fj::shader_type]] on '{}' names '{}', which is not "
                              "a shader type (spatial, sky, ui, terrain, water, fog)",
                              owner ? owner : "<unnamed>", field_name, word);
         }
@@ -129,7 +129,7 @@ OwnedFieldDesc ReflectedTypes::copy_field(const FjellFieldDesc& fd, const char* 
     if (fd.type == FJELL_FIELD_STRUCT) {
         ofd.struct_type = resolve(fd.type_desc);
         if (ofd.struct_type == nullptr) {
-            FJELL_CORE_ERROR("Script '{}': field '{}' holds a struct the module did not register; "
+            FTK_CORE_ERROR("Script '{}': field '{}' holds a struct the module did not register; "
                              "rebuild scripts from the editor", owner ? owner : "<unnamed>", fd.name);
         }
     }
@@ -150,7 +150,7 @@ void ReflectedTypes::copy_fields(const FjellFieldDesc* fields, uint32_t count, c
                                  std::vector<OwnedFieldDesc>& out) const {
     for (uint32_t i = 0; i < count; ++i) {
         if (fields == nullptr || fields[i].name == nullptr) {
-            FJELL_CORE_ERROR("Script '{}' declares {} reflected fields but its table ends at "
+            FTK_CORE_ERROR("Script '{}' declares {} reflected fields but its table ends at "
                              "{} — generated code is stale. Rebuild scripts from the editor.",
                              owner ? owner : "<unnamed>", count, i);
             return;

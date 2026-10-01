@@ -50,7 +50,7 @@ struct RtInstance {
     glm::mat4 transform{1.0F};
     /// The bottom level: a structure made anew is another handle, so a list
     /// naming it differs from one built before.
-    gpu::AccelerationStructure blas{};
+    ftk::gpu::AccelerationStructure blas{};
     uint32_t first_index{0};
     uint32_t vertex_offset{0};
     uint32_t material_id{0};

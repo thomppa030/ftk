@@ -32,7 +32,7 @@ struct ModelFieldsOptions {
 /// a list as the kit's cards, grown and shrunk through the functions the game
 /// module generated for it. A list of structs shows one card open at a time,
 /// the others as a summary line. Labels are sentence case.
-ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object, const ModelFieldsOptions& options);
+ftk::ui::Edit draw_model_fields(std::span<const OwnedFieldDesc> fields, void* object, const ModelFieldsOptions& options);
 
 /// The line a closed card shows for a struct: its first field's value, then
 /// its first text field's when that is another field and not empty.
