@@ -240,7 +240,10 @@ against finite differences of where it puts points.
 `Ks` is a fitted Chebyshev series rather than the physics solved each time:
 the physics wants `tanh` and `sinh`, which the C libraries do not round alike,
 and a point of the sea has to come out the same on every machine. It is within
-1e-4 of the solved value.
+1e-4 of the solved value. The bakes hold to the same rule, since physics reads
+what they make: the warp's `k(d)` is a series of its own, within 7e-6, and the
+headings and wavelengths a bake is keyed on are stepped with the engine's own
+arithmetic (`core/portable_math.hpp`).
 
 The shader fetches the bed a sample at a time (`texelFetch`) and blends it
 itself, so the blend is the CPU's rather than the texture unit's.

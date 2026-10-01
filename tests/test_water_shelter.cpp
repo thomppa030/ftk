@@ -320,6 +320,29 @@ TEST_CASE("Over a level shelf the lag grows as the wave shortens", "[water_shelt
     CHECK(w.offsets[(4 * ((50u * 101u) + 50u)) + 2] == 0.0f);
 }
 
+TEST_CASE("The lag per metre follows the dispersion relation from 5 cm of water to deep",
+          "[water_shelter]") {
+    // A level shelf at each depth, a 40 m wave travelling +x: every metre it
+    // falls k(d)/k_deep - 1 metres behind the deep sea, the ratio held to
+    // MAX_SHORTENING in the shallowest.
+    constexpr float K = 2.0f * PI / 40.0f;
+    for (const float depth : {0.05f, 0.2f, 1.0f, 3.0f, 10.0f, 30.0f, 60.0f}) {
+        const auto land =
+            warp_ground(101, 400.0f, [&](std::uint32_t, std::uint32_t) { return depth; });
+        water::ShelterSources sources;
+        sources.trains_dominant = {{1.0f, 0.0f}, K};
+        const water::ShoreWarp w = water::bake_warp(land, sources);
+
+        const double expected =
+            std::min(solved_shortening(K, depth), static_cast<double>(water::MAX_SHORTENING))
+            - 1.0;
+        // Relative to the lag, for what spreads in from the grid's sides,
+        // which carry none.
+        CAPTURE(depth);
+        CHECK(trains_offset(w, 100, 50).x / 400.0 == Approx(expected).epsilon(1e-4).margin(1e-5));
+    }
+}
+
 TEST_CASE("Up a beach the warp shortens the wave as the depth there says", "[water_shelter]") {
     // The bed rises toward +x from 20 m to 1 m. Read through the warp, the
     // wave's local length along x is its deep length over d(read x)/dx, which

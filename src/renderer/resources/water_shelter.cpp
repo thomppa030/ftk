@@ -1,11 +1,13 @@
 #include "renderer/resources/water_shelter.hpp"
 
+#include "core/portable_math.hpp"
 #include "core/thread_pool.hpp"
 #include "renderer/resources/fjterrain.hpp"
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/water_spectrum.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 
@@ -20,6 +22,30 @@ constexpr float HEADING_STEP_DEGREES = 1.0f;
 constexpr float WAVELENGTH_STEP = 1.05f;
 constexpr float WEIGHT_STEP = 0.01f;
 
+// The wavelengths a source steps to: WAVELENGTH_STEP to the powers from
+// FIRST_WAVELENGTH_POWER up, 5 cm to 17 km. Built by repeated division and
+// multiplication, which every machine rounds alike, rather than by exp and
+// log, which they do not; and with them, the wavelengths halfway between each
+// and the next by ratio, sqrt(WAVELENGTH_STEP) up from it.
+constexpr int FIRST_WAVELENGTH_POWER = -60;
+constexpr std::size_t WAVELENGTH_STEPS = 261;
+constexpr float HALF_WAVELENGTH_STEP = 1.02469507659596f;
+struct WavelengthSteps {
+    std::array<float, WAVELENGTH_STEPS> at{};
+    std::array<float, WAVELENGTH_STEPS - 1> between{};
+};
+constexpr WavelengthSteps WAVELENGTHS = [] {
+    WavelengthSteps steps;
+    float wavelength = 1.0f;
+    for (int i = 0; i > FIRST_WAVELENGTH_POWER; --i) wavelength /= WAVELENGTH_STEP;
+    for (std::size_t i = 0; i < WAVELENGTH_STEPS; ++i) {
+        steps.at[i] = wavelength;
+        if (i + 1 < WAVELENGTH_STEPS) steps.between[i] = wavelength * HALF_WAVELENGTH_STEP;
+        wavelength *= WAVELENGTH_STEP;
+    }
+    return steps;
+}();
+
 // How far past the terrain the grid reaches on each side, as a share of the
 // terrain's size: room for a lee cast near the edge to fade out rather than
 // stop.
@@ -29,25 +55,27 @@ constexpr float MARGIN_SHARE = 0.25f;
 // wave.
 constexpr float DEEP = 1e6f;
 
-// k / k_deep for a wave at depth `mu` = k_deep * d, from the dispersion
-// relation x tanh(x) = mu, x = k d; held to MAX_SHORTENING. No more than
-// nothing is land, where the wave carries on unshortened.
-//
-// Eckart's approximation, mu / sqrt(tanh(mu)), is within a few percent, and
-// Newton from there reaches the last bit of a double in three or four steps;
-// it is run until a step no longer moves it.
+// (k / k_deep) * sqrt(mu) over mu in [0, SHOALING_DEEP_MU], as a Chebyshev
+// series, where mu = k_deep * d and k comes from the dispersion relation
+// x tanh(x) = mu, x = k d. The ratio itself runs off to infinity as the water
+// shallows, as 1 / sqrt(mu), so what is fitted is what is left once that is
+// taken out: smooth, 1 at mu = 0, and pinned at the deep end to sqrt of it, so
+// the ratio is exactly 1 where the sea counts as deep. Fitted by least
+// squares to the relation solved directly; within 7e-6 of it wherever the
+// ratio is under MAX_SHORTENING.
+constexpr std::array<float, 13> SHORTENING_SERIES = {
+    1.83677852f,      0.848780692f,     -0.0241584145f,  -0.0255942829f,
+    0.0117992051f,    -0.000964379753f, -0.00157152792f, 0.000806956552f,
+    -1.85162335e-05f, -0.000158622643f, 6.91958849e-05f, 3.67324469e-06f,
+    -2.12423183e-05f,
+};
+
+// k / k_deep for a wave at depth `mu` = k_deep * d, held to MAX_SHORTENING.
+// No more than nothing is land, where the wave carries on unshortened.
 [[nodiscard]] float shortening(float mu) {
-    if (mu <= 0.0f) return 1.0f;
-    if (mu >= 20.0f) return 1.0f;   // tanh(20) is 1 in a float
-    const auto m = static_cast<double>(mu);
-    double x = m / std::sqrt(std::tanh(m));
-    for (int i = 0; i < 20; ++i) {
-        const double t = std::tanh(x);
-        const double step = ((x * t) - m) / (t + (x * (1.0 - (t * t))));
-        x -= step;
-        if (std::abs(step) <= 1e-12 * x) break;
-    }
-    return std::min(static_cast<float>(x / m), MAX_SHORTENING);
+    if (mu <= 0.0f || mu >= SHOALING_DEEP_MU) return 1.0f;
+    const float t = (2.0f * mu / SHOALING_DEEP_MU) - 1.0f;
+    return std::min(portable::chebyshev(SHORTENING_SERIES, t) / std::sqrt(mu), MAX_SHORTENING);
 }
 
 // Back to nothing across the margin: the share of a sample's value kept, by
@@ -58,16 +86,23 @@ constexpr float DEEP = 1e6f;
     return into * into * (3.0f - (2.0f * into));
 }
 
-[[nodiscard]] glm::vec2 stepped_heading(glm::vec2 travel) {
-    const float degrees = glm::degrees(std::atan2(travel.y, travel.x));
-    const float stepped =
-        glm::radians(std::round(degrees / HEADING_STEP_DEGREES) * HEADING_STEP_DEGREES);
-    return {std::cos(stepped), std::sin(stepped)};
+// The way along `angle` radians from the x axis.
+[[nodiscard]] glm::vec2 heading_of(float angle) {
+    const portable::SinCos turn = portable::sincos(angle);
+    return {turn.cos, turn.sin};
 }
 
+[[nodiscard]] glm::vec2 stepped_heading(glm::vec2 travel) {
+    const float degrees = glm::degrees(portable::atan2(travel.y, travel.x));
+    return heading_of(
+        glm::radians(std::round(degrees / HEADING_STEP_DEGREES) * HEADING_STEP_DEGREES));
+}
+
+// The nearest of WAVELENGTHS, nearest by ratio.
 [[nodiscard]] float stepped_wavelength(float wavelength) {
-    const float step = std::log(WAVELENGTH_STEP);
-    return std::exp(std::round(std::log(wavelength) / step) * step);
+    const auto above = std::upper_bound(WAVELENGTHS.between.begin(), WAVELENGTHS.between.end(),
+                                        wavelength);
+    return WAVELENGTHS.at[static_cast<std::size_t>(above - WAVELENGTHS.between.begin())];
 }
 
 // Sources that step to the same heading and wavelength are one sweep, so
@@ -219,7 +254,7 @@ ShelterSources shelter_sources(const FjWaterData& water) {
             const float reach = std::min(2.5f * spread, 180.0f);
             const float step = std::max(0.25f * spread, 2.0f);
             const int each_side = static_cast<int>(std::ceil(reach / step));
-            const float heading = std::atan2(sea.wind_direction.y, sea.wind_direction.x);
+            const float heading = portable::atan2(sea.wind_direction.y, sea.wind_direction.x);
             const float wavelength = stepped_wavelength(TAU / k);
             out.simulated_dominant = {stepped_heading(sea.wind_direction), TAU / wavelength};
             for (int j = -each_side; j <= each_side; ++j) {
@@ -227,8 +262,8 @@ ShelterSources shelter_sources(const FjWaterData& water) {
                     glm::radians(reach * static_cast<float>(j) / static_cast<float>(each_side));
                 const float weight = directional_spread(sea, angle);
                 if (weight <= 0.0f) continue;
-                const glm::vec2 travel{std::cos(heading + angle), std::sin(heading + angle)};
-                out.simulated.push_back({stepped_heading(travel), weight, wavelength});
+                out.simulated.push_back({stepped_heading(heading_of(heading + angle)), weight,
+                                         wavelength});
             }
             settle(out.simulated);
         }

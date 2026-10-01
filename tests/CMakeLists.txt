@@ -200,6 +200,7 @@ add_executable(fjell-tests
     test_water_clipmap.cpp
     test_water_spectrum.cpp
     test_water_shelter.cpp
+    test_portable_math.cpp
     test_water_shore.cpp
     test_water_wake.cpp
     test_volume_occupancy.cpp
