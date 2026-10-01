@@ -127,6 +127,9 @@ private:
     void init_scene();
     void init_content_browser();
     void init_editor();
+    /// Point the shader watcher at the open project's shaders, or at none.
+    /// A no-op in a release build, which has no watcher.
+    void watch_project_shaders();
 
     void create_project(const std::filesystem::path& parent, const std::string& name);
     void create_default_scene();

@@ -312,6 +312,10 @@ void Engine::init_resources() {
     vulkan_context_->set_project(project_mgr_.active());
     capture_service_.set_project(project_mgr_.active());
     resource_manager_->set_project(project_mgr_.active());
+    watch_project_shaders();
+}
+
+void Engine::watch_project_shaders() {
 #ifndef NDEBUG
     if (shader_watcher_) {
         const auto* project = project_mgr_.active();
@@ -1423,6 +1427,7 @@ void Engine::bind_menu_bar() {
             project_mgr_.open(path);
             vulkan_context_->set_project(project_mgr_.active());
             capture_service_.set_project(project_mgr_.active());
+            watch_project_shaders();
             if (project_mgr_.active()) {
                 current_scene_path_ = project_mgr_.active()->resolve(
                     project_mgr_.active()->config().default_scene);
