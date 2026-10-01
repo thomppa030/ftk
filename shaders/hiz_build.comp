@@ -1,6 +1,0 @@
-#version 460
-
-// Hi-Z pyramid build from single-sample depth, and every mip after the first.
-
-#define HIZ_SOURCE sampler2D
-#include "fjell_hiz_build.glsl"

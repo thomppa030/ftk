@@ -4,71 +4,74 @@ cmake_minimum_required(VERSION 4.3)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-project(Fjell VERSION 0.1.0 LANGUAGES CXX)
+project(ftk VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# ftk is the toolkit GUI programs build on: its libraries, the checks a program
+# holds its own tree to, and the editor data it stages. Built on its own it
+# also builds its tests; a program that adds it builds only what it links,
+# unless it asks for the tests too. What runs either way names ftk's tree
+# through PROJECT_SOURCE_DIR and PROJECT_BINARY_DIR.
+option(FTK_BUILD_TESTS "Build ftk's tests: the unit tests, a link check per library and a benchmark"
+       ${PROJECT_IS_TOP_LEVEL})
 
-# ftk first, then what only the engine, its tools and tests need.
-include(cmake/Dependencies.cmake)
-
-# Only the tool directories that are built; tools/ also holds things like a
-# Python environment whose headers are not ours.
-file(GLOB FJELL_TOOL_CMAKE_LISTS "${CMAKE_SOURCE_DIR}/tools/*/CMakeLists.txt")
-set(FJELL_TOOL_DIRS "")
-foreach(tool_cmake_list IN LISTS FJELL_TOOL_CMAKE_LISTS)
-    cmake_path(GET tool_cmake_list PARENT_PATH tool_dir)
-    list(APPEND FJELL_TOOL_DIRS "${tool_dir}")
-endforeach()
-include(cmake/SdkNamespaceCheck.cmake)
-fjell_check_sdk_namespaces(src tests ${FJELL_TOOL_DIRS})
-
-# Simulation code reads the fixed step's time, never the frame's. Checked at
-# configure and again by fjell-fixed-tick-check whenever a listed file or
-# either list changes.
-include(cmake/FixedTickCheck.cmake)
-fjell_check_fixed_tick()
-fjell_fixed_tick_read_list("${FJELL_FIXED_TICK_SOURCES}" FJELL_FIXED_TICK_FILES)
-list(TRANSFORM FJELL_FIXED_TICK_FILES PREPEND "${CMAKE_SOURCE_DIR}/")
-set(FJELL_FIXED_TICK_STAMP "${CMAKE_BINARY_DIR}/fixed_tick_check.stamp")
-add_custom_command(
-    OUTPUT "${FJELL_FIXED_TICK_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFJELL_FIXED_TICK_CHECK=ON -P "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${FJELL_FIXED_TICK_STAMP}"
-    DEPENDS ${FJELL_FIXED_TICK_FILES}
-            "${CMAKE_SOURCE_DIR}/cmake/FixedTickCheck.cmake"
-            "${FJELL_FIXED_TICK_SOURCES}"
-            "${FJELL_FIXED_TICK_ALLOWLIST}"
-    COMMENT "Checking simulation code for reads of the frame"
-    VERBATIM)
-add_custom_target(fjell-fixed-tick-check DEPENDS "${FJELL_FIXED_TICK_STAMP}")
-
-include(cmake/GenerateShaderConstants.cmake)
-
-add_subdirectory(src)
-# Editor UI takes colours and widgets from the theme and the kit.
-ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt ICONS src/ui/icons.hpp)
-# The runtime's component metas leave the editor out.
-include(cmake/ComponentMetaCheck.cmake)
-fjell_check_component_metas(fjell ROOTS src)
-# Vulkan stays inside the GPU backend; the rest speaks the GPU interface.
-ftk_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
-# The OS is reached through the platform library, so Windows builds too.
-ftk_check_portability(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
-add_subdirectory(tools)
-
-enable_testing()
-add_subdirectory(tests)
-
-# --- Packaging ---
-set(CPACK_PACKAGE_NAME "Fjell")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-if(WIN32)
-    set(CPACK_GENERATOR "ZIP")
-else()
-    set(CPACK_GENERATOR "TGZ")
+if(PROJECT_IS_TOP_LEVEL)
+    set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif()
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
-include(CPack)
+
+include(cmake/FtkTargetDefaults.cmake)
+include(cmake/FtkLibrary.cmake)
+# The checks, for ftk and any program built on it: editor UI from the theme and
+# the kit, Vulkan only inside the GPU backend, POSIX only inside the platform
+# library.
+include(cmake/EditorUiCheck.cmake)
+include(cmake/GpuBackendCheck.cmake)
+include(cmake/PortabilityCheck.cmake)
+
+include(cmake/Dependencies.cmake)
+# Shader compiling, and ftk_stage_editor_data() for any program built on
+# ftk-app; glslc is only looked for once something compiles a shader.
+include(cmake/CompileShaders.cmake)
+include(cmake/EditorData.cmake)
+
+include(src/libraries.cmake)
+
+# ftk's shader includes (the colour space), for a program that compiles
+# shaders at run time against them as well as through ftk_compile_shaders().
+set(FTK_SHADER_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/shaders/include" CACHE INTERNAL
+    "ftk's shader includes")
+# The theme's fonts, for a program that reads one of them itself.
+set(FTK_FONTS_DIR "${PROJECT_SOURCE_DIR}/fonts" CACHE INTERNAL "ftk's fonts")
+
+# ftk's libraries include only their own files and those of the libraries
+# they link. Checked at configure, once src/libraries.cmake has declared them,
+# and again by ftk-library-check whenever a library's file changes.
+include(cmake/LibraryBoundaryCheck.cmake)
+set(FTK_LIBRARY_LISTS "${PROJECT_BINARY_DIR}/ftk_libraries.cmake")
+ftk_write_library_lists("${FTK_LIBRARY_LISTS}")
+ftk_check_library_boundaries("${FTK_LIBRARY_LISTS}")
+ftk_library_files(FTK_LIBRARY_FILES)
+set(FTK_LIBRARY_CHECK_STAMP "${PROJECT_BINARY_DIR}/library_check.stamp")
+add_custom_command(
+    OUTPUT "${FTK_LIBRARY_CHECK_STAMP}"
+    COMMAND "${CMAKE_COMMAND}" -DFTK_LIBRARY_LISTS=${FTK_LIBRARY_LISTS} -P "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${FTK_LIBRARY_CHECK_STAMP}"
+    DEPENDS ${FTK_LIBRARY_FILES}
+            "${FTK_LIBRARY_LISTS}"
+            "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
+    COMMENT "Checking each library's includes against its links"
+    VERBATIM)
+add_custom_target(ftk-library-check DEPENDS "${FTK_LIBRARY_CHECK_STAMP}")
+
+if(FTK_BUILD_TESTS)
+    # ftk's own tree, held to its own checks: the kit and the theme are where
+    # editor UI may style, the backend where Vulkan may be named.
+    ftk_check_editor_ui(ftk-app ROOTS src)
+    ftk_check_gpu_backend(ftk-app ROOTS src tests)
+    ftk_check_portability(ftk-app ROOTS src tests)
+
+    enable_testing()
+    add_subdirectory(tests)
+endif()

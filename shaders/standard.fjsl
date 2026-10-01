@@ -1,5 +1,0 @@
-shader_type spatial;
-
-void fragment() {
-    // Empty — all outputs use defaults from template (standard PBR)
-}

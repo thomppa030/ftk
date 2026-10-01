@@ -1,0 +1,37 @@
+#version 460
+
+// A box of a texture read into 8-bit RGBA, sRGB-encoded, one word per pixel,
+// row after row, and scaled on the way: each pixel samples the box at its
+// centre through a linear sampler, which at the box's own size lands on the
+// texel centres and reads them unfiltered. Colour reads as the sampler returns
+// it, so an sRGB texture is decoded first and encoded again.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D source;
+layout(set = 0, binding = 1, std430) writeonly buffer Pixels {
+    uint words[];
+} pixels;
+
+layout(push_constant) uniform Push {
+    // The box's corner and size, in the texture's coordinates (0..1).
+    vec2 origin;
+    vec2 extent;
+    // The pixels written.
+    uvec2 size;
+} push;
+
+vec3 encode_srgb(vec3 linear) {
+    linear = clamp(linear, 0.0, 1.0);
+    return mix(linear * 12.92, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055,
+               step(vec3(0.0031308), linear));
+}
+
+void main() {
+    const uvec2 pixel = gl_GlobalInvocationID.xy;
+    if (any(greaterThanEqual(pixel, push.size))) return;
+    const vec2 uv = push.origin + (vec2(pixel) + 0.5) / vec2(push.size) * push.extent;
+    const vec4 colour = textureLod(source, uv, 0.0);
+    pixels.words[pixel.y * push.size.x + pixel.x] =
+        packUnorm4x8(vec4(encode_srgb(colour.rgb), clamp(colour.a, 0.0, 1.0)));
+}

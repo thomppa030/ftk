@@ -1,34 +1,10 @@
-# Covers every CMake preset's binary dir: build, build-release, build-asan,
-# build-tracy, and any generator output like build-vs.
+# Every preset's binary dir: build, build-release, build-asan, and any other
+# generator output like build-vs.
 build*/
-assets/screenshots/
-out/
-.fjcache/
-vendors/
-Plans/
-ProgrammingGuides/
-
 compile_commands.json
 
-*.spv
-
-*.o
-*.a
-*.so
-*.dylib
-
 .cache/
-.claude/
 .vscode/
 .idea/
 *.swp
 *~
-
-CLAUDE.md
-
-imgui.ini
-*.ppm
-ui_plan.md
-
-website/
-__pycache__/

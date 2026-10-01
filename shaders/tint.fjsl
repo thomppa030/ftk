@@ -1,8 +1,0 @@
-shader_type spatial;
-
-uniform vec3 tint : hint_color = vec3(1.0, 0.735, 0.485);
-uniform float tint_strength : hint_range(0.0, 1.0, 0.01) = 0.5;
-
-void fragment() {
-    ALBEDO = mix(ALBEDO, ALBEDO * tint, tint_strength);
-}

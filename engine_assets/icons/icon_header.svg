@@ -1,5 +1,0 @@
-<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-  <path d="M7,4 L7,28 L25,28 L25,10 L19,4 Z" fill="none" stroke="#D4A054" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
-  <polyline points="19,4 19,10 25,10" fill="none" stroke="#D4A054" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
-  <text x="9" y="26" font-family="monospace" font-size="9px" fill="#D4A054" font-weight="500">H</text>
-</svg>
