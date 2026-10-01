@@ -233,7 +233,6 @@ ftk_library(app-ui
         ftk/ui/kit/asset_header.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/asset_tile.cpp
-        ftk/ui/kit/brand.cpp
         ftk/ui/kit/button.cpp
         ftk/ui/kit/canvas.cpp
         ftk/ui/kit/choice.cpp
@@ -249,6 +248,7 @@ ftk_library(app-ui
         ftk/ui/kit/inset_group.cpp
         ftk/ui/kit/key_cap.cpp
         ftk/ui/kit/list_editor.cpp
+        ftk/ui/kit/loading.cpp
         ftk/ui/kit/menu.cpp
         ftk/ui/kit/node_graph.cpp
         ftk/ui/kit/overlay.cpp
@@ -270,7 +270,6 @@ ftk_library(app-ui
         ftk/ui/kit/asset_header.hpp
         ftk/ui/kit/asset_kind.hpp
         ftk/ui/kit/asset_tile.hpp
-        ftk/ui/kit/brand.hpp
         ftk/ui/kit/button.hpp
         ftk/ui/kit/canvas.hpp
         ftk/ui/kit/choice.hpp
@@ -288,6 +287,7 @@ ftk_library(app-ui
         ftk/ui/kit/inset_group.hpp
         ftk/ui/kit/key_cap.hpp
         ftk/ui/kit/list_editor.hpp
+        ftk/ui/kit/loading.hpp
         ftk/ui/kit/menu.hpp
         ftk/ui/kit/node_graph.hpp
         ftk/ui/kit/overlay.hpp

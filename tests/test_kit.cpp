@@ -1,5 +1,4 @@
 #include "ftk/ui/kit/asset_kind.hpp"
-#include "ftk/ui/kit/brand.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/component_block.hpp"
 #include "ftk/ui/kit/dialog.hpp"
@@ -8,6 +7,7 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/pane.hpp"
@@ -615,7 +615,7 @@ TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
     ImGui::DestroyContext(editor);
 }
 
-TEST_CASE("A pane and the brand's marks leave ImGui's stacks as they found them", "[ui][kit]") {
+TEST_CASE("A pane and the loading marks leave ImGui's stacks as they found them", "[ui][kit]") {
     ImGuiHarness h;
     int style_vars = -1;
     int colours = -1;
@@ -628,8 +628,6 @@ TEST_CASE("A pane and the brand's marks leave ImGui's stacks as they found them"
         {
             auto side = ui::Pane("##side", {220.0f, 300.0f}, ui::PaneSurface::Sunken);
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            ui::draw_logo(dl, {110.0f, 20.0f}, 0.5f);
-            ui::wordmark(dl, {110.0f, 150.0f}, 20.0f);
             ui::spinner(dl, {110.0f, 200.0f}, 14.0f, 1.0f);
             ui::loading(dl, {110.0f, 230.0f}, "Opening harbour\xe2\x80\xa6", 1.0f);
         }
