@@ -130,7 +130,7 @@ Set the object's `material` field to the `.fjmat` path in the scene file:
 
 1. **Parse** — the FJSL parser reads the `.fjsl` file and extracts uniform declarations, hints, defaults, and the fragment body
 2. **Generate** — a complete GLSL fragment shader is produced from `fjell_spatial_template.glsl` with param reads substituted in and the body placed in the template's hook function, which `main()` calls between filling the built-ins and shading from them
-3. **Compile** — the `FjslCompiler` compiles the generated `.frag` to SPIR-V with `glslc` at runtime, or copies it from `shaders/generated/.fjcache` when the same source was compiled before
+3. **Compile** — the `ShaderCompiler` compiles the generated `.frag` to SPIR-V with `glslc` at runtime, or copies it from `shaders/generated/.fjcache` when the same source was compiled before
 4. **Pipeline** — the `PipelineCache` creates opaque, transparent, and mesh shader pipeline variants using the compiled fragment module
 5. **Render** — draw commands are sorted by pipeline ID, and each range gets its pipeline bound before the indirect draw call
 

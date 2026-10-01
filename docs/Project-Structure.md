@@ -60,6 +60,8 @@ backend is `src/gpu/vulkan/`, and nothing else names Vulkan. See
 | `descriptor` | Descriptor set/pool helpers |
 | `draw_data_descriptor` | Per-draw data descriptor layout |
 | `fjsl_parser` | Parse `.fjsl` shaders, extract metadata, generate GLSL from spatial template |
+| `fjsl_loader` | Read a `.fjsl` through the project and the engine, compose the functions it uses, generate its fragment |
+| `shader_compiler` | GLSL to SPIR-V through `glslc`, kept in `shaders/generated/.fjcache` by content |
 | `pipeline_cache` | Per-shader VkPipeline cache (opaque + transparent + mesh shader per `.fjsl`) |
 | `stb_image` | stb_image include wrapper |
 

@@ -59,6 +59,8 @@ add_executable(fjell
     renderer/resources/material.cpp
     renderer/resources/fjmesh_writer.cpp
     renderer/resources/asset_shader_type.cpp
+    renderer/resources/fjsl_loader.cpp
+    renderer/resources/fjsl_parser.cpp
     renderer/resources/material_asset.cpp
     renderer/resources/material_gi_params.cpp
     renderer/resources/material_instance.cpp
@@ -80,6 +82,7 @@ add_executable(fjell
     renderer/post_process_resources.cpp
     renderer/post_layers.cpp
     renderer/pipeline_cache.cpp
+    renderer/shader_watcher.cpp
     renderer/resources/primitives.cpp
     renderer/bindless.cpp
     renderer/systems/particle_system.cpp

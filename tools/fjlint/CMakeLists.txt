@@ -1,8 +1,7 @@
 # fjlint — checks .fjss stylesheets, .fjwidget files, .fjfont recipes and
 # .fjsl shaders without the engine.
 #
-# Links the same parser sources the engine uses, and fjell-shader for the
-# .fjsl parser.
+# Links the same parser sources the engine uses.
 
 add_executable(fjlint
     main.cpp
@@ -20,6 +19,7 @@ add_executable(fjlint
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_pipes.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/script_call.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjfont.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
 )
 
 target_include_directories(fjlint PRIVATE
@@ -29,7 +29,6 @@ target_include_directories(fjlint PRIVATE
 
 target_link_libraries(fjlint PRIVATE
     fjell-core
-    fjell-shader
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog

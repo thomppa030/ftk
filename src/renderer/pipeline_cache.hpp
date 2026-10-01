@@ -3,7 +3,8 @@
 #include "gpu/format.hpp"
 #include "gpu/owned.hpp"
 #include "gpu/pipeline.hpp"
-#include "renderer/resources/fjsl_compiler.hpp"
+#include "renderer/resources/fjsl_loader.hpp"
+#include "renderer/shader_compiler.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -19,9 +20,10 @@ class Project;
 // unique .fjsl shader, built by the GPU interface's device with layouts read
 // from the shaders.
 // Pipeline ID 0 is always standard.fjsl (identical to the old mesh.frag). The
-// FjslCompiler turns each shader into SPIR-V; this picks the template its
-// type is generated into, the variants it is compiled in, and builds the
-// pipelines the spatial ones are drawn with.
+// FjslLoader reads each shader and the ShaderCompiler turns what it generates
+// into SPIR-V; this picks the template its type is generated into, the
+// variants it is compiled in, and builds the pipelines the spatial ones are
+// drawn with.
 class PipelineCache {
 public:
     /// The scene's targets the pipelines draw to.
@@ -192,9 +194,10 @@ private:
     std::string shadow_vertex_template_;
     std::string outline_vertex_template_;
     const Project* project_{nullptr};
+    ShaderCompiler compiler_;
     /// Finds a shader in the project first, then the engine: read through
     /// `project_` at each lookup, so set_project() is all it takes.
-    FjslCompiler compiler_;
+    FjslLoader loader_;
 };
 
 } // namespace fjell

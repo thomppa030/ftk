@@ -1608,7 +1608,7 @@ std::string emit_composed_file(const FjslComposedFile& file,
     //
     // The two bases differ in kind. A sampler's slot is an absolute index into
     // texture_indices, with the PBR set at the front; a scalar's is an offset
-    // into a block that starts at zero. generate_fragment() in fjsl_compiler
+    // into a block that starts at zero. generate_fragment() in fjsl_loader
     // folds these uniforms into the program's metadata with the same
     // arithmetic — if the two ever disagree the inspector shows a dial the
     // shader does not read.
@@ -1654,7 +1654,7 @@ std::string emit_composition(const FjslComposition& composition, const FjslUnifo
                              uint32_t param_base, uint32_t texture_base) {
     // Each composed file takes a run of the consumer's parameter block and a
     // run of its texture slots, after the consumer's own of each. The same
-    // arithmetic runs in fjsl_compiler's generate_fragment() when it folds
+    // arithmetic runs in fjsl_loader's generate_fragment() when it folds
     // these uniforms into the program's metadata; the two must agree or a
     // dial names a slot the shader never reads.
     std::string out;

@@ -22,7 +22,6 @@ fjell_library(core
         core/log.hpp
         core/math/color_space.hpp
         core/math/curve.hpp
-        core/named_value.hpp
         core/profiler.hpp
         core/result.hpp
         core/string_utils.hpp
@@ -189,20 +188,16 @@ fjell_library(framegraph
         PUBLIC fjell-core fjell-gpu
 )
 
-# fjell-shader turns .fjsl into GLSL and GLSL into SPIR-V through glslc,
-# reads glslc's errors back and watches shader files for hot reload. It needs
-# no GPU: what it compiles comes back as bytes.
+# fjell-shader turns GLSL into SPIR-V through glslc, keeps what it compiled
+# for the next run and reads glslc's errors back. It needs no GPU: what it
+# compiles comes back as bytes.
 fjell_library(shader
     SOURCES
-        renderer/resources/fjsl_compiler.cpp
-        renderer/resources/fjsl_parser.cpp
+        renderer/shader_compiler.cpp
         renderer/shader_diagnostic.cpp
-        renderer/shader_watcher.cpp
     HEADERS
-        renderer/resources/fjsl_compiler.hpp
-        renderer/resources/fjsl_parser.hpp
+        renderer/shader_compiler.hpp
         renderer/shader_diagnostic.hpp
-        renderer/shader_watcher.hpp
     LINKS
         PUBLIC fjell-core fjell-platform
 )

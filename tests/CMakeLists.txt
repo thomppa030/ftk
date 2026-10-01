@@ -16,6 +16,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_atlas_build.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/font_kerning.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/glyph_outline.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_loader.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_gi_params.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjterrain_io.cpp
@@ -160,7 +162,7 @@ add_executable(fjell-tests
     test_thread_pool.cpp
     test_fjui_parser.cpp
     test_fjss_parser.cpp
-    test_fjsl_compiler.cpp
+    test_fjsl_loader.cpp
     test_fjsl_parser.cpp
     test_material_gi_params.cpp
     test_color_space.cpp
@@ -275,6 +277,7 @@ add_executable(fjell-tests
     test_asset_header.cpp
     test_collision_shape_fields.cpp
     test_tree.cpp
+    test_shader_compiler.cpp
     test_shader_diagnostic.cpp
     test_grouped_picker.cpp
     test_node_slot.cpp

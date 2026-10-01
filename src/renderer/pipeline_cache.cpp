@@ -21,7 +21,8 @@ PipelineCache::PipelineCache(gpu::Device& gpu, const Targets& targets, const Sha
     , targets_{targets}
     , layouts_{layouts}
     , compiler_{base_path::resolve("shaders"), base_path::resolve("shaders/generated"),
-                [this](const std::string& reference) { return base_path::resolve_shared(reference, project_); }} {
+                FJELL_SHADER_CODEGEN_VERSION}
+    , loader_{[this](const std::string& reference) { return base_path::resolve_shared(reference, project_); }} {
     load_templates();
 
     // Register standard.fjsl as pipeline ID 0
@@ -84,9 +85,9 @@ void PipelineCache::compile_entry(Entry& entry) {
 
     try {
         // Read, parse and compose the .fjsl. A material names its shader the
-        // same way whether the engine or the game owns it, so the compiler's
+        // same way whether the engine or the game owns it, so the loader's
         // locator looks in the project first and falls back to the engine.
-        next.program = compiler_.load(entry.program.path);
+        next.program = loader_.load(entry.program.path);
 
         // Pick the template by shader_type. Spatial uses the full PBR
         // template; sky the fullscreen sky template; ui the UI quad template;
@@ -131,7 +132,7 @@ void PipelineCache::compile_entry(Entry& entry) {
         // Generate vertex shaders to disk (fast, must happen before parallel compile)
         next.has_custom_vertex = !next.program.metadata.vertex_body.empty();
 
-        std::vector<FjslCompiler::Job> jobs;
+        std::vector<ShaderCompiler::Job> jobs;
 
         // The main stage is always compiled: a fragment for every drawn type,
         // the fog pass's medium compute shader for a fog shader, which is
