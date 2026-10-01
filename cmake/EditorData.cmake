@@ -1,29 +1,29 @@
-# The files an editor built on fjell-editor-shell reads at run time, staged
-# beside its binary:
+# The files a program built on ftk-app reads at run time, staged beside its
+# binary:
 #
-#     fjell_stage_editor_data(<target> [DESTINATION <dir>])
+#     ftk_stage_editor_data(<target> [DESTINATION <dir>])
 #
 # compiles the ImGui layer's sRGB fragment stage and copies the theme's fonts
-# into <dir> (default fjell) next to <target>'s binary, before <target> is
+# into <dir> (default ftk) next to <target>'s binary, before <target> is
 # built and again whenever either changes. The program hands the paths to its
 # ImGui layer:
 #
-#     ImGuiLayerFiles{.fonts = exe_dir / "fjell" / "fonts",
-#                     .srgb_fragment = exe_dir / "fjell" / "imgui.frag.spv"}
+#     ImGuiLayerFiles{.fonts = exe_dir / "ftk" / "fonts",
+#                     .srgb_fragment = exe_dir / "ftk" / "imgui.frag.spv"}
 #
 # Fjell's own editor and hub read them from the engine's layout instead.
 
-function(fjell_stage_editor_data target)
+function(ftk_stage_editor_data target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "DESTINATION" "")
     if(arg_UNPARSED_ARGUMENTS)
-        message(FATAL_ERROR "fjell_stage_editor_data(<target> [DESTINATION <dir>])")
+        message(FATAL_ERROR "ftk_stage_editor_data(<target> [DESTINATION <dir>])")
     endif()
-    set(destination fjell)
+    set(destination ftk)
     if(arg_DESTINATION)
         set(destination "${arg_DESTINATION}")
     endif()
 
-    fjell_find_glslc()
+    ftk_find_glslc()
     get_filename_component(fjell_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
     set(staging "${CMAKE_CURRENT_BINARY_DIR}/${target}_editor_data")
 

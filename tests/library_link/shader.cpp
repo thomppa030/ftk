@@ -1,4 +1,4 @@
-// Links fjell-shader alone and whole (tests/CMakeLists.txt), so it builds only
+// Links ftk-shader alone and whole (tests/CMakeLists.txt), so it builds only
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it keys a source for the SPIR-V cache and reads a
 // compiler error back, neither of which needs a GPU or glslc.

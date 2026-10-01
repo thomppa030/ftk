@@ -1,9 +1,21 @@
-# Refuses to configure when a source outside the platform layer includes a
-# header that only exists on POSIX. MSVC has no unistd.h, and CI's Windows
-# runner is the first place that would otherwise notice — about 35 minutes
-# after the push. Everything that needs the OS goes through platform/.
+# Refuses code outside the platform layer that only builds on POSIX: a header
+# that only exists there, a call MSVC lacks, or a path into /proc, /dev or
+# /tmp. MSVC has no unistd.h, and CI's Windows runner is the first place that
+# would otherwise notice — about 35 minutes after the push. Everything that
+# needs the OS goes through the platform library (src/platform/).
+#
+#     ftk_check_portability(<target> ROOTS <dirs>...)
+#
+# checks every .cpp, .hpp and .h under the roots at configure, and again
+# before <target> builds whenever one of them changes. Roots are relative to
+# the calling directory, and reports name files relative to it too.
+#
+# A platform backend's own code is exempt by its place: any platform/linux/ or
+# platform/windows/ directory.
 
-function(fjell_check_posix_includes)
+# Scans `roots` under `base` and fails with every offender. Also run on its
+# own by the build step (script mode below).
+function(_ftk_scan_portability base)
     set(posix_headers
         "unistd.h"
         "dirent.h" "pwd.h" "poll.h" "dlfcn.h" "pthread.h" "termios.h" "netdb.h"
@@ -31,8 +43,8 @@ function(fjell_check_posix_includes)
 
     set(offenders "")
     foreach(root IN LISTS ARGN)
-        file(GLOB_RECURSE sources ${glob_flags}
-            "${root}/*.cpp" "${root}/*.hpp" "${root}/*.h")
+        cmake_path(ABSOLUTE_PATH root BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE dir)
+        file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
         foreach(source IN LISTS sources)
             if(source MATCHES "/platform/(linux|windows)/")
                 continue()
@@ -40,7 +52,7 @@ function(fjell_check_posix_includes)
             file(STRINGS "${source}" hits REGEX "${pattern}")
             foreach(hit IN LISTS hits)
                 string(STRIP "${hit}" hit)
-                file(RELATIVE_PATH rel "${CMAKE_SOURCE_DIR}" "${source}")
+                file(RELATIVE_PATH rel "${base}" "${source}")
                 list(APPEND offenders "  ${rel}: ${hit}")
             endforeach()
         endforeach()
@@ -51,13 +63,49 @@ function(fjell_check_posix_includes)
         message(FATAL_ERROR
             "POSIX-only headers, calls or paths outside src/platform/ (MSVC cannot build these):\n"
             "${offenders}\n"
-            "Use the fjell::platform API instead, or add a platform/ backend for what is missing.")
+            "Use the platform library (src/platform/platform.hpp) instead, or add a platform/ "
+            "backend for what is missing.")
     endif()
 endfunction()
 
-# Script mode, for checking a tree without configuring:
-#   cmake -DFJELL_PORTABILITY_ROOTS="src;tests;tools/fjimport" -P cmake/PortabilityCheck.cmake
-if(CMAKE_SCRIPT_MODE_FILE AND FJELL_PORTABILITY_ROOTS)
-    set(CMAKE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
-    fjell_check_posix_includes(${FJELL_PORTABILITY_ROOTS})
+function(ftk_check_portability target)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "ROOTS")
+    if(NOT arg_ROOTS OR arg_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR "ftk_check_portability(<target> ROOTS <dirs>...)")
+    endif()
+    set(base "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    _ftk_scan_portability("${base}" ${arg_ROOTS})
+
+    set(globs "")
+    foreach(root IN LISTS arg_ROOTS)
+        cmake_path(ABSOLUTE_PATH root BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE dir)
+        list(APPEND globs "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
+    endforeach()
+    file(GLOB_RECURSE sources CONFIGURE_DEPENDS ${globs})
+    # Commas, not semicolons: a list would split into separate arguments.
+    list(JOIN arg_ROOTS "," roots)
+    set(script "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
+    set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}_portability_check.stamp")
+    add_custom_command(
+        OUTPUT "${stamp}"
+        COMMAND "${CMAKE_COMMAND}" "-DFTK_PORTABILITY_BASE=${base}" "-DFTK_PORTABILITY_ROOTS=${roots}"
+                -P "${script}"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
+        DEPENDS ${sources} "${script}"
+        COMMENT "Checking for code that only builds on POSIX"
+        VERBATIM)
+    add_custom_target(${target}-portability-check DEPENDS "${stamp}")
+    add_dependencies(${target} ${target}-portability-check)
+endfunction()
+
+# Script mode, used by the build step, or by hand over Fjell's own tree:
+#   cmake -DFTK_PORTABILITY_ROOTS=src,tests,tools/fjimport -P cmake/PortabilityCheck.cmake
+# By hand, roots are relative to Fjell's checkout.
+if(CMAKE_SCRIPT_MODE_FILE AND FTK_PORTABILITY_ROOTS)
+    if(NOT DEFINED FTK_PORTABILITY_BASE)
+        get_filename_component(FTK_PORTABILITY_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+    endif()
+    string(REPLACE "," ";" roots "${FTK_PORTABILITY_ROOTS}")
+    _ftk_scan_portability("${FTK_PORTABILITY_BASE}" ${roots})
 endif()

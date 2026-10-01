@@ -1,4 +1,4 @@
-// Links fjell-stb alone and whole (tests/CMakeLists.txt), so it builds only if
+// Links ftk-image alone and whole (tests/CMakeLists.txt), so it builds only if
 // everything in the library finds what it needs in the library and its own
 // dependencies. Running it writes a small image to memory, reads it back and
 // scales it.
