@@ -122,12 +122,12 @@ bool Slot::finish(SlotFace face, bool empty, std::string_view problem) {
     return cleared;
 }
 
-SlotFace asset_face(std::string_view file_name, AssetPresence presence, std::string_view empty_extension,
+SlotFace asset_face(std::string_view name, AssetPresence presence, std::string_view slot_extension,
                     std::string& text) {
     SlotFace face;
     switch (presence) {
         case AssetPresence::empty:
-            face.glyph = asset_kind(empty_extension).icon;
+            face.glyph = asset_kind(slot_extension).icon;
             face.glyph_colour = theme::text_disabled();
             text = "None";
             face.text_colour = theme::text_secondary();
@@ -135,14 +135,18 @@ SlotFace asset_face(std::string_view file_name, AssetPresence presence, std::str
         case AssetPresence::missing:
             face.glyph = icon::warning;
             face.glyph_colour = theme::error();
-            text = "missing: " + std::string(file_name);
+            text = "missing: " + std::string(name);
             face.text_colour = theme::error();
             break;
-        case AssetPresence::held: {
-            const AssetKind& kind = asset_kind(std::filesystem::path(file_name).extension().string());
+        case AssetPresence::held:
+        case AssetPresence::built_in: {
+            // A built-in has no file name to tell its kind by: it is what the slot takes.
+            const AssetKind& kind = asset_kind(presence == AssetPresence::built_in
+                                                   ? slot_extension
+                                                   : std::filesystem::path(name).extension().string());
             face.glyph = kind.icon;
             face.glyph_colour = theme::hue(kind.hue);
-            text = file_name;
+            text = name;
             face.text_colour = theme::text();
             break;
         }

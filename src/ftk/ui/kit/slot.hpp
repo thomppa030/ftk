@@ -103,15 +103,16 @@ private:
 /// The problem a slot the scene cannot play without says while it is empty.
 inline constexpr std::string_view REQUIRED_PROBLEM = "Required: the scene cannot play until this is set";
 
-/// Whether an asset slot holds a file that is there, nothing, or a file
-/// that is gone.
-enum class AssetPresence : uint8_t { held, empty, missing };
+/// Whether an asset slot holds a file that is there, nothing, a file that is
+/// gone, or something the program makes itself that no file holds (a cube).
+enum class AssetPresence : uint8_t { held, empty, missing, built_in };
 
 /// How an asset reads in a slot: the icon of its kind in the kind's colour,
-/// then its file name; while the slot is empty, "None" under the icon of the
-/// first kind it takes (`empty_extension`); a file that is gone, "missing:
-/// name" in the error colour. `text` keeps the characters the face points at.
-[[nodiscard]] SlotFace asset_face(std::string_view file_name, AssetPresence presence,
-                                  std::string_view empty_extension, std::string& text);
+/// then its file name; a built-in, its name under the icon of the first kind
+/// the slot takes (`slot_extension`); while the slot is empty, "None" under
+/// that icon in grey; a file that is gone, "missing: name" in the error
+/// colour. `text` keeps the characters the face points at.
+[[nodiscard]] SlotFace asset_face(std::string_view name, AssetPresence presence,
+                                  std::string_view slot_extension, std::string& text);
 
 } // namespace ftk::ui

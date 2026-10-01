@@ -1,5 +1,8 @@
 #include "ftk/test/imgui_harness.hpp"
+#include "ftk/ui/kit/asset_kind.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/slot.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -90,4 +93,17 @@ TEST_CASE("A slot's clear button empties it, and does nothing while it is empty"
     t.h.click("clear");
     CHECK(t.clears == 1);
     CHECK(t.held.empty());
+}
+
+TEST_CASE("A built-in reads as the kind its slot takes, by name, and is never missing", "[ui][slot]") {
+    // A name with no extension of its own: held, it would read as a plain file.
+    std::string text;
+    const ui::SlotFace face = ui::asset_face("White", ui::AssetPresence::built_in, ".png", text);
+    CHECK(face.text == "White");
+    CHECK(face.glyph == ui::asset_kind(".png").icon);
+    CHECK(face.glyph != ui::icon::warning);
+    const ImVec4 colour = theme::text();
+    CHECK(face.text_colour.x == colour.x);
+    CHECK(face.text_colour.y == colour.y);
+    CHECK(face.text_colour.z == colour.z);
 }
