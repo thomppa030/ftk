@@ -205,9 +205,7 @@ against finite differences of where it puts points.
 `Ks` is a fitted Chebyshev series rather than the physics solved each time:
 the physics wants `tanh` and `sinh`, which the C libraries do not round alike,
 and a point of the sea has to come out the same on every machine. It is within
-1e-4 of the solved value. The shelter's bake holds to the same rule, since
-physics reads what it makes: the headings and wavelengths it is keyed on are
-stepped with the engine's own arithmetic (`core/portable_math.hpp`).
+1e-4 of the solved value.
 
 The shader fetches the bed a sample at a time (`texelFetch`) and blends it
 itself, so the blend is the CPU's rather than the texture unit's.

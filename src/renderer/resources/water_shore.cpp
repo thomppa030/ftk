@@ -1,11 +1,11 @@
 #include "renderer/resources/water_shore.hpp"
 
-#include "core/portable_math.hpp"
 #include "renderer/resources/fjterrain.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <span>
 
 namespace fjell::water {
 
@@ -30,6 +30,20 @@ constexpr std::array<float, 11> SHOALING_SERIES_SLOPE = {
     -0.000172308952f, 0.00151850376f, -0.000945776294f,
 };
 
+// A Chebyshev series at t in [-1, 1], by Clenshaw's recurrence: the stable
+// way to sum one in floats.
+[[nodiscard]] float chebyshev(std::span<const float> series, float t) {
+    const float two_t = 2.0f * t;
+    float b1 = 0.0f;
+    float b2 = 0.0f;
+    for (std::size_t i = series.size() - 1; i > 0; --i) {
+        const float b0 = (two_t * b1) - b2 + series[i];
+        b2 = b1;
+        b1 = b0;
+    }
+    return (t * b1) - b2 + series[0];
+}
+
 } // namespace
 
 Shoaling shoaling_at(float mu) {
@@ -41,9 +55,9 @@ Shoaling shoaling_at(float mu) {
     const float stretch = std::sqrt(std::sqrt(4.0f * m));   // (4μ)^¼
 
     Shoaling s;
-    s.coefficient = portable::chebyshev(SHOALING_SERIES, t) / stretch;
+    s.coefficient = chebyshev(SHOALING_SERIES, t) / stretch;
     s.slope = held ? 0.0f
-                   : (portable::chebyshev(SHOALING_SERIES_SLOPE, t) / stretch) - (s.coefficient / (4.0f * m));
+                   : (chebyshev(SHOALING_SERIES_SLOPE, t) / stretch) - (s.coefficient / (4.0f * m));
     return s;
 }
 
