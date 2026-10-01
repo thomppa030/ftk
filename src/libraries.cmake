@@ -334,7 +334,6 @@ ftk_library(app
         ftk/app/console.cpp
         ftk/app/document_history.cpp
         ftk/app/editor_context.cpp
-        ftk/app/editor_view_settings.cpp
         ftk/app/file_browser.cpp
         ftk/app/history_panel.cpp
         ftk/app/icon_cache.cpp
@@ -347,7 +346,6 @@ ftk_library(app
         ftk/app/context_registry.hpp
         ftk/app/document_history.hpp
         ftk/app/editor_context.hpp
-        ftk/app/editor_view_settings.hpp
         ftk/app/file_browser.hpp
         ftk/app/history_panel.hpp
         ftk/app/icon_cache.hpp
