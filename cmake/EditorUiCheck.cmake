@@ -24,11 +24,7 @@
 # one nothing is skipped.
 #
 # The theme, the icon glyphs and the kit are exempt at their place in ftk's
-# tree, not by their names, so a program's own ui/kit/ gets no pass. Within
-# Fjell a component's meta (*_meta.cpp, scene/component_meta.hpp) is runtime
-# and includes neither ImGui nor the editor's UI: how a component looks in
-# the editor lives in src/ui/inspectors. The game UI (ui/game_ui/) is runtime
-# and may be included.
+# tree, not by their names, so a program's own ui/kit/ gets no pass.
 
 # Scans `roots` under `base`, skipping what `allowlist` names and letting the
 # files `icons` lists (comma-separated, absolute) spell glyphs, and fails with
@@ -84,7 +80,6 @@ function(_ftk_scan_editor_ui base allowlist icons)
 
     set(offenders "")
     set(offending_files "")
-    set(editor_in_runtime "")
     foreach(root IN LISTS ARGN)
         cmake_path(ABSOLUTE_PATH root BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE dir)
         file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
@@ -99,15 +94,6 @@ function(_ftk_scan_editor_ui base allowlist icons)
             if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/icons_lc.hpp"
                OR in_src MATCHES "^ftk/ui/kit/")
                 continue()
-            endif()
-            if(in_src MATCHES "_meta\\.cpp$" OR in_src STREQUAL "scene/component_meta.hpp")
-                file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"](imgui|ui/|ftk/(ui|app)/)")
-                foreach(inc IN LISTS includes)
-                    if(NOT inc MATCHES "ui/game_ui/")
-                        string(STRIP "${inc}" inc)
-                        list(APPEND editor_in_runtime "  ${rel}: ${inc}")
-                    endif()
-                endforeach()
             endif()
             if(source IN_LIST icon_files)
                 file(STRINGS "${source}" hits REGEX "${literal_pattern}")
@@ -158,13 +144,6 @@ function(_ftk_scan_editor_ui base allowlist icons)
             "Use a colour token from ftk's theme (src/ftk/ui/theme.hpp), an icon from the "
             "program's icon file, or a piece of ftk's kit in src/ftk/ui/kit/. "
             "If what you need doesn't exist, add it there and use it from there.\n")
-    endif()
-    if(editor_in_runtime)
-        list(JOIN editor_in_runtime "\n" editor_in_runtime)
-        string(APPEND report
-            "Editor UI included by a component meta, which the runtime builds without the "
-            "editor:\n${editor_in_runtime}\n"
-            "Draw the component in src/ui/inspectors and list it in inspector_registry.cpp.\n")
     endif()
     if(stale)
         list(JOIN stale "\n" stale)
@@ -221,16 +200,23 @@ function(ftk_check_editor_ui target)
     add_dependencies(${target} ${target}-editor-ui-check)
 endfunction()
 
-# Script mode, used by the build step, or by hand over Fjell's own tree:
-#   cmake -DFTK_EDITOR_UI_ROOTS=src -P cmake/EditorUiCheck.cmake
+# Script mode, used by the build step, or by hand from a program's checkout:
+#   cmake -DFTK_EDITOR_UI_ROOTS=src -DFTK_EDITOR_UI_ICONS=<its icon file>
+#         [-DFTK_EDITOR_UI_ALLOWLIST=<file>] -P <ftk>/cmake/EditorUiCheck.cmake
 # Add -DFTK_EDITOR_UI_LIST=ON to print every file with a hit instead. By
-# hand, roots are relative to Fjell's checkout and its allowlist and icon
-# file apply.
+# hand, roots and files are relative to the current directory.
 if(CMAKE_SCRIPT_MODE_FILE AND FTK_EDITOR_UI_ROOTS)
     if(NOT DEFINED FTK_EDITOR_UI_BASE)
-        get_filename_component(FTK_EDITOR_UI_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-        set(FTK_EDITOR_UI_ALLOWLIST "${CMAKE_CURRENT_LIST_DIR}/editor_ui_allowlist.txt")
-        set(FTK_EDITOR_UI_ICONS "${FTK_EDITOR_UI_BASE}/src/ui/icons.hpp")
+        set(FTK_EDITOR_UI_BASE "${CMAKE_CURRENT_SOURCE_DIR}")
+        foreach(var FTK_EDITOR_UI_ALLOWLIST FTK_EDITOR_UI_ICONS)
+            set(absolute "")
+            foreach(file IN LISTS ${var})
+                cmake_path(ABSOLUTE_PATH file BASE_DIRECTORY "${FTK_EDITOR_UI_BASE}" NORMALIZE
+                           OUTPUT_VARIABLE path)
+                list(APPEND absolute "${path}")
+            endforeach()
+            list(JOIN absolute "," ${var})
+        endforeach()
     endif()
     string(REPLACE "," ";" roots "${FTK_EDITOR_UI_ROOTS}")
     _ftk_scan_editor_ui("${FTK_EDITOR_UI_BASE}" "${FTK_EDITOR_UI_ALLOWLIST}" "${FTK_EDITOR_UI_ICONS}" ${roots})

@@ -99,12 +99,12 @@ function(ftk_check_portability target)
     add_dependencies(${target} ${target}-portability-check)
 endfunction()
 
-# Script mode, used by the build step, or by hand over Fjell's own tree:
-#   cmake -DFTK_PORTABILITY_ROOTS=src,tests,tools/fjimport -P cmake/PortabilityCheck.cmake
-# By hand, roots are relative to Fjell's checkout.
+# Script mode, used by the build step, or by hand from a program's checkout:
+#   cmake -DFTK_PORTABILITY_ROOTS=src,tests -P <ftk>/cmake/PortabilityCheck.cmake
+# By hand, roots are relative to the current directory.
 if(CMAKE_SCRIPT_MODE_FILE AND FTK_PORTABILITY_ROOTS)
     if(NOT DEFINED FTK_PORTABILITY_BASE)
-        get_filename_component(FTK_PORTABILITY_BASE "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+        set(FTK_PORTABILITY_BASE "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
     string(REPLACE "," ";" roots "${FTK_PORTABILITY_ROOTS}")
     _ftk_scan_portability("${FTK_PORTABILITY_BASE}" ${roots})
