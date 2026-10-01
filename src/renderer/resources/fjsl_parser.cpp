@@ -219,6 +219,40 @@ bool is_identifier_char(char c) {
     return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
 }
 
+// How long the comment starting at `at` is, or 0 when none starts there.
+size_t comment_length(std::string_view text, size_t at) {
+    if (at + 1 >= text.size() || text[at] != '/') return 0;
+    if (text[at + 1] == '/') {
+        const size_t end = text.find('\n', at);
+        return (end == std::string_view::npos ? text.size() : end) - at;
+    }
+    if (text[at + 1] == '*') {
+        const size_t end = text.find("*/", at + 2);
+        return (end == std::string_view::npos ? text.size() : end + 2) - at;
+    }
+    return 0;
+}
+
+// `source` with every comment blanked to spaces, its newlines kept, so every
+// offset still names the same character. Searching this rather than the
+// source keeps a comment that says "before fragment() runs" from being taken
+// for the hook, and a brace in a comment from ending a body.
+std::string mask_comments(const std::string& source) {
+    std::string code = source;
+    for (size_t at = 0; at < code.size();) {
+        const size_t length = comment_length(code, at);
+        if (length == 0) {
+            ++at;
+            continue;
+        }
+        for (size_t i = at; i < at + length; ++i) {
+            if (code[i] != '\n') code[i] = ' ';
+        }
+        at += length;
+    }
+    return code;
+}
+
 // Whether `text` reads an output of the use called `name`: the whole word,
 // followed by a `.`. The same shape rewrite_use_references turns into the
 // variable the emitted function declares, so the two agree on what counts.
@@ -567,24 +601,23 @@ static std::vector<float> parse_default_value(const std::string& val_str, Unifor
 // first character after the opening brace; `FjslBody::empty()` marks a hook
 // the shader does not define.
 //
-// Brace matching is not string- or comment-aware: a `}` inside a comment
-// truncates the body. No shader in the engine or the test project has one, so
-// this is latent rather than live, but it is why a body that looks right can
-// come back short.
-static FjslBody extract_function_body(const std::string& source, const std::string& func_name) {
-    auto pos = source.find("void " + func_name);
+// `code` is `source` with its comments masked (mask_comments): the hook is
+// found and its braces matched there, so neither a comment naming the hook nor
+// a brace in a comment can mislead it, and the body is cut from `source` with
+// its comments intact.
+static FjslBody extract_function_body(const std::string& source, const std::string& code,
+                                      const std::string& func_name) {
+    const size_t pos = find_function_declaration(code, func_name);
     if (pos == std::string::npos) return {};
 
-    // Find opening brace
-    auto brace_start = source.find('{', pos);
+    const size_t brace_start = code.find('{', pos);
     if (brace_start == std::string::npos) return {};
 
-    // Match braces
     int depth = 1;
     size_t i = brace_start + 1;
-    while (i < source.size() && depth > 0) {
-        if (source[i] == '{') depth++;
-        else if (source[i] == '}') depth--;
+    while (i < code.size() && depth > 0) {
+        if (code[i] == '{') depth++;
+        else if (code[i] == '}') depth--;
         i++;
     }
 
@@ -600,36 +633,42 @@ static FjslBody extract_function_body(const std::string& source, const std::stri
 // one at a time shifted everything after each one down, which is quadratic in
 // how many of them there are — invisible in a hand-written shader with a
 // single fragment(), but composition inlines a hook per contribution.
+//
+// The search runs on the source with its comments masked. A comment saying
+// "before fragment() runs" used to be taken for the hook, and everything from
+// that line to the next closing brace was erased: every helper after it went
+// missing from the globals with no word said.
 static void strip_function(std::string& source, const std::string& func_name) {
+    const std::string code = mask_comments(source);
     // Match an identifier-boundary occurrence to avoid stripping
     // "fragment_helper" when looking for "fragment".
     std::vector<std::pair<size_t, size_t>> blocks;
     size_t search_from = 0;
-    while (search_from < source.size()) {
-        auto pos = source.find(func_name, search_from);
+    while (search_from < code.size()) {
+        auto pos = code.find(func_name, search_from);
         if (pos == std::string::npos) break;
         // Check left boundary (start of source or non-identifier char before)
-        bool left_ok = (pos == 0) || !is_identifier_char(source[pos - 1]);
+        bool left_ok = (pos == 0) || !is_identifier_char(code[pos - 1]);
         // Right side must be optional whitespace + '('
         size_t after = pos + func_name.size();
         size_t scan = after;
-        while (scan < source.size() && std::isspace(static_cast<unsigned char>(source[scan]))) scan++;
-        bool right_ok = (scan < source.size() && source[scan] == '(');
+        while (scan < code.size() && std::isspace(static_cast<unsigned char>(code[scan]))) scan++;
+        bool right_ok = (scan < code.size() && code[scan] == '(');
         if (!left_ok || !right_ok) {
             search_from = pos + 1;
             continue;
         }
         // Walk back to the start of the signature (newline before return type)
         size_t sig_start = pos;
-        while (sig_start > 0 && source[sig_start - 1] != '\n') sig_start--;
+        while (sig_start > 0 && code[sig_start - 1] != '\n') sig_start--;
         // Find '{'
-        auto brace_start = source.find('{', scan);
+        auto brace_start = code.find('{', scan);
         if (brace_start == std::string::npos) break;
         int depth = 1;
         size_t i = brace_start + 1;
-        while (i < source.size() && depth > 0) {
-            if (source[i] == '{') depth++;
-            else if (source[i] == '}') depth--;
+        while (i < code.size() && depth > 0) {
+            if (code[i] == '{') depth++;
+            else if (code[i] == '}') depth--;
             i++;
         }
         if (depth != 0) break;
@@ -1235,17 +1274,19 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // Sky, fog and post shaders supply their user code via sky(), density()
     // and color() rather than fragment(); all route through the same fragment_body slot
     // so the /*FJSL_USER_CODE*/ substitution path serves every type.
+    // Hooks are looked for where there is code, never in a comment.
+    const std::string code = mask_comments(source);
     if (meta.is_function) {
-        meta.main_body = extract_function_body(source, "main");
+        meta.main_body = extract_function_body(source, code, "main");
     } else {
         const char* body_hook = "fragment";
         if (meta.shader_type == ShaderType::Sky) body_hook = "sky";
         if (meta.shader_type == ShaderType::Fog) body_hook = "density";
         if (meta.shader_type == ShaderType::Post) body_hook = "color";
-        meta.fragment_body = extract_function_body(source, body_hook);
-        meta.vertex_body = extract_function_body(source, "vertex");
-        meta.light_body = extract_function_body(source, "light");
-        meta.layers_body = extract_function_body(source, "layers");
+        meta.fragment_body = extract_function_body(source, code, body_hook);
+        meta.vertex_body = extract_function_body(source, code, "vertex");
+        meta.light_body = extract_function_body(source, code, "light");
+        meta.layers_body = extract_function_body(source, code, "layers");
     }
     meta.user_globals = extract_user_globals(source, meta.type());
     // Kept so the generator can turn a body's byte offset into a line number.
@@ -1271,7 +1312,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     for (const auto& rule : hook_rules(meta.type())) {
         if (rule.refusal.empty()) continue;
 
-        const size_t at = find_function_declaration(source, rule.hook);
+        const size_t at = find_function_declaration(code, rule.hook);
         if (at == std::string::npos) continue;
 
         diagnose(at, FjslSeverity::error,
@@ -1283,14 +1324,14 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     // fog shader with no density() makes no fog at all, which reads as the
     // pass being broken rather than the file being incomplete.
     if (!meta.is_function && meta.shader_type == ShaderType::Fog
-        && find_function_declaration(source, "density") == std::string::npos) {
+        && find_function_declaration(code, "density") == std::string::npos) {
         diagnose(0, FjslSeverity::warning,
                  "a shader_type fog shader with no density() makes no fog");
     }
     // An empty color() is not the engine's look: it shows the exposed scene
     // clamped, with no tone curve, which reads as a broken frame.
     if (!meta.is_function && meta.shader_type == ShaderType::Post
-        && find_function_declaration(source, "color") == std::string::npos) {
+        && find_function_declaration(code, "color") == std::string::npos) {
         diagnose(0, FjslSeverity::warning,
                  "a shader_type post shader with no color() shows the scene with no tone curve");
     }
@@ -1417,20 +1458,6 @@ struct GlobalFunction {
     size_t end{0};
     std::string name;
 };
-
-// How long the comment starting at `at` is, or 0 when none starts there.
-size_t comment_length(std::string_view text, size_t at) {
-    if (at + 1 >= text.size() || text[at] != '/') return 0;
-    if (text[at + 1] == '/') {
-        const size_t end = text.find('\n', at);
-        return (end == std::string_view::npos ? text.size() : end) - at;
-    }
-    if (text[at + 1] == '*') {
-        const size_t end = text.find("*/", at + 2);
-        return (end == std::string_view::npos ? text.size() : end + 2) - at;
-    }
-    return 0;
-}
 
 // The functions `globals` defines, in order. Each covers what leads up to it
 // since the declaration before, so a function's comment goes with it. A

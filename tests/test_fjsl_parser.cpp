@@ -531,6 +531,70 @@ TEST_CASE("Nested braces in function body", "[fjsl]") {
     REQUIRE(meta.fragment_body.code.find("ALBEDO") != std::string::npos);
 }
 
+// --- Comments are not code ---
+//
+// A hook named in a comment once erased everything from that line to the next
+// closing brace, so the helpers after it went missing from the globals with no
+// word said (a comment in sea.fjsl did this for months).
+
+TEST_CASE("A comment naming a hook deletes nothing", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        // The tint seeds ALBEDO before fragment() runs; vertex() and light()
+        // are left to the template.
+        vec3 tinted(vec3 c) { return c * 0.5; }
+        float softened(float x) { return x * x; }
+        void fragment() {
+            ALBEDO = tinted(ALBEDO);
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    CHECK(meta.user_globals.find("vec3 tinted(") != std::string::npos);
+    CHECK(meta.user_globals.find("float softened(") != std::string::npos);
+    CHECK(meta.fragment_body.code.find("ALBEDO = tinted(ALBEDO);") != std::string::npos);
+    CHECK(meta.vertex_body.empty());
+    CHECK(meta.light_body.empty());
+}
+
+TEST_CASE("A brace in a comment does not end a hook's body", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        void fragment() {
+            ROUGHNESS = 0.4;  // keep } out of the way
+            /* { } */
+            METALLIC = 1.0;
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    CHECK(meta.fragment_body.code.find("METALLIC = 1.0;") != std::string::npos);
+    // The comments themselves stay in the body.
+    CHECK(meta.fragment_body.code.find("keep } out of the way") != std::string::npos);
+}
+
+TEST_CASE("A helper named like a hook is not the hook", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        void fragment_tint(inout vec3 c) { c *= 0.5; }
+        void fragment() {
+            fragment_tint(ALBEDO);
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    CHECK(meta.fragment_body.code.find("fragment_tint(ALBEDO);") != std::string::npos);
+    CHECK(meta.user_globals.find("void fragment_tint(") != std::string::npos);
+}
+
+TEST_CASE("A refused hook named only in a comment is not refused", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type ui;
+        // There is no void vertex() for a ui quad; it paints in fragment().
+        void fragment() {
+            ALBEDO = vec3(1.0);
+        }
+    )");
+    CHECK_FALSE(meta.has_errors());
+}
+
 // --- uniform_float_count ---
 
 TEST_CASE("uniform_float_count returns correct sizes", "[fjsl]") {
