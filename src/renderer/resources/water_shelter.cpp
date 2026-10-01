@@ -25,6 +25,32 @@ constexpr float WEIGHT_STEP = 0.01f;
 // stop.
 constexpr float MARGIN_SHARE = 0.25f;
 
+// The depth the warp's grid records where there is no bed: deep enough for any
+// wave.
+constexpr float DEEP = 1e6f;
+
+// k / k_deep for a wave at depth `mu` = k_deep * d, from the dispersion
+// relation x tanh(x) = mu, x = k d, solved by Newton; held to MAX_SHORTENING.
+// No more than nothing is land, where the wave carries on unshortened.
+[[nodiscard]] float shortening(float mu) {
+    if (mu <= 0.0f) return 1.0f;
+    if (mu >= 20.0f) return 1.0f;   // tanh(20) is 1 in a float
+    double x = mu < 1.0f ? std::sqrt(static_cast<double>(mu)) : static_cast<double>(mu);
+    for (int i = 0; i < 40; ++i) {
+        const double t = std::tanh(x);
+        x -= ((x * t) - mu) / (t + (x * (1.0 - (t * t))));
+    }
+    return std::min(static_cast<float>(x / mu), MAX_SHORTENING);
+}
+
+// Back to nothing across the margin: the share of a sample's value kept, by
+// how far it lies inside the grid's edge.
+[[nodiscard]] float kept_inside(std::uint32_t edge_samples, float cell, float margin) {
+    if (margin <= 0.0f) return 1.0f;
+    const float into = std::clamp(static_cast<float>(edge_samples) * cell / margin, 0.0f, 1.0f);
+    return into * into * (3.0f - (2.0f * into));
+}
+
 [[nodiscard]] glm::vec2 stepped_heading(glm::vec2 travel) {
     const float degrees = glm::degrees(std::atan2(travel.y, travel.x));
     const float stepped =
@@ -65,28 +91,31 @@ void settle(std::vector<ShelterSource>& sources) {
     }
 }
 
-// One way a sum arrives, swept down the grid: the share of its energy that
-// reaches each sample, into `energy`.
+// A field carried down a grid of `n` samples `size` metres across, a row at a
+// time in the direction waves of `wavelength` travel, into `field`.
 //
 // The sweep runs a row at a time along whichever axis the waves travel more
 // along, so each row reads only the one before it: a sample takes what was
 // one row upwind, a fraction of a cell to the side when the waves cross the
-// axis at an angle. Land keeps nothing. The share spreads sideways as it goes
-// — read from either side of the upwind point, a lateral variance of twice
-// wavelength / 4pi added per metre travelled — which is what fills a lee back
-// in behind the end of the land that cast it, its edge widening as the square
-// root of wavelength times distance. Outside the grid is open sea.
-void sweep(const ShelterLand& land, const ShelterSource& source, std::vector<float>& energy) {
-    const std::uint32_t n = land.samples;
-    const float cell = land.size / static_cast<float>(n - 1);
-    const glm::vec2 travel = glm::normalize(source.travel);
+// axis at an angle. It spreads sideways as it goes — read from either side of
+// the upwind point, a lateral variance of twice wavelength / 4pi added per
+// metre travelled — which is how waves bend around the end of whatever stood
+// in their way, its edge widening as the square root of wavelength times
+// distance. Outside the grid, and at its upwind edge, the field is `enter`.
+// `at(sample, carried, step)` makes a sample's value from what it received
+// from upwind, `step` metres back.
+template <typename At>
+void carry(std::uint32_t n, float size, glm::vec2 direction, float wavelength, float enter,
+           std::vector<float>& field, At&& at) {
+    const float cell = size / static_cast<float>(n - 1);
+    const glm::vec2 travel = glm::normalize(direction);
 
     const bool along_z = std::abs(travel.y) >= std::abs(travel.x);
     const float major = along_z ? travel.y : travel.x;
     const float minor = along_z ? travel.x : travel.y;
     const float shift = minor / std::abs(major);    // cells to the side per row
     const float step = cell / std::abs(major);      // metres travelled per row
-    const float spreading = source.wavelength / (2.0f * TAU);
+    const float spreading = wavelength / (2.0f * TAU);
     const float sigma = std::sqrt(2.0f * spreading * step);
     const float offset = sigma / (cell * std::abs(major));   // in cells along a row
 
@@ -97,30 +126,36 @@ void sweep(const ShelterLand& land, const ShelterSource& source, std::vector<flo
     };
     const float last = static_cast<float>(n - 1);
     const auto upwind = [&](std::uint32_t row, float column) -> float {
-        if (column < 0.0f || column > last) return 1.0f;
+        if (column < 0.0f || column > last) return enter;
         const auto c0 = static_cast<std::uint32_t>(column);
         const std::uint32_t c1 = std::min(c0 + 1, n - 1);
         const float t = column - static_cast<float>(c0);
-        const float a = energy[index(c0, row)];
-        const float b = energy[index(c1, row)];
+        const float a = field[index(c0, row)];
+        const float b = field[index(c1, row)];
         return a + ((b - a) * t);
     };
 
     for (std::uint32_t c = 0; c < n; ++c) {
         const std::size_t i = index(c, 0);
-        energy[i] = land.land[i] != 0 ? 0.0f : 1.0f;
+        field[i] = at(i, enter, 0.0f);
     }
     for (std::uint32_t r = 1; r < n; ++r) {
         for (std::uint32_t c = 0; c < n; ++c) {
-            const std::size_t i = index(c, r);
-            if (land.land[i] != 0) {
-                energy[i] = 0.0f;
-                continue;
-            }
             const float from = static_cast<float>(c) - shift;
-            energy[i] = 0.5f * (upwind(r - 1, from - offset) + upwind(r - 1, from + offset));
+            const float carried =
+                0.5f * (upwind(r - 1, from - offset) + upwind(r - 1, from + offset));
+            const std::size_t i = index(c, r);
+            field[i] = at(i, carried, step);
         }
     }
+}
+
+// One way a sum arrives, swept down the shelter's grid: the share of its
+// energy that reaches each sample, into `energy`. The open sea comes in; land
+// keeps nothing.
+void sweep(const ShelterLand& land, const ShelterSource& source, std::vector<float>& energy) {
+    carry(land.samples, land.size, source.travel, source.wavelength, 1.0f, energy,
+          [&](std::size_t i, float carried, float) { return land.land[i] != 0 ? 0.0f : carried; });
 }
 
 // Every source of one sum swept and added by weight, into `sum`. Returns the
@@ -150,11 +185,17 @@ ShelterSources shelter_sources(const FjWaterData& water) {
 
     if (water.packed_trains.has_value()) {
         const PackedTrains& t = *water.packed_trains;
+        float strongest = 0.0f;
         for (std::size_t i = 0; i < t.count; ++i) {
             const float amplitude = t.amplitude[i];
             if (amplitude <= 0.0f || t.k[i] <= 0.0f) continue;
-            out.trains.push_back({stepped_heading({t.dir_x[i], t.dir_z[i]}), amplitude * amplitude,
-                                  stepped_wavelength(TAU / t.k[i])});
+            const glm::vec2 heading = stepped_heading({t.dir_x[i], t.dir_z[i]});
+            const float wavelength = stepped_wavelength(TAU / t.k[i]);
+            out.trains.push_back({heading, amplitude * amplitude, wavelength});
+            if (amplitude > strongest) {
+                strongest = amplitude;
+                out.trains_dominant = {heading, TAU / wavelength};
+            }
         }
         settle(out.trains);
     }
@@ -173,6 +214,7 @@ ShelterSources shelter_sources(const FjWaterData& water) {
             const int each_side = static_cast<int>(std::ceil(reach / step));
             const float heading = std::atan2(sea.wind_direction.y, sea.wind_direction.x);
             const float wavelength = stepped_wavelength(TAU / k);
+            out.simulated_dominant = {stepped_heading(sea.wind_direction), TAU / wavelength};
             for (int j = -each_side; j <= each_side; ++j) {
                 const float angle =
                     glm::radians(reach * static_cast<float>(j) / static_cast<float>(each_side));
@@ -245,6 +287,21 @@ ShelterLand shelter_land(const ShoreBed& bed) {
             out.land[(static_cast<std::size_t>(z) * n) + x] = is_land(highest) ? 1 : 0;
         }
     }
+
+    // The warp's grid: every other sample of this one, and the still depth at
+    // each — the bed as the water reads it, deep where there is none.
+    out.warp_samples = ((n - 1) / 2) + 1;
+    const std::uint32_t m = out.warp_samples;
+    const float warp_cell = out.size / static_cast<float>(m - 1);
+    out.warp_depths.assign(static_cast<std::size_t>(m) * m, DEEP);
+    for (std::uint32_t z = 0; z < m; ++z) {
+        for (std::uint32_t x = 0; x < m; ++x) {
+            const glm::vec2 at = out.min_corner + (glm::vec2(x, z) * warp_cell);
+            if (const std::optional<StillDepth> still = still_depth(bed, at)) {
+                out.warp_depths[(static_cast<std::size_t>(z) * m) + x] = still->depth;
+            }
+        }
+    }
     return out;
 }
 
@@ -282,17 +339,55 @@ ShoreExposure bake_exposure(const ShelterLand& land, const ShelterSources& sourc
             const std::size_t i = (static_cast<std::size_t>(z) * n) + x;
             // Back to the open sea across the margin, which is what lies past
             // the grid.
-            const std::uint32_t edge = std::min({x, z, n - 1 - x, n - 1 - z});
-            const float into = land.margin > 0.0f
-                ? std::clamp(static_cast<float>(edge) * cell / land.margin, 0.0f, 1.0f)
-                : 1.0f;
-            const float kept = into * into * (3.0f - (2.0f * into));
+            const float kept =
+                kept_inside(std::min({x, z, n - 1 - x, n - 1 - z}), cell, land.margin);
             const float g = share(trains[i], trains_weight);
             const float s = share(simulated[i], simulated_weight);
             out.shares[2 * i] = stored(1.0f + ((g - 1.0f) * kept));
             out.shares[(2 * i) + 1] = stored(1.0f + ((s - 1.0f) * kept));
         }
     }
+    return out;
+}
+
+ShoreWarp bake_warp(const ShelterLand& land, const ShelterSources& sources) {
+    ShoreWarp out;
+    out.samples = land.warp_samples;
+    out.min_corner = land.min_corner;
+    out.size = land.size;
+    const std::uint32_t m = land.warp_samples;
+    const std::size_t count = static_cast<std::size_t>(m) * m;
+    if (m < 2 || land.warp_depths.size() != count) {
+        out.samples = 0;
+        return out;
+    }
+    out.offsets.assign(4 * count, 0.0f);
+    const float cell = land.size / static_cast<float>(m - 1);
+
+    std::vector<float> lag(count);
+    std::vector<float> shorter(count);
+    const auto bake_one = [&](const WarpSource& dominant, std::uint32_t pair) {
+        if (dominant.k <= 0.0f) return;
+        for (std::size_t i = 0; i < count; ++i) {
+            shorter[i] = shortening(dominant.k * land.warp_depths[i]) - 1.0f;
+        }
+        carry(m, land.size, dominant.travel, TAU / dominant.k, 0.0f, lag,
+              [&](std::size_t i, float carried, float step) {
+                  return carried + (step * shorter[i]);
+              });
+        const glm::vec2 travel = glm::normalize(dominant.travel);
+        for (std::uint32_t z = 0; z < m; ++z) {
+            for (std::uint32_t x = 0; x < m; ++x) {
+                const std::size_t i = (static_cast<std::size_t>(z) * m) + x;
+                const float kept =
+                    kept_inside(std::min({x, z, m - 1 - x, m - 1 - z}), cell, land.margin);
+                out.offsets[(4 * i) + (2 * pair)] = travel.x * lag[i] * kept;
+                out.offsets[(4 * i) + (2 * pair) + 1] = travel.y * lag[i] * kept;
+            }
+        }
+    };
+    bake_one(sources.trains_dominant, 0);
+    bake_one(sources.simulated_dominant, 1);
     return out;
 }
 
@@ -303,20 +398,21 @@ ShoreDerivation& ShoreDerivation::operator=(ShoreDerivation&&) noexcept = defaul
 ShoreDerivation::~ShoreDerivation() {
     // A worker still baking is finished with before what it bakes for goes
     // away. It holds only shared, unchanging data.
-    if (baking_.has_value() && baking_->exposure.valid()) baking_->exposure.wait();
+    if (baking_.has_value() && baking_->bakes.valid()) baking_->bakes.wait();
 }
 
 void ShoreDerivation::collect() {
     if (!baking_.has_value()) return;
-    if (baking_->exposure.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-    exposure_ = std::make_shared<const ShoreExposure>(baking_->exposure.get());
-    exposure_from_ = std::move(baking_->from);
+    if (baking_->bakes.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    auto [exposure, warp] = baking_->bakes.get();
+    bakes_.exposure = std::make_shared<const ShoreExposure>(std::move(exposure));
+    bakes_.warp = std::make_shared<const ShoreWarp>(std::move(warp));
+    baked_from_ = std::move(baking_->from);
     baking_.reset();
 }
 
-std::shared_ptr<const ShoreExposure> ShoreDerivation::derive(
-    const ShoreBed& bed, const FjWaterData& water, ThreadPool* workers,
-    std::shared_ptr<const ShoreExposure> previous) {
+ShoreBakes ShoreDerivation::derive(const ShoreBed& bed, const FjWaterData& water,
+                                   ThreadPool* workers, ShoreBakes previous) {
     const LandKey key{bed.terrain.get(), bed.generation, bed.min_corner, bed.ground_y,
                       bed.surface_y};
     if (!land_key_.has_value() || *land_key_ != key) {
@@ -326,31 +422,36 @@ std::shared_ptr<const ShoreExposure> ShoreDerivation::derive(
     collect();
 
     ShelterSources sources = shelter_sources(water);
-    if (sources.trains.empty() && sources.simulated.empty()) return nullptr;   // a flat sea
+    if (sources.trains.empty() && sources.simulated.empty()) return {};   // a flat sea
 
-    if (exposure_ == nullptr && previous != nullptr && same_grid(*previous, *land_)) {
+    if (bakes_.exposure == nullptr && previous.exposure != nullptr
+        && same_grid(*previous.exposure, *land_)) {
         // Shown until this derivation's own bake is ready; not taken as
         // baked from anything, so that bake is still asked for.
-        exposure_ = std::move(previous);
+        bakes_ = std::move(previous);
     }
 
-    const bool current = exposure_ != nullptr && exposure_from_.land == land_
-                      && exposure_from_.sources == sources;
+    const bool current = bakes_.exposure != nullptr && baked_from_.land == land_
+                      && baked_from_.sources == sources;
     if (!current) {
+        const auto bake = [](const ShelterLand& land, const ShelterSources& baked) {
+            return std::make_pair(bake_exposure(land, baked), bake_warp(land, baked));
+        };
         if (workers == nullptr) {
-            exposure_ = std::make_shared<const ShoreExposure>(bake_exposure(*land_, sources));
-            exposure_from_ = Baked{land_, std::move(sources)};
+            auto [exposure, warp] = bake(*land_, sources);
+            bakes_.exposure = std::make_shared<const ShoreExposure>(std::move(exposure));
+            bakes_.warp = std::make_shared<const ShoreWarp>(std::move(warp));
+            baked_from_ = Baked{land_, std::move(sources)};
         } else if (!baking_.has_value()) {
             // One at a time. While a worker is busy the newest land and sea
             // wait here, and are what gets baked next.
             Baked from{land_, std::move(sources)};
-            auto job = workers->submit([land = from.land, baked = from.sources] {
-                return bake_exposure(*land, baked);
-            });
+            auto job = workers->submit(
+                [land = from.land, baked = from.sources, bake] { return bake(*land, baked); });
             baking_ = Baking{std::move(from), std::move(job)};
         }
     }
-    return exposure_;
+    return bakes_;
 }
 
 } // namespace fjell::water

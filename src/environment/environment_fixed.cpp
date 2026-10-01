@@ -125,9 +125,10 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
         auto* water = &water_component;
         // What the field last had, shown until this water's own bake is
         // ready: a body of water just copied into play brings it along.
-        std::shared_ptr<const water::ShoreExposure> previous_exposure =
-            water->effective_water.shore.has_value() ? water->effective_water.shore->exposure
-                                                     : nullptr;
+        water::ShoreBakes previous;
+        if (const auto& shore = water->effective_water.shore; shore.has_value()) {
+            previous = {shore->exposure, shore->warp};
+        }
         water->effective_water = water->derivation.derive(water->water, wind_xz, workers);
 
         const auto* spatial = node.as_spatial();
@@ -138,8 +139,10 @@ void EnvironmentSubsystem::advance_water(Scene& scene, std::span<const MotionSou
         // against, and how open the water around it is to that sea.
         water->effective_water.shore = shore_under(scene, *water, centre);
         if (auto& shore = water->effective_water.shore; shore.has_value()) {
-            shore->exposure = water->shelter.derive(*shore, water->effective_water, workers,
-                                                    std::move(previous_exposure));
+            water::ShoreBakes bakes =
+                water->shelter.derive(*shore, water->effective_water, workers, std::move(previous));
+            shore->exposure = std::move(bakes.exposure);
+            shore->warp = std::move(bakes.warp);
         }
 
         // What has moved through it, on top of the sea the wind made. The

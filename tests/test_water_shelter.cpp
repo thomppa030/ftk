@@ -211,16 +211,19 @@ TEST_CASE("The shore derivation bakes once, and again when the land changes", "[
     water::ShoreDerivation derivation;
 
     const auto first = derivation.derive(sea.bed, sea.water, nullptr);
-    REQUIRE(first != nullptr);
-    CHECK(derivation.derive(sea.bed, sea.water, nullptr) == first);   // nothing changed
+    REQUIRE(first.exposure != nullptr);
+    REQUIRE(first.warp != nullptr);
+    // Nothing changed, nothing baked.
+    CHECK(derivation.derive(sea.bed, sea.water, nullptr).exposure == first.exposure);
 
     // An edit to the terrain is a new generation, and a new bake.
     sea.bed.generation = 1;
     const auto edited = derivation.derive(sea.bed, sea.water, nullptr);
-    CHECK(edited != first);
+    CHECK(edited.exposure != first.exposure);
+    CHECK(edited.warp != first.warp);
 
     // A flat sea has nothing to shelter.
-    CHECK(derivation.derive(sea.bed, FjWaterData{}, nullptr) == nullptr);
+    CHECK(derivation.derive(sea.bed, FjWaterData{}, nullptr).exposure == nullptr);
 }
 
 TEST_CASE("The shore derivation bakes on a worker and hands out the last meanwhile",
@@ -231,19 +234,21 @@ TEST_CASE("The shore derivation bakes on a worker and hands out the last meanwhi
     // Baked without a worker: what a body of water copied into play had.
     water::ShoreDerivation earlier;
     const auto previous = earlier.derive(sea.bed, sea.water, nullptr);
-    REQUIRE(previous != nullptr);
+    REQUIRE(previous.exposure != nullptr);
 
     water::ShoreDerivation derivation;
-    CHECK(derivation.derive(sea.bed, sea.water, &workers, previous) == previous);
+    CHECK(derivation.derive(sea.bed, sea.water, &workers, previous).exposure == previous.exposure);
 
-    std::shared_ptr<const water::ShoreExposure> baked;
+    water::ShoreBakes baked;
     for (int i = 0; i < 500; ++i) {
         baked = derivation.derive(sea.bed, sea.water, &workers, previous);
-        if (baked != previous) break;
+        if (baked.exposure != previous.exposure) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    REQUIRE(baked != previous);
-    CHECK(baked->shares == previous->shares);   // the same land and sea bake the same
+    REQUIRE(baked.exposure != previous.exposure);
+    // The same land and sea bake the same.
+    CHECK(baked.exposure->shares == previous.exposure->shares);
+    CHECK(baked.warp->offsets == previous.warp->offsets);
 }
 
 TEST_CASE("The lee kept is the share of it SHELTER_STRENGTH says", "[water_shelter]") {
@@ -257,4 +262,159 @@ TEST_CASE("The lee kept is the share of it SHELTER_STRENGTH says", "[water_shelt
     CHECK(trains_share(half, 50, 80) == Approx(0.5).margin(0.01));
     const water::ShoreExposure none = water::bake_exposure(land, sources, 0.0f);
     CHECK(trains_share(none, 50, 80) == 1.0f);
+}
+
+namespace {
+
+// k / k_deep at depth d for deep wavenumber k, from x tanh(x) = k d solved
+// here by Newton, as a check on the bake's own solve.
+double solved_shortening(double k, double d) {
+    const double mu = k * d;
+    double x = mu < 1.0 ? std::sqrt(mu) : mu;
+    for (int i = 0; i < 60; ++i) {
+        const double t = std::tanh(x);
+        x -= ((x * t) - mu) / (t + (x * (1.0 - (t * t))));
+    }
+    return x / mu;
+}
+
+// A warp grid of `samples` a side over `size` metres, open water at depths
+// `depth(x, z)` in samples, no margin.
+template <typename Fn>
+water::ShelterLand warp_ground(std::uint32_t samples, float size, Fn&& depth) {
+    water::ShelterLand land;
+    land.size = size;
+    land.warp_samples = samples;
+    land.warp_depths.resize(static_cast<std::size_t>(samples) * samples);
+    for (std::uint32_t z = 0; z < samples; ++z) {
+        for (std::uint32_t x = 0; x < samples; ++x) {
+            land.warp_depths[(static_cast<std::size_t>(z) * samples) + x] = depth(x, z);
+        }
+    }
+    return land;
+}
+
+glm::vec2 trains_offset(const water::ShoreWarp& w, std::uint32_t x, std::uint32_t z) {
+    const std::size_t i = 4 * ((static_cast<std::size_t>(z) * w.samples) + x);
+    return {w.offsets[i], w.offsets[i + 1]};
+}
+
+} // namespace
+
+TEST_CASE("Over a level shelf the lag grows as the wave shortens", "[water_shelter]") {
+    // 3 m of water everywhere, a 40 m wave travelling +x. Every metre it falls
+    // k(3 m)/k_deep - 1 metres behind the deep sea.
+    constexpr float K = 2.0f * PI / 40.0f;
+    const auto land = warp_ground(101, 400.0f, [](std::uint32_t, std::uint32_t) { return 3.0f; });
+    water::ShelterSources sources;
+    sources.trains_dominant = {{1.0f, 0.0f}, K};
+    const water::ShoreWarp w = water::bake_warp(land, sources);
+
+    const double per_metre = solved_shortening(K, 3.0) - 1.0;
+    for (const std::uint32_t x : {10u, 50u, 100u}) {
+        const glm::vec2 offset = trains_offset(w, x, 50);
+        CHECK(offset.x == Approx(per_metre * 4.0 * x).epsilon(1e-3));
+        CHECK(offset.y == Approx(0.0).margin(1e-4));
+    }
+    // A sum with no dominant wave is not warped.
+    CHECK(w.offsets[(4 * ((50u * 101u) + 50u)) + 2] == 0.0f);
+}
+
+TEST_CASE("Up a beach the warp shortens the wave as the depth there says", "[water_shelter]") {
+    // The bed rises toward +x from 20 m to 1 m. Read through the warp, the
+    // wave's local length along x is its deep length over d(read x)/dx, which
+    // the dispersion relation says should be its length at that depth.
+    constexpr float K = 2.0f * PI / 60.0f;
+    const auto depth_at = [](float x_metres) { return 20.0f - (19.0f * x_metres / 400.0f); };
+    const auto land = warp_ground(201, 400.0f, [&](std::uint32_t x, std::uint32_t) {
+        return depth_at(2.0f * static_cast<float>(x));
+    });
+    water::ShelterSources sources;
+    sources.trains_dominant = {{1.0f, 0.0f}, K};
+    const water::ShoreWarp w = water::bake_warp(land, sources);
+
+    for (const float x : {51.0f, 201.0f, 301.0f, 381.0f}) {
+        const water::WarpAt at = water::warp_at(w, {x, 200.0f});
+        const double expected = solved_shortening(K, depth_at(x));
+        CHECK(at.trains.jacobian[0][0] == Approx(expected).epsilon(0.02));
+        CHECK(at.trains.jacobian[1][1] == Approx(1.0).margin(1e-4));
+    }
+}
+
+TEST_CASE("Land carries the lag on unchanged", "[water_shelter]") {
+    // 3 m of water with a strip of land across it: past the strip the lag is
+    // what it was before, plus the water after.
+    constexpr float K = 2.0f * PI / 40.0f;
+    const auto land = warp_ground(101, 400.0f, [](std::uint32_t x, std::uint32_t) {
+        return x >= 40 && x < 50 ? -2.0f : 3.0f;
+    });
+    water::ShelterSources sources;
+    sources.trains_dominant = {{1.0f, 0.0f}, K};
+    const water::ShoreWarp w = water::bake_warp(land, sources);
+    const double per_metre = solved_shortening(K, 3.0) - 1.0;
+    // 39 cells of water before the strip, 10 of land, then 20 of water.
+    CHECK(trains_offset(w, 69, 50).x == Approx(per_metre * 4.0 * (39 + 20)).epsilon(1e-3));
+}
+
+TEST_CASE("The warp fades to nothing past the terrain", "[water_shelter]") {
+    constexpr float K = 2.0f * PI / 40.0f;
+    auto land = warp_ground(101, 400.0f, [](std::uint32_t, std::uint32_t) { return 3.0f; });
+    land.margin = 80.0f;
+    water::ShelterSources sources;
+    sources.trains_dominant = {{1.0f, 0.0f}, K};
+    const water::ShoreWarp w = water::bake_warp(land, sources);
+    CHECK(trains_offset(w, 100, 50).x == 0.0f);   // the grid's edge
+    CHECK(trains_offset(w, 0, 50).x == 0.0f);
+    CHECK(trains_offset(w, 60, 50).x > 0.0f);     // a margin's width in
+}
+
+TEST_CASE("Each sum's warp follows its own dominant wave", "[water_shelter]") {
+    GerstnerContributor trains;
+    trains.waves = {WaterWave{{0.0f, 1.0f}, 30.0f, 0.4f, 0.5f, 1.0f},
+                    WaterWave{{1.0f, 0.0f}, 60.0f, 0.9f, 0.5f, 1.0f}};
+    FftContributor simulated;
+    simulated.wind_direction = {0.0f, -1.0f};
+    simulated.resolution = 8;
+    simulated.patch_size = 64.0f;
+    FjWaterData authored;
+    authored.contributors = {trains, simulated};
+    const FjWaterData water = water::derive_effective(authored, {0.0f, 0.0f});
+
+    const water::ShelterSources sources = water::shelter_sources(water);
+    // The strongest train, its heading and (to the step) its length.
+    CHECK(sources.trains_dominant.travel.x == Approx(1.0));
+    CHECK(2.0f * PI / sources.trains_dominant.k == Approx(60.0).epsilon(0.03));
+    // The simulated sea runs downwind at its peak.
+    CHECK(sources.simulated_dominant.travel.y == Approx(-1.0));
+    CHECK(sources.simulated_dominant.k == Approx(water.simulated->shoaling.k).epsilon(0.05));
+}
+
+TEST_CASE("The warp between its samples is their blend", "[water_shelter]") {
+    // Offsets that are planes in world position: read anywhere, the plane's
+    // value, and the Jacobian one plus its slope.
+    water::ShoreWarp w;
+    w.samples = 11;
+    w.min_corner = {-50.0f, -50.0f};
+    w.size = 100.0f;
+    w.offsets.resize(4u * 11u * 11u);
+    for (std::uint32_t z = 0; z < 11; ++z) {
+        for (std::uint32_t x = 0; x < 11; ++x) {
+            const float wx = 10.0f * static_cast<float>(x);
+            const float wz = 10.0f * static_cast<float>(z);
+            float* o = &w.offsets[4 * ((z * 11u) + x)];
+            o[0] = 0.3f * wx;
+            o[1] = -0.1f * wz;
+            o[2] = 0.05f * wz;
+            o[3] = 0.2f * wx + 0.1f * wz;
+        }
+    }
+    const water::WarpAt at = water::warp_at(w, {12.3f, -7.7f});
+    const glm::vec2 from = glm::vec2(12.3f, -7.7f) - w.min_corner;
+    CHECK(at.trains.offset.x == Approx(0.3f * from.x).margin(1e-4));
+    CHECK(at.trains.offset.y == Approx(-0.1f * from.y).margin(1e-4));
+    CHECK(at.trains.jacobian[0][0] == Approx(1.3));
+    CHECK(at.trains.jacobian[1][1] == Approx(0.9));
+    CHECK(at.simulated.jacobian[1][0] == Approx(0.05));   // d(offset x)/dz
+    CHECK(at.simulated.jacobian[0][1] == Approx(0.2));    // d(offset z)/dx
+    CHECK(water::warp_at(w, {60.0f, 0.0f}).identity());
 }
