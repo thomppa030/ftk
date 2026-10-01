@@ -82,6 +82,9 @@ struct WaterComponent : NodeComponent {
     ///
     /// Equal to `water` when the wind response is off, which is the default
     /// and the whole of the editor's world.
+    ///
+    /// Always a derived field, ready to evaluate: a new component holds flat
+    /// water derived in still air until a field is loaded into it.
     FjWaterData effective_water;
 
     /// What derives `effective_water` from `water` each frame. Its own per

@@ -2,12 +2,19 @@
 
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_instance.hpp"
+#include "renderer/resources/water_surface.hpp"
 
 namespace fjell {
 
+// The field starts derived, in still air: a component added in the editor or
+// by a script has no `.fjwater` yet and nothing in the editor's world derives
+// it, but the renderer asks where the surface is on the very next frame. An
+// empty field derived is flat water, with its (zero) trains prepared.
+WaterComponent::WaterComponent()
+    : effective_water(water::derive_effective(water, {0.0f, 0.0f})) {}
+
 // Out of line: `instance` holds a forward-declared MaterialInstance, so the
 // destructor and moves need its definition in scope.
-WaterComponent::WaterComponent() = default;
 WaterComponent::~WaterComponent() = default;
 WaterComponent::WaterComponent(WaterComponent&&) noexcept = default;
 WaterComponent& WaterComponent::operator=(WaterComponent&&) noexcept = default;

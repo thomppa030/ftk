@@ -1,3 +1,4 @@
+#include "renderer/components/water_component.hpp"
 #include "renderer/resources/fjwater.hpp"
 #include "renderer/resources/fjwater_io.hpp"
 #include "renderer/resources/water_gpu.hpp"
@@ -410,6 +411,17 @@ TEST_CASE("Flat water is flat", "[fjwater]") {
     REQUIRE(water::height_at(run(water), {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
     REQUIRE(water::normal_at(run(water), {3.0f, 7.0f}, 5.0f).y == Approx(1.0f));
     REQUIRE(water::crest(run(water), {3.0f, 7.0f}, 5.0f) == Approx(0.0f));
+}
+
+TEST_CASE("A new water component is flat water, ready to evaluate", "[fjwater]") {
+    // Added in the editor or by a script, before any .fjwater is loaded into
+    // it and with nothing in the editor's world to derive it: the renderer
+    // asks where its surface is on the next frame regardless.
+    const WaterComponent component;
+    REQUIRE(component.effective_water.packed_trains.has_value());
+    REQUIRE(water::height_at_iterative(component.effective_water, {3.0f, 7.0f}, 5.0f)
+            == Approx(0.0f));
+    REQUIRE(water::normal_at(component.effective_water, {3.0f, 7.0f}, 5.0f).y == Approx(1.0f));
 }
 
 TEST_CASE("A wave stays within its amplitude", "[fjwater]") {
