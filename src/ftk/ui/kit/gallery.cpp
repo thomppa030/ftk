@@ -140,11 +140,16 @@ void tokens() {
         swatch("danger", theme::danger());
         swatch("danger_hov", theme::danger_hov());
 
-        subheading("Categories");
-        for (int c = 0; c <= static_cast<int>(theme::Category::Structure); ++c) {
-            const auto category = static_cast<theme::Category>(c);
-            swatch(theme::category_name(category), theme::category(category));
-        }
+        subheading("Hues");
+        constexpr std::pair<const char*, theme::Hue> hues[] = {
+            {"blue", theme::Hue::blue},     {"ochre", theme::Hue::ochre},
+            {"teal", theme::Hue::teal},     {"cyan", theme::Hue::cyan},
+            {"coral", theme::Hue::coral},   {"pink", theme::Hue::pink},
+            {"orange", theme::Hue::orange}, {"periwinkle", theme::Hue::periwinkle},
+            {"lilac", theme::Hue::lilac},   {"slate", theme::Hue::slate},
+            {"grey", theme::Hue::grey},
+        };
+        for (const auto& [name, h] : hues) swatch(name, theme::hue(h));
 
         subheading("Axes and canvas");
         swatch("axis_x", theme::axis_x());
@@ -297,22 +302,22 @@ Edit KitGallery::choices() {
 
 void KitGallery::blocks() {
     if (section_foldable("Component blocks", ICON_LC_MORE_HORIZONTAL)) {
-        const std::pair<const char*, theme::Category> samples[] = {
-            {"Mesh", theme::Category::Rendering},
-            {"Collider", theme::Category::Physics},
-            {"Audio Source", theme::Category::Audio},
+        const std::pair<const char*, theme::Hue> samples[] = {
+            {"Mesh", theme::Hue::blue},
+            {"Collider", theme::Hue::coral},
+            {"Audio Source", theme::Hue::orange},
         };
-        for (const auto& [name, category] : samples) {
+        for (const auto& [name, hue] : samples) {
             ImGui::PushID(name);
             bool remove = false;
-            if (component_block(name, category, remove)) {
+            if (component_block(name, hue, remove)) {
                 if (auto t = PropertyTable("##body")) {
                     row("Cast shadows", [&] { checkbox("##shadows", shadows_); });
                 }
                 // A mesh's material values, set apart in their box.
-                if (category == theme::Category::Rendering) {
+                if (hue == theme::Hue::blue) {
                     if (auto box = InsetGroup("##material", "Material", ICON_LC_CIRCLE_DOT,
-                                              theme::category(theme::Category::Rendering))) {
+                                              theme::hue(theme::Hue::blue))) {
                         if (auto t = PropertyTable("##material_rows")) {
                             row("Roughness", [&] { slider("##roughness", slope_, 0.0f, 90.0f); });
                             row("Tint", [&] { color("##tint", tint_, ColorSpace::Srgb); });
@@ -322,7 +327,7 @@ void KitGallery::blocks() {
                 if (auto t = PropertyTable("##body_more")) {
                     // An action sits in the value column beside what it acts
                     // on, one click away.
-                    if (category == theme::Category::Physics) {
+                    if (hue == theme::Hue::coral) {
                         row("Size", [&] { vec3("##size", scale_); });
                         row("", [&] {
                             if (action(ICON_LC_CROSSHAIR, "Fit to mesh")) removed_ = "Fit to mesh";
@@ -395,8 +400,8 @@ void KitGallery::graphs() {
 
     subheading("By pins");
     {
-        const ImVec4 time_hue = theme::category(theme::Category::Logic);
-        const ImVec4 float_colour = theme::category(theme::Category::Rendering);
+        const ImVec4 time_hue = theme::hue(theme::Hue::slate);
+        const ImVec4 float_colour = theme::hue(theme::Hue::blue);
         NodeGraphDesc desc;
         NodeRow time;
         time.output = NodePin{.id = 11, .label = "Seconds", .colour = float_colour};
@@ -416,7 +421,7 @@ void KitGallery::graphs() {
                                              [](const NodeLink& l) { return l.to.pin == 31; });
         if (!rate_linked) rate.value = NodeValue::number(spawn_rate_, {.speed = 1.0f, .lo = 0.0f, .hi = 1000.0f});
         desc.nodes.push_back({.id = 3, .position = pin_places_[2], .title = "Spawn rate",
-                              .hue = theme::category(theme::Category::Environment), .rows = {rate}});
+                              .hue = theme::hue(theme::Hue::cyan), .rows = {rate}});
         desc.links = pin_links_;
         desc.can_link = [this](const NodeEnd&, const NodeEnd& to) {
             // One link into an input.
@@ -442,7 +447,7 @@ void KitGallery::graphs() {
                                   .anchor = NodeAnchor::Centre,
                                   .width = 160.0f,
                                   .title = NAMES[i],
-                                  .hue = theme::category(theme::Category::Animation),
+                                  .hue = theme::hue(theme::Hue::pink),
                                   .connect = NodeConnect::Edge,
                                   .rows = {what}});
         }
@@ -456,24 +461,24 @@ void KitGallery::graphs() {
 }
 
 void KitGallery::tree_sample() {
-    using C = theme::Category;
+    using H = theme::Hue;
     struct Row {
         int depth;
         const char* icon;
-        std::optional<C> category;
-        std::vector<C> dots;
+        std::optional<H> hue;
+        std::vector<H> dots;
     };
     // Sheet 6's harbour, depth first: a row's descendants follow it.
     static const Row rows[] = {
-        {0, icon::folder, C::Structure, {}},
-        {1, ICON_LC_SUN, C::Light, {}},
-        {1, ICON_LC_CAMERA, C::Camera, {}},
-        {1, icon::folder, C::Structure, {}},
-        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics, C::Audio, C::Logic}},
-        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics}},
-        {2, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Animation}},
-        {3, ICON_LC_BOX, std::nullopt, {C::Rendering, C::Physics}},
-        {1, ICON_LC_CLOUD, C::Environment, {}},
+        {0, icon::folder, H::grey, {}},
+        {1, ICON_LC_SUN, H::ochre, {}},
+        {1, ICON_LC_CAMERA, H::teal, {}},
+        {1, icon::folder, H::grey, {}},
+        {2, ICON_LC_BOX, std::nullopt, {H::blue, H::coral, H::orange, H::slate}},
+        {2, ICON_LC_BOX, std::nullopt, {H::blue, H::coral}},
+        {2, ICON_LC_BOX, std::nullopt, {H::blue, H::pink}},
+        {3, ICON_LC_BOX, std::nullopt, {H::blue, H::coral}},
+        {1, ICON_LC_CLOUD, H::cyan, {}},
     };
     constexpr std::size_t count = std::size(rows);
 
@@ -503,7 +508,7 @@ void KitGallery::tree_sample() {
             const std::string id = std::to_string(i);
             const auto result = tree_row({
                 .id = id.c_str(), .name = tree_names_[i], .depth = row.depth, .has_children = has_children,
-                .icon = row.icon, .category = row.category, .dots = row.dots,
+                .icon = row.icon, .hue = row.hue, .dots = row.dots,
                 .selection = i == tree_selected_ ? RowSelection::Primary
                            : i == 5            ? RowSelection::Secondary
                                                : RowSelection::None,

@@ -6,19 +6,19 @@
 
 namespace ftk::ui {
 
-/// What kind of thing an asset file is, for everywhere the editor shows one:
-/// its icon, its category colour and the word for it. The category is the
-/// domain (a mesh, its material and its texture are all Rendering); the icon
-/// tells them apart.
+/// What kind of thing an asset file is, for everywhere an editor shows one:
+/// its icon, its hue and the word for it. A program gives one hue to each
+/// kind of thing it tells apart (a mesh, its material and its texture can
+/// share one); the icon tells those apart.
 struct AssetKind {
     const char* noun;  ///< "material", "mesh"
     const char* icon;  ///< from ui::icon
-    theme::Category category;
+    theme::Hue hue;
 };
 
 /// The kind of the file with this extension (".png", ".fjmat"). The kit knows
 /// the file types any program has: images, fonts and audio clips. Anything
-/// else is what a program registered, or a plain "file" in Structure.
+/// else is what a program registered, or a plain "file" in grey.
 [[nodiscard]] const AssetKind& asset_kind(std::string_view extension);
 
 /// Shows files with `extension` (".fjmat") as `kind` wherever a kind is

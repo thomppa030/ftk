@@ -16,7 +16,7 @@ namespace {
 
 constexpr float SECTION_SIZE = 13.0f;
 constexpr float SUBHEADING_SIZE = 11.5f;
-// The category dot before a group's name.
+// The dot in its hue before a group's name.
 constexpr float DOT_DIAMETER = 7.0f;
 
 std::string uppercase(const char* label) {
@@ -27,12 +27,12 @@ std::string uppercase(const char* label) {
     return out;
 }
 
-// One heading row: an optional rule above, then chevron, icon or category
+// One heading row: an optional rule above, then chevron, icon or hue
 // dot, and label in the secondary text colour. Folds when `foldable`;
 // returns whether open.
 bool heading(const char* label, const char* icon, float size, bool rule,
              bool foldable, bool default_open,
-             std::optional<theme::Category> dot = std::nullopt) {
+             std::optional<theme::Hue> dot = std::nullopt) {
     // Under a search the matching rows stand on their own, every group open.
     if (detail::filtering()) return true;
     ImGui::PushID(label);
@@ -74,7 +74,7 @@ bool heading(const char* label, const char* icon, float size, bool rule,
         const float r = DOT_DIAMETER * 0.5f;
         ImGui::GetWindowDrawList()->AddCircleFilled(
             {p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f}, r,
-            ImGui::ColorConvertFloat4ToU32(theme::category(*dot)));
+            ImGui::ColorConvertFloat4ToU32(theme::hue(*dot)));
         ImGui::Dummy({DOT_DIAMETER, ImGui::GetTextLineHeight()});
         ImGui::SameLine(0.0f, theme::GAP_S);
     }
@@ -107,8 +107,8 @@ bool subheading_foldable(const char* label, bool default_open) {
     return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open);
 }
 
-bool subheading_foldable(const char* label, theme::Category category, bool default_open) {
-    return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open, category);
+bool subheading_foldable(const char* label, theme::Hue hue, bool default_open) {
+    return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open, hue);
 }
 
 } // namespace ftk::ui

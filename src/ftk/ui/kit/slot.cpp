@@ -141,7 +141,7 @@ SlotFace asset_face(std::string_view file_name, AssetPresence presence, std::str
         case AssetPresence::held: {
             const AssetKind& kind = asset_kind(std::filesystem::path(file_name).extension().string());
             face.glyph = kind.icon;
-            face.glyph_colour = theme::category(kind.category);
+            face.glyph_colour = theme::hue(kind.hue);
             text = file_name;
             face.text_colour = theme::text();
             break;

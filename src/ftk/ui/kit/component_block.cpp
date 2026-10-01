@@ -19,7 +19,7 @@ constexpr float BAR_ROUNDING = 1.0f;
 namespace {
 
 // The block, with a switch when `enabled` is given.
-bool draw_block(const char* name, theme::Category category, bool& remove, bool* enabled) {
+bool draw_block(const char* name, theme::Hue hue, bool& remove, bool* enabled) {
     ImGuiStorage* storage = ImGui::GetStateStorage();
     const ImGuiID open_id = ImGui::GetID("##block_open");
     bool open = storage->GetBool(open_id, true);
@@ -30,14 +30,14 @@ bool draw_block(const char* name, theme::Category category, bool& remove, bool* 
     const float width = ImGui::GetContentRegionAvail().x;
     const float height = ImGui::GetFrameHeight();
 
-    // The category bar, set apart from the block above and close to its own
+    // The bar in its hue, set apart from the block above and close to its own
     // header: GAP_M + GAP_XS above it counting the item spacing, GAP_S under.
     // Grey while the block is switched off.
     ImVec2 p = ImGui::GetCursorScreenPos();
     const float bar_y = p.y + theme::GAP_M + theme::GAP_XS - style.ItemSpacing.y;
-    dl->AddRectFilled({p.x, bar_y}, {p.x + width, bar_y + theme::CATEGORY_BAR},
-                      ImGui::GetColorU32(on ? theme::category(category) : theme::surface_active()), BAR_ROUNDING);
-    ImGui::Dummy({width, bar_y + theme::CATEGORY_BAR + theme::GAP_S - style.ItemSpacing.y - p.y});
+    dl->AddRectFilled({p.x, bar_y}, {p.x + width, bar_y + theme::HUE_BAR},
+                      ImGui::GetColorU32(on ? theme::hue(hue) : theme::surface_active()), BAR_ROUNDING);
+    ImGui::Dummy({width, bar_y + theme::HUE_BAR + theme::GAP_S - style.ItemSpacing.y - p.y});
 
     // The header: the whole row but the switch and the trash icon folds the
     // block.
@@ -78,12 +78,12 @@ bool draw_block(const char* name, theme::Category category, bool& remove, bool* 
 
 } // namespace
 
-bool component_block(const char* name, theme::Category category, bool& remove) {
-    return draw_block(name, category, remove, nullptr);
+bool component_block(const char* name, theme::Hue hue, bool& remove) {
+    return draw_block(name, hue, remove, nullptr);
 }
 
-bool component_block(const char* name, theme::Category category, bool& remove, bool& enabled) {
-    return draw_block(name, category, remove, &enabled);
+bool component_block(const char* name, theme::Hue hue, bool& remove, bool& enabled) {
+    return draw_block(name, hue, remove, &enabled);
 }
 
 FadedBody::FadedBody(bool faded) : faded_{faded} {

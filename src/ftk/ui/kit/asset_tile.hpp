@@ -26,10 +26,10 @@ struct AssetTileSpec {
     /// none. Drawn as it is unless `tint` is set.
     ImTextureID picture{0};
     /// Without a picture: the kind's icon glyph and colour. `tint` colours
-    /// the picture or overrides the category's colour (a folder the user
+    /// the picture or overrides its hue (a folder the user
     /// coloured).
     const char* icon{nullptr};
-    std::optional<theme::Category> category{};
+    std::optional<theme::Hue> hue{};
     std::optional<ImVec4> tint{};
     bool selected{false};
     /// The search being shown: its match in the name is amber.

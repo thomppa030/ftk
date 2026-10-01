@@ -10,13 +10,13 @@ namespace ftk::ui {
 
 namespace {
 
-using C = theme::Category;
+using H = theme::Hue;
 
-constexpr AssetKind TEXTURE{"texture", icon::texture, C::Rendering};
-constexpr AssetKind HDRI{"HDRI", icon::texture, C::Environment};
-constexpr AssetKind FONT{"font", icon::font, C::Ui};
-constexpr AssetKind AUDIO{"audio clip", icon::audio, C::Audio};
-constexpr AssetKind UNKNOWN{"file", icon::file, C::Structure};
+constexpr AssetKind TEXTURE{"texture", icon::texture, H::blue};
+constexpr AssetKind HDRI{"HDRI", icon::texture, H::cyan};
+constexpr AssetKind FONT{"font", icon::font, H::lilac};
+constexpr AssetKind AUDIO{"audio clip", icon::audio, H::orange};
+constexpr AssetKind UNKNOWN{"file", icon::file, H::grey};
 
 // Every kind by extension: the general file types, then what programs
 // registered. A map, so what asset_kind() hands out stays where it is when

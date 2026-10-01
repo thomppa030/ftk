@@ -6,7 +6,7 @@
 //
 //   section      a part of the panel (Transform, Fog Volume, Components):
 //                uppercase, a rule above, its own icon
-//   component    one thing on a node: a category bar over a framed header
+//   component    one thing on a node: a bar in its hue over a framed header
 //                (drawn by the inspector, not here)
 //   subheading   a named group inside a section or component: uppercase,
 //                smaller, no rule, no icon
@@ -29,8 +29,8 @@ void subheading(const char* label);
 /// A sub-heading that folds. Returns true while it is open.
 bool subheading_foldable(const char* label, bool default_open = true);
 
-/// A sub-heading for a group of things of one kind, led by its category's
+/// A sub-heading for a group of things of one kind, led by its hue's
 /// dot ("Physics" in the Add Component picker).
-bool subheading_foldable(const char* label, theme::Category category, bool default_open = true);
+bool subheading_foldable(const char* label, theme::Hue hue, bool default_open = true);
 
 } // namespace ftk::ui

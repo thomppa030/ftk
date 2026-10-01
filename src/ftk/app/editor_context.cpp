@@ -117,7 +117,7 @@ void EditorContext::draw_header() {
     }
     const ui::AssetHeaderSpec spec{
         .icon = kind.icon,
-        .icon_colour = theme::category(kind.category),
+        .icon_colour = theme::hue(kind.hue),
         .name = path.filename().string(),
         .folder = std::move(folder),
         .unsaved = has_unsaved_changes(),

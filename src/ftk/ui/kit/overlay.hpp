@@ -40,7 +40,7 @@ struct CornerNoteSpec {
     /// The words' colour: theme::warning() for a debug view left on,
     /// text_secondary() for a hint, text() for a name.
     ImVec4 ink;
-    /// The icon's colour when it isn't the words' (a category colour).
+    /// The icon's colour when it isn't the words' (a hue).
     std::optional<ImVec4> icon_ink{};
 };
 

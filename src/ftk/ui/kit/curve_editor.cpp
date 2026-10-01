@@ -216,7 +216,7 @@ Edit curve_editor(const char* id, Curve& curve, const CurveOptions& o) {
     const ImVec2 end{origin.x + plot.x, origin.y + plot.y};
     dl->PushClipRect(origin, end, true);
     // The curve, one sample every two pixels.
-    const ImU32 line = colour(theme::category(o.category));
+    const ImU32 line = colour(theme::hue(o.hue));
     ImVec2 prev{};
     for (float x = origin.x; x <= end.x + 2.0f; x += 2.0f) {
         const float t = std::clamp(view.to_world_x(x), 0.0f, 1.0f);
