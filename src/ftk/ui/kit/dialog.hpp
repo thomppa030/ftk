@@ -15,7 +15,7 @@
 // happens without asking.
 //
 //     if (want_to_delete) ui::open_dialog("##delete");
-//     const auto answer = ui::confirm_dialog("##delete", {.title = "Delete crate.fjmesh?",
+//     const auto answer = ui::confirm_dialog("##delete", {.title = "Delete crate.png?",
 //                                            .confirm = "Delete file", .destructive = true},
 //                                            [&] { ui::status(ui::Severity::Warning, "Used by 2 files"); });
 //     if (answer == ui::DialogAnswer::Confirm) delete_it();
@@ -108,7 +108,7 @@ DialogAnswer prompt_dialog(const char* id, const PromptSpec& spec, std::string& 
 enum class UnsavedAnswer { None, Save, DontSave, Cancel };
 
 /// Asks before closing one thing with unsaved changes (sheet 7): `title`
-/// ("Save changes to crate_wood.fjmat?"), `text` saying what is lost, then
+/// ("Save changes to crate_wood.json?"), `text` saying what is lost, then
 /// Don't save set apart on the left, Cancel, and Save with the focus.
 /// Enter saves, Esc cancels. Returns the answer on the frame it is given.
 UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text);
@@ -117,7 +117,7 @@ UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text
 struct UnsavedItem {
     const char* icon{nullptr};
     ImVec4 icon_colour{};
-    std::string name{};    ///< "crate_wood.fjmat"
+    std::string name{};    ///< "crate_wood.json"
     std::string detail{};  ///< what else saving it writes, dimmed after the name
     bool save{true};       ///< ticked: saved when the answer is Save
 };

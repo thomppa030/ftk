@@ -103,7 +103,7 @@ public:
     void revert();
 
     /// The files Save writes, for its tooltip: the asset's own file unless
-    /// the editor writes more ("hero.fjanimset, walk.fjanim and hero.fjskel").
+    /// the editor writes more ("hero.json, walk.json and hero.png").
     [[nodiscard]] virtual std::string saved_files() const;
 
     /// Draws the header strip across the context (sheet 7) when it edits an

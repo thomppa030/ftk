@@ -71,9 +71,9 @@ private:
     std::vector<std::string> names_{"idle", "walk", "run_cycle_fast"};
     std::vector<float> events_;
     // Asset slots showing a real asset, nothing, and a file that is gone.
-    std::string slot_shader_{"shaders/fog.fjsl"};
+    std::string slot_texture_{"textures/brick.png"};
     std::string slot_empty_;
-    std::string slot_missing_{"materials/planks_gone.fjmat"};
+    std::string slot_missing_{"textures/planks_gone.png"};
     // How many edits the sample fields have committed, to see that a drag
     // is one commit.
     int commits_{0};
