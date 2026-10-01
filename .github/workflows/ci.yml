@@ -48,6 +48,43 @@ jobs:
       - name: Build the libraries alone
         run: cmake --build --preset libraries
 
+  # The unit tests under AddressSanitizer and UndefinedBehaviorSanitizer: a
+  # read of freed memory or undefined behaviour fails the run here, where the
+  # other jobs pass whenever the freed memory still happens to hold the old
+  # value.
+  linux-asan:
+    name: Linux ASan (Ninja, GCC)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/linux-toolchain
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps
+            build-asan/_deps
+          key: deps-linux-asan-${{ hashFiles('cmake/FoundationDependencies.cmake', 'cmake/EngineDependencies.cmake') }}
+
+      # The asan preset builds from the imgui checkout the debug configure
+      # fetches.
+      - name: Configure
+        run: |
+          cmake --preset debug
+          cmake --preset asan
+
+      - name: Build the tests
+        run: cmake --build --preset asan --target fjell-tests fjimport -- -k 0
+
+      - name: Bake engine fonts
+        run: ./build-asan/tools/fjimport/fjimport engine_assets/fonts/Inter.fjfont
+
+      - name: Test
+        working-directory: build-asan/tests
+        run: ./fjell-tests
+
   windows:
     name: Windows (Ninja, MSVC)
     runs-on: windows-2022
