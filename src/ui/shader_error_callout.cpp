@@ -5,7 +5,7 @@
 #include "ftk/platform/platform.hpp"
 #include "ftk/shader/shader_diagnostic.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "renderer/pipeline_cache.hpp"
 
 #include <imgui.h>
@@ -40,7 +40,7 @@ bool shader_error_callout(const PipelineCache& cache, uint32_t pipeline_id, cons
     const std::string title = name + " failed to compile";
     const std::string action = "Open " + name;
     ImGui::PushID(static_cast<int>(pipeline_id));
-    if (ftk::ui::callout(ftk::ui::Severity::Error, title.c_str(), text.c_str(), ftk::ui::icon::shader, action.c_str())) {
+    if (ftk::ui::callout(ftk::ui::Severity::Error, title.c_str(), text.c_str(), icon::shader, action.c_str())) {
         if (auto opened = ftk::platform::open_path(base_path::resolve_shared(path, project)); !opened) {
             FTK_CORE_ERROR("Couldn't open {}: {}", path, opened.error());
         }

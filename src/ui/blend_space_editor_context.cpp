@@ -10,7 +10,7 @@
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -201,7 +201,7 @@ void BlendSpaceEditorContext::draw(float dt) {
 }
 
 void BlendSpaceEditorContext::draw_canvas_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::blend_space, ctx_title("Canvas").c_str());
+    auto panel = ftk::ui::Panel(icon::blend_space, ctx_title("Canvas").c_str());
     if (!panel) return;
 
     // What the cursor blends, over the canvas.
@@ -371,7 +371,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         ImGui::OpenPopup(hovered_point_ >= 0 ? "##point_menu" : "##canvas_menu");
     }
     if (ImGui::BeginPopup("##canvas_menu")) {
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add point here"})) {
+        if (ftk::ui::menu_item({.icon = icon::add, .label = "Add point here"})) {
             selected_point_ = add_point({}, menu_position_);
             points_changed();
         }
@@ -379,7 +379,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
         ImGui::EndPopup();
     }
     if (ImGui::BeginPopup("##point_menu")) {
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove point", .shortcut = "Del", .destructive = true}) &&
+        if (ftk::ui::menu_item({.icon = icon::remove, .label = "Remove point", .shortcut = "Del", .destructive = true}) &&
             selected_point_ >= 0) {
             remove_point(static_cast<std::size_t>(selected_point_));
             points_changed();
@@ -431,7 +431,7 @@ void BlendSpaceEditorContext::canvas_input(ImVec2 origin, ImVec2 size, ToScreen&
 }
 
 void BlendSpaceEditorContext::draw_points_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::blend_space, ctx_title("Points").c_str());
+    auto panel = ftk::ui::Panel(icon::blend_space, ctx_title("Points").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
@@ -498,22 +498,22 @@ void BlendSpaceEditorContext::draw_points_panel() {
 }
 
 void BlendSpaceEditorContext::draw_clips_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::animation, ctx_title("Clips").c_str());
+    auto panel = ftk::ui::Panel(icon::animation, ctx_title("Clips").c_str());
     if (!panel) return;
     if (available_clip_names_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::animation, "No clips", "Pick the skeleton in Properties to list its clips");
+        ftk::ui::empty_state(icon::animation, "No clips", "Pick the skeleton in Properties to list its clips");
         return;
     }
     // Dragged onto the canvas, a clip becomes a point, or a point's clip.
     if (auto tree = ftk::ui::Tree("##clips")) {
         for (std::size_t i = 0; i < available_clip_names_.size(); ++i) {
             const std::string id = std::to_string(i);
-            (void)ftk::ui::tree_row({.id = id.c_str(), .name = available_clip_names_[i], .icon = ftk::ui::icon::animation,
+            (void)ftk::ui::tree_row({.id = id.c_str(), .name = available_clip_names_[i], .icon = icon::animation,
                                 .category = ftk::theme::Category::Animation});
             if (ImGui::BeginDragDropSource()) {
                 const auto& path = available_clip_paths_[i];
                 ImGui::SetDragDropPayload("ASSET_PATH", path.c_str(), path.size() + 1);
-                ftk::ui::drag_preview(ftk::ui::icon::animation, ftk::theme::Category::Animation, available_clip_names_[i]);
+                ftk::ui::drag_preview(icon::animation, ftk::theme::Category::Animation, available_clip_names_[i]);
                 ImGui::EndDragDropSource();
             }
         }
@@ -521,14 +521,14 @@ void BlendSpaceEditorContext::draw_clips_panel() {
 }
 
 void BlendSpaceEditorContext::draw_properties_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     InspectorContext ictx{};
     ictx.resource_manager = deps_.resource_manager;
     ictx.project_mgr = deps_.project_mgr;
     ictx.icons = deps_.icon_cache;
 
-    ftk::ui::section("Blend space", ftk::ui::icon::blend_space);
+    ftk::ui::section("Blend space", icon::blend_space);
     if (auto t = ftk::ui::PropertyTable("##blend_space")) {
         ftk::ui::row("Kind", [&] { ftk::ui::readout(two_d() ? "Two parameters" : "One parameter"); });
         if (auto* one = std::get_if<BlendSpace1D>(&blend_space_)) {

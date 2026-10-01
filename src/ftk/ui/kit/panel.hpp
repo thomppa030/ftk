@@ -16,7 +16,7 @@ namespace ftk::ui {
 ///
 /// becomes:
 ///
-///     if (auto p = ui::Panel(ui::icon::properties, "Properties")) {
+///     if (auto p = ui::Panel(ui::icon::history, "History")) {
 ///         ...
 ///     }
 ///

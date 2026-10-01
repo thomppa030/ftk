@@ -6,7 +6,7 @@
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -219,7 +219,7 @@ ftk::ui::Edit draw_character(Node3D& node, void* component, const InspectorConte
         });
         ftk::ui::row("", [&] {
             ImGui::BeginDisabled(!has_bounds);
-            if (ftk::ui::action(ftk::ui::icon::use_selected, "Fit to mesh")) {
+            if (ftk::ui::action(icon::use_selected, "Fit to mesh")) {
                 fit_to_bounds(cc, bounds);
                 edit = {true, true};
             }
@@ -373,7 +373,7 @@ ftk::ui::Edit draw_buoyancy(Node3D& node, void* component, const InspectorContex
     // Back to floating on the collider's shape, beside the list's Add.
     if (!b.points.empty()) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        if (ftk::ui::action(ftk::ui::icon::remove, "Clear points", ftk::ui::ButtonKind::GhostDanger)) {
+        if (ftk::ui::action(icon::remove, "Clear points", ftk::ui::ButtonKind::GhostDanger)) {
             b.points.clear();
             edit = {true, true};
         }

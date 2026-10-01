@@ -20,7 +20,7 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -72,10 +72,10 @@ void PropertiesPanel::commit_name() {
 }
 
 void PropertiesPanel::draw() {
-    if (auto p = ftk::ui::Panel(ftk::ui::icon::properties, "Properties")) {
+    if (auto p = ftk::ui::Panel(icon::properties, "Properties")) {
         Node* base = scene_->find(*selected_id_);
         if (base == nullptr) {
-            ftk::ui::empty_state(ftk::ui::icon::nothing_selected, "Nothing selected",
+            ftk::ui::empty_state(icon::nothing_selected, "Nothing selected",
                             "Pick an object in the viewport or the hierarchy to edit it here");
             return;
         }
@@ -117,7 +117,7 @@ void PropertiesPanel::draw_name(const Node& selected) {
 }
 
 void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx) {
-    ftk::ui::section("Components", ftk::ui::icon::components);
+    ftk::ui::section("Components", icon::components);
     auto& registry = ComponentRegistry::instance();
     ComponentTypeId remove_id = ~0u;
 
@@ -178,7 +178,7 @@ void PropertiesPanel::draw_components(Node3D& node, const InspectorContext& ictx
 }
 
 void PropertiesPanel::draw_scripts(Node3D& node, const InspectorContext& ictx) {
-    ftk::ui::section("Scripts", ftk::ui::icon::scripts);
+    ftk::ui::section("Scripts", icon::scripts);
     std::string remove;
     for (auto& entry : node.scripts) {
         ImGui::PushID(entry.type_name.c_str());
@@ -216,7 +216,7 @@ std::string PropertiesPanel::edit_description(const std::string& subject, const 
 
 void PropertiesPanel::draw_add(Node3D& node, const InspectorContext& ictx) {
     ImGui::Dummy({0.0f, ftk::theme::GAP_M});
-    if (ftk::ui::action(ftk::ui::icon::add, "Add component", ftk::ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
+    if (ftk::ui::action(icon::add, "Add component", ftk::ui::ButtonKind::Secondary, {-1.0f, 0.0f})) {
         ftk::ui::grouped_picker::open(ADD_PICKER);
     }
     // Gathered only while the picker is up; drawn every frame so it hangs
@@ -390,7 +390,7 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
 
     // The material's values are its own, shared by every node using it, so
     // they are set apart from the component's in a box of their own.
-    auto box = ftk::ui::InsetGroup("##material_values", "Material", ftk::ui::icon::material,
+    auto box = ftk::ui::InsetGroup("##material_values", "Material", icon::material,
                               ftk::theme::category(ftk::theme::Category::Rendering));
     if (!box) return;
     // Its values stay editable: they are the last version that compiled.

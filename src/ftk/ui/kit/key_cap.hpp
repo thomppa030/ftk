@@ -13,8 +13,8 @@ namespace ftk::ui {
 
 struct KeyCapSpec {
     const char* id{""};
-    /// ui::icon::keyboard, mouse or gamepad; null leaves it out (a key in a
-    /// four-key cluster).
+    /// The program's icon for the device the key is on (a keyboard, a mouse,
+    /// a gamepad); null leaves it out (a key in a four-key cluster).
     const char* device_icon{nullptr};
     /// The key's name; empty for nothing bound.
     std::string_view label{};

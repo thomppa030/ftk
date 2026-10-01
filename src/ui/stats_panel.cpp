@@ -4,7 +4,7 @@
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -57,7 +57,7 @@ void StatsPanel::draw(float dt, const char* title) {
     frame_time_history_[frame_time_index_] = dt * 1000.0F;
     frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
 
-    if (auto p = ftk::ui::Panel(ftk::ui::icon::stats, title)) {
+    if (auto p = ftk::ui::Panel(icon::stats, title)) {
         draw_header();
         draw_rendering_section();
         draw_simulation_section();
@@ -104,7 +104,7 @@ void StatsPanel::draw_header() {
 }
 
 void StatsPanel::draw_rendering_section() {
-    if (!ftk::ui::section_foldable("Rendering", ftk::ui::icon::rendering)) { return; }
+    if (!ftk::ui::section_foldable("Rendering", icon::rendering)) { return; }
 
     const auto& stats = ctx_->render_stats();
     if (auto t = ftk::ui::PropertyTable("##rendering_metrics")) {
@@ -139,7 +139,7 @@ void StatsPanel::draw_rendering_section() {
 
 void StatsPanel::draw_simulation_section() {
     if (simulation_ == nullptr) { return; }
-    if (!ftk::ui::section_foldable("Simulation", ftk::ui::icon::simulation)) { return; }
+    if (!ftk::ui::section_foldable("Simulation", icon::simulation)) { return; }
 
     const FixedStepStats& stats = *simulation_;
     if (stats.tick_rate == 0) {
@@ -183,7 +183,7 @@ void StatsPanel::draw_simulation_section() {
 }
 
 void StatsPanel::draw_frame_graph_section() {
-    if (!ftk::ui::section_foldable("Frame graph", ftk::ui::icon::frame_graph, false)) { return; }
+    if (!ftk::ui::section_foldable("Frame graph", icon::frame_graph, false)) { return; }
 
     auto& pipeline = ctx_->render_pipeline();
     const auto& a = pipeline.aliasing_stats();

@@ -1,7 +1,7 @@
 #include "ui/asset_kinds.hpp"
 
 #include "ftk/ui/kit/asset_kind.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 
 #include <array>
 #include <string_view>
@@ -10,7 +10,6 @@ namespace fjell {
 
 namespace {
 
-namespace icon = ftk::ui::icon;
 using ftk::ui::AssetKind;
 using C = ftk::theme::Category;
 

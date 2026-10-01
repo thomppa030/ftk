@@ -21,7 +21,7 @@
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -295,10 +295,10 @@ void WaterEditorContext::draw(float dt) {
 }
 
 void WaterEditorContext::draw_generator_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::water, ctx_title("Sea").c_str());
+    auto panel = ftk::ui::Panel(icon::water, ctx_title("Sea").c_str());
     if (!panel) return;
     if (!loaded_) {
-        ftk::ui::empty_state(ftk::ui::icon::warning, "The file couldn't be read", "The console says why");
+        ftk::ui::empty_state(icon::warning, "The file couldn't be read", "The console says why");
         return;
     }
 
@@ -354,7 +354,7 @@ void WaterEditorContext::draw_generator_panel() {
 
     auto& g = sea->generator;
     ftk::ui::Edit generated;
-    ftk::ui::section("Generate", ftk::ui::icon::water);
+    ftk::ui::section("Generate", icon::water);
     if (auto t = ftk::ui::PropertyTable("##generate")) {
         ftk::ui::row("Wind direction", [&] {
             float wind_deg = direction_degrees(g.wind_direction);
@@ -392,7 +392,7 @@ void WaterEditorContext::draw_generator_panel() {
             generated |= edit;
         });
         ftk::ui::row("", [&] {
-            if (ftk::ui::action(ftk::ui::icon::reload, "Generate waves")) generated.changed = true;
+            if (ftk::ui::action(icon::reload, "Generate waves")) generated.changed = true;
             ImGui::SetItemTooltip("Fills the wave list from the numbers above, overwriting it: a starting shape, "
                                   "and the list in Waves is the asset. Moving a number above does the same.");
         });
@@ -405,7 +405,7 @@ void WaterEditorContext::draw_generator_panel() {
         push_live();
     }
 
-    ftk::ui::section("All of its trains", ftk::ui::icon::water);
+    ftk::ui::section("All of its trains", icon::water);
     if (auto t = ftk::ui::PropertyTable("##scales")) {
         ftk::ui::Edit edit;
         ftk::ui::row("Amplitude scale",
@@ -423,7 +423,7 @@ void WaterEditorContext::draw_generator_panel() {
         if (edit.changed) push_live();
     }
 
-    ftk::ui::section("Wind response", ftk::ui::icon::weather);
+    ftk::ui::section("Wind response", icon::weather);
     if (auto t = ftk::ui::PropertyTable("##wind_response")) {
         ftk::ui::Edit edit;
         ftk::ui::row("Answers the weather",
@@ -503,7 +503,7 @@ void WaterEditorContext::draw_generator_panel() {
 }
 
 void WaterEditorContext::draw_contributor_list() {
-    ftk::ui::section("Contributors", ftk::ui::icon::water);
+    ftk::ui::section("Contributors", icon::water);
     std::uint32_t gerstner_count = 0;
     bool has_simulated = false;
     for (const auto& contributor : water_.contributors) {
@@ -533,7 +533,7 @@ void WaterEditorContext::draw_contributor_list() {
             char gerstner_limit[64];
             std::snprintf(gerstner_limit, sizeof(gerstner_limit), "A field sums at most %u of them",
                           MAX_GERSTNER_CONTRIBUTORS);
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::water, .label = "Gerstner trains",
+            if (ftk::ui::menu_item({.icon = icon::water, .label = "Gerstner trains",
                                .enabled = gerstner_count < MAX_GERSTNER_CONTRIBUTORS,
                                .disabled_reason = gerstner_limit})) {
                 // Born with the generator's sea rather than empty, so adding one
@@ -544,7 +544,7 @@ void WaterEditorContext::draw_contributor_list() {
                 selected_contributor_ = water_.contributors.size() - 1;
                 changed = true;
             }
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::simulated, .label = "Simulated sea", .enabled = !has_simulated,
+            if (ftk::ui::menu_item({.icon = icon::simulated, .label = "Simulated sea", .enabled = !has_simulated,
                                .disabled_reason = "One to a field: a simulation is a patch of water carried forward "
                                                   "every frame, and the world runs one"})) {
                 water_.contributors.emplace_back(FftContributor{});
@@ -617,7 +617,7 @@ void WaterEditorContext::draw_fold_readout() {
 void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     ftk::ui::Edit edit;
 
-    ftk::ui::section("Wind", ftk::ui::icon::weather);
+    ftk::ui::section("Wind", icon::weather);
     if (auto t = ftk::ui::PropertyTable("##sim_wind")) {
         ftk::ui::row("Kind",
                 "A sea raised from a wind-driven spectrum and simulated on the GPU. It is drawn and floated on "
@@ -650,7 +650,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
                 });
     }
 
-    ftk::ui::section("Stylisation", ftk::ui::icon::water);
+    ftk::ui::section("Stylisation", icon::water);
     if (auto t = ftk::ui::PropertyTable("##stylisation")) {
         ftk::ui::row("Height", [&] { edit |= ftk::ui::slider("##height", sea.amplitude_scale, 0.0f, 4.0f, ftk::ui::Unit::Times); });
         ftk::ui::row("Choppiness",
@@ -668,7 +668,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
         draw_fold_readout();
     }
 
-    ftk::ui::section("Simulated patch", ftk::ui::icon::simulated);
+    ftk::ui::section("Simulated patch", icon::simulated);
     if (auto t = ftk::ui::PropertyTable("##patch")) {
         ftk::ui::row("Patch size",
                 "The square of sea that is simulated; it tiles beyond that. It wants several of the longest waves "
@@ -695,7 +695,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
         });
     }
 
-    ftk::ui::section("What floats on it", ftk::ui::icon::collision);
+    ftk::ui::section("What floats on it", icon::collision);
     if (auto t = ftk::ui::PropertyTable("##floats")) {
         ftk::ui::row("Physics waves",
                 "How many of this sea's strongest waves a floating body feels. The simulation is on the GPU, "
@@ -714,7 +714,7 @@ void WaterEditorContext::draw_simulated_editor(FftContributor& sea) {
     if (edit.changed) push_live();
 
     // What those settings come to, since none of them is a wave to look at.
-    ftk::ui::section("What it comes to", ftk::ui::icon::info);
+    ftk::ui::section("What it comes to", icon::info);
     if (auto t = ftk::ui::PropertyTable("##comes_to")) {
         const float peak = water::peak_frequency(sea);
         if (peak > 0.0f) {
@@ -790,7 +790,7 @@ void WaterEditorContext::draw_preview_wind() {
     // asset's: a .fjwater says how a sea answers wind, never what wind it
     // sits in. One wind for the whole preview, as the weather's is for a
     // placed sea, with every contributor answering it by its own response.
-    ftk::ui::section("Preview wind", ftk::ui::icon::weather);
+    ftk::ui::section("Preview wind", icon::weather);
     if (auto t = ftk::ui::PropertyTable("##preview_wind")) {
         ftk::ui::row("Speed",
                 "What the preview is blown at, to watch the wind responses. Not saved: a placed sea takes its "
@@ -813,7 +813,7 @@ void WaterEditorContext::draw_preview_wind() {
         const GerstnerContributor* reference = selected != nullptr && selected->wind.enabled ? selected : answering;
         if (reference != nullptr) {
             ftk::ui::row("", [&] {
-                if (ftk::ui::action(ftk::ui::icon::revert, "Reference wind")) {
+                if (ftk::ui::action(icon::revert, "Reference wind")) {
                     preview_wind_speed_ = reference->wind.reference_speed;
                     apply_preview_wind();
                 }
@@ -838,7 +838,7 @@ void WaterEditorContext::draw_measures() {
     });
     if (longest <= 0.0f) return;
 
-    ftk::ui::section("Measures", ftk::ui::icon::info);
+    ftk::ui::section("Measures", icon::info);
     if (auto t = ftk::ui::PropertyTable("##measures")) {
         char text[64];
         std::snprintf(text, sizeof(text), "%.2f m", water::wave_height(water_) * 2.0f);
@@ -870,13 +870,13 @@ void WaterEditorContext::draw_measures() {
 }
 
 void WaterEditorContext::draw_wave_list_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::curve, ctx_title("Waves").c_str());
+    auto panel = ftk::ui::Panel(icon::curve, ctx_title("Waves").c_str());
     if (!panel) return;
     if (!loaded_) return;
 
     GerstnerContributor* sea = selected_gerstner();
     if (sea == nullptr) {
-        ftk::ui::empty_state(ftk::ui::icon::water, "No trains here", "Trains belong to a Gerstner contributor; select one in Sea");
+        ftk::ui::empty_state(icon::water, "No trains here", "Trains belong to a Gerstner contributor; select one in Sea");
         return;
     }
 

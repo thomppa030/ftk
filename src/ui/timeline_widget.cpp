@@ -2,7 +2,7 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 
 #include <imgui.h>
@@ -46,7 +46,7 @@ ImVec2 TimelineWidget::screen_position(float time, int lane) const {
 }
 
 void TimelineWidget::draw(float dt) {
-    if (auto panel = ftk::ui::Panel(ftk::ui::icon::play, title_.c_str())) {
+    if (auto panel = ftk::ui::Panel(icon::play, title_.c_str())) {
         draw_transport();
         draw_canvas();
     }
@@ -67,7 +67,7 @@ void TimelineWidget::draw(float dt) {
 }
 
 void TimelineWidget::draw_transport() {
-    if (ftk::ui::icon_button("##play", playing_ ? ftk::ui::icon::pause : ftk::ui::icon::play, playing_ ? "Pause" : "Play")) {
+    if (ftk::ui::icon_button("##play", playing_ ? icon::pause : icon::play, playing_ ? "Pause" : "Play")) {
         playing_ = !playing_;
         if (playing_) {
             on_play.broadcast();
@@ -76,14 +76,14 @@ void TimelineWidget::draw_transport() {
         }
     }
     ImGui::SameLine();
-    if (ftk::ui::icon_button("##stop", ftk::ui::icon::stop, "Stop: back to the start")) {
+    if (ftk::ui::icon_button("##stop", icon::stop, "Stop: back to the start")) {
         playing_ = false;
         time_ = 0.0f;
         on_stop.broadcast();
         on_scrub.broadcast(0.0f);
     }
     ImGui::SameLine();
-    if (ftk::ui::toggle_button("##loop", ftk::ui::icon::loop, looping_, "Loop: start over at the end")) looping_ = !looping_;
+    if (ftk::ui::toggle_button("##loop", icon::loop, looping_, "Loop: start over at the end")) looping_ = !looping_;
     ImGui::SameLine();
 
     // Where the playhead is, and of how long.

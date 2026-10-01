@@ -4,7 +4,7 @@
 #include "ftk/base/log.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scene/light_node.hpp"
 #include "scene/scene.hpp"
@@ -129,7 +129,7 @@ void DayProfileEditorContext::draw_header_actions() {
     auto* env = find_world_environment(*deps_.scene);
     if (env == nullptr || env->day_profile == path()) return;
     ImGui::SameLine();
-    if (ftk::ui::action(ftk::ui::icon::world_environment, "Use in scene", ftk::ui::ButtonKind::Ghost)) {
+    if (ftk::ui::action(icon::world_environment, "Use in scene", ftk::ui::ButtonKind::Ghost)) {
         env->day_profile = path();
         deps_.scene->mark_dirty();
     }

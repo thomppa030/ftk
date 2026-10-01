@@ -7,7 +7,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -150,7 +150,7 @@ void TrackLanes::select(const std::string& name) {
 bool TrackLanes::draw(const char* title, TrackSet& set, float dt) {
     length_ = set.length > 0.0f ? set.length : 1.0f;
     bool changed = false;
-    if (auto panel = ftk::ui::Panel(ftk::ui::icon::play, title)) {
+    if (auto panel = ftk::ui::Panel(icon::play, title)) {
         draw_transport();
         const float label_w = std::min(LABEL_W, ImGui::GetContentRegionAvail().x * 0.4f);
         // Add track sits in the label column, beside the ruler.
@@ -180,7 +180,7 @@ void TrackLanes::advance(float dt) {
 }
 
 void TrackLanes::draw_transport() {
-    if (ftk::ui::icon_button("##play", playing_ ? ftk::ui::icon::pause : ftk::ui::icon::play,
+    if (ftk::ui::icon_button("##play", playing_ ? icon::pause : icon::play,
                         playing_ ? "Pause" : "Play")) {
         playing_ = !playing_;
     }
@@ -199,7 +199,7 @@ void TrackLanes::draw_transport() {
 
 bool TrackLanes::draw_add_menu(TrackSet& set) {
     bool changed = false;
-    if (ftk::ui::action(ftk::ui::icon::add, "Add track")) ImGui::OpenPopup("##add_track");
+    if (ftk::ui::action(icon::add, "Add track")) ImGui::OpenPopup("##add_track");
     if (ImGui::BeginPopup("##add_track")) {
         // Missing presets under their groups, in the order they are offered.
         std::vector<std::string> groups;
@@ -227,11 +227,11 @@ bool TrackLanes::draw_add_menu(TrackSet& set) {
         }
         if (!groups.empty()) ImGui::Separator();
         bool custom = false;
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Custom number track\xe2\x80\xa6"})) {
+        if (ftk::ui::menu_item({.icon = icon::add, .label = "Custom number track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Float;
             custom = true;
         }
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::colour, .label = "Custom colour track\xe2\x80\xa6"})) {
+        if (ftk::ui::menu_item({.icon = icon::colour, .label = "Custom colour track\xe2\x80\xa6"})) {
             custom_kind_ = TrackKind::Color;
             custom = true;
         }
@@ -334,7 +334,7 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
     std::vector<std::string> order;   // the tracks as Up and Down walk them
 
     if (set.tracks.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::add, "No tracks yet", "Add track keys a value over the timeline");
+        ftk::ui::empty_state(icon::add, "No tracks yet", "Add track keys a value over the timeline");
     }
 
     size_t removed = set.tracks.size();
@@ -352,7 +352,7 @@ bool TrackLanes::draw_lanes(TrackSet& set, float label_w) {
                     colour(ftk::theme::border()));
         const float text_y = row.y + (GROUP_ROW - ImGui::GetTextLineHeight()) * 0.5f;
         dl->AddText({row.x + ftk::theme::GAP_M, text_y}, colour(ftk::theme::text_disabled()),
-                    folded ? ftk::ui::icon::fold_closed : ftk::ui::icon::fold_open);
+                    folded ? icon::fold_closed : icon::fold_open);
         std::string heading = group;
         std::transform(heading.begin(), heading.end(), heading.begin(),
                        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
@@ -427,7 +427,7 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
     }
     const bool hot = ImGui::IsItemHovered();
     if (ImGui::BeginPopupContextItem("##track_menu")) {
-        const bool remove = ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove track", .destructive = true});
+        const bool remove = ftk::ui::menu_item({.icon = icon::remove, .label = "Remove track", .destructive = true});
         ImGui::EndPopup();
         if (remove) return true;
     }
@@ -448,7 +448,7 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
         dl->AddRect({cursor, cy - s * 0.5f}, {cursor + s, cy + s * 0.5f}, colour(ftk::theme::border()), 3.0f);
     } else {
         dl->AddText({cursor, cy - line * 0.5f}, colour(ftk::theme::category(ftk::theme::Category::Environment)),
-                    ftk::ui::icon::curve);
+                    icon::curve);
     }
     cursor += 14.0f + ftk::theme::GAP_M;
 
@@ -470,9 +470,9 @@ bool TrackLanes::draw_label(TrackSet& set, Track& track, float y, float height, 
     float name_right = value_left - ftk::theme::GAP_M;
     const std::string note = note_ ? note_(track.name) : std::string{};
     if (!note.empty()) {
-        const float icon_w = ImGui::CalcTextSize(ftk::ui::icon::warning).x;
+        const float icon_w = ImGui::CalcTextSize(icon::warning).x;
         name_right -= icon_w;
-        dl->AddText({name_right, cy - line * 0.5f}, colour(ftk::theme::warning()), ftk::ui::icon::warning);
+        dl->AddText({name_right, cy - line * 0.5f}, colour(ftk::theme::warning()), icon::warning);
         if (hot && ImGui::GetIO().MousePos.x >= name_right) ImGui::SetTooltip("%s", note.c_str());
         name_right -= ftk::theme::GAP_S;
     }
@@ -647,14 +647,14 @@ bool TrackLanes::draw_float_lane(Track& track, const TrackSet& set, const Lanes&
     }
     if (ImGui::BeginPopup("##key_menu")) {
         const bool on_key = ImGui::GetStateStorage()->GetBool(ImGui::GetID("##menu_on_key"));
-        if (!on_key && ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add key here"})) {
+        if (!on_key && ftk::ui::menu_item({.icon = icon::add, .label = "Add key here"})) {
             const float t = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_t")), 0.0f, 1.0f);
             const float v = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_v")), range.min, range.max);
             keys.push_back({t, v, 0.0f, 0.0f});
             selected_key_ = sort_keys(track.curve, static_cast<int>(keys.size()) - 1);
             changed = true;
         }
-        if (on_key && ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove key", .shortcut = "Del",
+        if (on_key && ftk::ui::menu_item({.icon = icon::remove, .label = "Remove key", .shortcut = "Del",
                                      .enabled = keys.size() > 1,
                                      .disabled_reason = "A track keeps at least one key",
                                      .destructive = true})) {
@@ -749,14 +749,14 @@ bool TrackLanes::draw_color_lane(Track& track, const TrackSet& set, const Lanes&
         ImGui::OpenPopup("##stop_menu");
     }
     if (ImGui::BeginPopup("##stop_menu")) {
-        if (selected_key_ < 0 && ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add stop here"})) {
+        if (selected_key_ < 0 && ftk::ui::menu_item({.icon = icon::add, .label = "Add stop here"})) {
             const float t = std::clamp(ImGui::GetStateStorage()->GetFloat(ImGui::GetID("##menu_t")), 0.0f, 1.0f);
             keys.push_back({t, track.gradient.evaluate(t, set.wrap)});
             selected_key_ = sort_stops(track.gradient, static_cast<int>(keys.size()) - 1);
             changed = true;
         }
         if (selected_key_ >= 0 &&
-            ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove stop", .shortcut = "Del",
+            ftk::ui::menu_item({.icon = icon::remove, .label = "Remove stop", .shortcut = "Del",
                            .enabled = keys.size() > 1, .disabled_reason = "A track keeps at least one stop",
                            .destructive = true})) {
             keys.erase(keys.begin() + selected_key_);
@@ -804,7 +804,7 @@ bool TrackLanes::draw_selection(TrackSet& set) {
     if (track == nullptr) return false;
     bool changed = false;
     const std::string label = placement(track->name).label;
-    ftk::ui::section(label.c_str(), track->kind == TrackKind::Color ? ftk::ui::icon::colour : ftk::ui::icon::curve);
+    ftk::ui::section(label.c_str(), track->kind == TrackKind::Color ? icon::colour : icon::curve);
     if (note_) {
         const std::string note = note_(track->name);
         if (!note.empty()) ftk::ui::status(ftk::ui::Severity::Warning, note.c_str());

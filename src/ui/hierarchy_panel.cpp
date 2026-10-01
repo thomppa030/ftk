@@ -9,7 +9,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/search.hpp"
@@ -60,24 +60,24 @@ std::string draw_add_object_menu() {
     auto item = [&](const char* icon, const char* label, const char* type) {
         if (ftk::ui::menu_item({.icon = icon, .label = label})) picked = type;
     };
-    item(ftk::ui::icon::mesh, "Cube", "cube");
-    item(ftk::ui::icon::plane, "Plane", "plane");
-    item(ftk::ui::icon::sphere, "Sphere", "sphere");
+    item(icon::mesh, "Cube", "cube");
+    item(icon::plane, "Plane", "plane");
+    item(icon::sphere, "Sphere", "sphere");
     ImGui::Separator();
-    item(ftk::ui::icon::texture, "Sprite", "sprite");
-    item(ftk::ui::icon::transform, "Empty", "empty");
-    item(ftk::ui::icon::folder, "Folder", "folder");
+    item(icon::texture, "Sprite", "sprite");
+    item(icon::transform, "Empty", "empty");
+    item(icon::folder, "Folder", "folder");
     ImGui::Separator();
-    item(ftk::ui::icon::camera, "Camera", "camera");
+    item(icon::camera, "Camera", "camera");
     ImGui::Separator();
-    item(ftk::ui::icon::directional_light, "Directional light", "light:directional");
-    item(ftk::ui::icon::point_light, "Point light", "light:point");
-    item(ftk::ui::icon::spot_light, "Spot light", "light:spot");
+    item(icon::directional_light, "Directional light", "light:directional");
+    item(icon::point_light, "Point light", "light:point");
+    item(icon::spot_light, "Spot light", "light:spot");
     ImGui::Separator();
-    item(ftk::ui::icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
-    item(ftk::ui::icon::fog_volume, "Fog volume", "fog_volume");
-    item(ftk::ui::icon::post_process_volume, "Post process volume", "post_process_volume");
-    item(ftk::ui::icon::world_environment, "World environment", "world_environment");
+    item(icon::volumetric_fog, "Volumetric fog", "volumetric_fog");
+    item(icon::fog_volume, "Fog volume", "fog_volume");
+    item(icon::post_process_volume, "Post process volume", "post_process_volume");
+    item(icon::world_environment, "World environment", "world_environment");
     return picked;
 }
 
@@ -203,7 +203,7 @@ void HierarchyPanel::draw_settings_menu() {
         auto& settings = editor_view_settings();
         ImGui::AlignTextToFramePadding();
         ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_disabled());
-        ImGui::TextUnformatted(ftk::ui::icon::ui_text);
+        ImGui::TextUnformatted(icon::ui_text);
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImGui::TextUnformatted("Text size");
@@ -217,7 +217,7 @@ void HierarchyPanel::draw_settings_menu() {
 }
 
 void HierarchyPanel::draw() {
-    if (auto p = ftk::ui::Panel(ftk::ui::icon::hierarchy, "Hierarchy")) {
+    if (auto p = ftk::ui::Panel(icon::hierarchy, "Hierarchy")) {
         delete_pending_ = false;
         // A row drawn before the one under the cursor has already shown the
         // drag; it shows why a drop is refused a frame late.
@@ -246,7 +246,7 @@ void HierarchyPanel::draw() {
         draw_order_.clear();
 
         // Toolbar: add, search, and which kind of node to show.
-        if (ftk::ui::icon_button("##add", ftk::ui::icon::add, "Add object", ftk::ui::ButtonKind::Secondary)) {
+        if (ftk::ui::icon_button("##add", icon::add, "Add object", ftk::ui::ButtonKind::Secondary)) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
         ImGui::SameLine();
@@ -262,7 +262,7 @@ void HierarchyPanel::draw() {
         static constexpr const char* TYPE_NAMES[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
         (void)ftk::ui::choice("##type", type_filter_, TYPE_NAMES);
         ImGui::SameLine();
-        if (ftk::ui::icon_button("##settings", ftk::ui::icon::view_options, "Hierarchy settings")) {
+        if (ftk::ui::icon_button("##settings", icon::view_options, "Hierarchy settings")) {
             ImGui::OpenPopup("##hierarchy_settings");
         }
         draw_settings_menu();
@@ -399,14 +399,14 @@ void HierarchyPanel::draw_node(Node& obj, int depth) {
         ImGui::OpenPopup("##NodeContext");
     }
     if (ImGui::BeginPopup("##NodeContext")) {
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
+        if (ftk::ui::menu_item({.icon = icon::rename, .label = "Rename", .shortcut = "F2"})) {
             rename_.start(obj.id, obj.name);
         }
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"})) {
+        if (ftk::ui::menu_item({.icon = icon::duplicate, .label = "Duplicate", .shortcut = "Ctrl D"})) {
             on_duplicate.broadcast();
         }
         ImGui::Separator();
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
+        if (ftk::ui::menu_item({.icon = icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
             delete_pending_ = true;
         }
         ImGui::EndPopup();

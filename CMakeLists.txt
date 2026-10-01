@@ -97,7 +97,7 @@ add_custom_target(ftk-library-check DEPENDS "${FTK_LIBRARY_CHECK_STAMP}")
 if(FJELL_BUILD_ENGINE)
     add_subdirectory(src)
     # Editor UI takes colours and widgets from the theme and the kit.
-    ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt)
+    ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt ICONS src/ui/icons.hpp)
     # Vulkan stays inside the GPU backend; the rest speaks the GPU interface.
     ftk_check_gpu_backend(fjell ROOTS src tests ${FJELL_TOOL_DIRS})
     # The OS is reached through the platform library, so Windows builds too.

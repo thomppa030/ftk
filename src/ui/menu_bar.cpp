@@ -6,7 +6,7 @@
 #include "ui/engine_file_browser.hpp"
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ui/viewport_manager.hpp"
@@ -35,16 +35,16 @@ void MenuBar::draw() {
 void MenuBar::draw_file_menu() {
     if (!ImGui::BeginMenu("File")) return;
 
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::save, .label = "Save scene", .shortcut = "Ctrl S"})) {
+    if (ftk::ui::menu_item({.icon = icon::save, .label = "Save scene", .shortcut = "Ctrl S"})) {
         on_save_scene.broadcast();
     }
     const bool has_scene = scene_path_ && !scene_path_->empty();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::reload, .label = "Reload scene", .enabled = has_scene,
+    if (ftk::ui::menu_item({.icon = icon::reload, .label = "Reload scene", .enabled = has_scene,
                        .disabled_reason = "The scene hasn't been saved yet"})) {
         on_load_scene.broadcast();
     }
     ImGui::Separator();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::import, .label = "Import model..."})) {
+    if (ftk::ui::menu_item({.icon = icon::import, .label = "Import model..."})) {
         on_import_model.broadcast();
     }
     ImGui::EndMenu();
@@ -53,25 +53,25 @@ void MenuBar::draw_file_menu() {
 void MenuBar::draw_project_menu() {
     if (!ImGui::BeginMenu("Project")) return;
 
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::new_file, .label = "New project..."})) {
+    if (ftk::ui::menu_item({.icon = icon::new_file, .label = "New project..."})) {
         new_browser_.open("New project", ftk::FileBrowser::Mode::select_location, "Create");
     }
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_file, .label = "Open project..."})) {
+    if (ftk::ui::menu_item({.icon = icon::open_file, .label = "Open project..."})) {
         open_browser_.open("Open project", ftk::FileBrowser::Mode::select_directory, "Open");
     }
     if (project_) {
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::save, .label = "Save project", .shortcut = "Ctrl Shift S"})) {
+        if (ftk::ui::menu_item({.icon = icon::save, .label = "Save project", .shortcut = "Ctrl Shift S"})) {
             on_save_project.broadcast();
         }
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::close, .label = "Close project"})) {
+        if (ftk::ui::menu_item({.icon = icon::close, .label = "Close project"})) {
             on_close_project.broadcast();
         }
         ImGui::Separator();
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::settings, .label = "Settings...", .shortcut = "Ctrl ,"})) {
+        if (ftk::ui::menu_item({.icon = icon::settings, .label = "Settings...", .shortcut = "Ctrl ,"})) {
             on_open_settings.broadcast();
         }
         ImGui::Separator();
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::build, .label = "Build game"})) {
+        if (ftk::ui::menu_item({.icon = icon::build, .label = "Build game"})) {
             on_build_game.broadcast();
         }
     }
@@ -88,7 +88,7 @@ void MenuBar::draw_project_menu() {
 void MenuBar::draw_view_menu() {
     if (!ImGui::BeginMenu("View")) return;
 
-    if (viewports_ && ftk::ui::menu_item({.icon = ftk::ui::icon::viewport, .label = "Add viewport"})) {
+    if (viewports_ && ftk::ui::menu_item({.icon = icon::viewport, .label = "Add viewport"})) {
         viewports_->add_viewport();
     }
     ImGui::Separator();
@@ -129,7 +129,7 @@ void MenuBar::draw_view_menu() {
         *show_kit_gallery_ = !*show_kit_gallery_;
     }
     ImGui::Separator();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::capture, .label = "Capture screenshot...", .shortcut = "F9"})) {
+    if (ftk::ui::menu_item({.icon = icon::capture, .label = "Capture screenshot...", .shortcut = "F9"})) {
         on_open_capture.broadcast();
     }
     ImGui::EndMenu();
@@ -140,11 +140,11 @@ void MenuBar::draw_layout_menu() {
 
     // Save overwrites the layout in use.
     const bool has_active = !active_layout_name_.empty();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::save, .label = "Save layout", .enabled = has_active,
+    if (ftk::ui::menu_item({.icon = icon::save, .label = "Save layout", .enabled = has_active,
                        .disabled_reason = "No layout is in use: save it under a name first"})) {
         on_save_layout.broadcast(active_layout_name_);
     }
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::save, .label = "Save layout as..."})) {
+    if (ftk::ui::menu_item({.icon = icon::save, .label = "Save layout as..."})) {
         show_save_layout_popup_ = true;
         menu_anchor_ = {ImGui::GetWindowPos(), 0.0f};
         layout_name_.clear();
@@ -168,13 +168,13 @@ void MenuBar::draw_layout_menu() {
 void MenuBar::draw_scripts_menu() {
     if (!project_ || !ImGui::BeginMenu("Scripts")) return;
 
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::new_file, .label = "New script..."})) {
+    if (ftk::ui::menu_item({.icon = icon::new_file, .label = "New script..."})) {
         show_new_script_popup_ = true;
         menu_anchor_ = {ImGui::GetWindowPos(), 0.0f};
         new_script_name_.clear();
     }
     ImGui::Separator();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::reload, .label = building_ ? "Building..." : "Build and reload",
+    if (ftk::ui::menu_item({.icon = icon::reload, .label = building_ ? "Building..." : "Build and reload",
                        .enabled = !building_, .disabled_reason = "A build is running"})) {
         on_build_scripts.broadcast();
     }

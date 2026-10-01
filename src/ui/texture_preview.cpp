@@ -5,7 +5,7 @@
 #include "ftk/base/log.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/theme.hpp"
@@ -132,7 +132,7 @@ void TexturePreview::pixel_for_pixel() {
 void TexturePreview::draw() {
     if (!open_) return;
     ImGui::SetNextWindowSize({520.0f, 560.0f}, ImGuiCond_FirstUseEver);
-    if (auto panel = ftk::ui::Panel(ftk::ui::icon::texture, "Texture Preview", &open_)) {
+    if (auto panel = ftk::ui::Panel(icon::texture, "Texture Preview", &open_)) {
         if (failed_) {
             ftk::ui::status(ftk::ui::Severity::Error, "The file couldn't be read as an image; the console says why.");
             return;
@@ -214,7 +214,7 @@ void TexturePreview::draw_canvas(ImVec2 origin, ImVec2 size) {
         ImGui::SameLine(0.0f, 2.0f);
         ImGui::TextColored(ftk::theme::text_secondary(), "%% ");
         ImGui::SameLine();
-        if (ftk::ui::icon_button("##fit", ftk::ui::icon::frame_view, "Fit (F)")) fit();
+        if (ftk::ui::icon_button("##fit", icon::frame_view, "Fit (F)")) fit();
         ImGui::SameLine();
         if (ftk::ui::icon_button("##one", "1:1", "Pixel for pixel (1)")) pixel_for_pixel();
     }

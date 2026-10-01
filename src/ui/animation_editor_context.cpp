@@ -18,7 +18,7 @@
 #include "animation/animator_component.hpp"
 #include "scene/component_meta.hpp"
 #include "ui/inspectors/script_fields.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/tree.hpp"
 #include "ui/state_graph.hpp"
 #include "animation/skeleton.hpp"
@@ -517,10 +517,10 @@ void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,
 }
 
 void AnimationEditorContext::draw_collider_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::collision, ctx_title("Colliders").c_str());
+    auto panel = ftk::ui::Panel(icon::collision, ctx_title("Colliders").c_str());
     if (!panel) return;
     if (!skeleton_) {
-        ftk::ui::empty_state(ftk::ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
+        ftk::ui::empty_state(icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
         return;
     }
 
@@ -573,10 +573,10 @@ void AnimationEditorContext::draw_collider_panel() {
 }
 
 void AnimationEditorContext::draw_bone_tree() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::skeleton, ctx_title("Bones").c_str());
+    auto panel = ftk::ui::Panel(icon::skeleton, ctx_title("Bones").c_str());
     if (!panel) return;
     if (!skeleton_) {
-        ftk::ui::empty_state(ftk::ui::icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
+        ftk::ui::empty_state(icon::skeleton, "No skeleton open", "Open a skeleton or an animset");
         return;
     }
     const auto& joints = skeleton_->joints();
@@ -599,7 +599,7 @@ void AnimationEditorContext::draw_bone_tree() {
             .name = joints[idx].name,
             .depth = depth,
             .has_children = !children[idx].empty(),
-            .icon = ftk::ui::icon::skeleton,
+            .icon = icon::skeleton,
             .category = ftk::theme::Category::Animation,
             .selection = idx == selected_bone_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
         });
@@ -615,10 +615,10 @@ void AnimationEditorContext::draw_bone_tree() {
 }
 
 void AnimationEditorContext::draw_clip_list() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::animation, ctx_title("Clips").c_str());
+    auto panel = ftk::ui::Panel(icon::animation, ctx_title("Clips").c_str());
     if (!panel) return;
     if (available_clip_names_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::animation, "No clips", "Clips next to the skeleton or in the animset show here");
+        ftk::ui::empty_state(icon::animation, "No clips", "Clips next to the skeleton or in the animset show here");
         return;
     }
     if (auto tree = ftk::ui::Tree("##clips")) {
@@ -627,7 +627,7 @@ void AnimationEditorContext::draw_clip_list() {
             const auto row = ftk::ui::tree_row({
                 .id = id.c_str(),
                 .name = available_clip_names_[static_cast<size_t>(i)],
-                .icon = ftk::ui::icon::animation,
+                .icon = icon::animation,
                 .category = ftk::theme::Category::Animation,
                 .selection = i == selected_clip_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
             });
@@ -637,7 +637,7 @@ void AnimationEditorContext::draw_clip_list() {
 }
 
 void AnimationEditorContext::draw_properties() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     auto& states = state_machine_.states_mutable();
     InspectorContext ictx{};
@@ -647,7 +647,7 @@ void AnimationEditorContext::draw_properties() {
 
     // The animset's skeleton, always there while an animset is open.
     if (!animset_path_.empty()) {
-        ftk::ui::section("Animset", ftk::ui::icon::animation);
+        ftk::ui::section("Animset", icon::animation);
         if (auto t = ftk::ui::PropertyTable("##animset")) {
             ftk::ui::row("Skeleton", "The skeleton the animset's clips are made for.", [&] {
                 static const std::string skel_exts[] = {".fjskel"};
@@ -671,7 +671,7 @@ void AnimationEditorContext::draw_properties() {
     } else if (skeleton_ && selected_bone_ >= 0 && selected_bone_ < static_cast<int>(skeleton_->joints().size())) {
         const auto& joints = skeleton_->joints();
         const auto& joint = joints[static_cast<size_t>(selected_bone_)];
-        ftk::ui::section("Bone", ftk::ui::icon::skeleton);
+        ftk::ui::section("Bone", icon::skeleton);
         if (auto t = ftk::ui::PropertyTable("##bone")) {
             char text[96];
             ftk::ui::row("Name", [&] { ftk::ui::readout(joint.name.c_str()); });
@@ -689,7 +689,7 @@ void AnimationEditorContext::draw_properties() {
             ftk::ui::row("Rest scale", [&] { ftk::ui::readout(text); });
         }
     } else if (current_clip_) {
-        ftk::ui::section("Clip", ftk::ui::icon::animation);
+        ftk::ui::section("Clip", icon::animation);
         if (auto t = ftk::ui::PropertyTable("##clip")) {
             char text[64];
             ftk::ui::row("Name", [&] { ftk::ui::readout(current_clip_->name().c_str()); });
@@ -699,7 +699,7 @@ void AnimationEditorContext::draw_properties() {
             ftk::ui::row("Tracks", "One per bone the clip moves.", [&] { ftk::ui::readout(text); });
         }
     } else if (animset_path_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::nothing_selected, "Nothing selected", "Select a bone, a clip or a state");
+        ftk::ui::empty_state(icon::nothing_selected, "Nothing selected", "Select a bone, a clip or a state");
     }
 
     draw_notify_properties();
@@ -712,7 +712,7 @@ void AnimationEditorContext::draw_state_properties(AnimationState& state) {
     ictx.project_mgr = deps_.project_mgr;
     ictx.icons = deps_.icon_cache;
 
-    ftk::ui::section("State", ftk::ui::icon::animation);
+    ftk::ui::section("State", icon::animation);
     if (auto t = ftk::ui::PropertyTable("##state")) {
         ftk::ui::row("Name", [&] {
             std::string name = state.name;
@@ -752,7 +752,7 @@ void AnimationEditorContext::draw_state_properties(AnimationState& state) {
         ftk::ui::row("Initial", "The state the machine starts in.", [&] {
             if (initial) {
                 ftk::ui::readout("This state");
-            } else if (ftk::ui::action(ftk::ui::icon::play, "Start here")) {
+            } else if (ftk::ui::action(icon::play, "Start here")) {
                 state_machine_.set_initial(state.name);
             }
         });
@@ -769,7 +769,7 @@ void AnimationEditorContext::draw_transition_properties() {
     auto& source = states[static_cast<size_t>(si)];
     auto& trans = source.transitions[static_cast<size_t>(ti)];
 
-    ftk::ui::section("Transition", ftk::ui::icon::animation);
+    ftk::ui::section("Transition", icon::animation);
     if (auto t = ftk::ui::PropertyTable("##transition")) {
         ftk::ui::row("From", [&] { ftk::ui::readout(source.name.c_str()); });
         ftk::ui::row("To", [&] { ftk::ui::readout(trans.target.c_str()); });
@@ -850,7 +850,7 @@ void AnimationEditorContext::draw_notify_properties() {
     }
     auto& ni = current_clip_->notifies()[static_cast<size_t>(selected_event_index_)];
 
-    ftk::ui::section("Notify", ftk::ui::icon::animation);
+    ftk::ui::section("Notify", icon::animation);
     if (auto t = ftk::ui::PropertyTable("##notify")) {
         ftk::ui::row("Type", [&] { ftk::ui::readout(ni.type_name.c_str()); });
         ftk::ui::row("Time", [&] {
@@ -869,7 +869,7 @@ void AnimationEditorContext::draw_notify_properties() {
             });
         }
         ftk::ui::row("", [&] {
-            if (ftk::ui::action(ftk::ui::icon::remove, "Delete notify", ftk::ui::ButtonKind::GhostDanger)) {
+            if (ftk::ui::action(icon::remove, "Delete notify", ftk::ui::ButtonKind::GhostDanger)) {
                 current_clip_->notifies().erase(current_clip_->notifies().begin() + selected_event_index_);
                 selected_event_index_ = -1;
                 sync_markers_from_clip();
@@ -1039,10 +1039,10 @@ void AnimationEditorContext::update_preview(float dt) {
 // ── State graph ─────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_state_graph() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::animation, ctx_title("State graph").c_str());
+    auto panel = ftk::ui::Panel(icon::animation, ctx_title("State graph").c_str());
     if (!panel) return;
     if (state_machine_.states().empty() && animset_path_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::animation, "No state machine", "Open an animset to edit its states");
+        ftk::ui::empty_state(icon::animation, "No state machine", "Open an animset to edit its states");
         return;
     }
     (void)state_graph_.draw(state_machine_);
@@ -1051,10 +1051,10 @@ void AnimationEditorContext::draw_state_graph() {
 // ── Parameters ──────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_parameters() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Parameters").c_str());
+    auto panel = ftk::ui::Panel(icon::properties, ctx_title("Parameters").c_str());
     if (!panel) return;
     if (animset_path_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::animation, "No state machine", "Parameters belong to an animset");
+        ftk::ui::empty_state(icon::animation, "No state machine", "Parameters belong to an animset");
         return;
     }
     auto& params = state_machine_.params_mutable();
@@ -1092,7 +1092,7 @@ void AnimationEditorContext::draw_parameters() {
 
     // Where the preview's machine is.
     if (!state_machine_.states().empty()) {
-        ftk::ui::section("Now", ftk::ui::icon::play);
+        ftk::ui::section("Now", icon::play);
         if (auto t = ftk::ui::PropertyTable("##now")) {
             ftk::ui::row("State", [&] { ftk::ui::readout(state_machine_.current_state_name().c_str()); });
             if (state_machine_.is_transitioning()) {

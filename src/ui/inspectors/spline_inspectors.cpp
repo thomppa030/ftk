@@ -3,7 +3,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -318,13 +318,13 @@ ftk::ui::Edit draw_instanced_mesh(Node3D& node, void* component, const Inspector
                 [&] { (void)ftk::ui::checkbox("##ground", s.on_ground); });
         ftk::ui::row("Seed", "The same seed scatters the same way.", [&] { (void)ftk::ui::drag_int("##seed", s.seed, 1.0f); });
         ftk::ui::row("", [&] {
-            if (ftk::ui::action(ftk::ui::icon::vfx, "Scatter")) {
+            if (ftk::ui::action(icon::vfx, "Scatter")) {
                 scatter(inst, s, false);
                 edit = {true, true};
             }
             ImGui::SetItemTooltip("Replace every instance with a new scatter");
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (ftk::ui::action(ftk::ui::icon::add, "Scatter more")) {
+            if (ftk::ui::action(icon::add, "Scatter more")) {
                 scatter(inst, s, true);
                 edit = {true, true};
             }
@@ -384,7 +384,7 @@ ftk::ui::Edit draw_instanced_mesh(Node3D& node, void* component, const Inspector
         }
         if (!inst.instances.empty()) {
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            if (ftk::ui::action(ftk::ui::icon::remove, "Clear instances", ftk::ui::ButtonKind::GhostDanger)) {
+            if (ftk::ui::action(icon::remove, "Clear instances", ftk::ui::ButtonKind::GhostDanger)) {
                 inst.instances.clear();
                 inst.dirty = true;
                 open_instance = -1;

@@ -30,7 +30,7 @@
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -77,7 +77,7 @@ bool override_row(const FjslUniform& u, std::span<float> values, bool overridden
         changed = draw_uniform_value(u, values);
         if (overridden) {
             ImGui::SameLine(0.0f, spacing);
-            revert = ftk::ui::icon_button("##revert", ftk::ui::icon::revert, revert_tip);
+            revert = ftk::ui::icon_button("##revert", icon::revert, revert_tip);
         }
     });
     ImGui::PopID();
@@ -96,7 +96,7 @@ bool draw_sky_uniforms(WorldEnvironmentNode& env, const InspectorContext& ictx) 
     const uint32_t pid = ictx.pipeline_cache->register_shader(
         canonical_sky_shader_path(env.sky_shader, project));
     auto sky_box = [] {
-        return ftk::ui::InsetGroup("##sky_values", "Sky shader", ftk::ui::icon::shader,
+        return ftk::ui::InsetGroup("##sky_values", "Sky shader", icon::shader,
                               ftk::theme::category(ftk::theme::Category::Environment));
     };
     // A shader that never compiled has no uniforms to show, only why.
@@ -265,7 +265,7 @@ bool draw_node_values(const Material* material, std::string_view default_shader,
     // One value made the node's own, starting where the material has it, so
     // taking it changes nothing until it is moved.
     if (material_shown && any_to_add) {
-        if (ftk::ui::action(ftk::ui::icon::add, "Override for this node", ftk::ui::ButtonKind::Ghost)) {
+        if (ftk::ui::action(icon::add, "Override for this node", ftk::ui::ButtonKind::Ghost)) {
             ImGui::OpenPopup("##override_for_node");
         }
         if (ImGui::BeginPopup("##override_for_node")) {
@@ -319,7 +319,7 @@ const char* moon_phase_name(float phase) {
 } // namespace
 
 void PropertiesPanel::draw_transform(Node3D& node) {
-    ftk::ui::section("Transform", ftk::ui::icon::transform);
+    ftk::ui::section("Transform", icon::transform);
 
     // Matches the viewport gizmo: Ctrl inverts the toggle.
     const bool snapping = grid_settings_ != nullptr
@@ -389,7 +389,7 @@ void PropertiesPanel::draw_transform(Node3D& node) {
     }
 
     if (snapping) {
-        const std::string label = std::string(ftk::ui::icon::snap) + "  Snap to grid";
+        const std::string label = std::string(icon::snap) + "  Snap to grid";
         if (ftk::ui::button(label.c_str())) {
             const Transform before = node.transform;
             node.transform.position = snap_to_grid(node.transform.position, grid_settings_->cell_size);
@@ -456,7 +456,7 @@ void PropertiesPanel::draw_node_sections(Node3D& node, const InspectorContext& i
 
 bool PropertiesPanel::draw_camera(CameraNode& camera) {
     bool changed = false;
-    ftk::ui::section("Camera", ftk::ui::icon::camera);
+    ftk::ui::section("Camera", icon::camera);
     ftk::ui::Edit edit;
     if (auto t = ftk::ui::PropertyTable("##camera")) {
         ftk::ui::row("Projection", [&] { edit |= ftk::ui::choice("##projection", camera.projection, PROJECTIONS); });
@@ -490,7 +490,7 @@ bool PropertiesPanel::draw_camera(CameraNode& camera) {
 
 bool PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
     bool changed = false;
-    ftk::ui::section("Directional light", ftk::ui::icon::directional_light);
+    ftk::ui::section("Directional light", icon::directional_light);
     const auto* world = find_world_environment(*scene_);
     const bool sun_driven = world != nullptr && world->time_of_day_enabled;
     ftk::ui::Edit edit;
@@ -518,7 +518,7 @@ bool PropertiesPanel::draw_directional_light(DirectionalLightNode& light) {
 
 bool PropertiesPanel::draw_point_light(PointLightNode& light) {
     bool changed = false;
-    ftk::ui::section("Point light", ftk::ui::icon::point_light);
+    ftk::ui::section("Point light", icon::point_light);
     ftk::ui::Edit edit;
     if (auto t = ftk::ui::PropertyTable("##point")) {
         ftk::ui::row("Colour", [&] { edit |= ftk::ui::color("##colour", light.color, ftk::ui::ColorSpace::Linear); });
@@ -546,7 +546,7 @@ bool PropertiesPanel::draw_point_light(PointLightNode& light) {
 
 bool PropertiesPanel::draw_spot_light(SpotLightNode& light) {
     bool changed = false;
-    ftk::ui::section("Spot light", ftk::ui::icon::spot_light);
+    ftk::ui::section("Spot light", icon::spot_light);
     ftk::ui::Edit edit;
     if (auto t = ftk::ui::PropertyTable("##spot")) {
         ftk::ui::row("Direction", [&] {
@@ -585,7 +585,7 @@ bool PropertiesPanel::draw_spot_light(SpotLightNode& light) {
 
 bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const InspectorContext& ictx) {
     bool changed = false;
-    ftk::ui::section("Volumetric fog", ftk::ui::icon::volumetric_fog);
+    ftk::ui::section("Volumetric fog", icon::volumetric_fog);
     // How the haze looks is its material; the node keeps where it is, how
     // far it reaches and how it answers movement.
     if (auto t = ftk::ui::PropertyTable("##fog_material")) {
@@ -598,7 +598,7 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
         ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(fog.material, DEFAULT_FOG_SHADER, ShaderType::Fog,
-                                ftk::ui::icon::volumetric_fog, fog.params, fog.material_values_, ictx);
+                                icon::volumetric_fog, fog.params, fog.material_values_, ictx);
 
     ftk::ui::Edit edit;
     if (auto t = ftk::ui::PropertyTable("##fog")) {
@@ -655,7 +655,7 @@ bool PropertiesPanel::draw_volumetric_fog(VolumetricFogNode& fog, const Inspecto
 
 bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorContext& ictx) {
     bool changed = false;
-    ftk::ui::section("Fog volume", ftk::ui::icon::fog_volume);
+    ftk::ui::section("Fog volume", icon::fog_volume);
     // What the bank looks like is its material; the node keeps the shape,
     // how the bank drifts and how it answers movement.
     if (auto t = ftk::ui::PropertyTable("##volume_material")) {
@@ -668,7 +668,7 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
         ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(volume.material, DEFAULT_FOG_VOLUME_SHADER, ShaderType::Fog,
-                                ftk::ui::icon::volumetric_fog, volume.params, volume.material_values_,
+                                icon::volumetric_fog, volume.params, volume.material_values_,
                                 ictx);
 
     ftk::ui::Edit edit;
@@ -728,7 +728,7 @@ bool PropertiesPanel::draw_fog_volume(FogVolumeNode& volume, const InspectorCont
 bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
                                                const InspectorContext& ictx) {
     bool changed = false;
-    ftk::ui::section("Post process volume", ftk::ui::icon::post_process_volume);
+    ftk::ui::section("Post process volume", icon::post_process_volume);
     // How the frame looks is the material; the node keeps where the look
     // applies, over which others and how much.
     if (auto t = ftk::ui::PropertyTable("##post_material")) {
@@ -741,7 +741,7 @@ bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
         ftk::ui::hint(text.c_str());
     }
     changed |= draw_node_values(volume.material, DEFAULT_POST_SHADER, ShaderType::Post,
-                                ftk::ui::icon::post_process_volume, volume.params,
+                                icon::post_process_volume, volume.params,
                                 volume.material_values_, ictx);
 
     ftk::ui::Edit edit;
@@ -770,7 +770,7 @@ bool PropertiesPanel::draw_post_process_volume(PostProcessVolumeNode& volume,
 
 bool PropertiesPanel::draw_world_environment(WorldEnvironmentNode& env, const InspectorContext& ictx) {
     bool changed = false;
-    ftk::ui::section("World environment", ftk::ui::icon::world_environment);
+    ftk::ui::section("World environment", icon::world_environment);
     static const std::string hdri_exts[] = {".hdr", ".exr"};
     static const std::string sky_shader_exts[] = {".fjsl"};
     static const std::string day_profile_exts[] = {".fjday"};

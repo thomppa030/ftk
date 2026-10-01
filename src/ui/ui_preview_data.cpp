@@ -3,7 +3,7 @@
 #include "core/base_path.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -215,13 +215,13 @@ void UiPreviewData::release() {
 
 void UiPreviewData::draw(GameUi& ui, const InspectorContext& ctx) {
     if (models_.empty() && props_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::ui_models, "Nothing to feed", "This widget has no props or Models");
+        ftk::ui::empty_state(icon::ui_models, "Nothing to feed", "This widget has no props or Models");
         return;
     }
     if (!scripts_.is_loaded()) ftk::ui::status(ftk::ui::Severity::Warning, "Scripts aren't built yet: Scripts > Build & Reload");
 
     if (!models_.empty()) {
-        ftk::ui::section("Models", ftk::ui::icon::ui_models);
+        ftk::ui::section("Models", icon::ui_models);
         for (auto& entry : models_) {
             ImGui::PushID(entry.name.c_str());
             if (entry.kind == Entry::Kind::component) draw_component(entry, ui, ctx);
@@ -230,7 +230,7 @@ void UiPreviewData::draw(GameUi& ui, const InspectorContext& ctx) {
         }
     }
     if (!props_.empty()) {
-        ftk::ui::section("Props", ftk::ui::icon::ui_props);
+        ftk::ui::section("Props", icon::ui_props);
         draw_values(ui);
         for (auto& entry : props_) {
             ImGui::PushID(entry.name.c_str());
@@ -262,7 +262,7 @@ void UiPreviewData::draw_component(Entry& entry, GameUi& ui, const InspectorCont
                         .refusal = [&](const Node& n) -> std::string {
                             return carries(n, entry.type) ? std::string() : n.name + " has no " + entry.type;
                         },
-                        .empty_glyph = self ? ftk::ui::icon::this_node : ftk::ui::icon::local_player,
+                        .empty_glyph = self ? icon::this_node : icon::local_player,
                         .empty_text = self ? "This node" : "Local player",
                     };
                     if (node_slot(slot, node)) {
@@ -293,7 +293,7 @@ void UiPreviewData::draw_owned(Entry& entry, const InspectorContext& ctx) {
     ftk::ui::InsetHeading heading{.text = entry.name.c_str(),
                              .code = true,
                              .detail = entry.type.c_str(),
-                             .action_icon = ftk::ui::icon::revert,
+                             .action_icon = icon::revert,
                              .action_tooltip = "Back to the defaults",
                              .action = &reset};
     {

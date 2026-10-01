@@ -6,7 +6,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -178,7 +178,7 @@ ftk::ui::Edit draw_tilemap(Node3D& /*node*/, void* component, const InspectorCon
                     edit |= e;
                 });
         ftk::ui::row("", [&] {
-            if (ftk::ui::action(ftk::ui::icon::add, "Fill with the first tile")) {
+            if (ftk::ui::action(icon::add, "Fill with the first tile")) {
                 tm.tiles.assign(static_cast<size_t>(tm.map_size.x) * tm.map_size.y, 0);
                 reshaped = true;
                 edit = {true, true};

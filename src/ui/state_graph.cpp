@@ -1,7 +1,7 @@
 #include "ui/state_graph.hpp"
 
 #include "animation/animation_state_machine.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -62,7 +62,7 @@ ftk::ui::NodeGraphDesc StateGraph::describe(const AnimationStateMachine& machine
         const std::string& what = state.uses_blend_space() ? state.blend_space : state.clip;
         ftk::ui::NodeRow plays;
         plays.text = what.empty() ? std::string("Nothing to play") : std::filesystem::path(what).stem().string();
-        if (state.uses_blend_space()) plays.text = std::string(ftk::ui::icon::blend_space) + "  " + plays.text;
+        if (state.uses_blend_space()) plays.text = std::string(icon::blend_space) + "  " + plays.text;
         plays.text_dimmed = what.empty();
         desc.nodes.push_back({.id = node_of(i),
                               .position = position_of(state, i),
@@ -148,18 +148,18 @@ bool StateGraph::menu(AnimationStateMachine& machine, const ftk::ui::NodeGraphMe
     const int state = static_cast<int>(target.node) - 1;
     if (target.node != 0 && state < static_cast<int>(states.size())) {
         const std::string& name = states[static_cast<size_t>(state)].name;
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::play, .label = "Start here", .enabled = name != machine.initial_state_name(),
+        if (ftk::ui::menu_item({.icon = icon::play, .label = "Start here", .enabled = name != machine.initial_state_name(),
                            .disabled_reason = "The machine starts in this state already"})) {
             machine.set_initial(name);
             changed = true;
         }
-        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove state", .shortcut = "Del", .destructive = true});
+        return ftk::ui::menu_item({.icon = icon::remove, .label = "Remove state", .shortcut = "Del", .destructive = true});
     }
     if (target.link != 0) {
-        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove transition", .shortcut = "Del",
+        return ftk::ui::menu_item({.icon = icon::remove, .label = "Remove transition", .shortcut = "Del",
                               .destructive = true});
     }
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add state here"})) {
+    if (ftk::ui::menu_item({.icon = icon::add, .label = "Add state here"})) {
         add_state(machine, target.at);
         changed = true;
     }

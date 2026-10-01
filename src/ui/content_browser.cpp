@@ -4,7 +4,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/button.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/asset_tile.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
@@ -211,7 +211,7 @@ void ContentBrowser::draw() {
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoCollapse;
 
-    if (auto p = ftk::ui::Panel(ftk::ui::icon::content_browser, "Content Browser", &visible_, flags)) {
+    if (auto p = ftk::ui::Panel(icon::content_browser, "Content Browser", &visible_, flags)) {
         if (root_.empty()) {
             ImGui::TextDisabled("No project open");
         } else {
@@ -344,7 +344,7 @@ void ContentBrowser::draw_breadcrumb() {
             ImGui::SameLine(0, ftk::theme::GAP_XS);
             ImGui::AlignTextToFramePadding();
             ImGui::PushStyleColor(ImGuiCol_Text, ftk::theme::text_disabled());
-            ImGui::TextUnformatted(ftk::ui::icon::fold_closed);
+            ImGui::TextUnformatted(icon::fold_closed);
             ImGui::PopStyleColor();
             ImGui::SameLine(0, ftk::theme::GAP_XS);
         }
@@ -405,7 +405,7 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir, 
                                    .name = name,
                                    .depth = depth,
                                    .has_children = !subdirs.empty(),
-                                   .icon = ftk::ui::icon::folder,
+                                   .icon = icon::folder,
                                    .category = ftk::theme::Category::Structure,
                                    .tint = tint,
                                    .selection = dir == current_dir_ ? ftk::ui::RowSelection::Primary : ftk::ui::RowSelection::None,
@@ -432,7 +432,7 @@ void ContentBrowser::draw_file_grid() {
 
     // Back up a folder, for non-root
     if (current_dir_ != root_) {
-        const auto up = ftk::ui::asset_tile({.id = "##up", .name = "..", .icon = ftk::ui::icon::folder,
+        const auto up = ftk::ui::asset_tile({.id = "##up", .name = "..", .icon = icon::folder,
                                         .category = ftk::theme::Category::Structure});
         if (up.double_clicked) navigate_to(current_dir_.parent_path());
         if (columns > 1) ImGui::SameLine(0, gap);
@@ -476,7 +476,7 @@ void ContentBrowser::draw_file_grid() {
             .id = id.c_str(),
             .name = entry.name,
             .picture = picture,
-            .icon = entry.type == FileType::folder ? ftk::ui::icon::folder : kind.icon,
+            .icon = entry.type == FileType::folder ? icon::folder : kind.icon,
             .category = entry.type == FileType::folder ? ftk::theme::Category::Structure : kind.category,
             .tint = tint,
             .selected = i == selected_index_,
@@ -679,11 +679,11 @@ void ContentBrowser::draw_context_menu() {
 
             switch (entry.type) {
                 case FileType::folder:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_file, .label = "Open"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_file, .label = "Open"})) {
                         navigate_to(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ftk::ui::begin_menu(ftk::ui::icon::colour, "Colour")) {
+                    if (ftk::ui::begin_menu(icon::colour, "Colour")) {
                         draw_folder_color_menu(entry.path);
                         ImGui::EndMenu();
                     }
@@ -693,7 +693,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::header:
                 case FileType::shader:
                 case FileType::material:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_file, .label = "Open"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_file, .label = "Open"})) {
                         (void)ftk::platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -701,7 +701,7 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::model:
                     if (entry.path.extension() == ".fjmesh") {
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in mesh editor"})) {
+                        if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in mesh editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "mesh");
                             ImGui::CloseCurrentPopup();
@@ -709,19 +709,19 @@ void ContentBrowser::draw_context_menu() {
                         // Only meshes that recorded where they came from can be
                         // rebuilt from their source.
                         auto source = find_import_source(entry.path.string());
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::import, .label = "Reimport", .enabled = !source.empty(),
+                        if (ftk::ui::menu_item({.icon = icon::import, .label = "Reimport", .enabled = !source.empty(),
                                            .disabled_reason = "No source file recorded: import it again from "
                                                               "the original to enable this"})) {
                             on_import_model.broadcast(source);
                             ImGui::CloseCurrentPopup();
                         }
                     }
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::add, .label = "Add to scene"})) {
+                    if (ftk::ui::menu_item({.icon = icon::add, .label = "Add to scene"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_add_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::import, .label = "Import..."})) {
+                    if (ftk::ui::menu_item({.icon = icon::import, .label = "Import..."})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_import_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
@@ -729,33 +729,33 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::texture:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::preview, .label = "Preview"})) {
+                    if (ftk::ui::menu_item({.icon = icon::preview, .label = "Preview"})) {
                         texture_preview_.open(entry.path.string());
                         ImGui::CloseCurrentPopup();
                     }
                     break;
 
                 case FileType::scene:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::scene, .label = "Load scene"})) {
+                    if (ftk::ui::menu_item({.icon = icon::scene, .label = "Load scene"})) {
                         on_load_scene.broadcast(entry.path.string());
                         ImGui::CloseCurrentPopup();
                     }
                     break;
 
                 case FileType::ui_layout:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in UI editor"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in UI editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "ui");
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in code editor"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in code editor"})) {
                         (void)ftk::platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
                     break;
 
                 case FileType::vfx:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in VFX editor"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in VFX editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "vfx");
                         ImGui::CloseCurrentPopup();
@@ -763,7 +763,7 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::widget:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in UI editor"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in UI editor"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "ui");
                         ImGui::CloseCurrentPopup();
@@ -771,7 +771,7 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::preset:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::preset, .label = "Add to scene"})) {
+                    if (ftk::ui::menu_item({.icon = icon::preset, .label = "Add to scene"})) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_instantiate_preset.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
@@ -780,12 +780,12 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::input_config:
                     if (entry.path.extension() == ".fjinput") {
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in input editor"})) {
+                        if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in input editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "input_mapping");
                             ImGui::CloseCurrentPopup();
                         }
-                    } else if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in code editor"})) {
+                    } else if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in code editor"})) {
                         (void)ftk::platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -793,23 +793,23 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::font:
                     if (entry.path.extension() == ".fjfont") {
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in font editor"})) {
+                        if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in font editor"})) {
                             auto rel = std::filesystem::relative(entry.path, root_);
                             on_open_asset.broadcast(rel.string(), "font");
                             ImGui::CloseCurrentPopup();
                         }
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in code editor"})) {
+                        if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in code editor"})) {
                             (void)ftk::platform::open_path(entry.path);
                             ImGui::CloseCurrentPopup();
                         }
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::build, .label = "Bake atlas"})) {
+                        if (ftk::ui::menu_item({.icon = icon::build, .label = "Bake atlas"})) {
                             on_bake_font.broadcast(entry.path.string());
                             ImGui::CloseCurrentPopup();
                         }
                     } else {
                         // A font file on its own is not an asset yet; the
                         // recipe beside it is what the UI names.
-                        if (ftk::ui::menu_item({.icon = ftk::ui::icon::new_file, .label = "Create font asset"})) {
+                        if (ftk::ui::menu_item({.icon = icon::new_file, .label = "Create font asset"})) {
                             create_font_recipe(entry.path);
                             ImGui::CloseCurrentPopup();
                         }
@@ -821,7 +821,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::weather:
                 case FileType::climate:
                 case FileType::water:
-                    if (ftk::ui::menu_item({.icon = ftk::ui::icon::open_in, .label = "Open in code editor"})) {
+                    if (ftk::ui::menu_item({.icon = icon::open_in, .label = "Open in code editor"})) {
                         (void)ftk::platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
@@ -839,23 +839,23 @@ void ContentBrowser::draw_context_menu() {
             // Right-clicked on empty space
             draw_create_new_submenu();
             ImGui::Separator();
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::new_folder, .label = "New folder"})) {
+            if (ftk::ui::menu_item({.icon = icon::new_folder, .label = "New folder"})) {
                 create_folder();
             }
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::new_file, .label = "New script"})) {
+            if (ftk::ui::menu_item({.icon = icon::new_file, .label = "New script"})) {
                 create_asset_file("new_script", ".cpp", "#include <iostream>\n");
             }
             ImGui::Separator();
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::import, .label = "Import..."})) {
+            if (ftk::ui::menu_item({.icon = icon::import, .label = "Import..."})) {
                 on_import_into.broadcast(current_dir_.string());
             }
             ImGui::Separator();
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::reload, .label = "Refresh"})) {
+            if (ftk::ui::menu_item({.icon = icon::reload, .label = "Refresh"})) {
                 refresh_current_dir();
             }
             // A thumbnail is re-rendered when its asset changes, not when
             // the renderer does; this is for the day the renderer did.
-            if (asset_thumbnails_ && ftk::ui::menu_item({.icon = ftk::ui::icon::thumbnails, .label = "Regenerate thumbnails"})) {
+            if (asset_thumbnails_ && ftk::ui::menu_item({.icon = icon::thumbnails, .label = "Regenerate thumbnails"})) {
                 for (const auto& e : entries_) {
                     if (!asset_thumbnails_->regenerates(e.path)) continue;
                     asset_thumbnails_->invalidate(e.path.string());
@@ -863,10 +863,10 @@ void ContentBrowser::draw_context_menu() {
                 }
             }
             ImGui::Separator();
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::show_in_files, .label = "Show in file manager"})) {
+            if (ftk::ui::menu_item({.icon = icon::show_in_files, .label = "Show in file manager"})) {
                 (void)ftk::platform::open_path(current_dir_);
             }
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::copy_path, .label = "Copy path"})) {
+            if (ftk::ui::menu_item({.icon = icon::copy_path, .label = "Copy path"})) {
                 auto rel = std::filesystem::relative(current_dir_, root_);
                 ImGui::SetClipboardText(rel.string().c_str());
             }
@@ -876,7 +876,7 @@ void ContentBrowser::draw_context_menu() {
 }
 
 void ContentBrowser::draw_create_new_submenu() {
-    if (ftk::ui::begin_menu(ftk::ui::icon::new_file, "Create new")) {
+    if (ftk::ui::begin_menu(icon::new_file, "Create new")) {
         for (const auto& tmpl : kAssetTemplates) {
             if (!tmpl.label) {
                 ImGui::Separator();
@@ -896,20 +896,20 @@ void ContentBrowser::draw_common_context_items(int index) {
     ImGui::Separator();
 
     auto& entry = entries_[index];
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::rename, .label = "Rename", .shortcut = "F2"})) {
+    if (ftk::ui::menu_item({.icon = icon::rename, .label = "Rename", .shortcut = "F2"})) {
         start_rename(index);
     }
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::show_in_files, .label = "Show in file manager"})) {
+    if (ftk::ui::menu_item({.icon = icon::show_in_files, .label = "Show in file manager"})) {
         auto dir = entry.is_directory ? entry.path : entry.path.parent_path();
         (void)ftk::platform::open_path(dir);
     }
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::copy_path, .label = "Copy path"})) {
+    if (ftk::ui::menu_item({.icon = icon::copy_path, .label = "Copy path"})) {
         auto rel = std::filesystem::relative(entry.path, root_);
         ImGui::SetClipboardText(rel.string().c_str());
     }
     // Destructive, so last.
     ImGui::Separator();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
+    if (ftk::ui::menu_item({.icon = icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true})) {
         delete_index_ = index;
         show_delete_popup_ = true;
     }
@@ -962,7 +962,7 @@ void ContentBrowser::draw_folder_color_menu(const std::filesystem::path& folder)
     if (ImGui::IsItemDeactivatedAfterEdit()) save_folder_colors();
 
     ImGui::Separator();
-    if (ftk::ui::menu_item({.icon = ftk::ui::icon::clear, .label = "Clear colour", .enabled = current.has_value(), .disabled_reason = "The folder has no colour"})) {
+    if (ftk::ui::menu_item({.icon = icon::clear, .label = "Clear colour", .enabled = current.has_value(), .disabled_reason = "The folder has no colour"})) {
         folder_colors_.clear(folder);
         save_folder_colors();
     }

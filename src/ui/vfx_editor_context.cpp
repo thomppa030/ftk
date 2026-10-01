@@ -6,7 +6,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -326,10 +326,10 @@ void VfxEditorContext::show_emitter() {
 }
 
 void VfxEditorContext::draw_graph() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::vfx, ctx_title("Graph").c_str());
+    auto panel = ftk::ui::Panel(icon::vfx, ctx_title("Graph").c_str());
     if (!panel) return;
     if (!effect_) {
-        ftk::ui::empty_state(ftk::ui::icon::vfx, "No effect", "The effect couldn't be read; the console says why");
+        ftk::ui::empty_state(icon::vfx, "No effect", "The effect couldn't be read; the console says why");
         return;
     }
 
@@ -377,7 +377,7 @@ void VfxEditorContext::draw_graph() {
     (void)ftk::ui::slider("##speed", time_scale_, 0.0f, 3.0f, ftk::ui::Unit::Times, "%.1f");
 
     if (selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-        ftk::ui::empty_state(ftk::ui::icon::vfx, "No emitter selected", "Pick one above or add one");
+        ftk::ui::empty_state(icon::vfx, "No emitter selected", "Pick one above or add one");
         return;
     }
     (void)graph_.draw(effect_->emitters[static_cast<size_t>(selected_emitter_)]);
@@ -475,15 +475,15 @@ void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
 }
 
 void VfxEditorContext::draw_module_stack() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::vfx, ctx_title("Modules").c_str());
+    auto panel = ftk::ui::Panel(icon::vfx, ctx_title("Modules").c_str());
     if (!panel) return;
     if (!effect_ || selected_emitter_ < 0 || selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
-        ftk::ui::empty_state(ftk::ui::icon::vfx, "No emitter selected", "Select an emitter in the graph");
+        ftk::ui::empty_state(icon::vfx, "No emitter selected", "Select an emitter in the graph");
         return;
     }
     auto& emitter = effect_->emitters[static_cast<size_t>(selected_emitter_)];
 
-    ftk::ui::section("Emitter", ftk::ui::icon::vfx);
+    ftk::ui::section("Emitter", icon::vfx);
     if (auto t = ftk::ui::PropertyTable("##emitter")) {
         ftk::ui::row("Name", [&] { (void)ftk::ui::text_field("##name", emitter.name); });
         ftk::ui::row("Max particles", [&] {
@@ -531,7 +531,7 @@ void VfxEditorContext::draw_module_stack() {
 
     for (int stack = 0; stack < 3; ++stack) {
         auto& modules = stack_of(emitter, stack);
-        ftk::ui::section(STACK_NAMES[stack], ftk::ui::icon::vfx);
+        ftk::ui::section(STACK_NAMES[stack], icon::vfx);
         std::optional<std::size_t> remove;
         for (std::size_t i = 0; i < modules.size(); ++i) {
             VfxModule& module = *modules[i];
@@ -555,7 +555,7 @@ void VfxEditorContext::draw_module_stack() {
         ImGui::PushID(stack);
         const std::string add = std::string("Add ") + (stack == 0 ? "spawn" : stack == 1 ? "update" : "render") +
                                 " module";
-        if (ftk::ui::action(ftk::ui::icon::add, add.c_str(), ftk::ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_to_stack");
+        if (ftk::ui::action(icon::add, add.c_str(), ftk::ui::ButtonKind::Ghost)) ImGui::OpenPopup("##add_to_stack");
         if (ImGui::BeginPopup("##add_to_stack")) {
             draw_add_module_items(emitter, stack);
             ImGui::EndPopup();

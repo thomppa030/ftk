@@ -12,7 +12,7 @@
 #include "ftk/app/imgui_layer.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -164,10 +164,10 @@ void FontEditorContext::draw(float dt) {
 }
 
 void FontEditorContext::draw_recipe_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::font, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(icon::font, ctx_title("Properties").c_str());
     if (!panel) return;
     if (!loaded_) {
-        ftk::ui::empty_state(ftk::ui::icon::font, "The recipe couldn't be read", "The console says why");
+        ftk::ui::empty_state(icon::font, "The recipe couldn't be read", "The console says why");
         return;
     }
 
@@ -292,7 +292,7 @@ void FontEditorContext::draw_recipe_panel() {
 }
 
 void FontEditorContext::draw_preview_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::preview, ctx_title("Preview").c_str());
+    auto panel = ftk::ui::Panel(icon::preview, ctx_title("Preview").c_str());
     if (!panel) return;
     if (auto t = ftk::ui::PropertyTable("##sample")) {
         ftk::ui::row("Sample", [&] {
@@ -317,7 +317,7 @@ void FontEditorContext::draw_preview_panel() {
             ImGui::Image(tex, {static_cast<float>(preview_width_), static_cast<float>(preview_height_)});
         }
     } else {
-        ftk::ui::empty_state(ftk::ui::icon::font, "Baking", "The sample draws once the atlas is ready");
+        ftk::ui::empty_state(icon::font, "Baking", "The sample draws once the atlas is ready");
     }
 }
 

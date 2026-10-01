@@ -17,7 +17,7 @@
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -136,7 +136,7 @@ ftk::ui::Edit draw_widget_models(UiWidgetComponent& wc, const InspectorContext& 
                         return candidate.name + " has no " + model.component + "; this Model reads " +
                                model.component + ".";
                     },
-                    .empty_glyph = local ? ftk::ui::icon::local_player : ftk::ui::icon::this_node,
+                    .empty_glyph = local ? icon::local_player : icon::this_node,
                     .empty_text = local ? "Local player" : "This node",
                 };
                 if (node_slot(slot, node)) {
@@ -156,7 +156,7 @@ ftk::ui::Edit draw_widget_models(UiWidgetComponent& wc, const InspectorContext& 
                 ftk::ui::readout(gone.c_str());
                 ImGui::SameLine(clear_at);
                 const std::string id = "##forget_" + name;
-                if (ftk::ui::icon_button(id.c_str(), ftk::ui::icon::clear, "Clear", ftk::ui::ButtonKind::GhostDanger)) {
+                if (ftk::ui::icon_button(id.c_str(), icon::clear, "Clear", ftk::ui::ButtonKind::GhostDanger)) {
                     set_model_node(wc, name, 0);
                     edit = {true, true};
                 }
@@ -224,7 +224,7 @@ ftk::ui::Edit draw_particle_emitter(Node3D& /*node*/, void* component, const Ins
         ftk::ui::row("", [&] {
             ImGui::BeginDisabled(!em.effect);
             // Previews the bursts now; nothing is saved.
-            if (ftk::ui::action(ftk::ui::icon::play, "Fire")) em.fire = true;
+            if (ftk::ui::action(icon::play, "Fire")) em.fire = true;
             ImGui::EndDisabled();
             ImGui::SetItemTooltip(em.effect ? "Fire the effect's bursts now" : "Needs an effect first");
         });

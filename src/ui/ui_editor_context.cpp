@@ -15,7 +15,7 @@
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -352,10 +352,10 @@ void UiEditorContext::open_ui(const std::string& path) {
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::preview, ctx_title("Preview").c_str());
+    auto panel = ftk::ui::Panel(icon::preview, ctx_title("Preview").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
-        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(icon::ui_layout, "Nothing to preview", "The markup couldn't be loaded; the console says why");
         return;
     }
 
@@ -477,7 +477,7 @@ void UiEditorContext::draw_preview_toolbar() {
     ImGui::SetItemTooltip("Edit selects elements with a click; Play hands the mouse to the UI");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_mode_);
-    if (ftk::ui::toggle_button("##layout", ftk::ui::icon::layout, show_layout_overlay_, "Layout overlay")) {
+    if (ftk::ui::toggle_button("##layout", icon::layout, show_layout_overlay_, "Layout overlay")) {
         show_layout_overlay_ = !show_layout_overlay_;
     }
     ImGui::EndDisabled();
@@ -509,7 +509,7 @@ void UiEditorContext::draw_preview_toolbar() {
     constexpr float SIZE_W = 84.0f;
     const float times_w = ImGui::CalcTextSize("\xc3\x97").x;
     const float button = ImGui::GetFrameHeight();
-    const std::string design_label = std::string(ftk::ui::icon::revert) + "  Design size";
+    const std::string design_label = std::string(icon::revert) + "  Design size";
     const float design_w = project != nullptr ? ImGui::CalcTextSize(design_label.c_str()).x + style.FramePadding.x * 2.0f : 0.0f;
     const float gap = style.ItemSpacing.x;
     const float right = ASPECT_W + SIZE_W * 2.0f + times_w + button + (project != nullptr ? design_w + gap : 0.0f) + gap * 5.0f;
@@ -533,7 +533,7 @@ void UiEditorContext::draw_preview_toolbar() {
     (void)ftk::ui::drag("##height", preview_height_,
                    {.speed = 1.0f, .min = 100.0f, .max = 2160.0f, .unit = ftk::ui::Unit::Pixels, .format = "%.0f"});
     ImGui::SameLine();
-    if (ftk::ui::toggle_button("##design_scale", ftk::ui::icon::design_scale, design_scale_,
+    if (ftk::ui::toggle_button("##design_scale", icon::design_scale, design_scale_,
                           "Design scale: fit the project's design frame to the preview, as a screen-space "
                           "placement does in game. Off for world-space widgets")) {
         design_scale_ = !design_scale_;
@@ -541,7 +541,7 @@ void UiEditorContext::draw_preview_toolbar() {
     if (project != nullptr) {
         ImGui::SameLine();
         const auto& ui = project->config().ui;
-        if (ftk::ui::action(ftk::ui::icon::revert, "Design size", ftk::ui::ButtonKind::Ghost)) {
+        if (ftk::ui::action(icon::revert, "Design size", ftk::ui::ButtonKind::Ghost)) {
             preview_width_ = static_cast<float>(ui.design_width);
             preview_height_ = static_cast<float>(ui.design_height);
         }
@@ -553,10 +553,10 @@ void UiEditorContext::draw_preview_toolbar() {
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::hierarchy, ctx_title("Elements").c_str());
+    auto panel = ftk::ui::Panel(icon::hierarchy, ctx_title("Elements").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded()) {
-        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(icon::ui_layout, "No elements", "The markup couldn't be loaded; the console says why");
         return;
     }
     if (auto* root = preview_ui_->root()) {
@@ -571,19 +571,19 @@ void UiEditorContext::draw_node_tree(UiNode* node, int depth) {
     // What kind of node it is: <tag> .class #id, a widget, a foreach copy,
     // or text.
     std::string label;
-    const char* icon = ftk::ui::icon::ui_element;
+    const char* icon = icon::ui_element;
     std::optional<ftk::theme::Category> category;
     if (node->type == UiNodeType::text) {
         label = "\"" + node->text_content + "\"";
-        icon = ftk::ui::icon::ui_text;
+        icon = icon::ui_text;
     } else if (node->is_widget) {
         label = "<" + node->widget_tag + "/>";
         if (!node->id.empty()) label += " #" + node->id;
-        icon = ftk::ui::icon::ui_widget;
+        icon = icon::ui_widget;
         category = ftk::theme::Category::Ui;
     } else if (node->foreach_item_index >= 0) {
         label = "<" + node->tag + "> [" + std::to_string(node->foreach_item_index) + "]";
-        icon = ftk::ui::icon::ui_repeat;
+        icon = icon::ui_repeat;
         category = ftk::theme::Category::Ui;
     } else {
         label = "<" + (node->tag.empty() ? "root" : node->tag) + ">";
@@ -637,7 +637,7 @@ void UiEditorContext::draw_problems() {
     const auto& diagnostics = preview_ui_->stylesheet().diagnostics;
     if (diagnostics.empty() && widget_problems_.empty()) return;
 
-    ftk::ui::section("Problems", ftk::ui::icon::warning);
+    ftk::ui::section("Problems", icon::warning);
     auto line = [](const std::string& file, uint32_t row, uint32_t column, const std::string& message) {
         return fs::path(file).filename().string() + ":" + std::to_string(row) + ":" + std::to_string(column) +
                "  " + message;
@@ -652,7 +652,7 @@ void UiEditorContext::draw_problems() {
 }
 
 void UiEditorContext::draw_inspector() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str());
+    auto panel = ftk::ui::Panel(icon::properties, ctx_title("Properties").c_str());
     if (!panel) return;
     // Problems show up next to the UI they broke, even with nothing
     // selected: a typo in a hot-reloaded file should be the first thing
@@ -660,12 +660,12 @@ void UiEditorContext::draw_inspector() {
     draw_problems();
 
     if (!selected_node_) {
-        ftk::ui::empty_state(ftk::ui::icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");
+        ftk::ui::empty_state(icon::nothing_selected, "Nothing selected", "Select an element in the tree or the preview");
         return;
     }
     auto* node = selected_node_;
 
-    ftk::ui::section("Element", ftk::ui::icon::ui_element);
+    ftk::ui::section("Element", icon::ui_element);
     if (auto t = ftk::ui::PropertyTable("##element")) {
         const std::string tag = node->tag.empty() ? "root" : node->tag;
         ftk::ui::row("Tag", [&] { ftk::ui::readout(tag.c_str()); });
@@ -683,7 +683,7 @@ void UiEditorContext::draw_inspector() {
     if (node->hidden_by_if) ftk::ui::status(ftk::ui::Severity::Warning, "Hidden: its if= is false");
 
     if (node->is_widget) {
-        ftk::ui::section("Widget", ftk::ui::icon::ui_widget);
+        ftk::ui::section("Widget", icon::ui_widget);
         if (auto t = ftk::ui::PropertyTable("##widget")) {
             const std::string tag = "<" + node->widget_tag + "/>";
             ftk::ui::row("Tag", [&] { ftk::ui::readout(tag.c_str()); });
@@ -725,7 +725,7 @@ void UiEditorContext::draw_inspector() {
     }
 
     if (node->foreach_item_index >= 0) {
-        ftk::ui::section("Foreach", ftk::ui::icon::ui_repeat);
+        ftk::ui::section("Foreach", icon::ui_repeat);
         if (auto t = ftk::ui::PropertyTable("##foreach")) {
             const std::string item = std::to_string(node->foreach_item_index + 1);
             ftk::ui::row("Item", [&] { ftk::ui::readout(item.c_str()); });
@@ -735,7 +735,7 @@ void UiEditorContext::draw_inspector() {
     bool has_attributes = false;
     for (const auto& [key, value] : node->attributes) has_attributes |= !key.starts_with("_");
     if (has_attributes) {
-        ftk::ui::section("Attributes", ftk::ui::icon::ui_element);
+        ftk::ui::section("Attributes", icon::ui_element);
         if (auto t = ftk::ui::PropertyTable("##attributes")) {
             for (const auto& [key, value] : node->attributes) {
                 if (key.starts_with("_")) continue;  // internal attributes
@@ -744,14 +744,14 @@ void UiEditorContext::draw_inspector() {
         }
     }
 
-    ftk::ui::section("State", ftk::ui::icon::info);
+    ftk::ui::section("State", icon::info);
     if (auto t = ftk::ui::PropertyTable("##state")) {
         ftk::ui::row("Hovered", [&] { ftk::ui::readout(node->is_hovered() ? "Yes" : "No"); });
         ftk::ui::row("Active", [&] { ftk::ui::readout(node->is_active() ? "Yes" : "No"); });
         ftk::ui::row("Focused", [&] { ftk::ui::readout(node->is_focused() ? "Yes" : "No"); });
     }
 
-    ftk::ui::section("Layout", ftk::ui::icon::layout);
+    ftk::ui::section("Layout", icon::layout);
     if (auto t = ftk::ui::PropertyTable("##layout_rect")) {
         char text[64];
         const auto& r = node->layout_rect;
@@ -771,7 +771,7 @@ void UiEditorContext::draw_inspector() {
     // stylesheet (see SetStylePropertyCommand); values shown are the
     // resolved cascade output until something is set here, at which point
     // the value set here takes over.
-    ftk::ui::section("Style", ftk::ui::icon::colour);
+    ftk::ui::section("Style", icon::colour);
     if (node->type != UiNodeType::text) {
         draw_style_editor(*node);
     } else {
@@ -828,7 +828,7 @@ void UiEditorContext::draw_node_material_editor(UiNode& node) {
     uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache->shader_count()) return;
 
-    ftk::ui::section("Material", ftk::ui::icon::material);
+    ftk::ui::section("Material", icon::material);
     if (auto t = ftk::ui::PropertyTable("##material")) {
         ftk::ui::row("Shader", [&] { ftk::ui::readout(mat->shader_path().c_str()); });
     }
@@ -872,7 +872,7 @@ void UiEditorContext::style_row_menu(UiNode& node, const char* property, const s
         ImGui::OpenPopup(popup.c_str());
     }
     if (ImGui::BeginPopup(popup.c_str())) {
-        if (ftk::ui::menu_item({.icon = ftk::ui::icon::clear, .label = "Unset"})) {
+        if (ftk::ui::menu_item({.icon = icon::clear, .label = "Unset"})) {
             set_style(node, property, explicit_str, {});
         }
         ImGui::EndPopup();
@@ -1151,10 +1151,10 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_data() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::ui_models, ctx_title("Data").c_str());
+    auto panel = ftk::ui::Panel(icon::ui_models, ctx_title("Data").c_str());
     if (!panel) return;
     if (!preview_ui_ || !preview_ui_->loaded() || !preview_data_) {
-        ftk::ui::empty_state(ftk::ui::icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
+        ftk::ui::empty_state(icon::ui_layout, "Nothing to feed", "The markup couldn't be loaded; the console says why");
         return;
     }
     const InspectorContext ctx{.resource_manager = deps_.resource_manager,
@@ -1166,14 +1166,14 @@ void UiEditorContext::draw_data() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::console, ctx_title("Action log").c_str());
+    auto panel = ftk::ui::Panel(icon::console, ctx_title("Action log").c_str());
     if (!panel) return;
     if (action_log_.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::console, "No actions yet", "Actions fired in Play mode are listed here");
+        ftk::ui::empty_state(icon::console, "No actions yet", "Actions fired in Play mode are listed here");
         return;
     }
     ImGui::BeginDisabled(action_log_.empty());
-    if (ftk::ui::action(ftk::ui::icon::clear, "Clear", ftk::ui::ButtonKind::Ghost)) action_log_.clear();
+    if (ftk::ui::action(icon::clear, "Clear", ftk::ui::ButtonKind::Ghost)) action_log_.clear();
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();

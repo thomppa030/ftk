@@ -360,13 +360,13 @@ TEST_CASE("An inset group folds from its heading and keeps its contents inside i
 TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by it", "[ui][kit]") {
     ImGuiHarness h;
     h.set_ui([&] {
-        (void)ui::mode_button("##view", ui::icon::debug, "DDGI indirect", true);
+        (void)ui::mode_button("##view", ui::icon::search, "DDGI indirect", true);
         h.mark("view");
     });
     h.step(2);
     const float drawn = h.rect_max("view").x - h.rect_min("view").x;
-    CHECK(drawn == ui::mode_button_width(ui::icon::debug, "DDGI indirect"));
-    CHECK(drawn > ui::mode_button_width(ui::icon::debug, "Lit"));
+    CHECK(drawn == ui::mode_button_width(ui::icon::search, "DDGI indirect"));
+    CHECK(drawn > ui::mode_button_width(ui::icon::search, "Lit"));
 }
 
 TEST_CASE("A marked row's label makes room for the dot, marked or not, and only that row", "[ui][kit]") {
@@ -471,13 +471,13 @@ TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][ki
     float long_start = 0.0f;
     h.set_ui([&] {
         start = ImGui::GetCursorScreenPos();
-        const auto cap = ui::key_cap({.id = "##w", .device_icon = ui::icon::keyboard, .label = "W"});
+        const auto cap = ui::key_cap({.id = "##w", .device_icon = ui::icon::file, .label = "W"});
         h.mark("chevron");  // the last item: the chevron
         short_end = ImGui::GetItemRectMax().x;
         if (cap.listen) ++listens;
         if (cap.list) ++lists;
         long_start = ImGui::GetCursorScreenPos().x;
-        (void)ui::key_cap({.id = "##shift", .device_icon = ui::icon::keyboard, .label = "Left Shift"});
+        (void)ui::key_cap({.id = "##shift", .device_icon = ui::icon::file, .label = "Left Shift"});
         long_end = ImGui::GetItemRectMax().x;
     });
     h.step(2);
@@ -530,14 +530,14 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     h.set_ui([&] {
         {
             ui::ViewportPill pill("##left", image_min, image_max, ui::PillPlace::TopLeft);
-            (void)ui::icon_button("##grid", ui::icon::grid, "Grid");
+            (void)ui::icon_button("##grid", ui::icon::folder, "Grid");
             left_min = ImGui::GetItemRectMin();
         }
         {
             ui::ViewportPill pill("##right", image_min, image_max, ui::PillPlace::TopRight);
-            (void)ui::icon_button("##a", ui::icon::grid, "A");
+            (void)ui::icon_button("##a", ui::icon::folder, "A");
             ImGui::SameLine();
-            (void)ui::icon_button("##b", ui::icon::grid, "B");
+            (void)ui::icon_button("##b", ui::icon::folder, "B");
             right_edge = ImGui::GetItemRectMax().x;
         }
     });

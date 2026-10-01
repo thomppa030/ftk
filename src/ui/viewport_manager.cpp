@@ -3,7 +3,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "ftk/app/imgui_layer.hpp"
 #include "ftk/ui/kit/button.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/theme.hpp"
@@ -315,7 +315,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             const ftk::ui::OverlayPiece line[] = {{showing}};
             ftk::ui::corner_note(ImGui::GetWindowDrawList(),
                             {panel.img_pos.x + img_w - ftk::ui::OVERLAY_INSET, panel.img_pos.y + img_h - ftk::ui::OVERLAY_INSET},
-                            ftk::ui::Corner::BottomRight, {.icon = ftk::ui::icon::debug, .line = line, .ink = ftk::theme::warning()});
+                            ftk::ui::Corner::BottomRight, {.icon = icon::debug, .line = line, .ink = ftk::theme::warning()});
         }
 
         if (img_w > 0 && img_h > 0) {
@@ -343,10 +343,10 @@ void ViewportManager::draw_preview_toolbar(ViewportPanel& panel) {
 
     // Left: what is drawn over the picture, and bringing the asset back.
     if (auto pill = ftk::ui::ViewportPill("##view_left", min, max, ftk::ui::PillPlace::TopLeft)) {
-        if (ftk::ui::toggle_button("##grid", ftk::ui::icon::grid, panel.show_grid, "Grid")) panel.show_grid = !panel.show_grid;
+        if (ftk::ui::toggle_button("##grid", icon::grid, panel.show_grid, "Grid")) panel.show_grid = !panel.show_grid;
         if (framing_) {
             ImGui::SameLine();
-            if (ftk::ui::icon_button("##frame", ftk::ui::icon::frame_view, "Frame (F)")) {
+            if (ftk::ui::icon_button("##frame", icon::frame_view, "Frame (F)")) {
                 panel.camera.focus(framing_->center, framing_->radius);
             }
         }
@@ -362,7 +362,7 @@ void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {
     // What the viewport shows, and the projection.
     if (auto pill = ftk::ui::ViewportPill("##view_right", min, max, ftk::ui::PillPlace::TopRight)) {
         const bool lit = view_is_lit(panel.source, ctx);
-        if (ftk::ui::mode_button("##view", lit ? ftk::ui::icon::directional_light : ftk::ui::icon::debug,
+        if (ftk::ui::mode_button("##view", lit ? icon::directional_light : icon::debug,
                             view_name(panel.source, ctx), !lit)) {
             ImGui::OpenPopup("##view_menu");
         }
@@ -373,7 +373,7 @@ void ViewportManager::draw_view_pill(ViewportPanel& panel, VulkanContext& ctx) {
         }
         ImGui::SameLine();
         const bool perspective = panel.camera.mode() == EditorCameraMode::perspective;
-        if (ftk::ui::icon_button("##projection", perspective ? ftk::ui::icon::perspective : ftk::ui::icon::orthographic,
+        if (ftk::ui::icon_button("##projection", perspective ? icon::perspective : icon::orthographic,
                             perspective ? "Perspective: click for orthographic"
                                         : "Orthographic: click for perspective")) {
             panel.camera.set_mode(perspective ? EditorCameraMode::orthographic : EditorCameraMode::perspective);

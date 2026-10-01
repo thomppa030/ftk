@@ -5,7 +5,7 @@
 #include "ui/engine_file_browser.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/pane.hpp"
@@ -115,19 +115,19 @@ void HubUI::draw_sidebar() {
     ImGui::Dummy({width, word_y + 16.0f + sub.y + ftk::theme::GAP_L * 2.0f - top.y});
 
     constexpr float BUTTON_H = 32.0f;
-    if (ftk::ui::action(ftk::ui::icon::add, "New project", ftk::ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
+    if (ftk::ui::action(icon::add, "New project", ftk::ui::ButtonKind::Primary, {-1.0f, BUTTON_H})) {
         new_browser_.open("New project", ftk::FileBrowser::Mode::select_location, "Create");
     }
     ImGui::Dummy({0.0f, ftk::theme::GAP_XS});
-    if (ftk::ui::action(ftk::ui::icon::open_file, "Open project", ftk::ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
+    if (ftk::ui::action(icon::open_file, "Open project", ftk::ui::ButtonKind::Secondary, {-1.0f, BUTTON_H})) {
         open_browser_.open("Open project", ftk::FileBrowser::Mode::select_directory, "Open");
     }
 }
 
 void HubUI::draw_projects() {
-    ftk::ui::section("Recent projects", ftk::ui::icon::recent);
+    ftk::ui::section("Recent projects", icon::recent);
     if (recent_.list().empty()) {
-        (void)ftk::ui::empty_state(ftk::ui::icon::recent, "No recent projects", "Create a project, or open one from its folder");
+        (void)ftk::ui::empty_state(icon::recent, "No recent projects", "Create a project, or open one from its folder");
         return;
     }
     ImGui::SetNextItemWidth(-1.0f);
@@ -151,8 +151,8 @@ void HubUI::draw_projects() {
         if (ImGui::InvisibleButton("##row", {width, ROW_H})) launch_project(project.path, name);
         const bool hot = ImGui::IsItemHovered();
         if (ImGui::BeginPopupContextItem("##project")) {
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::forget, .label = "Remove from list"})) forget = project.path;
-            if (ftk::ui::menu_item({.icon = ftk::ui::icon::show_in_files, .label = "Show in file manager"})) {
+            if (ftk::ui::menu_item({.icon = icon::forget, .label = "Remove from list"})) forget = project.path;
+            if (ftk::ui::menu_item({.icon = icon::show_in_files, .label = "Show in file manager"})) {
                 if (auto opened = ftk::platform::open_path(project.path); !opened) {
                     FTK_CORE_WARN("Couldn't show {}: {}", project.path, opened.error());
                 }
@@ -166,9 +166,9 @@ void HubUI::draw_projects() {
         const float cy = (p0.y + p1.y) * 0.5f;
         const ImVec2 t0{p0.x + ftk::theme::GAP_M, cy - THUMB * 0.5f};
         dl->AddRectFilled(t0, {t0.x + THUMB, t0.y + THUMB}, ImGui::GetColorU32(ftk::theme::surface_sunken()), 5.0f);
-        const ImVec2 icon = ImGui::CalcTextSize(ftk::ui::icon::folder);
+        const ImVec2 icon = ImGui::CalcTextSize(icon::folder);
         dl->AddText({t0.x + (THUMB - icon.x) * 0.5f, cy - icon.y * 0.5f},
-                    ImGui::GetColorU32(ftk::theme::text_secondary()), ftk::ui::icon::folder);
+                    ImGui::GetColorU32(ftk::theme::text_secondary()), icon::folder);
 
         const float text_x = t0.x + THUMB + ftk::theme::GAP_M + ftk::theme::GAP_XS;
         dl->PushClipRect({text_x, p0.y}, {p1.x - ftk::theme::GAP_M, p1.y}, true);

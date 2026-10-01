@@ -6,7 +6,7 @@
 #include "ftk/base/string_utils.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 
 #include <filesystem>
@@ -89,13 +89,13 @@ void TrackAssetEditorContext::draw(float dt) {
         if (lanes_.draw(ctx_title("Timeline").c_str(), tracks(), dt)) push_live();
     }
 
-    if (auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Properties").c_str())) {
+    if (auto panel = ftk::ui::Panel(icon::properties, ctx_title("Properties").c_str())) {
         if (loaded_) {
             draw_status();
             if (lanes_.draw_selection(tracks())) push_live();
             draw_properties();
         } else {
-            ftk::ui::empty_state(ftk::ui::icon::warning, "The file couldn't be read", "The console says why");
+            ftk::ui::empty_state(icon::warning, "The file couldn't be read", "The console says why");
         }
     }
     draw_shared_panels(dt);

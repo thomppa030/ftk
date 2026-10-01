@@ -9,7 +9,7 @@
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/pages.hpp"
@@ -71,21 +71,21 @@ void ProjectSettingsWindow::draw() {
     if (!visible_) { return; }
 
     static constexpr PageInfo PAGES[PAGE_COUNT] = {
-        {ftk::ui::icon::rendering, "Rendering"},
-        {ftk::ui::icon::ui_layout, "Game UI"},
-        {ftk::ui::icon::world_environment, "Environment"},
-        {ftk::ui::icon::simulation, "Simulation"},
+        {icon::rendering, "Rendering"},
+        {icon::ui_layout, "Game UI"},
+        {icon::world_environment, "Environment"},
+        {icon::simulation, "Simulation"},
     };
 
     Project* project = projects_ != nullptr ? projects_->active() : nullptr;
-    std::string title = std::string(ftk::ui::icon::settings) + "  Project settings";
+    std::string title = std::string(icon::settings) + "  Project settings";
     if (project != nullptr) title += " \xc2\xb7 " + project->config().name;
     title += "###project_settings";
 
     auto window = ftk::ui::PagedWindow(title.c_str(), &visible_, {720.0f, 520.0f});
     if (!window) return;
     if (project == nullptr) {
-        ftk::ui::empty_state(ftk::ui::icon::settings, "No project open", "Open or create one from the Project menu");
+        ftk::ui::empty_state(icon::settings, "No project open", "Open or create one from the Project menu");
         return;
     }
 
@@ -124,7 +124,7 @@ void ProjectSettingsWindow::draw() {
                 ImGui::PopID();
             }
             if (total == 0) {
-                ftk::ui::empty_state(ftk::ui::icon::search, "No settings match", "Try another word");
+                ftk::ui::empty_state(icon::search, "No settings match", "Try another word");
             }
         }
     }

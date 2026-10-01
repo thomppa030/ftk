@@ -2,7 +2,7 @@
 
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -32,11 +32,11 @@ void metric(const char* label, const std::string& value) {
 } // namespace
 
 void NetPanel::draw(float dt, const char* title) {
-    auto p = ftk::ui::Panel(ftk::ui::icon::network, title);
+    auto p = ftk::ui::Panel(icon::network, title);
     if (!p) return;
 
     if (!net_) {
-        ftk::ui::empty_state(ftk::ui::icon::network, "No network manager", "This editor was started without networking");
+        ftk::ui::empty_state(icon::network, "No network manager", "This editor was started without networking");
         return;
     }
 
@@ -63,7 +63,7 @@ void NetPanel::draw(float dt, const char* title) {
                            : std::string(role_label(role)));
     }
 
-    if (ftk::ui::section_foldable("Bandwidth", ftk::ui::icon::bandwidth)) {
+    if (ftk::ui::section_foldable("Bandwidth", icon::bandwidth)) {
         if (auto t = ftk::ui::PropertyTable("##bandwidth")) {
             metric("Out", std::format("{:.1f} KB/s ({:.0f} pkt/s)", send_bps_ / 1024.0f, send_pps_));
             metric("In", std::format("{:.1f} KB/s ({:.0f} pkt/s)", recv_bps_ / 1024.0f, recv_pps_));
@@ -72,7 +72,7 @@ void NetPanel::draw(float dt, const char* title) {
                          "out B/s", 0.0f, FLT_MAX, {ImGui::GetContentRegionAvail().x, 40});
     }
 
-    if (ftk::ui::section_foldable("Peers", ftk::ui::icon::peers)) {
+    if (ftk::ui::section_foldable("Peers", icon::peers)) {
         const auto peers = net_->peers();
         if (peers.empty()) {
             ImGui::TextDisabled("No peers connected");
@@ -93,7 +93,7 @@ void NetPanel::draw(float dt, const char* title) {
 
     // Artificial link degradation, so interpolation and prediction can be
     // tried from one machine.
-    if (ftk::ui::section_foldable("Simulated link", ftk::ui::icon::simulated)) {
+    if (ftk::ui::section_foldable("Simulated link", icon::simulated)) {
         if (auto t = ftk::ui::PropertyTable("##conditioning")) {
             ftk::ui::Edit edit;
             ftk::ui::row("Latency", [&] {

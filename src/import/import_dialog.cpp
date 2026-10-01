@@ -5,7 +5,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/pane.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -120,7 +120,7 @@ void ImportDialog::draw_form() {
     }
     ImGui::BeginDisabled(running);
 
-    ftk::ui::section("Source", ftk::ui::icon::open_file);
+    ftk::ui::section("Source", icon::open_file);
     if (auto t = ftk::ui::PropertyTable("##source")) {
         ftk::ui::row("File", [&] {
             ftk::ui::readout(source_filename_.c_str());
@@ -131,7 +131,7 @@ void ImportDialog::draw_form() {
         });
     }
 
-    ftk::ui::section("Level of detail", ftk::ui::icon::surface);
+    ftk::ui::section("Level of detail", icon::surface);
     if (auto t = ftk::ui::PropertyTable("##lod")) {
         ftk::ui::row("Generate LODs", "Simpler versions of the mesh, drawn as it gets smaller on screen.",
                 [&] { (void)ftk::ui::checkbox("##lods", settings_.generate_lods); });
@@ -174,7 +174,7 @@ void ImportDialog::draw_form() {
         }
     }
 
-    ftk::ui::section("Distance field", ftk::ui::icon::collision);
+    ftk::ui::section("Distance field", icon::collision);
     if (auto t = ftk::ui::PropertyTable("##sdf")) {
         ftk::ui::row("Generate SDF", "A distance field of the mesh, for particles and lighting that need its shape.",
                 [&] { (void)ftk::ui::checkbox("##sdf", settings_.generate_sdf); });
@@ -188,12 +188,12 @@ void ImportDialog::draw_form() {
         }
     }
 
-    ftk::ui::section("Animation", ftk::ui::icon::animation);
+    ftk::ui::section("Animation", icon::animation);
     if (auto t = ftk::ui::PropertyTable("##animation")) {
         ftk::ui::row("Import animations", [&] { (void)ftk::ui::checkbox("##animations", settings_.import_animations); });
     }
 
-    ftk::ui::section("Textures", ftk::ui::icon::texture);
+    ftk::ui::section("Textures", icon::texture);
     if (auto t = ftk::ui::PropertyTable("##textures")) {
         ftk::ui::row("Import textures", "Extract the textures the file's materials use and write a .fjmat per material.",
                 [&] { (void)ftk::ui::checkbox("##textures", settings_.import_textures); });
@@ -208,7 +208,7 @@ void ImportDialog::draw_form() {
 }
 
 void ImportDialog::draw_summary() {
-    ftk::ui::section("In this file", ftk::ui::icon::info);
+    ftk::ui::section("In this file", icon::info);
     switch (inspection_.state()) {
         case SourceInspection::State::idle:
         case SourceInspection::State::reading: {
@@ -279,7 +279,7 @@ bool ImportDialog::draw_bottom_bar() {
                 ImGui::AlignTextToFramePadding();
                 ftk::ui::status(ftk::ui::Severity::Success, done.c_str());
                 ImGui::SameLine();
-                if (ftk::ui::action(ftk::ui::icon::show_in_files, "Show in content browser", ftk::ui::ButtonKind::Ghost)) {
+                if (ftk::ui::action(icon::show_in_files, "Show in content browser", ftk::ui::ButtonKind::Ghost)) {
                     on_show_result.broadcast(first);
                 }
             } else {

@@ -6,7 +6,7 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "renderer/camera.hpp"
 #include "ui/viewport_manager.hpp"
@@ -112,7 +112,7 @@ void CapturePopup::draw(CaptureService& capture, ViewportManager& viewports) {
                                         ImGui::GetStyle().ItemSpacing.x);
                 (void)ftk::ui::choice("##pane", pane_index_, names);
                 ImGui::SameLine();
-                if (ftk::ui::icon_button("##refresh", ftk::ui::icon::reload, "Look again for the panes that are open")) {
+                if (ftk::ui::icon_button("##refresh", icon::reload, "Look again for the panes that are open")) {
                     refresh_pane_list();
                 }
             });

@@ -4,7 +4,7 @@
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -41,7 +41,7 @@ constexpr float PILL_SLIDER_WIDTH = 140.0f;
 void SdfDebugPanel::draw(SceneSdfPass& sdf) {
     if (!open_) return;
     ImGui::SetNextWindowSize({460.0f, 600.0f}, ImGuiCond_FirstUseEver);
-    auto panel = ftk::ui::Panel(ftk::ui::icon::debug, "SDF Debug", &open_);
+    auto panel = ftk::ui::Panel(icon::debug, "SDF Debug", &open_);
     if (!panel) return;
 
     const glm::vec3 lo = sdf.volume_min();

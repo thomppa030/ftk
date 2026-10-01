@@ -18,7 +18,7 @@
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -203,14 +203,14 @@ void MeshEditorContext::frame_camera() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MeshEditorContext::draw_slots_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::material, ctx_title("Materials").c_str());
+    auto panel = ftk::ui::Panel(icon::material, ctx_title("Materials").c_str());
     if (!panel) return;
     if (!model_) {
-        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
     if (authored_.material_slots.empty()) {
-        ftk::ui::empty_state(ftk::ui::icon::material, "No material slots",
+        ftk::ui::empty_state(icon::material, "No material slots",
                         "Reimport the mesh to record the materials its parts were made with");
         return;
     }
@@ -444,10 +444,10 @@ void MeshEditorContext::draw_primitive_list() {
 }
 
 void MeshEditorContext::draw_collision_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::collision, ctx_title("Collision").c_str());
+    auto panel = ftk::ui::Panel(icon::collision, ctx_title("Collision").c_str());
     if (!panel) return;
     if (!model_) {
-        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
 
@@ -530,10 +530,10 @@ void MeshEditorContext::draw_collision_panel() {
 }
 
 void MeshEditorContext::draw_info_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::info, ctx_title("Info").c_str());
+    auto panel = ftk::ui::Panel(icon::info, ctx_title("Info").c_str());
     if (!panel) return;
     if (!model_) {
-        ftk::ui::empty_state(ftk::ui::icon::mesh, "No mesh open", "Open one from the content browser");
+        ftk::ui::empty_state(icon::mesh, "No mesh open", "Open one from the content browser");
         return;
     }
 
@@ -595,7 +595,7 @@ void MeshEditorContext::draw_header_actions() {
     const auto source = find_import_source(fjmesh_abs_path_);
     ImGui::SameLine();
     ImGui::BeginDisabled(source.empty() || !deps_.import_model);
-    if (ftk::ui::action(ftk::ui::icon::reload, "Reimport", ftk::ui::ButtonKind::Ghost)) deps_.import_model(source);
+    if (ftk::ui::action(icon::reload, "Reimport", ftk::ui::ButtonKind::Ghost)) deps_.import_model(source);
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("%s", source.empty() ? "The source file isn't next to the mesh any more"
                                                : ("Import " + authored_.source_file + " again").c_str());

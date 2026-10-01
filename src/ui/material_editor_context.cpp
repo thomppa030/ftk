@@ -17,7 +17,7 @@
 #include "ftk/app/icon_cache.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ui/material_params_widget.hpp"
@@ -206,10 +206,10 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::properties, ctx_title("Parameters").c_str());
+    auto panel = ftk::ui::Panel(icon::properties, ctx_title("Parameters").c_str());
     if (!panel) return;
     if (!material_) {
-        ftk::ui::empty_state(ftk::ui::icon::material, "No material open", "Open one from the content browser");
+        ftk::ui::empty_state(icon::material, "No material open", "Open one from the content browser");
         return;
     }
 
@@ -257,10 +257,10 @@ void MaterialEditorContext::draw_params_panel() {
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    auto panel = ftk::ui::Panel(ftk::ui::icon::texture, ctx_title("Textures").c_str());
+    auto panel = ftk::ui::Panel(icon::texture, ctx_title("Textures").c_str());
     if (!panel) return;
     if (!material_) {
-        ftk::ui::empty_state(ftk::ui::icon::material, "No material open", "Open one from the content browser");
+        ftk::ui::empty_state(icon::material, "No material open", "Open one from the content browser");
         return;
     }
 
@@ -322,7 +322,7 @@ void MaterialEditorContext::draw_header_actions() {
     // The shader this material is made from, opened in the external editor.
     const std::filesystem::path shader = material_->shader_path();
     ImGui::SameLine();
-    if (ftk::ui::action(ftk::ui::icon::shader, shader.filename().string().c_str(), ftk::ui::ButtonKind::Ghost)) {
+    if (ftk::ui::action(icon::shader, shader.filename().string().c_str(), ftk::ui::ButtonKind::Ghost)) {
         const Project* project = deps_.project_mgr != nullptr ? deps_.project_mgr->active() : nullptr;
         if (auto opened = ftk::platform::open_path(base_path::resolve_shared(shader.string(), project)); !opened) {
             FTK_CORE_ERROR("Couldn't open {}: {}", shader.string(), opened.error());

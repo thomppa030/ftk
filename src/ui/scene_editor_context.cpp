@@ -1,5 +1,5 @@
 #include "ui/scene_editor_context.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/field.hpp"
@@ -352,7 +352,7 @@ void SceneEditorContext::draw(float dt) {
                         constexpr float TAG_INSET = 6.0f;
                         const ftk::ui::OverlayPiece name[] = {{cam_node->name}};
                         ftk::ui::corner_note(dl, {min.x + TAG_INSET, min.y + TAG_INSET}, ftk::ui::Corner::TopLeft,
-                                        {.icon = ftk::ui::icon::camera,
+                                        {.icon = icon::camera,
                                          .line = name,
                                          .ink = ftk::theme::text(),
                                          .icon_ink = ftk::theme::category(ftk::theme::Category::Camera)});
@@ -879,21 +879,21 @@ void SceneEditorContext::draw_play_pill(ImVec2 image_min, ImVec2 image_max) {
         ImGui::SameLine();
     }
 
-    if (ftk::ui::icon_button("##play", playing ? ftk::ui::icon::stop : ftk::ui::icon::play, playing ? "Stop (Ctrl P)" : "Play (Ctrl P)",
+    if (ftk::ui::icon_button("##play", playing ? icon::stop : icon::play, playing ? "Stop (Ctrl P)" : "Play (Ctrl P)",
                         playing ? ftk::ui::ButtonKind::Ghost : ftk::ui::ButtonKind::Secondary)) {
         deps_.play->toggle();
     }
     if (!playing) return;
 
     ImGui::SameLine();
-    if (ftk::ui::toggle_button("##pause", ftk::ui::icon::pause, paused, paused ? "Resume (Ctrl Shift P)" : "Pause (Ctrl Shift P)")) {
+    if (ftk::ui::toggle_button("##pause", icon::pause, paused, paused ? "Resume (Ctrl Shift P)" : "Pause (Ctrl Shift P)")) {
         deps_.play->toggle_pause();
     }
     ImGui::SameLine();
-    if (ftk::ui::icon_button("##step", ftk::ui::icon::step_frame, "Step one frame (Ctrl Alt P)")) deps_.play->step();
+    if (ftk::ui::icon_button("##step", icon::step_frame, "Step one frame (Ctrl Alt P)")) deps_.play->step();
     ImGui::SameLine();
     const bool ejected = deps_.play->ejected();
-    if (ftk::ui::toggle_button("##eject", ejected ? ftk::ui::icon::possess_camera : ftk::ui::icon::eject_camera, ejected,
+    if (ftk::ui::toggle_button("##eject", ejected ? icon::possess_camera : icon::eject_camera, ejected,
                           ejected ? "Back to the game's camera (F10)" : "Leave the game's camera (F10)")) {
         deps_.play->toggle_eject();
     }
@@ -952,28 +952,28 @@ void SceneEditorContext::draw_play_toolbar() {
     // Left: the gizmo's tool, then what is drawn over the scene and how
     // things snap (sheet 28).
     if (auto pill = ftk::ui::ViewportPill("##tools", min, max, ftk::ui::PillPlace::TopLeft)) {
-        if (ftk::ui::toggle_button("##move", ftk::ui::icon::move_tool, tool_ == ViewportTool::move, "Move (W)")) {
+        if (ftk::ui::toggle_button("##move", icon::move_tool, tool_ == ViewportTool::move, "Move (W)")) {
             tool_ = ViewportTool::move;
         }
         ImGui::SameLine();
-        if (ftk::ui::toggle_button("##rotate", ftk::ui::icon::rotate_tool, tool_ == ViewportTool::rotate, "Rotate (E)")) {
+        if (ftk::ui::toggle_button("##rotate", icon::rotate_tool, tool_ == ViewportTool::rotate, "Rotate (E)")) {
             tool_ = ViewportTool::rotate;
         }
         ImGui::SameLine();
-        if (ftk::ui::toggle_button("##scale", ftk::ui::icon::scale_tool, tool_ == ViewportTool::scale, "Scale (R)")) {
+        if (ftk::ui::toggle_button("##scale", icon::scale_tool, tool_ == ViewportTool::scale, "Scale (R)")) {
             tool_ = ViewportTool::scale;
         }
         if (deps_.vulkan_context != nullptr) {
             auto& grid = deps_.vulkan_context->grid_pass().settings();
             ImGui::SameLine(0.0f, ftk::theme::GAP_M);
-            if (ftk::ui::toggle_button("##grid", ftk::ui::icon::grid, grid.visible, "Grid")) grid.visible = !grid.visible;
+            if (ftk::ui::toggle_button("##grid", icon::grid, grid.visible, "Grid")) grid.visible = !grid.visible;
             ImGui::SameLine();
-            if (ftk::ui::toggle_button("##snap", ftk::ui::icon::snap, grid.snap_enabled, "Snap to grid (Ctrl inverts)")) {
+            if (ftk::ui::toggle_button("##snap", icon::snap, grid.snap_enabled, "Snap to grid (Ctrl inverts)")) {
                 grid.snap_enabled = !grid.snap_enabled;
             }
             ImGui::SameLine();
             const bool colliders = deps_.vulkan_context->show_colliders();
-            if (ftk::ui::toggle_button("##colliders", ftk::ui::icon::collision, colliders, "Colliders")) {
+            if (ftk::ui::toggle_button("##colliders", icon::collision, colliders, "Colliders")) {
                 deps_.vulkan_context->set_show_colliders(!colliders);
             }
         }

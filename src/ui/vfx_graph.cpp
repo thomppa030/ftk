@@ -1,7 +1,7 @@
 #include "ui/vfx_graph.hpp"
 
 #include "ftk/base/string_utils.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/theme.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -279,17 +279,17 @@ bool VfxGraph::menu(VfxEmitter& emitter, const ftk::ui::NodeGraphMenu& target, b
     if (target.node != 0) {
         const auto it = sources_.find(target.node);
         const bool module = it != sources_.end() && it->second.stack >= 0;
-        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = module ? "Remove module" : "Remove node",
+        return ftk::ui::menu_item({.icon = icon::remove, .label = module ? "Remove module" : "Remove node",
                               .shortcut = "Del", .destructive = true});
     }
     if (target.link != 0) {
-        return ftk::ui::menu_item({.icon = ftk::ui::icon::remove, .label = "Remove link", .shortcut = "Del",
+        return ftk::ui::menu_item({.icon = icon::remove, .label = "Remove link", .shortcut = "Del",
                               .destructive = true});
     }
 
     // On empty canvas: add a module to a stage, or an expression node, there.
     for (int stack = 0; stack < 3 && add_module_items_; ++stack) {
-        if (!ftk::ui::begin_menu(ftk::ui::icon::vfx, STAGE_NAMES[stack])) continue;
+        if (!ftk::ui::begin_menu(icon::vfx, STAGE_NAMES[stack])) continue;
         auto& modules = stack_of(emitter, stack);
         const std::size_t before = modules.size();
         add_module_items_(emitter, stack);
@@ -304,7 +304,7 @@ bool VfxGraph::menu(VfxEmitter& emitter, const ftk::ui::NodeGraphMenu& target, b
         ImGui::EndMenu();
     }
     ImGui::Separator();
-    if (ftk::ui::begin_menu(ftk::ui::icon::curve, "Expression")) {
+    if (ftk::ui::begin_menu(icon::curve, "Expression")) {
         auto& graph = emitter.expression_graph;
         const auto add = [&](const char* label, ExprNodeType type) {
             if (!ftk::ui::menu_item({.label = label})) return;

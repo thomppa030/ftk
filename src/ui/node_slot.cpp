@@ -4,7 +4,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/grouped_picker.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/slot.hpp"
 #include "ftk/ui/theme.hpp"
 #include "scene/node.hpp"
@@ -47,12 +47,12 @@ std::string drop_refusal(const NodeSlotConfig& config, const ImGuiPayload& paylo
 ftk::ui::SlotFace describe(const NodeSlotConfig& config, uint32_t node, const Node* held, std::string& text) {
     ftk::ui::SlotFace face;
     if (node == 0) {
-        face.glyph = config.empty_glyph != nullptr ? config.empty_glyph : ftk::ui::icon::transform;
+        face.glyph = config.empty_glyph != nullptr ? config.empty_glyph : icon::transform;
         face.glyph_colour = ftk::theme::text_disabled();
         text = config.empty_text;
         face.text_colour = ftk::theme::text_secondary();
     } else if (held == nullptr) {
-        face.glyph = ftk::ui::icon::warning;
+        face.glyph = icon::warning;
         face.glyph_colour = ftk::theme::error();
         text = "missing: the node is gone";
         face.text_colour = ftk::theme::error();

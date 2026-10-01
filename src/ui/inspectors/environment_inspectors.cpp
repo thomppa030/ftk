@@ -21,7 +21,7 @@
 
 #include <cmath>
 #include "ftk/ui/kit/field.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/section.hpp"
@@ -52,13 +52,13 @@ struct Tool {
     const char* tip;
 };
 constexpr Tool TOOLS[] = {
-    {BrushTool::raise, "raise", ftk::ui::icon::raise, "Raise", "Raise: lift the ground under the brush"},
-    {BrushTool::lower, "lower", ftk::ui::icon::lower, "Lower", "Lower: sink the ground under the brush"},
-    {BrushTool::smooth, "smooth", ftk::ui::icon::smooth, "Smooth", "Smooth: blend each point toward its neighbours"},
-    {BrushTool::flatten, "flatten", ftk::ui::icon::flatten, "Flatten",
+    {BrushTool::raise, "raise", icon::raise, "Raise", "Raise: lift the ground under the brush"},
+    {BrushTool::lower, "lower", icon::lower, "Lower", "Lower: sink the ground under the brush"},
+    {BrushTool::smooth, "smooth", icon::smooth, "Smooth", "Smooth: blend each point toward its neighbours"},
+    {BrushTool::flatten, "flatten", icon::flatten, "Flatten",
      "Flatten: pull the ground to the height where the stroke began"},
-    {BrushTool::noise, "noise", ftk::ui::icon::noise, "Noise", "Noise: roughen the ground under the brush"},
-    {BrushTool::paint, "paint", ftk::ui::icon::paint, "Paint", "Paint: lay a material layer onto the ground"},
+    {BrushTool::noise, "noise", icon::noise, "Noise", "Noise: roughen the ground under the brush"},
+    {BrushTool::paint, "paint", icon::paint, "Paint", "Paint: lay a material layer onto the ground"},
 };
 
 constexpr ftk::ui::Choice<WaterComponent::Extent> EXTENTS[] = {
@@ -167,7 +167,7 @@ void terrain_layers(TerrainAsset& asset, const InspectorContext& ctx) {
     }
     if (asset.layer_count() > 0) {
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        if (ftk::ui::action(ftk::ui::icon::remove, "Remove last layer", ftk::ui::ButtonKind::GhostDanger)) {
+        if (ftk::ui::action(icon::remove, "Remove last layer", ftk::ui::ButtonKind::GhostDanger)) {
             asset.set_layer_count(asset.layer_count() - 1);
         }
         ImGui::SetItemTooltip("Layers are channels of the painted weights, so they come off the end");
@@ -303,7 +303,7 @@ ftk::ui::Edit draw_terrain(Node3D& node, void* component, const InspectorContext
                 const bool can = !terrain.terrain_path.empty() && ctx.project_mgr != nullptr
                               && ctx.project_mgr->active() != nullptr;
                 ImGui::BeginDisabled(!can);
-                if (ftk::ui::action(ftk::ui::icon::add, "Create material")) {
+                if (ftk::ui::action(icon::add, "Create material")) {
                     if (auto created = create_terrain_material(terrain, *ctx.project_mgr->active())) {
                         terrain.material_path = *created;
                         load_terrain_material(terrain, ctx.resource_manager, project);

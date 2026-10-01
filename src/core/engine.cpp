@@ -35,7 +35,7 @@
 #include "physics/physics_world.hpp"
 #include "ftk/app/console.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
-#include "ftk/ui/kit/icons.hpp"
+#include "ui/icons.hpp"
 #include "ftk/ui/kit/status_bar.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
@@ -2736,7 +2736,7 @@ void Engine::draw_status_bar() {
 
     // Left: the way into the content browser, then what is being edited
     // and in which mode.
-    if (ftk::ui::status_button(ftk::ui::icon::content_browser, "Content", "Ctrl Space",
+    if (ftk::ui::status_button(icon::content_browser, "Content", "Ctrl Space",
                           content_browser_.visible())) {
         content_browser_.toggle_visibility();
     }
@@ -2744,20 +2744,20 @@ void Engine::draw_status_bar() {
 
     if (!current_scene_path_.empty()) {
         const std::string scene_name = std::filesystem::path(current_scene_path_).stem().string();
-        ftk::ui::status_item(ftk::ui::icon::scene, scene_name, scene_.is_dirty());
+        ftk::ui::status_item(icon::scene, scene_name, scene_.is_dirty());
         ftk::ui::status_rule();
     }
 
     if (play_controller_.paused()) {
-        ftk::ui::status_pill(ftk::ui::icon::pause, "Paused", ftk::ui::StatusTone::Warning);
+        ftk::ui::status_pill(icon::pause, "Paused", ftk::ui::StatusTone::Warning);
     } else if (play_controller_.playing()) {
         const float scale = play_controller_.time_scale();
         const std::string text = scale != 1.0f
             ? std::format("Playing \xc2\xb7 {:.2f} \xc3\x97", scale)
             : std::string("Playing");
-        ftk::ui::status_pill(ftk::ui::icon::play, text.c_str(), ftk::ui::StatusTone::Success);
+        ftk::ui::status_pill(icon::play, text.c_str(), ftk::ui::StatusTone::Success);
     } else {
-        ftk::ui::status_pill(ftk::ui::icon::editing, "Editing", ftk::ui::StatusTone::Plain);
+        ftk::ui::status_pill(icon::editing, "Editing", ftk::ui::StatusTone::Plain);
     }
 
     // Right: how the editor is running.
