@@ -113,4 +113,13 @@ public:
 /// the secondary colour on the field's line.
 void readout(const char* text);
 
+/// A word or two after a field about what its value costs or means, which
+/// is neither a problem nor a field of its own ("+1 shader"): small
+/// secondary text on a raised chip, on the field's line. With a `tooltip`,
+/// what it means, and a `detail` line under that in the secondary colour.
+void tag(const char* text, const char* tooltip = nullptr, const char* detail = nullptr);
+
+/// How wide tag() draws `text`, for a field to leave room for it.
+[[nodiscard]] float tag_width(const char* text);
+
 } // namespace ftk::ui

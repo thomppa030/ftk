@@ -295,6 +295,51 @@ void readout(const char* text) {
     ImGui::PopStyleColor();
 }
 
+namespace {
+
+constexpr float TAG_TEXT = 11.5f;
+constexpr ImVec2 TAG_PADDING{6.0f, 1.0f};
+constexpr float TAG_ROUNDING = 3.0f;
+
+ImVec2 tag_size(const char* text) {
+    ImGui::PushFont(nullptr, TAG_TEXT);
+    const ImVec2 text_size = ImGui::CalcTextSize(text);
+    ImGui::PopFont();
+    return {text_size.x + TAG_PADDING.x * 2.0f, text_size.y + TAG_PADDING.y * 2.0f};
+}
+
+} // namespace
+
+float tag_width(const char* text) {
+    return tag_size(text).x;
+}
+
+void tag(const char* text, const char* tooltip, const char* detail) {
+    const ImVec2 size = tag_size(text);
+    // The item is a whole frame tall, so the chip sits centred on the line
+    // of the field before it.
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float frame = ImGui::GetFrameHeight();
+    ImGui::Dummy({size.x, frame});
+    const ImVec2 min{start.x, start.y + std::floor((frame - size.y) * 0.5f)};
+    const ImVec2 max{min.x + size.x, min.y + size.y};
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::surface_raised()), TAG_ROUNDING);
+    dl->AddText(nullptr, TAG_TEXT, {min.x + TAG_PADDING.x, min.y + TAG_PADDING.y},
+                ImGui::GetColorU32(theme::text_secondary()), text);
+
+    if (tooltip == nullptr || !ImGui::BeginItemTooltip()) return;
+    ImGui::PushTextWrapPos(theme::TOOLTIP_WRAP);
+    ImGui::TextUnformatted(tooltip);
+    if (detail != nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ImGui::TextUnformatted(detail);
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
 Edit on_off(const char* id, bool& on, const char* tooltip) {
     constexpr float W = 28.0f;
     constexpr float H = 16.0f;

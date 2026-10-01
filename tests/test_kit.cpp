@@ -702,3 +702,25 @@ TEST_CASE("A corner note hangs from its corner, and a key makes its line taller"
     CHECK(longer.x > words.x);
     CHECK(longer.y == words.y);
 }
+
+TEST_CASE("A tag after a field is as wide as tag_width says and stays on the field's line", "[ui][kit]") {
+    ImGuiHarness h;
+    ImVec2 field_min{};
+    ImVec2 tag_min{};
+    ImVec2 tag_size{};
+    h.set_ui([&] {
+        bool on = true;
+        (void)ui::checkbox("##switch", on);
+        field_min = ImGui::GetItemRectMin();
+        ImGui::SameLine();
+        ui::tag("+1 shader", "Compiled in", "2 shaders");
+        tag_min = ImGui::GetItemRectMin();
+        tag_size = ImGui::GetItemRectSize();
+    });
+    h.step(2);
+    CHECK(tag_size.x == ui::tag_width("+1 shader"));
+    CHECK(tag_size.x > ui::tag_width("+1"));
+    CHECK(tag_size.y == ImGui::GetFrameHeight());
+    CHECK(tag_min.y == field_min.y);
+    CHECK(tag_min.x > field_min.x);
+}
