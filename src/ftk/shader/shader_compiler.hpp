@@ -7,16 +7,27 @@
 
 namespace ftk {
 
-/// Compiles GLSL to SPIR-V with glslc into `generated_dir`. Compiled SPIR-V
-/// is kept in `generated_dir/.fjcache`, keyed by everything that produced it,
-/// so a source compiled before is copied back rather than compiled again.
+/// Where a ShaderCompiler reads and writes.
+struct ShaderCompilerDesc {
+    /// Holds `include/`: what the compiled GLSL #includes, and what every
+    /// cache key is hashed over.
+    std::string shader_dir;
+    /// Where generated GLSL and compiled SPIR-V are written.
+    std::string generated_dir;
+    /// Where compiled SPIR-V is kept between runs, by its cache key.
+    std::string cache_dir;
+    /// The version of whatever writes the GLSL this compiles (see
+    /// ShaderCompiler::cache_key()).
+    uint32_t generator_version{0};
+};
+
+/// Compiles GLSL to SPIR-V with glslc into the generated directory. Compiled
+/// SPIR-V is kept in the cache directory, keyed by everything that produced
+/// it, so a source compiled before is copied back rather than compiled again.
 class ShaderCompiler {
 public:
-    /// `shader_dir` holds `include/`: what the compiled GLSL #includes, and
-    /// what every cache key is hashed over. `generator_version` is the version
-    /// of whatever writes the GLSL this compiles (see cache_key()). Creates
-    /// `generated_dir` and its cache.
-    ShaderCompiler(std::string shader_dir, std::string generated_dir, uint32_t generator_version);
+    /// Creates the generated and cache directories.
+    explicit ShaderCompiler(ShaderCompilerDesc desc);
 
     /// Hashes `include/` again, for after an include has changed: until then a
     /// shader that includes it finds its old SPIR-V under an unchanged key.

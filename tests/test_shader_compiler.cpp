@@ -44,7 +44,10 @@ struct ShaderTree {
     // Version 1 is what the engine's FJSL passes, so the keys pinned below
     // are the ones its SPIR-V cache holds.
     [[nodiscard]] ShaderCompiler compiler() const {
-        return ShaderCompiler(path("shaders"), path("shaders/generated"), 1);
+        return ShaderCompiler({.shader_dir = path("shaders"),
+                               .generated_dir = path("shaders/generated"),
+                               .cache_dir = path("shaders/generated/.cache"),
+                               .generator_version = 1});
     }
 };
 

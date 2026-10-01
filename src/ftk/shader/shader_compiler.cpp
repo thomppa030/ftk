@@ -67,11 +67,11 @@ uint64_t key_of(uint64_t include_hash, std::string_view source, const ShaderComp
 
 } // namespace
 
-ShaderCompiler::ShaderCompiler(std::string shader_dir, std::string generated_dir, uint32_t generator_version)
-    : shader_dir_{std::move(shader_dir)}
-    , generated_dir_{std::move(generated_dir)}
-    , cache_dir_{generated_dir_ + "/.fjcache"}
-    , generator_version_{generator_version} {
+ShaderCompiler::ShaderCompiler(ShaderCompilerDesc desc)
+    : shader_dir_{std::move(desc.shader_dir)}
+    , generated_dir_{std::move(desc.generated_dir)}
+    , cache_dir_{std::move(desc.cache_dir)}
+    , generator_version_{desc.generator_version} {
     std::filesystem::create_directories(generated_dir_);
     std::filesystem::create_directories(cache_dir_);
     rehash_includes();

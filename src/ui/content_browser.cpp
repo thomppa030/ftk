@@ -653,9 +653,11 @@ void ContentBrowser::move_entry(const Entry& entry, const std::filesystem::path&
             write_action_file(def, new_path.string());
         }
 
-        if (entry.type == FileType::texture && pool_) {
+        if (entry.type == FileType::texture && pool_ && icons_) {
             const auto dest = new_path.string();
-            (void)pool_->submit([dest]() { ftk::IconCache::ensure_thumbnail_cache(dest); });
+            (void)pool_->submit([dest, folder = icons_->cache_folder()]() {
+                ftk::IconCache::ensure_thumbnail_cache(dest, folder);
+            });
         }
         if (asset_thumbnails_ && asset_thumbnails_->supports(entry.path)) {
             asset_thumbnails_->invalidate(entry.path.string());

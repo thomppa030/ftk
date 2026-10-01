@@ -20,7 +20,10 @@ int main() {
     std::filesystem::create_directories(root);
     std::ofstream(source) << "void main() {}\n";
 
-    const ftk::ShaderCompiler compiler{root.generic_string(), (root / "generated").generic_string(), 1};
+    const ftk::ShaderCompiler compiler({.shader_dir = root.generic_string(),
+                                        .generated_dir = (root / "generated").generic_string(),
+                                        .cache_dir = (root / "cache").generic_string(),
+                                        .generator_version = 1});
     const uint64_t key = compiler.cache_key({source, "x"});
     const ftk::ShaderDiagnostic error =
         ftk::first_shader_error("tint.frag:3: error: 'strenght' : undeclared identifier");

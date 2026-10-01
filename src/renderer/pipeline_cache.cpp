@@ -20,8 +20,10 @@ PipelineCache::PipelineCache(ftk::gpu::Device& gpu, const Targets& targets, cons
     : gpu_{gpu}
     , targets_{targets}
     , layouts_{layouts}
-    , compiler_{base_path::resolve("shaders"), base_path::resolve("shaders/generated"),
-                FJELL_SHADER_CODEGEN_VERSION}
+    , compiler_{{.shader_dir = base_path::resolve("shaders"),
+                 .generated_dir = base_path::resolve("shaders/generated"),
+                 .cache_dir = base_path::resolve("shaders/generated/.fjcache"),
+                 .generator_version = FJELL_SHADER_CODEGEN_VERSION}}
     , loader_{[this](const std::string& reference) { return base_path::resolve_shared(reference, project_); }} {
     load_templates();
 
