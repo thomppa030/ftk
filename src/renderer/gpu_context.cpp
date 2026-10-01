@@ -21,8 +21,9 @@ namespace fjell {
 
 namespace {
 
+// The engine draws its scenes through mesh shaders and has no other path.
 std::unique_ptr<ftk::gpu::Device> make_device(ftk::Window& window) {
-    auto made = ftk::gpu::Device::create(window);
+    auto made = ftk::gpu::Device::create(window, {.name = "Fjell", .required = {.mesh_shaders = true}});
     if (!made) throw std::runtime_error(made.error());
     return std::move(*made);
 }

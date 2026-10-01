@@ -51,9 +51,10 @@ struct SwapchainSupport {
 /// extensions loaded from it, the allocator, and the lanes uploads run on.
 class Foundation {
 public:
-    /// Brings everything up for a GPU that can show `window`.
-    /// Throws std::runtime_error when there is none, or the driver refuses.
-    explicit Foundation(const Window& window);
+    /// Brings everything up for a GPU that can show `window`, for the program
+    /// named `program`. Throws std::runtime_error when there is none, or the
+    /// driver refuses.
+    Foundation(const Window& window, const std::string& program);
     ~Foundation();
 
     Foundation(const Foundation&) = delete;
@@ -153,7 +154,7 @@ public:
     [[nodiscard]] UploadLanes& lanes() { return *lanes_; }
 
 private:
-    void create_instance();
+    void create_instance(const std::string& program);
     void setup_debug_messenger();
     void pick_physical_device(VkSurfaceKHR shown);
     void create_logical_device();

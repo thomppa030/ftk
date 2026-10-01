@@ -36,8 +36,8 @@ struct Caps {
     /// The most vertices and primitives a mesh shader workgroup may output.
     uint32_t mesh_max_output_vertices{0};
     uint32_t mesh_max_output_primitives{0};
-    /// Bytes of push data a pipeline may take: 128 on every GPU the engine
-    /// runs on, which is what every pipeline keeps to.
+    /// Bytes of push data a pipeline may take: at least 128 on every GPU,
+    /// which is what every pipeline keeps to.
     uint32_t max_push_size{128};
     /// Whether there is a compute queue beside the graphics one, which lists
     /// for `Queue::compute` run on.
@@ -49,6 +49,21 @@ struct Caps {
     /// Whether the GPU builds acceleration structures and traces them with
     /// ray queries. Without it none can be made.
     bool ray_queries{false};
+};
+
+/// What `caps` falls short of in `required`, one phrase each ("mesh shaders",
+/// "8x multisampling"): every flag `required` sets that `caps` lacks, and
+/// every limit below the one `required` asks. Empty when nothing is missing.
+[[nodiscard]] std::vector<std::string> missing_caps(const Caps& caps, const Caps& required);
+
+/// What a program asks of the device it makes.
+struct DeviceDesc {
+    /// The program's name, which the driver and tools such as RenderDoc and
+    /// Tracy see, and which an error about a missing capability names.
+    std::string name{"ftk"};
+    /// What the program cannot run without. The device fails on a GPU short
+    /// of any of it; what is not asked for is still reported in `caps()`.
+    Caps required{};
 };
 
 /// Finds a file the build produced (`"shaders/grid.vert.spv"`) and returns its
@@ -67,11 +82,13 @@ public:
     struct Impl;
 
     /// The device for a GPU that can show `window`, with everything it runs
-    /// on brought up. A program makes one and keeps it for as long as it
-    /// draws; what it made must be released before the device goes.
-    /// @return the device, or why none could be made (no GPU the engine runs
-    ///         on, or the driver refused)
-    [[nodiscard]] static Result<std::unique_ptr<Device>> create(Window& window);
+    /// on brought up and whatever else the GPU offers. A program makes one and
+    /// keeps it for as long as it draws; what it made must be released before
+    /// the device goes.
+    /// @return the device, or why none could be made (no GPU that can show the
+    ///         window, a GPU short of `desc.required`, or the driver refused)
+    [[nodiscard]] static Result<std::unique_ptr<Device>> create(Window& window,
+                                                               const DeviceDesc& desc = {});
 
     explicit Device(std::unique_ptr<Impl> impl);
     ~Device();

@@ -43,7 +43,7 @@ int main() {
 
     try {
         ftk::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
-        auto made_device = ftk::gpu::Device::create(window);
+        auto made_device = ftk::gpu::Device::create(window, {.name = "Fjell Hub"});
         if (!made_device) throw std::runtime_error(made_device.error());
         const std::unique_ptr<ftk::gpu::Device> gpu_device = std::move(*made_device);
         ftk::gpu::Device& device = *gpu_device;

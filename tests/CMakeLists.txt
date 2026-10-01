@@ -234,6 +234,7 @@ add_executable(fjell-tests
     test_gpu_access.cpp
     test_frame_graph.cpp
     test_gpu_binding.cpp
+    test_gpu_caps.cpp
     test_gpu_command_list.cpp
     test_gpu_release.cpp
     test_gpu_shader.cpp

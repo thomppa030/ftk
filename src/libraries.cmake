@@ -97,6 +97,7 @@ endfunction()
 ftk_library(gpu
     SOURCES
         ftk/gpu/binding.cpp
+        ftk/gpu/caps.cpp
         ftk/gpu/command_list.cpp
         ftk/gpu/release_queue.cpp
         ftk/gpu/shader_file.cpp

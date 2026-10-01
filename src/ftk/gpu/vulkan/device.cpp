@@ -9,9 +9,11 @@
 
 #include <algorithm>
 #include <exception>
+#include <format>
 #include <fstream>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace ftk::gpu {
 
@@ -140,8 +142,8 @@ void Device::Impl::save_pipeline_cache() {
     pipeline_cache = VK_NULL_HANDLE;
 }
 
-Device::Impl::Impl(Window& window)
-    : foundation(window), device(foundation.handle()), allocator(foundation.allocator()),
+Device::Impl::Impl(Window& window, const DeviceDesc& desc)
+    : foundation(window, desc.name), device(foundation.handle()), allocator(foundation.allocator()),
       sparse_queue(foundation.sparse_bind_queue()),
       upload_state{foundation.lanes()},
       transient({.frame_slots = MAX_FRAMES_IN_FLIGHT,
@@ -200,7 +202,8 @@ Device::Impl::Impl(Window& window)
     VkCommandBuffer calibration{VK_NULL_HANDLE};
     if (vkAllocateCommandBuffers(device, &calibration_info, &calibration) == VK_SUCCESS) {
         profiler = TracyVkContext(vk.physical_device(), device, vk.graphics_queue(), calibration);
-        TracyVkContextName(profiler, "Fjell GPU", 9);
+        const std::string context_name = desc.name + " GPU";
+        TracyVkContextName(profiler, context_name.c_str(), static_cast<uint16_t>(context_name.size()));
     }
 #endif
     caps.ray_queries = vk.ray_tracing_supported();
@@ -740,12 +743,21 @@ Upload& Device::upload() {
     return *impl_->upload;
 }
 
-Result<std::unique_ptr<Device>> Device::create(Window& window) {
+Result<std::unique_ptr<Device>> Device::create(Window& window, const DeviceDesc& desc) {
+    std::unique_ptr<Device> device;
     try {
-        return std::make_unique<Device>(std::make_unique<Impl>(window));
+        device = std::make_unique<Device>(std::make_unique<Impl>(window, desc));
     } catch (const std::exception& e) {
         return make_error(e.what());
     }
+    const std::vector<std::string> missing = missing_caps(device->caps(), desc.required);
+    if (!missing.empty()) {
+        std::string list;
+        for (const std::string& what : missing) list += (list.empty() ? "" : ", ") + what;
+        return make_error(std::format("{} needs a GPU with {}, which {} does not have", desc.name, list,
+                                      device->name()));
+    }
+    return device;
 }
 
 } // namespace ftk::gpu

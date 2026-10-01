@@ -47,16 +47,20 @@ backend is a second set of those files, chosen at configure time.
 
 ```cpp
 ftk::Window window{"Fjell", 1600, 900};
-auto device = gpu::Device::create(window);          // Result<std::unique_ptr<Device>>
+auto device = gpu::Device::create(window, {.name = "Fjell", .required = {.mesh_shaders = true}});
 if (!device) throw std::runtime_error(device.error());
 auto swapchain = gpu::Swapchain::create(**device, window);
 ```
 
 `Device::create` picks a GPU that can show the window and brings up
-everything it runs on. The window only helps choose the GPU: each swapchain
-makes its own surface, so any number of windows can share one device (the
-file browser and import dialog do). `device.caps()` says what differs between
-GPUs: mesh shaders and their output limits, a compute queue beside the
+everything it runs on, and whatever else the GPU offers. The window only helps
+choose the GPU: each swapchain makes its own surface, so any number of windows
+can share one device (the file browser and import dialog do). The
+`DeviceDesc` names the program, which the driver and tools see, and the `Caps`
+it cannot run without: the engine requires mesh shaders, the hub nothing. A GPU
+short of what is required makes no device, and the error names the program
+and what is missing (`missing_caps()`). `device.caps()` says what differs
+between GPUs: mesh shaders and their output limits, a compute queue beside the
 graphics one, ray queries, frames in flight, the most MSAA samples.
 `device.name()` is the GPU's name.
 
