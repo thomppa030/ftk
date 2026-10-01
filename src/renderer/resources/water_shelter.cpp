@@ -30,17 +30,24 @@ constexpr float MARGIN_SHARE = 0.25f;
 constexpr float DEEP = 1e6f;
 
 // k / k_deep for a wave at depth `mu` = k_deep * d, from the dispersion
-// relation x tanh(x) = mu, x = k d, solved by Newton; held to MAX_SHORTENING.
-// No more than nothing is land, where the wave carries on unshortened.
+// relation x tanh(x) = mu, x = k d; held to MAX_SHORTENING. No more than
+// nothing is land, where the wave carries on unshortened.
+//
+// Eckart's approximation, mu / sqrt(tanh(mu)), is within a few percent, and
+// Newton from there reaches the last bit of a double in three or four steps;
+// it is run until a step no longer moves it.
 [[nodiscard]] float shortening(float mu) {
     if (mu <= 0.0f) return 1.0f;
     if (mu >= 20.0f) return 1.0f;   // tanh(20) is 1 in a float
-    double x = mu < 1.0f ? std::sqrt(static_cast<double>(mu)) : static_cast<double>(mu);
-    for (int i = 0; i < 40; ++i) {
+    const auto m = static_cast<double>(mu);
+    double x = m / std::sqrt(std::tanh(m));
+    for (int i = 0; i < 20; ++i) {
         const double t = std::tanh(x);
-        x -= ((x * t) - mu) / (t + (x * (1.0 - (t * t))));
+        const double step = ((x * t) - m) / (t + (x * (1.0 - (t * t))));
+        x -= step;
+        if (std::abs(step) <= 1e-12 * x) break;
     }
-    return std::min(static_cast<float>(x / mu), MAX_SHORTENING);
+    return std::min(static_cast<float>(x / m), MAX_SHORTENING);
 }
 
 // Back to nothing across the margin: the share of a sample's value kept, by
