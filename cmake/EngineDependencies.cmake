@@ -38,6 +38,11 @@ set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 # types' typeinfo (implicitly required by polymorphic destruction through
 # base pointers, e.g. std::unique_ptr<JPH::Shape>) to link against.
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+# With exceptions off, Jolt gives everything that links it _HAS_EXCEPTIONS=0
+# on MSVC, which changes std::exception's layout: an exception thrown by a
+# library that does not link Jolt and caught in the engine then reads its
+# message as garbage. The engine uses exceptions, so Jolt is told it does too.
+set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
 # Jolt installs its headers and a CMake package config by default, which would
 # otherwise end up in the packaged engine — a few hundred files nothing in a
 # download needs.
