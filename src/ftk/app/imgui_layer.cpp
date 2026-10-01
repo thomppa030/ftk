@@ -46,7 +46,10 @@ ImGuiLayer::ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_fo
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
   setup_style();
-  theme::load_font(files.fonts.string());
+  if (!theme::load_font(files.fonts.string())) {
+    FTK_CORE_ERROR("ImGui: the theme's fonts are not in {}; text falls back to ImGui's own",
+                   files.fonts.string());
+  }
 
   ImGui_ImplSDL3_InitForVulkan(window.handle());
   // SDL has one cursor for the whole program, and the backend sets it only
