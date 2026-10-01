@@ -23,22 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools and windowing headers
+      # The same toolchain CI builds with, CMake included, so a package has
+      # every SDL driver the tested build has.
+      - uses: ./.github/actions/linux-toolchain
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build xorg-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev extra-cmake-modules
-
-      - name: Install the Vulkan SDK
-        if: runner.os == 'Linux'
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
-            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
-            https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
-          sudo apt-get update
-          sudo apt-get install -y vulkan-sdk
 
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
@@ -52,6 +40,7 @@ jobs:
           stripdown: false
 
       - uses: lukka/get-cmake@v4.4.0
+        if: runner.os == 'Windows'
         with:
           cmakeVersion: "4.4.0"
 
