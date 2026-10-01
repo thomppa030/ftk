@@ -156,7 +156,9 @@ Each repeat gets its own scope, under the repeat's, so its props read the entry
 (`item="{slot}"`) and its markup reads its props. Its Models are its own, and so is
 its controller when the widget has one: created once the repeat is stamped and
 bound, destroyed before the repeat is removed, so a list that shrinks takes the
-controllers of the entries it lost with it. The event it raises (`activate`) is
+controllers of the entries it lost with it. Those entries are gone from the game's
+vector by then, so in that controller's `end_play` its entry, and any prop bound
+from it, reads as nothing. The event it raises (`activate`) is
 answered in the placing widget, with arguments read in the repeat's scope.
 
 ## Slot projection

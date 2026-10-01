@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/small_vector.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/reflected_types.hpp"
 
@@ -18,35 +19,61 @@ namespace fjell {
 
 class UiValue;
 
+/// One step from where a value is held into the game's data: that far into
+/// what the steps before it reached, or, with a vector, that entry of the
+/// std::vector they reached.
+struct UiStep {
+    const OwnedVectorDesc* vector{nullptr}; ///< an entry of this vector; null for an offset
+    uint32_t value{0};                      ///< the entry's index, or the offset in bytes
+    bool operator==(const UiStep&) const = default;
+};
+
+/// The way from a value's `address` to the value itself. Empty for a value
+/// at its address: a Model, a controller, a component, a struct inside one.
+/// A step into a list is taken anew on every read, since a vector moves its
+/// entries when it grows and destroys them when it shrinks, so a value read
+/// out of an entry stays safe to hold after the game changed the list: it
+/// is found where its entry is now, or reads as nothing once the entry is
+/// gone.
+using UiPath = SmallVector<UiStep, 3>;
+
 /// A reflected object a scope holds, read in place: a widget's Model, or a
-/// struct inside one. It points into the object, so whoever puts it in a
-/// scope keeps it current; the fields belong to the game module and go with
-/// it on a reload.
+/// struct inside one or inside a list's entry. It points into the game's
+/// data, so whoever puts it in a scope keeps its address current; the fields
+/// belong to the game module and go with it on a reload.
 struct UiObject {
     std::string_view type;                  ///< the type's name as its header spells it
     std::span<const OwnedFieldDesc> fields; ///< what a path may read
-    const void* address{nullptr};           ///< null while there is nothing to read
+    const void* address{nullptr};           ///< where `path` starts; null while there is nothing to read
     /// For a component, the node it is on and which life of that node, so a
     /// `Ref` can be made to it; 0 for anything else.
     uint32_t node{0};
     uint32_t generation{0};
+    UiPath path{};
+
+    /// Where the object is now: null when there is nothing to read, its
+    /// entry among them.
+    [[nodiscard]] const void* where() const;
 
     /// The same object: same place, read as the same type, on the same node
     /// (a slot another node's component took over is another object).
     friend bool operator==(const UiObject& a, const UiObject& b) {
-        return a.address == b.address && a.fields.data() == b.fields.data() && a.node == b.node &&
-               a.generation == b.generation;
+        return a.address == b.address && a.path == b.path && a.fields.data() == b.fields.data() &&
+               a.node == b.node && a.generation == b.generation;
     }
 };
 
 /// A list a scope holds, read in place: a `std::vector` field of a Model,
 /// through the functions generated for its exact type. Like an object it
-/// points into the game's data, so whoever puts it in a scope keeps it
-/// current.
+/// points into the game's data, so whoever puts it in a scope keeps its
+/// address current.
 struct UiList {
     const OwnedVectorDesc* vector{nullptr};
-    const void* address{nullptr}; ///< the std::vector itself
+    const void* address{nullptr}; ///< where `path` starts, at the std::vector when the path is empty
+    UiPath path{};
 
+    /// The std::vector now: null when there is none to read.
+    [[nodiscard]] const void* where() const;
     [[nodiscard]] std::size_t size() const;
     /// The entry at `index`, which must be below size(): an object for a
     /// struct, the value itself for anything else.
@@ -54,7 +81,7 @@ struct UiList {
 
     /// The same list: same place, read as the same type.
     friend bool operator==(const UiList& a, const UiList& b) {
-        return a.address == b.address && a.vector == b.vector;
+        return a.address == b.address && a.path == b.path && a.vector == b.vector;
     }
 };
 

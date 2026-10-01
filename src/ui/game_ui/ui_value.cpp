@@ -30,10 +30,49 @@ UiValue call_getter(const OwnedFieldDesc& field, const void* object) {
     return UiValue(std::move(value));
 }
 
-/// A value as it is stored at `at`: a field of an object, or a list's entry.
-/// `size` is a char buffer's capacity, `labels` an enum's names.
-UiValue read_stored(FjellFieldType type, const void* at, uint32_t size, std::span<const std::string> labels,
-                    const OwnedTypeDesc* struct_type, const OwnedVectorDesc* vector) {
+/// Where `path` leads from `address` now: null where there is nothing to
+/// read, at an entry its vector no longer has among them.
+const void* follow(const void* address, const UiPath& path) {
+    const char* at = static_cast<const char*>(address);
+    for (const UiStep& step : path) {
+        if (at == nullptr) return nullptr;
+        if (step.vector == nullptr) {
+            at += step.value;
+        } else {
+            if (step.value >= step.vector->size(at)) return nullptr;
+            at = static_cast<const char*>(step.vector->at(at, step.value));
+        }
+    }
+    return at;
+}
+
+/// A place: an address and the path from it.
+struct Place {
+    const void* address;
+    UiPath path;
+};
+
+/// `offset` bytes into what (`address`, `path`) reaches. Before any entry
+/// the address does not move, so the offset goes into it and a struct
+/// inside a Model keeps an empty path.
+Place offset_into(const void* address, const UiPath& path, uint32_t offset) {
+    if (path.empty()) return {static_cast<const char*>(address) + offset, {}};
+    UiPath further = path;
+    if (further.back().vector == nullptr) {
+        further.back().value += offset;
+    } else {
+        further.push_back({nullptr, offset});
+    }
+    return {address, std::move(further)};
+}
+
+/// A value as it is stored at `at`, which `place` leads to: a field of an
+/// object, or a list's entry. An object or a list is handed out as its
+/// place, so it is read where it is each time. `size` is a char buffer's
+/// capacity, `labels` an enum's names.
+UiValue read_stored(FjellFieldType type, const void* at, const Place& place, uint32_t size,
+                    std::span<const std::string> labels, const OwnedTypeDesc* struct_type,
+                    const OwnedVectorDesc* vector) {
     switch (type) {
         case FJELL_FIELD_BOOL: return UiValue(*static_cast<const bool*>(at));
         case FJELL_FIELD_INT: return UiValue(*static_cast<const int32_t*>(at));
@@ -58,30 +97,34 @@ UiValue read_stored(FjellFieldType type, const void* at, uint32_t size, std::spa
         }
         case FJELL_FIELD_STRUCT:
             if (struct_type == nullptr) return {};
-            return UiValue(UiObject{struct_type->name, struct_type->fields, at});
+            return UiValue(UiObject{.type = struct_type->name,
+                                    .fields = struct_type->fields,
+                                    .address = place.address,
+                                    .path = place.path});
         case FJELL_FIELD_VECTOR:
             if (vector == nullptr || vector->size == nullptr || vector->at == nullptr) return {};
-            return UiValue(UiList{vector, at});
+            return UiValue(UiList{.vector = vector, .address = place.address, .path = place.path});
         default: return {}; // references and widget pointers are not values markup reads
     }
 }
 
-/// What an object's field holds now.
-UiValue read_field(const OwnedFieldDesc& field, const void* object) {
+/// What a field of `object`, which is at `at` now, holds.
+UiValue read_field(const OwnedFieldDesc& field, const UiObject& object, const void* at) {
     if (field.is_getter()) {
         if (field.get == nullptr) return {};
         switch (field.type) {
-            case FJELL_FIELD_BOOL: return call_getter<bool>(field, object);
-            case FJELL_FIELD_INT: return call_getter<int32_t>(field, object);
-            case FJELL_FIELD_FLOAT: return call_getter<float>(field, object);
-            case FJELL_FIELD_VEC2: return call_getter<glm::vec2>(field, object);
-            case FJELL_FIELD_VEC3: return call_getter<glm::vec3>(field, object);
-            case FJELL_FIELD_VEC4: return call_getter<glm::vec4>(field, object);
-            case FJELL_FIELD_STD_STRING: return call_getter<std::string>(field, object);
+            case FJELL_FIELD_BOOL: return call_getter<bool>(field, at);
+            case FJELL_FIELD_INT: return call_getter<int32_t>(field, at);
+            case FJELL_FIELD_FLOAT: return call_getter<float>(field, at);
+            case FJELL_FIELD_VEC2: return call_getter<glm::vec2>(field, at);
+            case FJELL_FIELD_VEC3: return call_getter<glm::vec3>(field, at);
+            case FJELL_FIELD_VEC4: return call_getter<glm::vec4>(field, at);
+            case FJELL_FIELD_STD_STRING: return call_getter<std::string>(field, at);
             default: return {}; // fjreflect accepts no other return type
         }
     }
-    return read_stored(field.type, static_cast<const char*>(object) + field.offset, field.size, field.enum_labels,
+    return read_stored(field.type, static_cast<const char*>(at) + field.offset,
+                       offset_into(object.address, object.path, field.offset), field.size, field.enum_labels,
                        field.struct_type, &field.vector);
 }
 
@@ -195,25 +238,38 @@ bool UiValue::truthy() const {
     if (const auto* f = std::get_if<float>(&value_)) return *f != 0.0f;
     if (const auto* s = std::get_if<std::string>(&value_)) return !s->empty() && *s != "0" && *s != "false";
     if (const auto* v = std::get_if<UiVector>(&value_)) return v->value != glm::vec4(0.0f);
-    if (const auto* o = std::get_if<UiObject>(&value_)) return o->address != nullptr;
+    if (const auto* o = std::get_if<UiObject>(&value_)) return o->where() != nullptr;
     if (const auto* l = std::get_if<UiList>(&value_)) return l->size() > 0;
     return false;
 }
 
+const void* UiObject::where() const {
+    return follow(address, path);
+}
+
+const void* UiList::where() const {
+    return follow(address, path);
+}
+
 std::size_t UiList::size() const {
-    return vector != nullptr && address != nullptr ? vector->size(address) : 0;
+    const void* list = where();
+    return vector != nullptr && list != nullptr ? vector->size(list) : 0;
 }
 
 UiValue UiList::at(std::size_t index) const {
-    const void* entry = vector->at(address, static_cast<uint32_t>(index));
-    return read_stored(vector->element, entry, vector->element_size, {}, vector->element_type, nullptr);
+    Place entry{address, path};
+    entry.path.push_back({vector, static_cast<uint32_t>(index)});
+    const void* stored = follow(entry.address, entry.path);
+    if (stored == nullptr) return {};
+    return read_stored(vector->element, stored, entry, vector->element_size, {}, vector->element_type, nullptr);
 }
 
 UiValue UiValue::member(std::string_view name) const {
     if (const auto* object = std::get_if<UiObject>(&value_)) {
-        if (object->address == nullptr) return {};
+        const void* at = object->where();
+        if (at == nullptr) return {};
         for (const auto& field : object->fields) {
-            if (field.name == name) return read_field(field, object->address);
+            if (field.name == name) return read_field(field, *object, at);
         }
         return {};
     }

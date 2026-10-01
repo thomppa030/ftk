@@ -11,7 +11,7 @@ UiContext& UiContext::operator=(UiContext&&) noexcept = default;
 std::optional<UiValue> UiContext::read_name(std::string_view name) const {
     for (const UiContext* scope = this; scope != nullptr; scope = scope->parent_) {
         if (auto it = scope->values_.find(name); it != scope->values_.end()) return it->second;
-        if (scope->self_.address != nullptr) {
+        if (scope->self_.where() != nullptr) {
             if (UiValue field = UiValue(scope->self_).member(name); !field.empty()) return field;
         }
     }

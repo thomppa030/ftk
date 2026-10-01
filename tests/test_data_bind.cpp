@@ -979,6 +979,22 @@ TEST_CASE("A repeat reads the scope around its foreach", "[databind]") {
     REQUIRE(shown(*root, 0) == ">a");
 }
 
+TEST_CASE("A list's entry is read at its index in the list as it is now", "[databind]") {
+    const ShelfTypes types;
+    Shelf shelf{.items = entries({"a", "b"})};
+    UiContext ctx;
+    ctx.set("shelf", types.object(shelf));
+    const UiValue second = ctx.lookup("shelf.items").list()->at(1);
+    REQUIRE(second.member("name").text() == "b");
+
+    shelf.items.reserve(shelf.items.capacity() + 16); // every entry moves
+    REQUIRE(second.member("name").text() == "b");
+
+    shelf.items.resize(1); // the entry is destroyed
+    REQUIRE(second.member("name").empty());
+    REQUIRE_FALSE(second.truthy());
+}
+
 TEST_CASE("foreach grows and shrinks with the list", "[databind]") {
     const ShelfTypes types;
     Shelf shelf{.items = entries({"a", "b"})};
@@ -1189,7 +1205,8 @@ TEST_CASE("Repeats are announced once bound, and before they are removed", "[dat
     std::vector<std::string> removed;
     UiDataBind bind;
     bind.set_removing_hook([&](UiNode& repeat) {
-        // Still whole: its scope and its text are there to read.
+        // Its text is still there to read; its entry went with the list's
+        // and reads as nothing, through the prop bound from it as well.
         removed.push_back(repeat.scoped_context->get("item.name") + "=" + repeat.children[0]->text_content);
     });
     auto first = bind.resolve(*root, ctx);
@@ -1201,7 +1218,7 @@ TEST_CASE("Repeats are announced once bound, and before they are removed", "[dat
     shelf.items = entries({"a"});
     const auto shrank = bind.resolve(*root, ctx);
     REQUIRE(shrank.stamped.empty());
-    REQUIRE(removed == std::vector<std::string>{"b=row: b", "c=row: c"});
+    REQUIRE(removed == std::vector<std::string>{"=row: b", "=row: c"});
 }
 
 TEST_CASE("A new tree is bound on its first resolve, forgotten or not", "[bind]") {
