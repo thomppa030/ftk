@@ -30,6 +30,9 @@ layout(location = 7) out float frag_crest[];
 // How much of its height the water here has lost to breaking on the ground
 // under it: 0 in water deep enough to carry the sea, 1 at the waterline.
 layout(location = 8) out float frag_breaking[];
+// How much of the swash this vertex carries: 1 at and above the still
+// waterline, fading to 0 seaward.
+layout(location = 9) out float frag_swash[];
 
 void main() {
     SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
@@ -136,6 +139,7 @@ void main() {
         frag_wave_lift[i] = v.offset.y;
         frag_crest[i] = clamp(1.0 - fjell_water_determinant(jacobian), 0.0, 1.0);
         frag_breaking[i] = shore.breaking;
+        frag_swash[i] = v.swash.applies ? v.swash.share : 0.0;
     }
 
     fjell_water_patch_triangles();

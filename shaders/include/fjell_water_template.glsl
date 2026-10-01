@@ -9,8 +9,9 @@
 // pinched the surface is here, which is where whitecaps belong, WAVE_HEIGHT,
 // how far this point was lifted above the flat sea, WAVE_DIR, which way
 // the sea travels, which is what tells a leading face from a trailing one,
-// WAKE, the foam on the crests of whatever has moved through it, and
-// BREAKING, how hard the sea is breaking on the ground under it. It
+// WAKE, the foam on the crests of whatever has moved through it,
+// BREAKING, how hard the sea is breaking on the ground under it, and SWASH,
+// how much of the run-up and backwash on a beach this point carries. It
 // writes ALBEDO, ALPHA and the rest exactly as a spatial shader does. light()
 // works as for spatial. There is no vertex(): a sea is shaped by its .fjwater, not
 // by its material, and saying otherwise is a parse error rather than code
@@ -118,6 +119,7 @@ layout(location = 5) in vec4 frag_prev_clip_pos;
 layout(location = 6) in float frag_wave_lift;
 layout(location = 7) in float frag_crest;
 layout(location = 8) in float frag_breaking;
+layout(location = 9) in float frag_swash;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
@@ -188,6 +190,7 @@ vec3 LIGHT_COLOR;
 float LIGHT_INTENSITY;
 float CREST;
 float BREAKING;
+float SWASH;
 float WAVE_HEIGHT;
 vec2 WAVE_DIR;
 float WAVE_DIR_STRENGTH;
@@ -291,6 +294,12 @@ void main() {
     // shorten the waves, so the pinch that makes whitecaps falls toward the
     // beach while the water is at its whitest.
     BREAKING = frag_breaking;
+
+    // How much of the swash this point carries: 1 at and above the still
+    // waterline, where the broken waves run up the sand and drain back,
+    // fading to 0 seaward. The sheet's own thinness, toward its leading edge,
+    // is WATER_DEPTH_VERTICAL; a foamy front is the two together.
+    SWASH = frag_swash;
 
     // How far the waves lifted this point above the flat sea. Negative in a
     // trough.
