@@ -1,7 +1,9 @@
 # --- Testable engine subset (no Vulkan, no window, no ImGui backends) ---
 add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/animation/animation_state_machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/clock.cpp
     ${CMAKE_SOURCE_DIR}/src/core/hub_settings.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/import/import_job.cpp
     ${CMAKE_SOURCE_DIR}/src/import/source_inspection.cpp
     ${CMAKE_SOURCE_DIR}/src/core/input_source.cpp

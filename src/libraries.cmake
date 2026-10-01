@@ -4,18 +4,15 @@
 # relative to src/.
 
 # fjell-core holds what any program needs before it has a window: the log,
-# results, delegates, the thread pool, the undo history, the clock and the
-# math every layer above shares.
+# results, delegates, handles, the thread pool, the undo history, and the
+# colour and curve math the layers above share.
 fjell_library(core
     SOURCES
-        core/clock.cpp
         core/command_history.cpp
         core/log.cpp
         core/math/curve.cpp
-        core/math/spline.cpp
         core/thread_pool.cpp
     HEADERS
-        core/clock.hpp
         core/command.hpp
         core/command_history.hpp
         core/delegate.hpp
@@ -23,14 +20,11 @@ fjell_library(core
         core/handle_pool.hpp
         core/small_vector.hpp
         core/log.hpp
-        core/math/clipmap.hpp
         core/math/color_space.hpp
         core/math/curve.hpp
-        core/math/spline.hpp
         core/named_value.hpp
         core/profiler.hpp
         core/result.hpp
-        core/simd_trig.hpp
         core/string_utils.hpp
         core/thread_pool.hpp
         core/utf8.hpp

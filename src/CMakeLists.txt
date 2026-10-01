@@ -9,7 +9,9 @@ add_executable(fjell
     core/asset_remap.cpp
     core/asset_type_registry.cpp
     core/base_path.cpp
+    core/clock.cpp
     core/fixed_timestep.cpp
+    core/math/spline.cpp
     core/step_input_latch.cpp
     core/game_builder.cpp
     core/capture_service.cpp
@@ -496,6 +498,7 @@ add_executable(fjell-hub
     hub/main.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
+    core/clock.cpp
     core/hub_settings.cpp
 )
 
