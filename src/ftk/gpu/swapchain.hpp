@@ -9,11 +9,11 @@
 #include <memory>
 #include <optional>
 
-namespace fjell {
+namespace ftk {
 class Window;
 }
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Frame;
 
@@ -114,4 +114,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

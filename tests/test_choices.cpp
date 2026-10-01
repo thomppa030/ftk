@@ -9,8 +9,8 @@
 #include <array>
 
 using Catch::Approx;
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 namespace {
 

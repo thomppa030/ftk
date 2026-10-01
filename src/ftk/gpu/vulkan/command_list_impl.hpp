@@ -12,7 +12,7 @@
 #include <span>
 #include <string>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// The Vulkan backend's recording state: the command buffer a list records
 /// into and what has been bound since its pipeline was set. A render encoder
@@ -46,7 +46,7 @@ struct CommandList::Impl {
     /// Zones open on the list; the profiler times the first `MAX_ZONE_DEPTH`.
     static constexpr uint32_t MAX_ZONE_DEPTH = 8;
     uint32_t zone_depth{0};
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     std::array<std::optional<tracy::VkCtxScope>, MAX_ZONE_DEPTH> zones{};
 #endif
 };
@@ -79,4 +79,4 @@ void push(Device& device, CommandList::Impl& list, std::span<const std::byte> by
 
 } // namespace vulkan
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

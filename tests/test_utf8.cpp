@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-using namespace fjell;
+using namespace ftk;
 
 static std::vector<uint32_t> decode(std::string_view text) {
     std::vector<uint32_t> out;

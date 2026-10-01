@@ -4,8 +4,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 namespace {
 

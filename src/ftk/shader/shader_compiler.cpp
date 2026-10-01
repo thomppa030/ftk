@@ -14,7 +14,7 @@
 #include <stdexcept>
 #include <string_view>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -140,7 +140,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
         std::filesystem::copy_file(cached, spv_path,
                                    std::filesystem::copy_options::overwrite_existing, ec);
         if (!ec) {
-            FJELL_PROFILE_SCOPE_N("glslc_cache_hit");
+            FTK_PROFILE_SCOPE_N("glslc_cache_hit");
             return spv_path;
         }
         // A cache we cannot read is not a reason to fail; fall through and
@@ -149,7 +149,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
 
     // The largest startup cost in the renderer: ~64 ms per invocation, once
     // per shader, every launch the cache does not cover.
-    FJELL_PROFILE_SCOPE_N("glslc");
+    FTK_PROFILE_SCOPE_N("glslc");
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir;
     if (!job.stage.empty()) {
         cmd += " -fshader-stage=" + job.stage;
@@ -162,7 +162,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
     std::string output;
     const int status = platform::run_command(cmd, output);
     if (status != 0) {
-        FJELL_GFX_ERROR("Shader compilation failed:\n{}", output);
+        FTK_GFX_ERROR("Shader compilation failed:\n{}", output);
         // Carry what the compiler said, not just which file it was compiling:
         // this is what an editor's shader panel shows. A generator's #line
         // makes the text name the file its author wrote, so it is worth
@@ -187,7 +187,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
         if (ec) std::filesystem::remove(temp, ec);
     }
 
-    FJELL_GFX_DEBUG("Compiled shader: {} -> {}", job.source_path, spv_path);
+    FTK_GFX_DEBUG("Compiled shader: {} -> {}", job.source_path, spv_path);
     return spv_path;
 }
 
@@ -205,4 +205,4 @@ std::vector<std::string> ShaderCompiler::compile_all(std::span<const Job> jobs) 
     return spv_paths;
 }
 
-} // namespace fjell
+} // namespace ftk

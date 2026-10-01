@@ -9,7 +9,7 @@
 
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -110,4 +110,4 @@ void HistoryPanel::draw(const char* title) {
     }
 }
 
-} // namespace fjell
+} // namespace ftk

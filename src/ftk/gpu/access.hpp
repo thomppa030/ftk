@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// How a pass or a command uses a resource: the one word synchronisation is
 /// derived from. The Vulkan backend turns it into a layout, pipeline stages
@@ -268,4 +268,4 @@ using AccessSet = Flags<Access>;
 /// depth texture when `depth`), for traces: on Vulkan, the image layout.
 [[nodiscard]] std::string state_name(AccessSet accesses, bool depth);
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

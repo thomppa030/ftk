@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// A shader stage the GPU interface runs. Ray tracing stages are not among
 /// them: rays are traced from compute with ray queries.
@@ -108,4 +108,4 @@ struct ShaderLayout {
 /// @return the joined layout, or which binding the two disagree on.
 [[nodiscard]] Result<ShaderLayout> merge(const ShaderLayout& a, const ShaderLayout& b);
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -17,7 +17,7 @@
 //         ui::hint("0 leaves the body unmoved by wind");
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The two-column table rows go into, for as long as it lives.
 class PropertyTable {
@@ -87,4 +87,4 @@ void mark_next_row(bool set_here);
 /// need to know while editing that field. Anything longer is help.
 void hint(const char* text);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

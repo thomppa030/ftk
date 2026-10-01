@@ -5,8 +5,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 namespace {
 
@@ -170,7 +170,7 @@ TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") 
         }
     });
     h.step(2);
-    const float label = fjell::theme::label_column(window_width);
+    const float label = ftk::theme::label_column(window_width);
     const float field_width = h.rect_max("field").x - h.rect_min("field").x;
     CHECK(h.rect_min("field").x >= label);
     CHECK(field_width > window_width - label - 40.0f);

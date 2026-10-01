@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -244,4 +244,4 @@ void drag_preview(const char* icon, std::optional<theme::Category> category, std
     }
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

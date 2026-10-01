@@ -10,7 +10,7 @@
 #include <string_view>
 #include <unordered_map>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -570,4 +570,4 @@ Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb) {
     return edit;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

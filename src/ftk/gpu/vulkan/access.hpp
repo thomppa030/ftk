@@ -12,7 +12,7 @@
 // graph's barriers and a command list's in-pass barriers are both derived
 // from these.
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 /// An access to an image.
 struct ImageScope {
@@ -71,4 +71,4 @@ struct BufferScope {
 /// commands orders at least as much.
 [[nodiscard]] VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages);
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

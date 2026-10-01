@@ -26,8 +26,8 @@
 #include <cmath>
 #include <string>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 TEST_CASE("Every button kind reports its click", "[ui][kit]") {
     const ui::ButtonKind kinds[] = {ui::ButtonKind::Secondary, ui::ButtonKind::Primary,
@@ -133,7 +133,7 @@ TEST_CASE("A component block folds from its header and asks to be removed from i
     int removals = 0;
     h.set_ui([&] {
         remove = false;
-        open = ui::component_block("Collider", fjell::theme::Category::Physics, remove);
+        open = ui::component_block("Collider", ftk::theme::Category::Physics, remove);
         h.mark("trash");  // the last item is the trash icon
         if (remove) ++removals;
     });
@@ -225,7 +225,7 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
 }
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
-    using fjell::theme::Category;
+    using ftk::theme::Category;
     CHECK(ui::asset_kind(".fjmat").category == Category::Rendering);
     CHECK(std::string(ui::asset_kind(".fjmat").noun) == "material");
     CHECK(ui::asset_kind(".png").category == Category::Rendering);
@@ -313,8 +313,8 @@ TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][ki
         h.mark("tool");
     });
     h.step(2);
-    CHECK(h.rect_max("tool").x - h.rect_min("tool").x == fjell::theme::TOOL_BUTTON);
-    CHECK(h.rect_max("tool").y - h.rect_min("tool").y == fjell::theme::TOOL_BUTTON);
+    CHECK(h.rect_max("tool").x - h.rect_min("tool").x == ftk::theme::TOOL_BUTTON);
+    CHECK(h.rect_max("tool").y - h.rect_min("tool").y == ftk::theme::TOOL_BUTTON);
     h.click("tool");
     CHECK(on);
 }
@@ -417,13 +417,13 @@ TEST_CASE("A block with a switch turns off without folding or removing", "[ui][k
     bool open = false;
     ImVec2 header_max{};
     h.set_ui([&] {
-        open = ui::component_block("Gravity", fjell::theme::Category::Vfx, removed, enabled);
+        open = ui::component_block("Gravity", ftk::theme::Category::Vfx, removed, enabled);
         header_max = ImGui::GetItemRectMax();  // the trash icon, last in the header
     });
     h.step(2);
     // The switch sits just before the trash icon.
     const float h_frame = ImGui::GetFrameHeight();
-    const ImVec2 at{header_max.x - h_frame - fjell::theme::GAP_S - 14.0f, header_max.y - h_frame * 0.5f};
+    const ImVec2 at{header_max.x - h_frame - ftk::theme::GAP_S - 14.0f, header_max.y - h_frame * 0.5f};
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(at.x, at.y);
     h.step();
@@ -595,17 +595,17 @@ TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
     ImFont browser_bold;
 
     ImGui::SetCurrentContext(editor);
-    fjell::theme::detail::current_faces().bold = &editor_bold;
+    ftk::theme::detail::current_faces().bold = &editor_bold;
     ImGui::SetCurrentContext(browser);
-    fjell::theme::detail::current_faces().bold = &browser_bold;
+    ftk::theme::detail::current_faces().bold = &browser_bold;
 
     ImGui::SetCurrentContext(editor);
-    CHECK(fjell::theme::bold_font() == &editor_bold);
+    CHECK(ftk::theme::bold_font() == &editor_bold);
     ImGui::SetCurrentContext(browser);
-    CHECK(fjell::theme::bold_font() == &browser_bold);
+    CHECK(ftk::theme::bold_font() == &browser_bold);
 
-    fjell::theme::forget_fonts(browser);
-    fjell::theme::forget_fonts(editor);
+    ftk::theme::forget_fonts(browser);
+    ftk::theme::forget_fonts(editor);
     ImGui::DestroyContext(browser);
     ImGui::DestroyContext(editor);
 }
@@ -680,17 +680,17 @@ TEST_CASE("A corner note hangs from its corner, and a key makes its line taller"
     int vertices_after = 0;
     h.set_ui([&] {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const fjell::ui::OverlayPiece plain[] = {{"releases input"}};
-        const fjell::ui::OverlayPiece keyed[] = {{"Esc", true}, {"releases input"}};
-        const fjell::ui::OverlayPiece more[] = {{"releases input, and more"}};
+        const ftk::ui::OverlayPiece plain[] = {{"releases input"}};
+        const ftk::ui::OverlayPiece keyed[] = {{"Esc", true}, {"releases input"}};
+        const ftk::ui::OverlayPiece more[] = {{"releases input, and more"}};
         vertices_before = dl->VtxBuffer.Size;
         words = ui::corner_note(dl, {400.0f, 300.0f}, ui::Corner::BottomRight,
-                                {.line = plain, .ink = fjell::theme::text_secondary()});
+                                {.line = plain, .ink = ftk::theme::text_secondary()});
         vertices_after = dl->VtxBuffer.Size;
         with_key = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
-                                   {.line = keyed, .ink = fjell::theme::text_secondary()});
+                                   {.line = keyed, .ink = ftk::theme::text_secondary()});
         longer = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
-                                 {.line = more, .ink = fjell::theme::text_secondary()});
+                                 {.line = more, .ink = ftk::theme::text_secondary()});
     });
     h.step(2);
     CHECK(vertices_after > vertices_before);

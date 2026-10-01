@@ -12,7 +12,7 @@
 // command's checks are made first, into what the command records; a command
 // that cannot be done is reported once and not recorded.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -443,4 +443,4 @@ void CommandList::barrier(BufferRange range, AccessSet before, AccessSet after) 
     vkCmdPipelineBarrier2(impl_->cb, &dependency);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

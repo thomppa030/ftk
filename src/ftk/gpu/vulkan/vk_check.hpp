@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 inline void vk_check(VkResult result, const std::string& msg) {
     if (result != VK_SUCCESS) {
@@ -13,4 +13,4 @@ inline void vk_check(VkResult result, const std::string& msg) {
     }
 }
 
-} // namespace fjell
+} // namespace ftk

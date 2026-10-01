@@ -8,7 +8,7 @@
 #include <cstring>
 #include <stdexcept>
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 UploadLanes::Staging::Staging(VmaAllocator made_by, VkDeviceSize size) : allocator{made_by} {
     VkBufferCreateInfo buffer_info{};
@@ -65,7 +65,7 @@ UploadLanes::UploadLanes(Foundation& foundation)
     ring_capacity_ = RING_CAPACITY;
     ring_ = std::make_unique<Staging>(allocator_, ring_capacity_);
 
-    FJELL_GFX_INFO("Upload lanes: {}MB staging ring, buffer lane on {} queue",
+    FTK_GFX_INFO("Upload lanes: {}MB staging ring, buffer lane on {} queue",
                    ring_capacity_ / (1024 * 1024),
                    foundation.transfer_queue_supported() ? "transfer" : "graphics");
 }
@@ -332,4 +332,4 @@ void UploadLanes::reclaim_completed() {
     }
 }
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

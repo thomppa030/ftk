@@ -6,7 +6,7 @@
 #include <array>
 #include <cstring>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -103,7 +103,7 @@ VkDescriptorPool FrameDescriptorCache::allocate_overflow_pool() {
     VkDescriptorPool pool = create_pool(device_, budget_);
     slot.overflow.push_back(pool);
     ++stats_.overflows_this_frame;
-    FJELL_GFX_WARN("FrameDescriptorCache: overflow pool allocated "
+    FTK_GFX_WARN("FrameDescriptorCache: overflow pool allocated "
                    "(frame={}, total overflow={}); consider raising the budget",
                    current_frame_,
                    static_cast<unsigned>(slot.overflow.size()));
@@ -186,7 +186,7 @@ VkDescriptorSet FrameDescriptorCache::acquire(VkDescriptorSetLayout layout,
         set = try_allocate(overflow, layout);
     }
     if (set == VK_NULL_HANDLE) {
-        FJELL_GFX_ERROR("FrameDescriptorCache: failed to allocate descriptor set "
+        FTK_GFX_ERROR("FrameDescriptorCache: failed to allocate descriptor set "
                         "even after overflow pool");
         return VK_NULL_HANDLE;
     }
@@ -197,4 +197,4 @@ VkDescriptorSet FrameDescriptorCache::acquire(VkDescriptorSetLayout layout,
     return set;
 }
 
-} // namespace fjell
+} // namespace ftk

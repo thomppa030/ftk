@@ -17,7 +17,7 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -76,7 +76,7 @@ ImGuiLayer::ImGuiLayer(Window& window, gpu::Device& device, gpu::Format color_fo
   if (srgb_fragment.empty()) {
     // The stock stage writes ImGui's sRGB colours as if they were linear,
     // so every swatch and style colour comes out one gamma too bright.
-    FJELL_CORE_ERROR("ImGui: {} not found; colours will render too bright",
+    FTK_CORE_ERROR("ImGui: {} not found; colours will render too bright",
                      files.srgb_fragment.string());
   }
   renderer_ = std::make_unique<gpu::ImGuiRenderer>(
@@ -132,9 +132,9 @@ void ImGuiLayer::deactivate() {
 }
 
 void ImGuiLayer::begin_frame() {
-  FJELL_PROFILE_SCOPE_N("imgui_begin_frame");
+  FTK_PROFILE_SCOPE_N("imgui_begin_frame");
   if (!context_) {
-    FJELL_CORE_ERROR("ImGuiLayer::begin_frame() called with no ImGui context");
+    FTK_CORE_ERROR("ImGuiLayer::begin_frame() called with no ImGui context");
     return;
   }
 
@@ -145,7 +145,7 @@ void ImGuiLayer::begin_frame() {
 }
 
 void ImGuiLayer::end_frame() {
-  FJELL_PROFILE_SCOPE_N("imgui_end_frame");
+  FTK_PROFILE_SCOPE_N("imgui_end_frame");
   ImGui::Render();
   update_cursor();
 }
@@ -211,4 +211,4 @@ ImTextureID imgui_texture(const gpu::TextureView& view) {
   return layer != nullptr ? layer->texture(view) : ImTextureID{};
 }
 
-} // namespace fjell
+} // namespace ftk

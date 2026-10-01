@@ -10,19 +10,19 @@
 #include <filesystem>
 
 int main() {
-    fjell::log::init({.level = spdlog::level::warn});
+    ftk::log::init({.level = spdlog::level::warn});
 
-    const std::filesystem::path exe = fjell::platform::executable_path();
-    const auto pid = fjell::platform::process_id();
+    const std::filesystem::path exe = ftk::platform::executable_path();
+    const auto pid = ftk::platform::process_id();
 
-    fjell::platform::FileWatcher watcher;
+    ftk::platform::FileWatcher watcher;
     const bool watching = watcher.watch(exe.parent_path(), [](const std::filesystem::path&) {});
     (void)watcher.poll();
 
-    fjell::platform::SharedLibrary library;
+    ftk::platform::SharedLibrary library;
     const bool loaded = library.load(exe.parent_path() / "no-such-library");
 
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     const bool ran = exe.is_absolute() && pid != 0 && watching && !loaded;
     return ran ? 0 : 1;
 }

@@ -16,7 +16,7 @@
 // an ellipsis, and is whole in the tooltip. Like a tree row, the tile is the
 // last item after it is drawn, for the owner's menus and drags.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct AssetTileSpec {
     /// Unique among the grid's tiles; also the ImGui ID.
@@ -51,4 +51,4 @@ AssetTileResult asset_tile(const AssetTileSpec& spec);
 /// The size one tile takes, for laying out a grid of them.
 [[nodiscard]] ImVec2 asset_tile_size();
 
-} // namespace fjell::ui
+} // namespace ftk::ui

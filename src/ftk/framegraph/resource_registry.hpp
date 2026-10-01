@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace fjell {
+namespace ftk {
 
 /// Per-frame registry mapping named resources to their textures and
 /// FrameGraph image IDs. Bridges the string-based dependency system
@@ -84,4 +84,4 @@ private:
     std::unordered_map<std::string, BufferResource> buffers_;
 };
 
-} // namespace fjell
+} // namespace ftk

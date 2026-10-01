@@ -13,7 +13,7 @@
 //         ui::status_item(nullptr, "6.94 ms");
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The bar, pinned to the bottom of the main viewport for as long as it
 /// lives. Items after right() sit against the right edge.
@@ -57,4 +57,4 @@ void status_pill(const char* icon, const char* text, StatusTone tone);
 /// true when clicked.
 bool status_button(const char* icon, const char* label, const char* shortcut, bool open);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

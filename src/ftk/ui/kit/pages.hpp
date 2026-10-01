@@ -18,7 +18,7 @@
 
 #include <imgui.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The window, for as long as it lives: floating over the editor and never
 /// docked, first shown centred at `size`, then where it was left. Its
@@ -87,4 +87,4 @@ bool page_entry(const char* icon, const char* label, bool selected, bool dimmed 
 /// a step larger than the body text.
 void page_title(const char* icon, const char* label);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

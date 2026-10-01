@@ -4,7 +4,7 @@
 
 // Icons by what they mean. Code says icon::remove, never a glyph macro, so an
 // action has one icon everywhere and the icon library can be swapped here.
-namespace fjell::ui::icon {
+namespace ftk::ui::icon {
 
 // Actions
 inline constexpr const char* add          = ICON_LC_PLUS;
@@ -161,4 +161,4 @@ inline constexpr const char* error   = ICON_LC_CIRCLE_X;
 inline constexpr const char* success = ICON_LC_CIRCLE_CHECK;
 inline constexpr const char* refused = ICON_LC_BAN;
 
-} // namespace fjell::ui::icon
+} // namespace ftk::ui::icon

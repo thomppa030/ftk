@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 namespace {
 

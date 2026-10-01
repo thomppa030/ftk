@@ -10,7 +10,7 @@
 
 // The render scope: `CommandList::render` and what the encoder records in it.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 static_assert(sizeof(DrawArgs) == sizeof(VkDrawIndirectCommand) &&
               offsetof(DrawArgs, first_vertex) == offsetof(VkDrawIndirectCommand, firstVertex) &&
@@ -402,4 +402,4 @@ void RenderEncoder::draw_mesh_tasks_indirect_count(BufferRange args, BufferRange
                                                    max_draws, stride);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

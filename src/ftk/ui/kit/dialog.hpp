@@ -20,7 +20,7 @@
 //                                            [&] { ui::status(ui::Severity::Warning, "Used by 2 files"); });
 //     if (answer == ui::DialogAnswer::Confirm) delete_it();
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 enum class DialogAnswer { None, Confirm, Cancel };
 
@@ -127,4 +127,4 @@ struct UnsavedItem {
 /// ticked ones. Returns the answer on the frame it is given.
 UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

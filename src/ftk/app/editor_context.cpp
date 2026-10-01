@@ -9,7 +9,7 @@
 
 #include <imgui_internal.h>
 
-namespace fjell {
+namespace ftk {
 
 void EditorContext::draw_shared_panels(float /*dt*/) {
     auto history_title = ctx_title("History");
@@ -131,7 +131,7 @@ void EditorContext::draw_header() {
     switch (header.finish()) {
         case ui::SaveAction::Save:
             if (auto saved = save(); !saved) {
-                FJELL_CORE_ERROR("Couldn't save {}: {}", name(), saved.error());
+                FTK_CORE_ERROR("Couldn't save {}: {}", name(), saved.error());
             }
             break;
         case ui::SaveAction::Revert: revert(); break;
@@ -184,4 +184,4 @@ void EditorContext::setup_dockspace(ImGuiID main_area) {
     for (const auto& name : bottom_tabs()) ImGui::DockBuilderDockWindow(ctx_title(name.c_str()).c_str(), bottom);
 }
 
-} // namespace fjell
+} // namespace ftk

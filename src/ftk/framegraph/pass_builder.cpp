@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace fjell {
+namespace ftk {
 
 FgTexture PassBuilder::create(std::string_view name, const TextureDesc& desc) {
     FgTexture h{next_texture_id_++};
@@ -41,7 +41,7 @@ FgTexture PassBuilder::import(std::string_view name, const gpu::TextureView& vie
 
 FgTexture PassBuilder::import_named(const ImportCatalog& catalog, std::string_view name) {
     if (!catalog.imports.contains(fg_name_hash(name))) {
-        FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
+        FTK_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
                        std::string(name));
         return FgTexture{};
     }
@@ -172,4 +172,4 @@ void PassBuilder::reset() {
     next_buffer_id_ = 0;
 }
 
-} // namespace fjell
+} // namespace ftk

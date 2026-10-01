@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace fjell {
+namespace ftk {
 
 /// The first error in what the shader compiler said, for showing where the
 /// shader is looked at rather than only in the log.
@@ -26,4 +26,4 @@ struct ShaderDiagnostic {
 /// message whole, first line only.
 [[nodiscard]] ShaderDiagnostic first_shader_error(std::string_view output);
 
-} // namespace fjell
+} // namespace ftk

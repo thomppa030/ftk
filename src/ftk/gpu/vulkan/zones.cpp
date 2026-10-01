@@ -6,9 +6,9 @@
 // Zones: a debug label around a span of a list's commands and, in profiling
 // builds, a GPU zone the profiler times.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
 
 size_t Device::Impl::ZoneSiteHash::operator()(const ZoneSiteKey& key) const noexcept {
     const size_t name = std::hash<std::string_view>{}(key.name);
@@ -44,7 +44,7 @@ Zone CommandList::zone(std::string_view name, std::source_location where) {
         info.pLabelName = label.c_str();
         device.begin_label(self.cb, &info);
     }
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     if (device.profiler != nullptr && self.zone_depth < Impl::MAX_ZONE_DEPTH) {
         self.zones[self.zone_depth].emplace(device.profiler, device.zone_source(name, where),
                                             self.cb, true);
@@ -59,7 +59,7 @@ Zone CommandList::zone(std::string_view name, std::source_location where) {
 void CommandList::end_zone() {
     Impl& self = *impl_;
     --self.zone_depth;
-#ifdef FJELL_ENABLE_TRACY
+#ifdef FTK_ENABLE_TRACY
     if (self.zone_depth < Impl::MAX_ZONE_DEPTH) self.zones[self.zone_depth].reset();
 #endif
     if (device_->impl().end_label != nullptr) device_->impl().end_label(self.cb);
@@ -67,4 +67,4 @@ void CommandList::end_zone() {
 
 Zone::~Zone() { list_->end_zone(); }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

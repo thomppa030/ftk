@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// How a comparison sampler or a depth test compares a value against the one
 /// stored: the test passes when `value <op> stored`.
@@ -17,4 +17,4 @@ enum class Compare : uint8_t {
     always,
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -4,7 +4,7 @@
 
 #include <utility>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 SharedLibrary::~SharedLibrary() {
     unload();
@@ -54,4 +54,4 @@ void* SharedLibrary::symbol(const char* name) const {
     return sym;
 }
 
-} // namespace fjell::platform
+} // namespace ftk::platform

@@ -6,11 +6,11 @@
 #include "ftk/base/thread_pool.hpp"
 
 int main() {
-    fjell::log::init({.level = spdlog::level::warn});
+    ftk::log::init({.level = spdlog::level::warn});
 
-    fjell::ThreadPool pool(1);
+    ftk::ThreadPool pool(1);
     const int answer = pool.submit([] { return 42; }).get();
 
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     return answer == 42 ? 0 : 1;
 }

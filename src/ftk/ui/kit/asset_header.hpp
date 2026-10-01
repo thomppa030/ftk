@@ -18,7 +18,7 @@
 //         switch (header.finish()) { ... }
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// The header strip's window, for placing what hangs from it.
 inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
@@ -61,4 +61,4 @@ private:
     SaveAction action_{SaveAction::None};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

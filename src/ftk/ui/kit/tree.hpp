@@ -25,7 +25,7 @@
 // After tree_row() the row is the last item, so a context menu, drag source
 // or tooltip attaches to it the usual way.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// How a row is selected: not at all, as the one being edited, or along with
 /// it in a multi-selection.
@@ -129,4 +129,4 @@ void draw_drop(DropPlace place, int depth);
 void drag_preview(const char* icon, std::optional<theme::Category> category, std::string_view text,
                   std::string_view refusal = {});
 
-} // namespace fjell::ui
+} // namespace ftk::ui

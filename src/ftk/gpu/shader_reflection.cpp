@@ -6,7 +6,7 @@
 #include <exception>
 #include <tuple>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -140,4 +140,4 @@ Result<ShaderLayout> merge(const ShaderLayout& a, const ShaderLayout& b) {
     return out;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

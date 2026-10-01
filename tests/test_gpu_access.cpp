@@ -7,7 +7,7 @@
 #include <set>
 #include <string_view>
 
-using namespace fjell::gpu;
+using namespace ftk::gpu;
 
 namespace {
 

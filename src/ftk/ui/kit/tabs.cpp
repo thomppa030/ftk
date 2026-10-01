@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 constexpr float STRIP_PAD = 6.0f;  // above the tabs and before the first
@@ -113,4 +113,4 @@ ContextTabBar::~ContextTabBar() {
     ImGui::End();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

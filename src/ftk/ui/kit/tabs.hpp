@@ -11,7 +11,7 @@
 // in front with an edge in its category colour, then a last tab that adds
 // one. Hovering a tab shows its ×; a double-click asks to rename it.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct TabStripSpec {
     std::span<const std::string> names;
@@ -59,4 +59,4 @@ private:
     bool open_{false};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

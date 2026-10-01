@@ -10,7 +10,7 @@
 #include <cctype>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -158,4 +158,4 @@ InsetGroup::~InsetGroup() {
     ImGui::PopID();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

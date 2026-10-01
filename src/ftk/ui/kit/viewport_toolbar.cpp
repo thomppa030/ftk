@@ -2,7 +2,7 @@
 
 #include "ftk/ui/theme.hpp"
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 constexpr float INSET = 8.0f;    // from the image's edge
@@ -70,4 +70,4 @@ ViewportWindow::~ViewportWindow() {
     ImGui::PopStyleVar();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

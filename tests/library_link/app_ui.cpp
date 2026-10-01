@@ -21,7 +21,7 @@ int main() {
     // first frame while it measures them.
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("##kit", nullptr, ImGuiWindowFlags_NoSavedSettings);
-    const bool clicked = fjell::ui::button("OK");
+    const bool clicked = ftk::ui::button("OK");
     ImGui::End();
     ImGui::Render();
 

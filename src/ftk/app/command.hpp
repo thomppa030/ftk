@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 class Command {
 public:
@@ -58,4 +58,4 @@ inline std::string describe_change(const std::string& what, const std::string& b
     return what + " \x01" + before + "\x02 -> \x03" + after + "\x04";
 }
 
-} // namespace fjell
+} // namespace ftk

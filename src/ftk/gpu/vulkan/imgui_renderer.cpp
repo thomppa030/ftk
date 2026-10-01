@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// The list a scope records into, for the ImGui backend, which records
 /// through Vulkan itself.
@@ -97,7 +97,7 @@ ImGuiRenderer::ImGuiRenderer(Device& device, const Desc& desc)
     // an exhausted pool would otherwise show up only as images that stop
     // drawing.
     init.CheckVkResultFn = [](VkResult result) {
-        if (result != VK_SUCCESS) FJELL_GFX_ERROR("ImGui Vulkan backend: VkResult={}", static_cast<int>(result));
+        if (result != VK_SUCCESS) FTK_GFX_ERROR("ImGui Vulkan backend: VkResult={}", static_cast<int>(result));
     };
     // The backend's "image count" is how many sets of vertex buffers it keeps
     // and uses in turn, one per frame: enough for every frame in flight. The
@@ -134,7 +134,7 @@ void ImGuiRenderer::new_frame() {
 }
 
 void ImGuiRenderer::render(RenderEncoder& pass) {
-    FJELL_PROFILE_SCOPE_N("imgui_render");
+    FTK_PROFILE_SCOPE_N("imgui_render");
     CommandList& list = RenderEncoderBackend::list(pass);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vulkan::native_command_buffer(list));
     // The backend bound a pipeline and sets of its own behind the list's
@@ -176,4 +176,4 @@ ImTextureID ImGuiRenderer::texture(const TextureView& view, Sampler sampler) {
     return reinterpret_cast<ImTextureID>(set);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

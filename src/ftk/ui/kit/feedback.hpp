@@ -4,7 +4,7 @@
 
 #include <imgui.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 enum class Severity { Success, Warning, Error };
 
@@ -38,4 +38,4 @@ inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;
 bool empty_state(const char* icon, const char* title, const char* what_to_do,
                  const char* action = nullptr);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

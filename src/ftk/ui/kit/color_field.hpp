@@ -5,7 +5,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What a colour value means to the renderer. The field always shows and
 /// takes sRGB, the same as the scene file and every picker; a linear value
@@ -22,4 +22,4 @@ enum class ColorSpace {
 Edit color(const char* id, glm::vec3& value, ColorSpace space);
 Edit color(const char* id, glm::vec4& value, ColorSpace space);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

@@ -10,7 +10,7 @@
 #include <span>
 #include <type_traits>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class CommandList;
 class Device;
@@ -106,4 +106,4 @@ private:
     Impl* impl_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

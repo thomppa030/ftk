@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// Objects of one kind, each found by a generational handle.
 ///
@@ -130,4 +130,4 @@ private:
     uint32_t count_{0};
 };
 
-} // namespace fjell
+} // namespace ftk

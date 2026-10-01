@@ -76,9 +76,9 @@ FetchContent_Declare(
 )
 
 # Tracy profiler — opt-in with -DFJELL_ENABLE_TRACY=ON
-option(FJELL_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
+option(FTK_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
 
-if(FJELL_ENABLE_TRACY)
+if(FTK_ENABLE_TRACY)
     set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
     set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
     # Captures are read for their zones. Call-stack sampling adds some 300

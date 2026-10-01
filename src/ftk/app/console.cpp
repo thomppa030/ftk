@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace fjell {
+namespace ftk {
 
 static std::shared_ptr<ConsoleSink> s_console;
 
@@ -167,4 +167,4 @@ void ConsoleSink::draw(const char* title) {
     }
 }
 
-} // namespace fjell
+} // namespace ftk

@@ -9,7 +9,7 @@
 
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -62,4 +62,4 @@ SaveAction save_bar(bool unsaved, const char* saves) {
     return action;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

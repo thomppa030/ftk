@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 Edit text_field(const char* id, std::string& value) {
     // While the field is active ImGui edits its own copy of the text, and
@@ -35,4 +35,4 @@ Edit TextField::draw(const char* id, std::string_view value) {
     return edit;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

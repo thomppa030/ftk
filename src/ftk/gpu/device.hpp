@@ -22,11 +22,11 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 class Window;
 }
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// What the device can do, where it differs between GPUs.
 struct Caps {
@@ -264,4 +264,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

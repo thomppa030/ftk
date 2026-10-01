@@ -6,11 +6,11 @@
 #include <optional>
 #include <string>
 
-namespace fjell::log {
+namespace ftk::log {
 
 /// How init() sets the loggers up.
 struct Options {
-    /// The lowest level shown. Unset: info, unless the FJELL_LOG_LEVEL
+    /// The lowest level shown. Unset: info, unless the FTK_LOG_LEVEL
     /// environment variable names another (trace, debug, info, warn, error).
     std::optional<spdlog::level::level_enum> level{};
     /// How the terminal shows a line, in spdlog's pattern syntax.
@@ -31,28 +31,28 @@ void add_sink(spdlog::sink_ptr sink);
 [[nodiscard]] std::shared_ptr<spdlog::logger>& renderer();
 [[nodiscard]] std::shared_ptr<spdlog::logger>& app();
 
-} // namespace fjell::log
+} // namespace ftk::log
 
 // Core engine logging
-#define FJELL_CORE_TRACE(...)    ::fjell::log::core()->trace(__VA_ARGS__)
-#define FJELL_CORE_DEBUG(...)    ::fjell::log::core()->debug(__VA_ARGS__)
-#define FJELL_CORE_INFO(...)     ::fjell::log::core()->info(__VA_ARGS__)
-#define FJELL_CORE_WARN(...)     ::fjell::log::core()->warn(__VA_ARGS__)
-#define FJELL_CORE_ERROR(...)    ::fjell::log::core()->error(__VA_ARGS__)
-#define FJELL_CORE_CRITICAL(...) ::fjell::log::core()->critical(__VA_ARGS__)
+#define FTK_CORE_TRACE(...)    ::ftk::log::core()->trace(__VA_ARGS__)
+#define FTK_CORE_DEBUG(...)    ::ftk::log::core()->debug(__VA_ARGS__)
+#define FTK_CORE_INFO(...)     ::ftk::log::core()->info(__VA_ARGS__)
+#define FTK_CORE_WARN(...)     ::ftk::log::core()->warn(__VA_ARGS__)
+#define FTK_CORE_ERROR(...)    ::ftk::log::core()->error(__VA_ARGS__)
+#define FTK_CORE_CRITICAL(...) ::ftk::log::core()->critical(__VA_ARGS__)
 
 // Renderer logging
-#define FJELL_GFX_TRACE(...)    ::fjell::log::renderer()->trace(__VA_ARGS__)
-#define FJELL_GFX_DEBUG(...)    ::fjell::log::renderer()->debug(__VA_ARGS__)
-#define FJELL_GFX_INFO(...)     ::fjell::log::renderer()->info(__VA_ARGS__)
-#define FJELL_GFX_WARN(...)     ::fjell::log::renderer()->warn(__VA_ARGS__)
-#define FJELL_GFX_ERROR(...)    ::fjell::log::renderer()->error(__VA_ARGS__)
-#define FJELL_GFX_CRITICAL(...) ::fjell::log::renderer()->critical(__VA_ARGS__)
+#define FTK_GFX_TRACE(...)    ::ftk::log::renderer()->trace(__VA_ARGS__)
+#define FTK_GFX_DEBUG(...)    ::ftk::log::renderer()->debug(__VA_ARGS__)
+#define FTK_GFX_INFO(...)     ::ftk::log::renderer()->info(__VA_ARGS__)
+#define FTK_GFX_WARN(...)     ::ftk::log::renderer()->warn(__VA_ARGS__)
+#define FTK_GFX_ERROR(...)    ::ftk::log::renderer()->error(__VA_ARGS__)
+#define FTK_GFX_CRITICAL(...) ::ftk::log::renderer()->critical(__VA_ARGS__)
 
 // Application / game-side logging
-#define FJELL_APP_TRACE(...)    ::fjell::log::app()->trace(__VA_ARGS__)
-#define FJELL_APP_DEBUG(...)    ::fjell::log::app()->debug(__VA_ARGS__)
-#define FJELL_APP_INFO(...)     ::fjell::log::app()->info(__VA_ARGS__)
-#define FJELL_APP_WARN(...)     ::fjell::log::app()->warn(__VA_ARGS__)
-#define FJELL_APP_ERROR(...)    ::fjell::log::app()->error(__VA_ARGS__)
-#define FJELL_APP_CRITICAL(...) ::fjell::log::app()->critical(__VA_ARGS__)
+#define FTK_APP_TRACE(...)    ::ftk::log::app()->trace(__VA_ARGS__)
+#define FTK_APP_DEBUG(...)    ::ftk::log::app()->debug(__VA_ARGS__)
+#define FTK_APP_INFO(...)     ::ftk::log::app()->info(__VA_ARGS__)
+#define FTK_APP_WARN(...)     ::ftk::log::app()->warn(__VA_ARGS__)
+#define FTK_APP_ERROR(...)    ::ftk::log::app()->error(__VA_ARGS__)
+#define FTK_APP_CRITICAL(...) ::ftk::log::app()->critical(__VA_ARGS__)

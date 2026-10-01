@@ -14,7 +14,7 @@
 #include <mutex>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 namespace fs = std::filesystem;
 
@@ -109,7 +109,7 @@ IconCache::IconCache(gpu::Device& device, ThreadPool& pool, const std::string& i
                                      .address = gpu::Address::clamp})},
       inbox_{std::make_shared<Inbox>()} {
     if (!fs::is_directory(icons_dir)) {
-        FJELL_CORE_WARN("Icons directory not found: {}", icons_dir);
+        FTK_CORE_WARN("Icons directory not found: {}", icons_dir);
         return;
     }
 
@@ -124,7 +124,7 @@ IconCache::IconCache(gpu::Device& device, ThreadPool& pool, const std::string& i
         load_icon(filename, entry.path().string());
     }
 
-    FJELL_CORE_INFO("Loaded {} icons", icons_.size());
+    FTK_CORE_INFO("Loaded {} icons", icons_.size());
 }
 
 IconCache::~IconCache() = default;
@@ -136,10 +136,10 @@ ImTextureID IconCache::icon(const std::string& name) const {
 
 gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels, uint32_t width, uint32_t height,
                                                 const std::string& name) {
-    FJELL_PROFILE_SCOPE_N("icon_upload");
+    FTK_PROFILE_SCOPE_N("icon_upload");
     const size_t size = static_cast<size_t>(width) * height * 4;
     if (width == 0 || height == 0 || pixels.size() < size) {
-        FJELL_CORE_ERROR("Icon cache: {} has {} bytes for {}x{} pixels", name, pixels.size(), width, height);
+        FTK_CORE_ERROR("Icon cache: {} has {} bytes for {}x{} pixels", name, pixels.size(), width, height);
         return {};
     }
     // PNG pixels are sRGB; sampling through an sRGB format hands ImGui
@@ -152,7 +152,7 @@ gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels,
         .name = name,
     });
     if (!made) {
-        FJELL_CORE_ERROR("Icon cache: {}: {}", name, made.error());
+        FTK_CORE_ERROR("Icon cache: {}: {}", name, made.error());
         return {};
     }
     device_.upload().to_texture(*made, {}, std::as_bytes(pixels.first(size)),
@@ -163,7 +163,7 @@ gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels,
 void IconCache::load_icon(const std::string& name, const std::string& path) {
     const Picture picture = read_rgba(path);
     if (picture.rgba.empty()) {
-        FJELL_CORE_WARN("Failed to load icon: {}", path);
+        FTK_CORE_WARN("Failed to load icon: {}", path);
         return;
     }
     icons_[name] = upload_rgba(picture.rgba, static_cast<uint32_t>(picture.width),
@@ -217,4 +217,4 @@ void IconCache::clear_thumbnails() {
     ++generation_;
 }
 
-} // namespace fjell
+} // namespace ftk

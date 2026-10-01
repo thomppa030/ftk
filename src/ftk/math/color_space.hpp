@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace fjell::color_space {
+namespace ftk::color_space {
 
 /// sRGB transfer function to linear light. Every colour a person authors —
 /// a hex value, a picker swatch, a `hint_color` uniform — is sRGB; every
@@ -38,4 +38,4 @@ namespace fjell::color_space {
     return {linear_to_srgb(glm::vec3{c}), c.a};
 }
 
-} // namespace fjell::color_space
+} // namespace ftk::color_space

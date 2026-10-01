@@ -3,7 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
-using namespace fjell::color_space;
+using namespace ftk::color_space;
 
 TEST_CASE("Black and white are fixed points of the sRGB curve", "[color_space]") {
     REQUIRE(srgb_to_linear(0.0f) == 0.0f);

@@ -11,7 +11,7 @@
 #include <thread>
 #include <vector>
 
-using namespace fjell;
+using namespace ftk;
 
 namespace {
 

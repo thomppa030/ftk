@@ -7,7 +7,7 @@
 #include <memory>
 #include <span>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// What `Device::read_back` reads, and how.
 struct ReadbackDesc {
@@ -68,4 +68,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

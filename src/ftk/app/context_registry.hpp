@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace fjell {
+namespace ftk {
 
 /// How one kind of asset opens. Every asset has its own tab: `matches` says
 /// whether a context already shows `path`, and `open` then points that
@@ -35,4 +35,4 @@ private:
     std::unordered_map<std::string, ContextFactoryEntry<Context>> factories_;
 };
 
-} // namespace fjell
+} // namespace ftk

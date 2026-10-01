@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-namespace fjell {
+namespace ftk {
 
 void TransientImagePool::create(gpu::Device& device) {
     device_ = &device;
@@ -103,7 +103,7 @@ gpu::Texture TransientImagePool::acquire(const TextureDesc& desc, glm::uvec2 vie
         .name = "frame graph transient",
     });
     if (!made) {
-        FJELL_GFX_ERROR("TransientImagePool: {}", made.error());
+        FTK_GFX_ERROR("TransientImagePool: {}", made.error());
         return {};
     }
 
@@ -120,4 +120,4 @@ uint32_t TransientImagePool::live_images() const noexcept {
     return static_cast<uint32_t>(entries_.size());
 }
 
-} // namespace fjell
+} // namespace ftk

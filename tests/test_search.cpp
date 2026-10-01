@@ -6,8 +6,8 @@
 
 #include <string>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 TEST_CASE("A search matches anywhere in the text, ignoring case", "[ui][kit]") {
     CHECK(ui::matches("Crate_01", "cra"));

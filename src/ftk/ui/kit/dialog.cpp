@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <unordered_map>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -260,4 +260,4 @@ UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<U
     return unsaved_buttons(verb.c_str());
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

@@ -8,7 +8,7 @@
 
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -94,4 +94,4 @@ FadedBody::~FadedBody() {
     if (faded_) ImGui::PopStyleVar();
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

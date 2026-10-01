@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 
@@ -62,4 +62,4 @@ private:
     H handle_{};
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

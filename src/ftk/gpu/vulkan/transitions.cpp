@@ -13,7 +13,7 @@
 // The frame graph's transitions as Vulkan pipeline barriers, and the two
 // questions the graph asks while it works them out.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -30,11 +30,11 @@ const char* queue_name(Queue queue) {
     return queue == Queue::compute ? "compute" : "graphics";
 }
 
-// FJELL_TRACE_LAYOUT: every barrier logged with its image or buffer's handle,
+// FTK_TRACE_LAYOUT: every barrier logged with its image or buffer's handle,
 // to match against the handles validation messages name.
 bool layout_trace_enabled() {
     static const bool on = [] {
-        const char* value = std::getenv("FJELL_TRACE_LAYOUT");
+        const char* value = std::getenv("FTK_TRACE_LAYOUT");
         return value != nullptr && value[0] != '\0' && value[0] != '0';
     }();
     return on;
@@ -181,7 +181,7 @@ void CommandList::transition(std::span<const Transition> transitions, std::strin
                     barrier->srcAccessMask, barrier->dstStageMask, barrier->dstAccessMask);
             }
             if (layout_trace_enabled()) {
-                FJELL_GFX_INFO(
+                FTK_GFX_INFO(
                     "[layout] graph barrier img=0x{:x} '{}' {} -> {} src=0x{:x} dst=0x{:x} on {} "
                     "cb=0x{:x}",
                     reinterpret_cast<uintptr_t>(barrier->image), t.name,
@@ -206,7 +206,7 @@ void CommandList::transition(std::span<const Transition> transitions, std::strin
                                   barrier->dstStageMask, barrier->dstAccessMask);
         }
         if (layout_trace_enabled()) {
-            FJELL_GFX_INFO(
+            FTK_GFX_INFO(
                 "[layout] buffer barrier buf=0x{:x} '{}' {} src=0x{:x}/0x{:x} dst=0x{:x}/0x{:x} on {}",
                 reinterpret_cast<uintptr_t>(barrier->buffer), t.name, buffer_hazard(t),
                 static_cast<uint64_t>(barrier->srcStageMask),
@@ -228,4 +228,4 @@ void CommandList::transition(std::span<const Transition> transitions, std::strin
     vkCmdPipelineBarrier2(impl_->cb, &dependency);
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

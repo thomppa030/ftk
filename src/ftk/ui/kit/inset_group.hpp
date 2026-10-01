@@ -11,7 +11,7 @@
 //         // rows and sub-headings, fields on the inset colour
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What a box's heading holds.
 struct InsetHeading {
@@ -64,4 +64,4 @@ private:
     float content_right_{0.0f};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

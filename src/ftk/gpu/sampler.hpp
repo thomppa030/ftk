@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 struct SamplerTag;
 
@@ -64,4 +64,4 @@ struct SamplerDesc {
     bool operator==(const SamplerDesc&) const = default;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 /// Filename extension for executables, for composing sibling tool paths.
 #ifdef _WIN32
@@ -69,4 +69,4 @@ bool poll_exit(SubprocessHandle& handle);
 /// Kill the subprocess (SIGKILL) if still running, close the pipe fd, reap.
 void close_subprocess(SubprocessHandle& handle);
 
-} // namespace fjell::platform
+} // namespace ftk::platform

@@ -17,7 +17,7 @@
 // adopted as textures, and the semaphores that tie each image to the frame
 // drawing it and to present.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -322,4 +322,4 @@ uint32_t Swapchain::height() const {
     return impl_->extent.height;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

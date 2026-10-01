@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// One binding inside an acquire() request. Lives on the stack at the
 /// call site; the cache copies the value into its key when interning.
@@ -151,4 +151,4 @@ private:
     std::mutex mutex_;
 };
 
-} // namespace fjell
+} // namespace ftk

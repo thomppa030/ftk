@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-using fjell::test::ImGuiHarness;
-namespace ui = fjell::ui;
+using ftk::test::ImGuiHarness;
+namespace ui = ftk::ui;
 
 namespace {
 
@@ -248,10 +248,10 @@ TEST_CASE("A closed card that opens reads dim, and in full text under the mouse"
     });
     h.step(3);
     const auto same = [](ImVec4 a, ImVec4 b) { return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w; };
-    CHECK(same(summary_colour, fjell::theme::text_secondary()));
+    CHECK(same(summary_colour, ftk::theme::text_secondary()));
 
     const ImVec2 min = h.rect_min("summary");
     ImGui::GetIO().AddMousePosEvent(min.x + 2.0f, min.y + 2.0f);
     h.step(2);
-    CHECK(same(summary_colour, fjell::theme::text()));
+    CHECK(same(summary_colour, ftk::theme::text()));
 }

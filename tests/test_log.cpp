@@ -13,7 +13,7 @@ public:
     using Catch::EventListenerBase::EventListenerBase;
 
     void testRunStarting(const Catch::TestRunInfo& /*info*/) override {
-        fjell::log::init({.level = spdlog::level::warn, .pattern = "[%T] [%n] [%l] %v"});
+        ftk::log::init({.level = spdlog::level::warn, .pattern = "[%T] [%n] [%l] %v"});
     }
 };
 

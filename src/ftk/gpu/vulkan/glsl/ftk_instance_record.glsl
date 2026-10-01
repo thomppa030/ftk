@@ -2,8 +2,8 @@
 // the Vulkan backend lays it out (VkAccelerationStructureInstanceKHR, 64
 // bytes), for a shader that writes records: what Device::write_instances()
 // writes on the CPU.
-#ifndef FJELL_INSTANCE_RECORD_GLSL
-#define FJELL_INSTANCE_RECORD_GLSL
+#ifndef FTK_INSTANCE_RECORD_GLSL
+#define FTK_INSTANCE_RECORD_GLSL
 
 struct InstanceRecord {
     // Object to world: the three rows of a 3 x 4 matrix, whose last column

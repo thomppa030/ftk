@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -222,4 +222,4 @@ void CommandList::execute(std::span<CommandList* const> recorded_in_parallel) {
     vkCmdExecuteCommands(impl_->cb, static_cast<uint32_t>(recorded.size()), recorded.data());
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

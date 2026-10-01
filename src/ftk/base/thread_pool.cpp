@@ -1,7 +1,7 @@
 #include "ftk/base/thread_pool.hpp"
 #include "ftk/base/log.hpp"
 
-namespace fjell {
+namespace ftk {
 
 ThreadPool::ThreadPool(uint32_t thread_count) {
     if (thread_count == 0) {
@@ -28,7 +28,7 @@ ThreadPool::ThreadPool(uint32_t thread_count) {
         });
     }
 
-    FJELL_CORE_INFO("Thread pool: {} workers", thread_count_);
+    FTK_CORE_INFO("Thread pool: {} workers", thread_count_);
 }
 
 ThreadPool::~ThreadPool() {
@@ -73,4 +73,4 @@ void ThreadPool::post_helpers(const std::shared_ptr<Fork>& fork, uint32_t helper
     }
 }
 
-} // namespace fjell
+} // namespace ftk

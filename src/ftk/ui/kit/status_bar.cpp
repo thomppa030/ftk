@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -181,4 +181,4 @@ bool status_button(const char* icon, const char* label, const char* shortcut, bo
     return clicked;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

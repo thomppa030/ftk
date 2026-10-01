@@ -9,8 +9,8 @@
 
 int main() {
     nlohmann::json curve;
-    fjell::Curve::linear(0.0f, 1.0f).to_json(curve);
-    const float grey = fjell::color_space::linear_to_srgb(fjell::color_space::srgb_to_linear(0.5f));
+    ftk::Curve::linear(0.0f, 1.0f).to_json(curve);
+    const float grey = ftk::color_space::linear_to_srgb(ftk::color_space::srgb_to_linear(0.5f));
 
     const bool ran = !curve.is_null() && grey > 0.49f && grey < 0.51f;
     return ran ? 0 : 1;

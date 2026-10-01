@@ -11,7 +11,7 @@
 #include <set>
 #include <stdexcept>
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -20,19 +20,19 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     void* /*user_data*/) {
     switch (severity) {
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-        FJELL_GFX_TRACE("Validation: {}", data->pMessage);
+        FTK_GFX_TRACE("Validation: {}", data->pMessage);
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-        FJELL_GFX_DEBUG("Validation: {}", data->pMessage);
+        FTK_GFX_DEBUG("Validation: {}", data->pMessage);
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-        FJELL_GFX_WARN("Validation: {}", data->pMessage);
+        FTK_GFX_WARN("Validation: {}", data->pMessage);
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-        FJELL_GFX_ERROR("Validation: {}", data->pMessage);
+        FTK_GFX_ERROR("Validation: {}", data->pMessage);
         break;
     default:
-        FJELL_GFX_WARN("Validation (unknown severity): {}", data->pMessage);
+        FTK_GFX_WARN("Validation (unknown severity): {}", data->pMessage);
         break;
     }
     return VK_FALSE;
@@ -61,7 +61,7 @@ static void destroy_debug_utils_messenger(
 }
 
 Foundation::Foundation(const Window& window) {
-    FJELL_GFX_INFO("Initializing Vulkan device");
+    FTK_GFX_INFO("Initializing Vulkan device");
     create_instance();
     setup_debug_messenger();
     // The GPU is chosen by whether it can show the window, asked through a
@@ -75,7 +75,7 @@ Foundation::Foundation(const Window& window) {
     create_logical_device();
     create_allocator();
     lanes_ = std::make_unique<UploadLanes>(*this);
-    FJELL_GFX_INFO("Vulkan device ready");
+    FTK_GFX_INFO("Vulkan device ready");
 }
 
 Foundation::~Foundation() {
@@ -124,7 +124,7 @@ void Foundation::create_instance() {
     if (vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan instance");
     }
-    FJELL_GFX_DEBUG("Vulkan instance created (API 1.3, {} extensions, validation {})",
+    FTK_GFX_DEBUG("Vulkan instance created (API 1.3, {} extensions, validation {})",
                     extensions.size(), enable_validation_ ? "on" : "off");
 }
 
@@ -181,7 +181,7 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device_, &props);
     gpu_name_ = props.deviceName;
-    FJELL_GFX_INFO("GPU: {}", gpu_name_);
+    FTK_GFX_INFO("GPU: {}", gpu_name_);
 
     // VK_EXT_mesh_shader is required. Fjell renders exclusively through the
     // mesh-shader path; the vertex-shader fallback was retired.
@@ -232,7 +232,7 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
 
     mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
     mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
-    FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
+    FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
                    mesh_props.maxMeshWorkGroupSize[0],
                    mesh_shader_max_output_vertices_,
                    mesh_shader_max_output_primitives_);
@@ -247,9 +247,9 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
     }
     if (device_fault_supported_) {
         device_extensions_.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
-        FJELL_GFX_INFO("VK_EXT_device_fault enabled (device-loss diagnostics)");
+        FTK_GFX_INFO("VK_EXT_device_fault enabled (device-loss diagnostics)");
     } else {
-        FJELL_GFX_INFO("VK_EXT_device_fault not available");
+        FTK_GFX_INFO("VK_EXT_device_fault not available");
     }
 
     // Probe for VK_KHR_acceleration_structure + VK_KHR_ray_query
@@ -283,12 +283,12 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
             device_extensions_.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-            FJELL_GFX_INFO("Ray tracing supported");
+            FTK_GFX_INFO("Ray tracing supported");
         }
     }
 
     if (!ray_tracing_supported_) {
-        FJELL_GFX_INFO("Ray tracing not available, DDGI will use SDF fallback");
+        FTK_GFX_INFO("Ray tracing not available, DDGI will use SDF fallback");
     }
 }
 
@@ -430,10 +430,10 @@ void Foundation::create_logical_device() {
         concurrent_families_[0] = indices.graphics.value();
         concurrent_families_[1] = indices.async_compute.value();
         concurrent_family_count_ = 2;
-        FJELL_GFX_INFO("Async compute supported (queue family {})",
+        FTK_GFX_INFO("Async compute supported (queue family {})",
                        indices.async_compute.value());
     } else {
-        FJELL_GFX_INFO("Async compute not supported (no dedicated compute queue family)");
+        FTK_GFX_INFO("Async compute not supported (no dedicated compute queue family)");
     }
 
     // Upload sharing families: graphics always; dedicated transfer and
@@ -443,10 +443,10 @@ void Foundation::create_logical_device() {
     if (indices.transfer.has_value()) {
         vkGetDeviceQueue(device_, indices.transfer.value(), 0, &transfer_queue_);
         upload_families_[upload_family_count_++] = indices.transfer.value();
-        FJELL_GFX_INFO("Dedicated transfer queue supported (queue family {})",
+        FTK_GFX_INFO("Dedicated transfer queue supported (queue family {})",
                        indices.transfer.value());
     } else {
-        FJELL_GFX_INFO("No dedicated transfer queue family — uploads use the graphics queue");
+        FTK_GFX_INFO("No dedicated transfer queue family — uploads use the graphics queue");
     }
     if (indices.async_compute.has_value()) {
         upload_families_[upload_family_count_++] = indices.async_compute.value();
@@ -471,10 +471,10 @@ void Foundation::create_logical_device() {
         }
     }
     if (sparse_bind_queue_ != VK_NULL_HANDLE) {
-        FJELL_GFX_INFO("Sparse binding supported (binds on {} queue)",
+        FTK_GFX_INFO("Sparse binding supported (binds on {} queue)",
                        sparse_bind_queue_ == transfer_queue_ ? "transfer" : "graphics");
     } else {
-        FJELL_GFX_INFO("Sparse binding not supported — growable buffers fall back to copy-grow");
+        FTK_GFX_INFO("Sparse binding not supported — growable buffers fall back to copy-grow");
     }
 
     // Load mesh shader extension function pointers
@@ -661,7 +661,7 @@ std::vector<const char*> Foundation::get_required_extensions() const {
 
 void Foundation::dump_device_fault(const char* context) const {
     if (!device_fault_supported_) {
-        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
+        FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
                            "cannot query faulting op", context);
         return;
     }
@@ -669,14 +669,14 @@ void Foundation::dump_device_fault(const char* context) const {
     auto pfn = reinterpret_cast<PFN_vkGetDeviceFaultInfoEXT>(
         vkGetDeviceProcAddr(device_, "vkGetDeviceFaultInfoEXT"));
     if (!pfn) {
-        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT not loaded", context);
+        FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT not loaded", context);
         return;
     }
 
     VkDeviceFaultCountsEXT counts{};
     counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
     if (pfn(device_, &counts, nullptr) != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(counts) failed", context);
+        FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(counts) failed", context);
         return;
     }
 
@@ -690,13 +690,13 @@ void Foundation::dump_device_fault(const char* context) const {
     info.pVendorInfos = vendors.empty() ? nullptr : vendors.data();
     info.pVendorBinaryData = vendor_bin.empty() ? nullptr : vendor_bin.data();
     if (pfn(device_, &counts, &info) != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(data) failed", context);
+        FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(data) failed", context);
         return;
     }
 
-    FJELL_GFX_CRITICAL("=== DEVICE FAULT during '{}' ===", context);
-    FJELL_GFX_CRITICAL("  description: {}", info.description);
-    FJELL_GFX_CRITICAL("  address infos: {}, vendor infos: {}, vendor binary: {} bytes",
+    FTK_GFX_CRITICAL("=== DEVICE FAULT during '{}' ===", context);
+    FTK_GFX_CRITICAL("  description: {}", info.description);
+    FTK_GFX_CRITICAL("  address infos: {}, vendor infos: {}, vendor binary: {} bytes",
                        counts.addressInfoCount, counts.vendorInfoCount, counts.vendorBinarySize);
     for (uint32_t i = 0; i < counts.addressInfoCount; ++i) {
         const auto& a = addrs[i];
@@ -710,12 +710,12 @@ void Foundation::dump_device_fault(const char* context) const {
             case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT: kind = "IP_FAULT"; break;
             default: break;
         }
-        FJELL_GFX_CRITICAL("  [addr {}] type={} reported=0x{:x} precision=0x{:x}",
+        FTK_GFX_CRITICAL("  [addr {}] type={} reported=0x{:x} precision=0x{:x}",
                            i, kind, a.reportedAddress, a.addressPrecision);
     }
     for (uint32_t i = 0; i < counts.vendorInfoCount; ++i) {
         const auto& v = vendors[i];
-        FJELL_GFX_CRITICAL("  [vendor {}] '{}' code=0x{:x} data=0x{:x}",
+        FTK_GFX_CRITICAL("  [vendor {}] '{}' code=0x{:x} data=0x{:x}",
                            i, v.description, v.vendorFaultCode, v.vendorFaultData);
     }
 }
@@ -736,4 +736,4 @@ VkSampleCountFlagBits Foundation::max_msaa_samples() const {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

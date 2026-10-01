@@ -20,27 +20,27 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "usage: %s <fonts directory> <imgui.frag.spv>\n", argv[0]);
         return 2;
     }
-    fjell::log::init({.level = spdlog::level::warn});
+    ftk::log::init({.level = spdlog::level::warn});
     int drawn = 0;
     {
         // The device is made for a window of its own, as the editor's is.
-        fjell::Window main_window("ftk-link-app", 320, 240);
-        auto made = fjell::gpu::Device::create(main_window);
+        ftk::Window main_window("ftk-link-app", 320, 240);
+        auto made = ftk::gpu::Device::create(main_window);
         if (!made) {
             std::fprintf(stderr, "%s\n", made.error().c_str());
             return 1;
         }
-        fjell::gpu::Device& device = **made;
-        fjell::StandaloneWindow window(device, "ftk-link-app", 480, 320,
+        ftk::gpu::Device& device = **made;
+        ftk::StandaloneWindow window(device, "ftk-link-app", 480, 320,
                                        {.fonts = argv[1], .srgb_fragment = argv[2]});
         for (int frame = 0; frame < 10; ++frame) {
             window.frame([&](float, float) {
-                (void)fjell::ui::button("OK");
+                (void)ftk::ui::button("OK");
                 ++drawn;
             });
         }
         device.wait_idle();
     }
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     return drawn > 0 ? 0 : 1;
 }

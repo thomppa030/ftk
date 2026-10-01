@@ -10,7 +10,7 @@
 #include <optional>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -111,4 +111,4 @@ bool subheading_foldable(const char* label, theme::Category category, bool defau
     return heading(label, nullptr, SUBHEADING_SIZE, false, true, default_open, category);
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

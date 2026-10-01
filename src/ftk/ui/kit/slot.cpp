@@ -10,7 +10,7 @@
 #include <filesystem>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -151,4 +151,4 @@ SlotFace asset_face(std::string_view file_name, AssetPresence presence, std::str
     return face;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

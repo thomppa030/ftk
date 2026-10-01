@@ -13,21 +13,21 @@
 #include <string>
 
 int main() {
-    fjell::log::init({.level = spdlog::level::warn});
+    ftk::log::init({.level = spdlog::level::warn});
 
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "fjell_link_shader";
     const std::string source = (root / "x.frag").generic_string();
     std::filesystem::create_directories(root);
     std::ofstream(source) << "void main() {}\n";
 
-    const fjell::ShaderCompiler compiler{root.generic_string(), (root / "generated").generic_string(), 1};
+    const ftk::ShaderCompiler compiler{root.generic_string(), (root / "generated").generic_string(), 1};
     const uint64_t key = compiler.cache_key({source, "x"});
-    const fjell::ShaderDiagnostic error =
-        fjell::first_shader_error("tint.frag:3: error: 'strenght' : undeclared identifier");
+    const ftk::ShaderDiagnostic error =
+        ftk::first_shader_error("tint.frag:3: error: 'strenght' : undeclared identifier");
 
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
-    fjell::log::shutdown();
+    ftk::log::shutdown();
     const bool ran = key != 0 && error.line == 3;
     return ran ? 0 : 1;
 }

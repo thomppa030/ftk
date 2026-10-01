@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 struct AccelerationStructureTag;
@@ -83,4 +83,4 @@ struct AccelerationInstance {
 /// The widest custom index an instance holds: 24 bits on Vulkan and Metal.
 inline constexpr uint32_t MAX_CUSTOM_INDEX = (1U << 24) - 1;
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

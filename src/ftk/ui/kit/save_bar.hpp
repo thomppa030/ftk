@@ -4,7 +4,7 @@
 // settings): whether there are unsaved changes, then Revert and Save on
 // the right.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 enum class SaveAction { None, Save, Revert };
 
@@ -14,8 +14,8 @@ enum class SaveAction { None, Save, Revert };
 /// The bar, across the window's full width at the cursor: the unsaved dot
 /// and "Unsaved changes" while `unsaved`, then Revert (ghost) and Save
 /// (primary), both greyed out while there is nothing to save. `saves`
-/// names what Save writes, for its tooltip ("project.fjell"). Returns what
+/// names what Save writes, for its tooltip ("settings.json"). Returns what
 /// was clicked.
 SaveAction save_bar(bool unsaved, const char* saves);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

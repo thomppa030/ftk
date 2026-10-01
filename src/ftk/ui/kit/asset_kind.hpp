@@ -4,7 +4,7 @@
 
 #include <string_view>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What kind of thing an asset file is, for everywhere the editor shows one:
 /// its icon, its category colour and the word for it. The category is the
@@ -20,4 +20,4 @@ struct AssetKind {
 /// extensions are a plain "file" in Structure.
 [[nodiscard]] const AssetKind& asset_kind(std::string_view extension);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

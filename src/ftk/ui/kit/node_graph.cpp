@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstdio>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -729,4 +729,4 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     return events;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

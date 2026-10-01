@@ -7,7 +7,7 @@
 #include <fstream>
 #include <string>
 
-using namespace fjell;
+using namespace ftk;
 
 namespace {
 

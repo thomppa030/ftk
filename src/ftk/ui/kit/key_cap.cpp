@@ -9,7 +9,7 @@
 #include <cmath>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 constexpr float PAD_X = 9.0f;
@@ -98,4 +98,4 @@ KeyCapResult key_cap(const KeyCapSpec& spec) {
     return result;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

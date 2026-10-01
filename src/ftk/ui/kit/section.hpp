@@ -14,7 +14,7 @@
 // Sections belong to the panel, never inside a component. Any level may
 // fold; the fold state is remembered by ImGui under the heading's ID.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// A section heading. The label is written as it reads ("Transform"); it
 /// is drawn uppercase. `icon` is the section's own, by meaning.
@@ -33,4 +33,4 @@ bool subheading_foldable(const char* label, bool default_open = true);
 /// dot ("Physics" in the Add Component picker).
 bool subheading_foldable(const char* label, theme::Category category, bool default_open = true);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

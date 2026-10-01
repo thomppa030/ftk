@@ -3,7 +3,7 @@
 #include <bit>
 #include <cstdint>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// Opts an enum into `Flags`: its values are bit positions (0, 1, 2, …) under
 /// 64, and `a | b` on two of them makes a set. Specialise it to `true` beside
@@ -76,4 +76,4 @@ template <typename E>
     return Flags<E>(a) | b;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

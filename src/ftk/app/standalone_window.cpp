@@ -10,7 +10,7 @@
 
 #include <stdexcept>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -71,8 +71,8 @@ void StandaloneWindow::frame(const std::function<void(float width, float height)
     cmd.transition({&to_present, 1});
     frame.submit(cmd);
     if (auto shown = swapchain_->present(frame, *image); !shown) {
-        FJELL_GFX_ERROR("{}", shown.error());
+        FTK_GFX_ERROR("{}", shown.error());
     }
 }
 
-} // namespace fjell
+} // namespace ftk

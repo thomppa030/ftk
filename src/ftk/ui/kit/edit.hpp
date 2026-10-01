@@ -1,6 +1,6 @@
 #pragma once
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What a field did this frame. `changed` is true on every frame the value
 /// moved (for a live preview); `committed` is true once, when the edit is
@@ -18,4 +18,4 @@ struct Edit {
     }
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

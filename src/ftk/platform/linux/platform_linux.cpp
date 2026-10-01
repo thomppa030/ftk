@@ -10,7 +10,7 @@
 #include <cstring>
 #include <stdexcept>
 
-namespace fjell::platform {
+namespace ftk::platform {
 
 std::filesystem::path executable_path() {
     std::array<char, 4096> buf{};
@@ -191,4 +191,4 @@ void close_subprocess(SubprocessHandle& handle) {
     handle.process = SubprocessHandle::INVALID;
 }
 
-} // namespace fjell::platform
+} // namespace ftk::platform

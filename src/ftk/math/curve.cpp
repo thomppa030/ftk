@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace fjell {
+namespace ftk {
 
 float Curve::evaluate(float t) const {
     if (keyframes.empty()) return 0.0f;
@@ -101,4 +101,4 @@ void Curve::from_json(const nlohmann::json& j) {
     }
 }
 
-} // namespace fjell
+} // namespace ftk

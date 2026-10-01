@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-using namespace fjell;
+using namespace ftk;
 
 TEST_CASE("Broadcast calls bound listener", "[delegate]") {
     Delegate<void(int)> d;

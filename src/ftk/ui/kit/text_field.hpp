@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// A single-line text field that commits on Enter or when it loses focus,
 /// never per keystroke, and restores the old text on Escape. `value` is
@@ -45,4 +45,4 @@ private:
     bool editing_{false};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

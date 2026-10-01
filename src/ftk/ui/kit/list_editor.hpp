@@ -19,7 +19,7 @@
 //                             "No points. The collider's corners are used",
 //                             [&](glm::vec3& p, size_t) { return ui::vec3("##p", p); });
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// How a list behaves beyond the defaults.
 struct ListOptions {
@@ -203,4 +203,4 @@ Edit selectable_list_editor(const char* id, std::vector<T>& items, int& selected
     return edit;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

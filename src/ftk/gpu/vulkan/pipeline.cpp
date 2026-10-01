@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <string>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -447,4 +447,4 @@ void release(Device& device, GraphicsPipeline pipeline) {
         [dev = self.device, gone = record->pipeline] { vkDestroyPipeline(dev, gone, nullptr); });
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -4,9 +4,9 @@
 
 #include <string>
 
-using fjell::CommandHistory;
-using fjell::DocumentHistory;
-using fjell::Result;
+using ftk::CommandHistory;
+using ftk::DocumentHistory;
+using ftk::Result;
 
 namespace {
 
@@ -66,7 +66,7 @@ TEST_CASE("A frame with no finished input records nothing, and no change records
 }
 
 TEST_CASE("A step the editor records itself is followed, not recorded twice", "[ui][document]") {
-    struct SetText final : fjell::Command {
+    struct SetText final : ftk::Command {
         std::string& text;
         std::string before;
         std::string after;

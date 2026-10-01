@@ -11,7 +11,7 @@ namespace {
 
 // Appends its letter when carried out and takes it off when undone, so the
 // log shows the order things happened in.
-class Step : public fjell::Command {
+class Step : public ftk::Command {
 public:
     Step(std::string& log, char letter) : log_{log}, letter_{letter} {}
     void execute() override { log_ += letter_; }
@@ -27,8 +27,8 @@ private:
 
 TEST_CASE("A command group is one undo step whose commands run in order and undo backwards", "[commands]") {
     std::string log;
-    fjell::CommandHistory history;
-    auto group = std::make_unique<fjell::CommandGroup>("Delete 2 objects");
+    ftk::CommandHistory history;
+    auto group = std::make_unique<ftk::CommandGroup>("Delete 2 objects");
     group->add(std::make_unique<Step>(log, 'a'));
     group->add(std::make_unique<Step>(log, 'b'));
     // Carried out as they were added, each seeing what the one before left.

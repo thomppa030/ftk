@@ -6,7 +6,7 @@
 #include <functional>
 #include <utility>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// Destruction that waits for the GPU. A backend keeps one: what it retires
 /// stays alive until the GPU's timeline, the count every finished submission
@@ -55,4 +55,4 @@ private:
     std::deque<Entry> entries_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

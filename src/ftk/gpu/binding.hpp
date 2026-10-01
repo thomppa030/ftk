@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 struct BindGroupTag;
@@ -192,4 +192,4 @@ struct SharedGroupDesc {
 [[nodiscard]] Result<std::vector<uint32_t>> place_shared(const ShaderLayout& layout,
                                                          std::span<const SharedLayoutDesc> shared);
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

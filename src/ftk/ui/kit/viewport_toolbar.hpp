@@ -10,7 +10,7 @@
 //         ui::mode_button(...); ImGui::SameLine(); ui::icon_button(...);
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 enum class PillPlace { TopLeft, TopCenter, TopRight };
 
@@ -35,9 +35,9 @@ private:
 /// under them.
 [[nodiscard]] float pill_row_bottom(ImVec2 image_min);
 
-} // namespace fjell::ui
+} // namespace ftk::ui
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// A window that shows a picture edge to edge, a viewport: no padding and
 /// no background of its own, so the image is all there is. Ends the window
@@ -62,4 +62,4 @@ private:
     bool visible_{false};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

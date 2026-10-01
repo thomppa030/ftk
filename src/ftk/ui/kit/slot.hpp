@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// What something dragged over a slot would do if it were dropped there.
 enum class SlotDrop : uint8_t {
@@ -114,4 +114,4 @@ enum class AssetPresence : uint8_t { held, empty, missing };
 [[nodiscard]] SlotFace asset_face(std::string_view file_name, AssetPresence presence,
                                   std::string_view empty_extension, std::string& text);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

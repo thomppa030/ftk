@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 namespace gpu {
 class CommandList;
@@ -294,7 +294,7 @@ public:
     [[nodiscard]] std::vector<ResourceLifetime> compute_lifetimes() const;
 
     // Log per-image lifetimes through the graphics logger. Gated by the
-    // FJELL_LOG_LIFETIMES env var so enabling it on demand is a no-rebuild
+    // FTK_LOG_LIFETIMES env var so enabling it on demand is a no-rebuild
     // operation. Intended for Phase 3 debugging only.
     void log_lifetimes() const;
 
@@ -319,19 +319,19 @@ public:
     [[nodiscard]] bool aliasing_enabled() const noexcept { return aliasing_enabled_; }
 
     // Log the alias groups and the logical-to-physical ratio. Same
-    // FJELL_LOG_LIFETIMES gate and same one-shot cadence as
+    // FTK_LOG_LIFETIMES gate and same one-shot cadence as
     // log_lifetimes().
     void log_alias_groups() const;
 
     // Walk every alias group and assert that its members have disjoint
     // lifetimes (last pass of member i strictly before first pass of
     // member i+1). Returns true if everything is legal. Gated by
-    // FJELL_VALIDATE_ALIASING so it only runs on demand.
+    // FTK_VALIDATE_ALIASING so it only runs on demand.
     [[nodiscard]] bool validate_alias_groups(const std::vector<AliasGroup>& groups) const;
 
     // Log queue-segment breakdown — how the submitted pass list splits
     // into runs of same-queue passes. Each segment boundary is a future
-    // timeline-semaphore sync point. Same FJELL_LOG_LIFETIMES gate and
+    // timeline-semaphore sync point. Same FTK_LOG_LIFETIMES gate and
     // cadence as log_alias_groups().
     void log_queue_segments() const;
 
@@ -442,7 +442,7 @@ private:
     std::unordered_map<gpu::AccelerationStructure, uint32_t, HandleHash> acceleration_index_;
 
     /// Whether this run is in the barrier trace's window
-    /// (FJELL_LOG_BARRIERS), and which run of the frame it is.
+    /// (FTK_LOG_BARRIERS), and which run of the frame it is.
     bool tracing_{false};
     uint32_t run_in_frame_{0};
     /// Barrier lines for the trace, written out after the line that says
@@ -466,4 +466,4 @@ private:
     bool aliasing_enabled_{true};
 };
 
-} // namespace fjell
+} // namespace ftk

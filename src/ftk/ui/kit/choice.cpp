@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <string>
 
-namespace fjell::ui::detail {
+namespace ftk::ui::detail {
 
 namespace {
 
@@ -133,4 +133,4 @@ bool fits_segmented(std::span<const char* const> names) {
     return true;
 }
 
-} // namespace fjell::ui::detail
+} // namespace ftk::ui::detail

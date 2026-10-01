@@ -10,7 +10,7 @@
 #include <cctype>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -109,4 +109,4 @@ void menu_heading(const char* label) {
     ImGui::Dummy({pad + ICON_COLUMN + pad + size.x + pad, size.y + theme::GAP_XS});
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

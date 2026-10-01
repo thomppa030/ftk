@@ -14,23 +14,23 @@
 #include <fstream>
 #include <unordered_map>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
-// FJELL_TRACE_LAYOUT=1 logs every image the graph starts tracking and what a
+// FTK_TRACE_LAYOUT=1 logs every image the graph starts tracking and what a
 // pass says it leaves one in, with its handle, name and layout; the backend
 // logs every barrier it records beside them.
 [[nodiscard]] bool layout_trace_enabled() {
     static const bool on = [] {
-        const char* v = std::getenv("FJELL_TRACE_LAYOUT");
+        const char* v = std::getenv("FTK_TRACE_LAYOUT");
         return v != nullptr && v[0] != '\0' && v[0] != '0';
     }();
     return on;
 }
 
-// The barrier trace. FJELL_LOG_BARRIERS=<file> writes every barrier the
-// graph emits during a window of frames to <file>: FJELL_LOG_BARRIERS_FRAME
+// The barrier trace. FTK_LOG_BARRIERS=<file> writes every barrier the
+// graph emits during a window of frames to <file>: FTK_LOG_BARRIERS_FRAME
 // frames in (300 by default), for three frames. Resources go by the names
 // they were declared under and masks as numbers, so the traces of two runs
 // or two builds compare line for line.
@@ -42,11 +42,11 @@ struct BarrierTrace {
 
 [[nodiscard]] BarrierTrace* barrier_trace() {
     static BarrierTrace* const trace = []() -> BarrierTrace* {
-        const char* path = std::getenv("FJELL_LOG_BARRIERS");
+        const char* path = std::getenv("FTK_LOG_BARRIERS");
         if (path == nullptr || path[0] == '\0') { return nullptr; }
         static BarrierTrace opened;
         opened.file.open(path);
-        if (const char* first = std::getenv("FJELL_LOG_BARRIERS_FRAME")) {
+        if (const char* first = std::getenv("FTK_LOG_BARRIERS_FRAME")) {
             opened.first_frame = std::strtoull(first, nullptr, 10);
         }
         return &opened;
@@ -134,7 +134,7 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
         if (one_state) {
             if (!unwritten) { start = resting; }
         } else {
-            FJELL_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
+            FTK_GFX_WARN("FrameGraph: '{}' rests in accesses that need different layouts",
                            std::string(name));
             img.resting = {};
         }
@@ -167,7 +167,7 @@ uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persisten
     }
     if (keep_names) { img.name = name; }
     if (layout_trace_enabled()) {
-        FJELL_GFX_INFO("[layout] register texture {} '{}' layers={}+{} mips={} start={}{}",
+        FTK_GFX_INFO("[layout] register texture {} '{}' layers={}+{} mips={} start={}{}",
                        view.texture.id, name, base_layer, layer_count, mip_count,
                        host_->state_name(img.slices.front().in, depth),
                        seeded ? " (remembered)" : "");
@@ -291,7 +291,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     // its own Images storage. C3 swaps in real VMA-backed allocations
     // and rewires pass reads through graph-provided views.
     if (!builder.created_buffers().empty()) {
-        FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' declares created "
+        FTK_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' declares created "
                        "buffers, which aren't handled yet (buffer tracking arrives "
                        "in Phase 4).",
                        name.c_str());
@@ -382,7 +382,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         if (buffer_id == UINT32_MAX) { continue; }
         const bool structure = buffers_[buffer_id].structure.valid();
         if (structure ? !gpu::applies_to_acceleration(acc.access) : !gpu::applies_to_buffer(acc.access)) {
-            FJELL_GFX_WARN("FrameGraph: pass '{}' declares {} on {}, which has no such access; "
+            FTK_GFX_WARN("FrameGraph: pass '{}' declares {} on {}, which has no such access; "
                            "the use is left out.", name.c_str(), gpu::access_name(acc.access),
                            structure ? "an acceleration structure" : "a buffer");
             continue;
@@ -397,12 +397,12 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
 
     for (const auto& acc : builder.texture_accesses()) {
         if (!gpu::applies_to_texture(acc.access)) {
-            FJELL_GFX_WARN("FrameGraph: pass '{}' declares {} on a texture, which has no such access; "
+            FTK_GFX_WARN("FrameGraph: pass '{}' declares {} on a texture, which has no such access; "
                            "the use is left out.", name.c_str(), gpu::access_name(acc.access));
             continue;
         }
         if (acc.handle.id >= handle_to_image_id.size()) {
-            FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' accesses "
+            FTK_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' accesses "
                            "texture handle {} which was not imported in this builder.",
                            name.c_str(), static_cast<unsigned>(acc.handle.id));
             continue;
@@ -462,12 +462,12 @@ std::vector<ResourceLifetime> FrameGraph::compute_lifetimes() const {
 }
 
 void FrameGraph::log_lifetimes() const {
-    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    const char* flag = std::getenv("FTK_LOG_LIFETIMES");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
 
     constexpr const char* use_names[] = {"sampled", "storage", "color_target", "depth_target"};
     const auto lifetimes = compute_lifetimes();
-    FJELL_GFX_INFO("FrameGraph lifetimes ({} images, {} passes):",
+    FTK_GFX_INFO("FrameGraph lifetimes ({} images, {} passes):",
                    static_cast<unsigned>(images_.size()),
                    static_cast<unsigned>(passes_.size()));
     for (size_t i = 0; i < lifetimes.size(); ++i) {
@@ -476,7 +476,7 @@ void FrameGraph::log_lifetimes() const {
             ? "virtual"
             : (images_[i].persistent ? "persistent" : "import");
         if (!lt.used()) {
-            FJELL_GFX_INFO("  img#{} [{}] unused",
+            FTK_GFX_INFO("  img#{} [{}] unused",
                            static_cast<unsigned>(i), kind);
             continue;
         }
@@ -485,7 +485,7 @@ void FrameGraph::log_lifetimes() const {
             if (!uses.empty()) { uses += '|'; }
             uses += use_names[static_cast<size_t>(use)];
         });
-        FJELL_GFX_INFO("  img#{} [{}] [{}..{}] ({} passes) uses={} first='{}' last='{}'",
+        FTK_GFX_INFO("  img#{} [{}] [{}..{}] ({} passes) uses={} first='{}' last='{}'",
                        static_cast<unsigned>(i), kind,
                        lt.first_pass, lt.last_pass,
                        lt.last_pass - lt.first_pass + 1,
@@ -563,7 +563,7 @@ void FrameGraph::compute_alias_groups(const std::vector<ResourceLifetime>& lifet
 }
 
 bool FrameGraph::validate_alias_groups(const std::vector<AliasGroup>& groups) const {
-    const char* flag = std::getenv("FJELL_VALIDATE_ALIASING");
+    const char* flag = std::getenv("FTK_VALIDATE_ALIASING");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return true; }
 
     const auto lifetimes = compute_lifetimes();
@@ -584,7 +584,7 @@ bool FrameGraph::validate_alias_groups(const std::vector<AliasGroup>& groups) co
             const auto& a = lifetimes[ordered[i]];
             const auto& b = lifetimes[ordered[i + 1]];
             if (a.last_pass >= b.first_pass) {
-                FJELL_GFX_ERROR(
+                FTK_GFX_ERROR(
                     "AliasGroup#{} overlap: img#{} '{}' [{}..{}] and img#{} '{}' [{}..{}]",
                     static_cast<unsigned>(g),
                     ordered[i], images_[ordered[i]].name.c_str(),
@@ -596,14 +596,14 @@ bool FrameGraph::validate_alias_groups(const std::vector<AliasGroup>& groups) co
         }
     }
     if (ok) {
-        FJELL_GFX_INFO("FrameGraph aliasing validation: {} groups OK",
+        FTK_GFX_INFO("FrameGraph aliasing validation: {} groups OK",
                        static_cast<unsigned>(groups.size()));
     }
     return ok;
 }
 
 void FrameGraph::log_alias_groups() const {
-    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    const char* flag = std::getenv("FTK_LOG_LIFETIMES");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
 
     const auto groups = compute_alias_groups();
@@ -612,18 +612,18 @@ void FrameGraph::log_alias_groups() const {
         if (img.virtual_resource && !img.persistent) { ++virtual_count; }
     }
     if (virtual_count == 0) {
-        FJELL_GFX_INFO("FrameGraph alias groups: no virtual resources yet");
+        FTK_GFX_INFO("FrameGraph alias groups: no virtual resources yet");
         return;
     }
     float ratio = groups.empty() ? 0.0f
         : 100.0f * (1.0f - static_cast<float>(groups.size()) / static_cast<float>(virtual_count));
-    FJELL_GFX_INFO("FrameGraph alias groups: {} logical -> {} physical ({:.1f}% reduction)",
+    FTK_GFX_INFO("FrameGraph alias groups: {} logical -> {} physical ({:.1f}% reduction)",
                    virtual_count,
                    static_cast<unsigned>(groups.size()),
                    ratio);
     for (size_t g = 0; g < groups.size(); ++g) {
         const auto& group = groups[g];
-        FJELL_GFX_INFO("  group#{} fmt={} size_class={} w={} h={} layers={} mips={}: {} resources",
+        FTK_GFX_INFO("  group#{} fmt={} size_class={} w={} h={} layers={} mips={}: {} resources",
                        static_cast<unsigned>(g),
                        static_cast<int>(group.desc.format),
                        static_cast<int>(group.desc.size_class),
@@ -634,7 +634,7 @@ void FrameGraph::log_alias_groups() const {
 }
 
 void FrameGraph::log_queue_segments() const {
-    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    const char* flag = std::getenv("FTK_LOG_LIFETIMES");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
     if (passes_.empty()) { return; }
 
@@ -650,7 +650,7 @@ void FrameGraph::log_queue_segments() const {
         if (pass.queue == prev_queue) {
             ++segment_size;
         } else {
-            FJELL_GFX_INFO("  segment#{} queue={} ({} pass{})",
+            FTK_GFX_INFO("  segment#{} queue={} ({} pass{})",
                            segment_index, queue_name(prev_queue),
                            segment_size, segment_size == 1 ? "" : "es");
             ++segment_index;
@@ -659,10 +659,10 @@ void FrameGraph::log_queue_segments() const {
         }
         if (pass.queue == QueueType::async_compute) { ++total_compute_passes; }
     }
-    FJELL_GFX_INFO("  segment#{} queue={} ({} pass{})",
+    FTK_GFX_INFO("  segment#{} queue={} ({} pass{})",
                    segment_index, queue_name(prev_queue),
                    segment_size, segment_size == 1 ? "" : "es");
-    FJELL_GFX_INFO("FrameGraph queue segments: {} total, {} async compute pass(es)",
+    FTK_GFX_INFO("FrameGraph queue segments: {} total, {} async compute pass(es)",
                    segment_index + 1, total_compute_passes);
 }
 
@@ -966,7 +966,7 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
         if (trace || tracing_) {
             const std::string left = host_->state_name(fs.left_as, img.depth);
             if (trace) {
-                FJELL_GFX_INFO("[layout] leaves pass='{}' '{}' -> {}", pass.name, img.name, left);
+                FTK_GFX_INFO("[layout] leaves pass='{}' '{}' -> {}", pass.name, img.name, left);
             }
             if (tracing_) {
                 barrier_trace()->file << std::format("    leaves {} -> {}\n", img.name, left);
@@ -1025,7 +1025,7 @@ bool FrameGraph::execute(gpu::CommandList* graphics_pre,
                           gpu::CommandList* graphics_post,
                           gpu::CommandList* async_compute,
                           ThreadPool* pool, gpu::Frame* frame) {
-    FJELL_PROFILE_SCOPE_N("frame_graph_execute");
+    FTK_PROFILE_SCOPE_N("frame_graph_execute");
     // Parallel lists come from the frame of a real device.
     bool can_parallelize = pool && frame && device_host_for_ != nullptr && pool->thread_count() > 0;
     bool recorded_async = false;
@@ -1060,15 +1060,15 @@ bool FrameGraph::execute(gpu::CommandList* graphics_pre,
 
         if (pass.parallel_group == 0 || !can_parallelize) {
             {
-                FJELL_PROFILE_SCOPE_N("fg_emit_barriers");
+                FTK_PROFILE_SCOPE_N("fg_emit_barriers");
                 emit_barriers_for_pass(cb, pass);
             }
             {
-                FJELL_PROFILE_SCOPE_N("fg_pass_execute");
+                FTK_PROFILE_SCOPE_N("fg_pass_execute");
                 pass.execute(cb);
             }
             {
-                FJELL_PROFILE_SCOPE_N("fg_final_layouts");
+                FTK_PROFILE_SCOPE_N("fg_final_layouts");
                 apply_final_states(pass);
                 return_to_rest(cb, pass);
             }
@@ -1116,4 +1116,4 @@ bool FrameGraph::execute(gpu::CommandList* graphics_pre,
     return recorded_async;
 }
 
-} // namespace fjell
+} // namespace ftk

@@ -10,7 +10,7 @@
 #include <memory>
 #include <span>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 class RenderEncoder;
@@ -73,4 +73,4 @@ private:
     std::shared_ptr<State> state_;
 };
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

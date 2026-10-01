@@ -19,7 +19,7 @@
 //
 // Picking something is its own commit.
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// One value of an enum and the name it is shown under.
 template <typename E>
@@ -99,4 +99,4 @@ Edit choice(const char* id, E& value, const Choice<E> (&choices)[N]) {
     return choice(id, value, std::span<const Choice<E>>(choices));
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

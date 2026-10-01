@@ -9,7 +9,7 @@
 //         // fields on one line, SameLine between them
 //     }
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 class RaisedStrip {
 public:
@@ -28,4 +28,4 @@ private:
     float width_{0.0f};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

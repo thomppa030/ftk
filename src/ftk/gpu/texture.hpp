@@ -10,7 +10,7 @@
 #include <optional>
 #include <string_view>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 class Device;
 struct TextureTag;
@@ -200,4 +200,4 @@ struct ResolvedView {
     return out;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -9,7 +9,7 @@
 // on how to stop; the chevron opens a list to pick from, for what can't be
 // pressed here (an axis, a pad that isn't plugged in).
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 struct KeyCapSpec {
     const char* id{""};
@@ -33,4 +33,4 @@ struct KeyCapResult {
 
 KeyCapResult key_cap(const KeyCapSpec& spec);
 
-} // namespace fjell::ui
+} // namespace ftk::ui

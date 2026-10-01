@@ -5,7 +5,7 @@
 #include <numeric>
 #include <span>
 
-using fjell::SmallVector;
+using ftk::SmallVector;
 
 namespace {
 
@@ -15,14 +15,14 @@ struct Pair {
 };
 
 template <size_t N>
-SmallVector<Pair, N> counted(int count) {
-    SmallVector<Pair, N> values;
+ftk::SmallVector<Pair, N> counted(int count) {
+    ftk::SmallVector<Pair, N> values;
     for (int i = 0; i < count; ++i) values.push_back({i, i * 10});
     return values;
 }
 
 template <size_t N>
-bool holds_count(const SmallVector<Pair, N>& values, int count) {
+bool holds_count(const ftk::SmallVector<Pair, N>& values, int count) {
     if (values.size() != static_cast<size_t>(count)) return false;
     for (int i = 0; i < count; ++i) {
         if (values[i].a != i || values[i].b != i * 10) return false;
@@ -50,16 +50,16 @@ TEST_CASE("A small vector copies and moves inline and spilled", "[core][small_ve
         INFO("count " << count);
         const auto original = counted<4>(count);
 
-        SmallVector<Pair, 4> copy(original);
+        ftk::SmallVector<Pair, 4> copy(original);
         CHECK(holds_count(copy, count));
-        SmallVector<Pair, 4> assigned = counted<4>(2);
+        ftk::SmallVector<Pair, 4> assigned = counted<4>(2);
         assigned = original;
         CHECK(holds_count(assigned, count));
 
-        SmallVector<Pair, 4> moved(std::move(copy));
+        ftk::SmallVector<Pair, 4> moved(std::move(copy));
         CHECK(holds_count(moved, count));
         CHECK(copy.empty());
-        SmallVector<Pair, 4> move_assigned = counted<4>(7);
+        ftk::SmallVector<Pair, 4> move_assigned = counted<4>(7);
         move_assigned = std::move(moved);
         CHECK(holds_count(move_assigned, count));
         CHECK(holds_count(original, count));
@@ -78,7 +78,7 @@ TEST_CASE("A cleared small vector starts inline again", "[core][small_vector]") 
 }
 
 TEST_CASE("A small vector reads as a span and from a list", "[core][small_vector]") {
-    const SmallVector<int, 3> values{1, 2, 3, 4};
+    const ftk::SmallVector<int, 3> values{1, 2, 3, 4};
     const std::span<const int> view = values;
     CHECK(view.size() == 4);
     CHECK(std::accumulate(view.begin(), view.end(), 0) == 10);

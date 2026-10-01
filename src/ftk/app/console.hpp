@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 struct LogEntry {
     std::string message;
@@ -47,4 +47,4 @@ void attach_console();
 /// log. Null until attach_console().
 [[nodiscard]] ConsoleSink* console_sink();
 
-} // namespace fjell
+} // namespace ftk

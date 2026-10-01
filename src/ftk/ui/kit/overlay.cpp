@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 constexpr float PLATE_ALPHA = 0.85f;
@@ -83,4 +83,4 @@ ImVec2 corner_note(ImDrawList* draw_list, ImVec2 at, Corner corner, const Corner
     return size;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

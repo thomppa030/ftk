@@ -2,7 +2,7 @@
 
 #include <cctype>
 
-namespace fjell {
+namespace ftk {
 
 namespace {
 
@@ -58,4 +58,4 @@ ShaderDiagnostic first_shader_error(std::string_view output) {
     return result;
 }
 
-} // namespace fjell
+} // namespace ftk

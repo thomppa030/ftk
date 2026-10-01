@@ -13,7 +13,7 @@
 // batch into its own synchronisation (one pipeline barrier on Vulkan) and
 // answers the two questions the graph asks while it works them out.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 /// One texture range, buffer or acceleration structure moved from what was
 /// done to it to what comes next.
@@ -58,4 +58,4 @@ struct Transition {
 /// `texture_already_visible` for a buffer.
 [[nodiscard]] bool buffer_already_visible(AccessSet made_visible, AccessSet wanted, Queue queue);
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <string>
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -59,4 +59,4 @@ std::vector<Buffer> TransientMemory::chunks() const {
     return all;
 }
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

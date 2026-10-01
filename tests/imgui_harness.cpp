@@ -4,7 +4,7 @@
 
 #include <stdexcept>
 
-namespace fjell::test {
+namespace ftk::test {
 
 ImGuiHarness::ImGuiHarness() {
     context_ = ImGui::CreateContext();
@@ -23,7 +23,7 @@ ImGuiHarness::ImGuiHarness() {
 }
 
 ImGuiHarness::~ImGuiHarness() {
-    fjell::theme::forget_fonts(context_);
+    ftk::theme::forget_fonts(context_);
     ImGui::DestroyContext(context_);
 }
 
@@ -107,4 +107,4 @@ void ImGuiHarness::press(ImGuiKey key) {
     step();
 }
 
-} // namespace fjell::test
+} // namespace ftk::test

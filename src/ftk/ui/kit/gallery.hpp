@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 /// A window showing every piece of the kit and every theme token, to hold
 /// the editor's real look against the approved design. Opened from View.
@@ -92,4 +92,4 @@ private:
     uint64_t next_link_{10};
 };
 
-} // namespace fjell::ui
+} // namespace ftk::ui

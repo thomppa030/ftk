@@ -12,7 +12,7 @@
 // recording, their scratch from the device's per-frame arena, and the
 // instance records a top level is built from.
 
-namespace fjell::gpu {
+namespace ftk::gpu {
 
 namespace {
 
@@ -419,4 +419,4 @@ VkAccelerationStructureKHR native_acceleration(Device& device, AccelerationStruc
 
 } // namespace vulkan
 
-} // namespace fjell::gpu
+} // namespace ftk::gpu

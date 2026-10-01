@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-namespace fjell::ui::grouped_picker {
+namespace ftk::ui::grouped_picker {
 namespace {
 
 constexpr float PREVIEW_SIZE = 32.0F;
@@ -238,4 +238,4 @@ bool draw(const char* widget_id, std::span<const Group> groups,
     return chose;
 }
 
-} // namespace fjell::ui::grouped_picker
+} // namespace ftk::ui::grouped_picker

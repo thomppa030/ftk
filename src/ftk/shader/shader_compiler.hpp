@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace fjell {
+namespace ftk {
 
 /// Compiles GLSL to SPIR-V with glslc into `generated_dir`. Compiled SPIR-V
 /// is kept in `generated_dir/.fjcache`, keyed by everything that produced it,
@@ -73,4 +73,4 @@ private:
     uint64_t include_hash_{0};
 };
 
-} // namespace fjell
+} // namespace ftk

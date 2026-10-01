@@ -1,6 +1,6 @@
 #include "ftk/app/command_history.hpp"
 
-namespace fjell {
+namespace ftk {
 
 void CommandHistory::execute(CommandPtr cmd) {
     // Truncate any undone commands
@@ -45,4 +45,4 @@ void CommandHistory::jump_to(int index) {
     }
 }
 
-} // namespace fjell
+} // namespace ftk

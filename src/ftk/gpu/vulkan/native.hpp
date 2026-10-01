@@ -11,7 +11,7 @@
 // code and for its tests and benchmarks (tests/*_vulkan_*.cpp). Nothing
 // outside the backend reaches them: cmake/GpuBackendCheck.cmake sees to it.
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 /// The VkBuffer behind a buffer; null when the handle finds none.
 [[nodiscard]] VkBuffer native_buffer(Device& device, Buffer buffer);
@@ -81,4 +81,4 @@ private:
     CommandList list_;
 };
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan

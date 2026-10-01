@@ -13,7 +13,7 @@
 #include <cstdio>
 #include <string>
 
-namespace fjell::ui {
+namespace ftk::ui {
 
 namespace {
 
@@ -315,7 +315,7 @@ Edit on_off(const char* id, bool& on, const char* tooltip) {
     dl->AddCircleFilled({knob_x + knob * 0.5f, p.y + H * 0.5f}, knob * 0.5f,
                         ImGui::GetColorU32(on ? theme::text() : theme::text_secondary()));
     const Edit edit{clicked, clicked};
-    fjell::ui::track(before ? "On" : "Off", on ? "On" : "Off", edit);
+    ftk::ui::track(before ? "On" : "Off", on ? "On" : "Off", edit);
     return edit;
 }
 
@@ -363,4 +363,4 @@ Edit checkbox(const char* id, bool& value) {
     return edit;
 }
 
-} // namespace fjell::ui
+} // namespace ftk::ui

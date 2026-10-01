@@ -21,7 +21,7 @@
 #include <cstring>
 #include <filesystem>
 
-namespace fjell {
+namespace ftk {
 
 namespace fs = std::filesystem;
 
@@ -79,7 +79,7 @@ std::string FileBrowser::format_time(fs::file_time_type time) {
 void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
                        const std::vector<std::string>& extensions) {
     if (!device_) {
-        FJELL_CORE_ERROR("FileBrowser::open() called without set_device()");
+        FTK_CORE_ERROR("FileBrowser::open() called without set_device()");
         return;
     }
     if (is_open()) close();
@@ -536,4 +536,4 @@ bool FileBrowser::draw_bottom_bar() {
     return answer == ui::DialogAnswer::Cancel;
 }
 
-} // namespace fjell
+} // namespace ftk

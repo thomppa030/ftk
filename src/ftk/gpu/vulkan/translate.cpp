@@ -1,6 +1,6 @@
 #include "ftk/gpu/vulkan/translate.hpp"
 
-namespace fjell::gpu::vulkan {
+namespace ftk::gpu::vulkan {
 
 // The switches below have no default on purpose: a value added to the
 // interface without a Vulkan mapping fails the build (-Wswitch) instead of
@@ -375,4 +375,4 @@ VkImageLayout sampled_layout(Format format) {
     return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
-} // namespace fjell::gpu::vulkan
+} // namespace ftk::gpu::vulkan
