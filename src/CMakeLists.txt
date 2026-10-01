@@ -410,6 +410,9 @@ set_target_properties(fjell PROPERTIES ENABLE_EXPORTS TRUE)
 target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
 
 ftk_target_defaults(fjell)
+# The ImGui layer's files, the theme's fonts and its sRGB fragment stage,
+# staged beside the binary in ftk/ the way any program on ftk keeps them.
+ftk_stage_editor_data(fjell)
 if(MSVC)
     # Suppress warnings in third-party ImGuizmo source
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
@@ -512,8 +515,9 @@ add_executable(fjell-hub
 target_include_directories(fjell-hub PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-# The hub draws its ImGui through the same sRGB-decoding fragment stage.
-add_dependencies(fjell-hub fjell_shaders)
+# The hub sits beside the engine and draws its ImGui from the same staged
+# files.
+add_dependencies(fjell-hub fjell-editor-data)
 
 target_link_libraries(fjell-hub PRIVATE
     ftk::app
@@ -563,3 +567,4 @@ install(CODE "
 ")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell" DESTINATION sdk)
+install(DIRECTORY "$<TARGET_FILE_DIR:fjell>/ftk/" DESTINATION ftk)
