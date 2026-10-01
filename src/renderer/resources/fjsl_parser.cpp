@@ -1410,6 +1410,189 @@ void enable_line_directives(std::string& glsl) {
     glsl.insert(eol + 1, "#extension GL_GOOGLE_cpp_style_line_directive : require\n");
 }
 
+// A function a shader file defines at file scope: the stretch of its globals
+// it covers, comment and signature included, and its name.
+struct GlobalFunction {
+    size_t begin{0};
+    size_t end{0};
+    std::string name;
+};
+
+// How long the comment starting at `at` is, or 0 when none starts there.
+size_t comment_length(std::string_view text, size_t at) {
+    if (at + 1 >= text.size() || text[at] != '/') return 0;
+    if (text[at + 1] == '/') {
+        const size_t end = text.find('\n', at);
+        return (end == std::string_view::npos ? text.size() : end) - at;
+    }
+    if (text[at + 1] == '*') {
+        const size_t end = text.find("*/", at + 2);
+        return (end == std::string_view::npos ? text.size() : end + 2) - at;
+    }
+    return 0;
+}
+
+// The functions `globals` defines, in order. Each covers what leads up to it
+// since the declaration before, so a function's comment goes with it. A
+// definition is told from a struct or an initializer list by what its opening
+// brace follows: the `)` closing its parameters.
+std::vector<GlobalFunction> global_functions(std::string_view text) {
+    std::vector<GlobalFunction> out;
+    size_t item_start = 0;
+    int parens = 0;
+    std::string name;  // the identifier before the item's first '('
+    char last = 0;     // the last character that is not space or comment
+    bool line_start = true;
+    size_t i = 0;
+    while (i < text.size()) {
+        if (const size_t c = comment_length(text, i)) {
+            i += c;
+            continue;
+        }
+        const char ch = text[i];
+        if (ch == '\n') {
+            line_start = true;
+            ++i;
+            continue;
+        }
+        if (std::isspace(static_cast<unsigned char>(ch))) {
+            ++i;
+            continue;
+        }
+        if (line_start && ch == '#') {
+            // A preprocessor line, carried on by a trailing backslash, is a
+            // declaration of its own.
+            size_t end = text.find('\n', i);
+            while (end != std::string_view::npos && end > 0 && text[end - 1] == '\\') {
+                end = text.find('\n', end + 1);
+            }
+            i = end == std::string_view::npos ? text.size() : end;
+            item_start = i;
+            name.clear();
+            last = 0;
+            continue;
+        }
+        line_start = false;
+        if (ch == '(') {
+            if (parens == 0 && name.empty()) {
+                size_t e = i;
+                while (e > item_start && std::isspace(static_cast<unsigned char>(text[e - 1]))) --e;
+                size_t b = e;
+                while (b > item_start && is_identifier_char(text[b - 1])) --b;
+                name = std::string(text.substr(b, e - b));
+            }
+            ++parens;
+        } else if (ch == ')') {
+            if (parens > 0) --parens;
+        } else if (ch == '{' && parens == 0) {
+            int depth = 1;
+            size_t j = i + 1;
+            while (j < text.size() && depth > 0) {
+                if (const size_t c = comment_length(text, j)) {
+                    j += c;
+                    continue;
+                }
+                if (text[j] == '{') ++depth;
+                else if (text[j] == '}') --depth;
+                ++j;
+            }
+            if (last == ')' && !name.empty()) {
+                out.push_back({item_start, j, name});
+                item_start = j;
+                name.clear();
+                last = 0;
+            } else {
+                // A struct or an initializer list: the declaration ends at its ';'.
+                last = '}';
+            }
+            i = j;
+            continue;
+        } else if (ch == ';' && parens == 0) {
+            item_start = i + 1;
+            name.clear();
+            last = 0;
+            ++i;
+            continue;
+        }
+        last = ch;
+        ++i;
+    }
+    return out;
+}
+
+// `globals` keeping only the functions one stage reaches: those its hooks
+// call, and those they call in turn. Everything that is not a function stays,
+// constants, structs, #defines and prototypes, and what it calls is reached
+// too, a macro wrapping a helper included.
+//
+// glslang type-checks every function it is given, called or not, so a helper
+// reading a fragment built-in fails a vertex stage that never calls it, and a
+// helper moving VERTEX fails the fragment stage. Godot's shading language
+// treats a function's stage the same way.
+std::string globals_reached_from(const std::string& globals,
+                                 const std::vector<std::string_view>& roots) {
+    const auto functions = global_functions(globals);
+    if (functions.empty()) return globals;
+
+    std::map<std::string, std::vector<size_t>, std::less<>> by_name;
+    for (size_t f = 0; f < functions.size(); ++f) by_name[functions[f].name].push_back(f);
+
+    std::vector<bool> reached(functions.size(), false);
+    std::vector<size_t> work;
+    // Every whole word in `text` followed by '(' that names a function.
+    auto visit = [&](std::string_view text) {
+        size_t at = 0;
+        while (at < text.size()) {
+            if (const size_t c = comment_length(text, at)) {
+                at += c;
+                continue;
+            }
+            if (!is_identifier_char(text[at])) {
+                ++at;
+                continue;
+            }
+            const size_t start = at;
+            while (at < text.size() && is_identifier_char(text[at])) ++at;
+            size_t after = at;
+            while (after < text.size() && std::isspace(static_cast<unsigned char>(text[after]))) ++after;
+            if (after >= text.size() || text[after] != '(') continue;
+            const auto found = by_name.find(text.substr(start, at - start));
+            if (found == by_name.end()) continue;
+            for (size_t f : found->second) {
+                if (!reached[f]) {
+                    reached[f] = true;
+                    work.push_back(f);
+                }
+            }
+        }
+    };
+
+    for (std::string_view root : roots) visit(root);
+    const std::string_view all = globals;
+    size_t outside = 0;
+    for (const auto& f : functions) {
+        visit(all.substr(outside, f.begin - outside));
+        outside = f.end;
+    }
+    visit(all.substr(outside));
+    while (!work.empty()) {
+        const size_t f = work.back();
+        work.pop_back();
+        visit(all.substr(functions[f].begin, functions[f].end - functions[f].begin));
+    }
+
+    std::string out;
+    out.reserve(globals.size());
+    size_t copied = 0;
+    for (size_t f = 0; f < functions.size(); ++f) {
+        if (reached[f]) continue;
+        out.append(globals, copied, functions[f].begin - copied);
+        copied = functions[f].end;
+    }
+    out.append(globals, copied, std::string::npos);
+    return out;
+}
+
 } // namespace
 
 namespace {
@@ -1781,7 +1964,15 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         globals = emit_composition(*composition, access, meta.custom_param_count,
                                    meta.custom_texture_count);
     }
-    globals += meta.user_globals;
+    // The file's own helpers that this stage's hooks reach, and whatever the
+    // `use` arguments call, which run in the body too. A helper written for
+    // vertex() stays out of this stage.
+    std::vector<std::string_view> roots{meta.fragment_body.code, meta.light_body.code,
+                                        meta.layers_body.code};
+    for (const auto& use : meta.uses) {
+        for (const auto& argument : use.arguments) roots.push_back(argument.second);
+    }
+    globals += globals_reached_from(meta.user_globals, roots);
     // A sampler uniform is a texture of the bindless table, which travels as
     // a handle (fjell_bindless.glsl): GLSL never passes a texture and sampler
     // combined. A function the author writes taking a sampler2D takes the
@@ -1886,17 +2077,22 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
                                     const std::string& template_source) {
     std::string result = template_source;
 
-    // Generate custom param reads (same SSBO layout as fragment)
-    std::string param_reads;
+    // The parameters as file-scope #defines, as on the fragment side, so a
+    // helper reads them by name just as vertex() does. The vertex stage has no
+    // texture access, so samplers are left out. `mat` is the template's, set
+    // before the hook runs.
+    std::string globals;
     const FjslUniformAccess access{
         .param = [](uint32_t index) { return "custom_params[mat.param_offset + " + std::to_string(index) + "]"; },
         .texture = {},
     };
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
-        param_reads += "    " + std::string(glsl_type_name(u.type)) + " " + u.name + " = "
-                     + uniform_read(u, access, u.slot) + ";\n";
+        globals += "#define " + u.name + " (" + uniform_read(u, access, u.slot) + ")\n";
     }
+    // The file's own helpers that vertex() reaches; one written for
+    // fragment() stays out, since it may read what this stage lacks.
+    globals += globals_reached_from(meta.user_globals, {meta.vertex_body.code});
 
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {
         auto pos = result.find(placeholder);
@@ -1905,7 +2101,7 @@ std::string generate_vertex_shader(const ShaderMetadata& meta,
         }
     };
 
-    replace("/*FJSL_VERTEX_CUSTOM_PARAMS*/", param_reads);
+    replace("/*FJSL_VERTEX_GLOBALS*/", globals);
 
     // The same body is substituted into all six vertex/mesh templates, so a
     // #line here means one authored line maps to the right place in every one

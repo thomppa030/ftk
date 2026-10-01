@@ -432,8 +432,8 @@ TEST_CASE("An int is read rounded, wherever its uniform is read", "[fjsl]") {
     REQUIRE(frag.find("#define mode (int(round(custom_params[materials[draws[frag_draw_index]"
                       ".material_id].param_offset + 2])))") != std::string::npos);
     REQUIRE(frag.find("#define offset (vec2(custom_params[") != std::string::npos);
-    auto vert = generate_vertex_shader(meta, "/*FJSL_VERTEX_CUSTOM_PARAMS*/\n/*FJSL_VERTEX_USER_CODE*/\n");
-    REQUIRE(vert.find("int mode = int(round(custom_params[mat.param_offset + 2]));")
+    auto vert = generate_vertex_shader(meta, "/*FJSL_VERTEX_GLOBALS*/\n/*FJSL_VERTEX_USER_CODE*/\n");
+    REQUIRE(vert.find("#define mode (int(round(custom_params[mat.param_offset + 2])))")
             != std::string::npos);
 }
 
@@ -805,16 +805,81 @@ TEST_CASE("generate_vertex_shader substitutes placeholders", "[fjsl]") {
     )");
 
     std::string tmpl = R"(
-void main() {
-/*FJSL_VERTEX_CUSTOM_PARAMS*/
+/*FJSL_VERTEX_GLOBALS*/
+void fjell_hook_vertex() {
 /*FJSL_VERTEX_USER_CODE*/
 }
 )";
 
     auto result = generate_vertex_shader(meta, tmpl);
-    REQUIRE(result.find("wave_height") != std::string::npos);
+    // A parameter is read by name at file scope, as on the fragment side.
+    REQUIRE(result.find("#define wave_height (custom_params[mat.param_offset + 0])") != std::string::npos);
     REQUIRE(result.find("VERTEX.y") != std::string::npos);
-    REQUIRE(result.find("/*FJSL_VERTEX_CUSTOM_PARAMS*/") == std::string::npos);
+    REQUIRE(result.find("/*FJSL_VERTEX_GLOBALS*/") == std::string::npos);
+    REQUIRE(result.find("/*FJSL_VERTEX_USER_CODE*/") == std::string::npos);
+}
+
+// A file's helpers go to the stages whose hooks reach them. glslang checks
+// every function it is given, so a helper that reads a fragment built-in
+// would fail a vertex stage that never calls it.
+TEST_CASE("Each stage gets the helpers its hooks reach", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float amount = 1.0;
+        const float LIFT = 0.25;
+        struct Wave { float height; };
+        #define SCALE 2.0
+
+        // Moves a vertex; the vertex hook calls it.
+        float sway(float x) { return wiggle(x) * amount; }
+        float wiggle(float x) { return sin(x * SCALE) * LIFT; }
+
+        // Reads a fragment built-in; the fragment hook calls it.
+        vec3 screen_tint() { return vec3(SCREEN_UV, 0.0); }
+
+        // Called by nothing.
+        float unused_helper(float x) { return VERTEX.x + x; }
+
+        void vertex() {
+            VERTEX.y += sway(VERTEX.x);
+        }
+        void fragment() {
+            ALBEDO *= screen_tint();
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+
+    const std::string vert = generate_vertex_shader(meta, "/*FJSL_VERTEX_GLOBALS*/\n/*FJSL_VERTEX_USER_CODE*/\n");
+    CHECK(vert.find("float sway(") != std::string::npos);
+    CHECK(vert.find("float wiggle(") != std::string::npos);  // reached through sway()
+    CHECK(vert.find("const float LIFT") != std::string::npos);
+    CHECK(vert.find("struct Wave") != std::string::npos);
+    CHECK(vert.find("#define SCALE") != std::string::npos);
+    CHECK(vert.find("screen_tint") == std::string::npos);
+    CHECK(vert.find("unused_helper") == std::string::npos);
+    // A helper's comment leaves with it.
+    CHECK(vert.find("Reads a fragment built-in") == std::string::npos);
+
+    const std::string frag = generate_fragment_shader(
+        meta, "/*FJSL_CUSTOM_TEXTURES*/\n/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
+    CHECK(frag.find("vec3 screen_tint(") != std::string::npos);
+    CHECK(frag.find("const float LIFT") != std::string::npos);
+    CHECK(frag.find("float sway(") == std::string::npos);
+    CHECK(frag.find("unused_helper") == std::string::npos);
+}
+
+TEST_CASE("A macro or a constant calling a helper keeps it", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        float ramp(float x) { return clamp(x, 0.0, 1.0); }
+        #define RAMP(x) ramp(x)
+        void fragment() {
+            ROUGHNESS = RAMP(0.5);
+        }
+    )");
+    REQUIRE_FALSE(meta.has_errors());
+    const std::string frag = generate_fragment_shader(meta, "/*FJSL_USER_GLOBALS*/\n/*FJSL_USER_CODE*/\n");
+    CHECK(frag.find("float ramp(") != std::string::npos);
 }
 
 TEST_CASE("generate_fragment_shader with sampler2D defines texture macro", "[fjsl]") {
@@ -1120,6 +1185,66 @@ TEST_CASE("Every vertex() template accepts the same built-ins", "[fjsl][glslc]")
             REQUIRE(status == 0);
         }
     }
+}
+
+// A file's helpers reach vertex() in every vertex and mesh template, reading
+// the parameters by name, while a helper only fragment() calls, reading a
+// fragment built-in, stays out of them; and the other way round for the
+// fragment template.
+TEST_CASE("Helpers reach vertex() in every vertex template, and stay in their stage", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+
+    const std::pair<const char*, const char*> templates[] = {
+        {"fjell_mesh_template.glsl", "mesh"},
+        {"fjell_vertex_template.glsl", "vert"},
+        {"fjell_depth_mesh_template.glsl", "mesh"},
+        {"fjell_depth_vertex_template.glsl", "vert"},
+        {"fjell_shadow_vertex_template.glsl", "vert"},
+        {"fjell_outline_vertex_template.glsl", "vert"},
+    };
+    auto meta = parse_fjsl("shader_type spatial;\n"
+                           "uniform float strength : hint_range(0.0, 1.0) = 0.3;\n"
+                           "uniform vec3 tint : hint_color = vec3(1.0);\n"
+                           "const float PHASE = 1.7;\n"
+                           "vec3 sway(vec3 p, float t) {\n"
+                           "    return vec3(sin(p.x + t * PHASE), 0.0, cos(p.z + t)) * strength;\n"
+                           "}\n"
+                           "vec3 screen_tint() { return tint * vec3(SCREEN_UV, 1.0); }\n"
+                           "void vertex() {\n    VERTEX += sway(WORLD_VERTEX, TIME) * UV.y;\n}\n"
+                           "void fragment() {\n    ALBEDO *= screen_tint();\n}\n");
+    REQUIRE_FALSE(meta.has_errors());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-vertex-helpers-test";
+    std::filesystem::create_directories(out_dir);
+    auto compile = [&](const std::string& name, const std::string& stage, const std::string& glsl) {
+        auto src = out_dir / name;
+        std::ofstream(src) << glsl;
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -fshader-stage=" + stage + " -I "
+                                    + quoted(shader_dir / "include") + " " + quoted(src) + " -o "
+                                    + quoted(out_dir / (name + ".spv")));
+        INFO(output);
+        REQUIRE(status == 0);
+    };
+
+    for (const auto& [file, stage] : templates) {
+        INFO("template: " << file);
+        auto tmpl = read_text(shader_dir / "include" / file);
+        REQUIRE_FALSE(tmpl.empty());
+        const std::string glsl = generate_vertex_shader(meta, tmpl);
+        CHECK(glsl.find("vec3 sway(") != std::string::npos);
+        CHECK(glsl.find("screen_tint") == std::string::npos);
+        compile(file, stage, glsl);
+    }
+
+    auto frag_tmpl = read_text(shader_dir / "include" / "fjell_spatial_template.glsl");
+    REQUIRE_FALSE(frag_tmpl.empty());
+    const std::string frag = generate_fragment_shader(meta, frag_tmpl);
+    CHECK(frag.find("vec3 screen_tint(") != std::string::npos);
+    CHECK(frag.find("vec3 sway(") == std::string::npos);
+    compile("helpers.frag", "frag", frag);
 }
 
 // --- A `return` in a hook ends the hook, not the shader ---

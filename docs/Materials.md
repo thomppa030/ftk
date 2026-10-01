@@ -33,6 +33,20 @@ void fragment() {
 }
 ```
 
+Functions and constants written at file scope work in every hook, and read the uniforms by name as the hooks do. Each stage gets the helpers its own hooks call, and what those call in turn, so a helper reading a fragment built-in such as `SCREEN_UV` is fine in a shader that also has a `vertex()`, as long as `vertex()` doesn't call it.
+
+```glsl
+uniform float sway_strength : hint_range(0.0, 1.0, 0.01) = 0.3;
+
+vec3 sway(vec3 p, float t) {
+    return vec3(sin(p.x + t), 0.0, cos(p.z + t)) * sway_strength;
+}
+
+void vertex() {
+    VERTEX += sway(WORLD_VERTEX, TIME) * UV.y;
+}
+```
+
 ### Built-in Outputs
 
 All have PBR defaults. Just write the ones you want to change.
