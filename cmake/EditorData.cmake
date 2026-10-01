@@ -10,8 +10,6 @@
 #
 #     ImGuiLayerFiles{.fonts = exe_dir / "ftk" / "fonts",
 #                     .srgb_fragment = exe_dir / "ftk" / "imgui.frag.spv"}
-#
-# Fjell's own editor and hub read them from the engine's layout instead.
 
 function(ftk_stage_editor_data target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "DESTINATION" "")
@@ -24,23 +22,23 @@ function(ftk_stage_editor_data target)
     endif()
 
     ftk_find_glslc()
-    get_filename_component(fjell_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+    get_filename_component(ftk_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
     set(staging "${CMAKE_CURRENT_BINARY_DIR}/${target}_editor_data")
 
-    set(fragment "${fjell_root}/shaders/imgui.frag")
+    set(fragment "${ftk_root}/shaders/imgui.frag")
     set(spirv "${staging}/imgui.frag.spv")
-    file(GLOB includes CONFIGURE_DEPENDS "${fjell_root}/shaders/include/*.glsl")
+    file(GLOB includes CONFIGURE_DEPENDS "${ftk_root}/shaders/include/*.glsl")
     add_custom_command(
         OUTPUT "${spirv}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${staging}"
-        COMMAND "${GLSLC}" --target-env=vulkan1.3 -I "${fjell_root}/shaders/include"
+        COMMAND "${GLSLC}" --target-env=vulkan1.3 -I "${ftk_root}/shaders/include"
                 "${fragment}" -o "${spirv}"
         DEPENDS "${fragment}" ${includes}
         COMMENT "Compiling ${target}'s editor shader: imgui.frag"
         VERBATIM)
     set(staged "${spirv}")
 
-    file(GLOB fonts CONFIGURE_DEPENDS "${fjell_root}/engine_assets/fonts/*.ttf")
+    file(GLOB fonts CONFIGURE_DEPENDS "${ftk_root}/fonts/*.ttf")
     foreach(font IN LISTS fonts)
         get_filename_component(name "${font}" NAME)
         add_custom_command(

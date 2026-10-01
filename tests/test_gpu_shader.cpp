@@ -14,7 +14,7 @@ namespace {
 
 // The test shaders in tests/shaders/, compiled by the build.
 std::string shader_path(const std::string& name) {
-    return (std::filesystem::path(FJELL_TEST_SHADER_DIR) / (name + ".spv")).string();
+    return (std::filesystem::path(FTK_TEST_SHADER_DIR) / (name + ".spv")).string();
 }
 
 std::vector<uint32_t> spirv(const std::string& name) {

@@ -71,7 +71,7 @@ int main() {
         // Pipelines from the test shaders the build compiled: compute, vertex
         // and mesh, one rebuilt in place, and one refused.
         device.set_shader_locator([](const std::string& relative) {
-            return std::string(FJELL_TEST_SHADER_DIR "/") + relative;
+            return std::string(FTK_TEST_SHADER_DIR "/") + relative;
         });
         auto compute = device.create(ftk::gpu::ComputePipelineDesc{.shader = "pipeline.comp"});
         auto graphics = device.create(ftk::gpu::GraphicsPipelineDesc{

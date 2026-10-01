@@ -21,13 +21,17 @@ function(ftk_find_glslc)
     endif()
 endfunction()
 
-# GLSL the GPU backend owns: what shaders write in a layout the backend
-# defines, such as the instance records a top-level acceleration structure is
-# built from. Every shader may include it.
-set(FTK_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/ftk/gpu/vulkan/glsl")
-
-function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
+# Compiles every shader under SHADER_DIR into OUTPUT_DIR as <name>.spv, before
+# TARGET builds and again whenever a shader or an include changes. Shaders
+# include from SHADER_DIR/include and from ftk's own: its shader includes
+# (shaders/include, the colour space) and the GLSL the GPU backend owns, what
+# shaders write in a layout the backend defines, such as the instance records
+# a top-level acceleration structure is built from.
+function(ftk_compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     ftk_find_glslc()
+    get_filename_component(ftk_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+    set(FTK_SHADER_INCLUDE_DIR "${ftk_root}/shaders/include")
+    set(FTK_BACKEND_GLSL_DIR "${ftk_root}/src/ftk/gpu/vulkan/glsl")
     file(GLOB_RECURSE SHADERS
         "${SHADER_DIR}/*.vert"
         "${SHADER_DIR}/*.frag"
@@ -40,7 +44,8 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     )
 
     # Collect include files so shaders recompile when includes change
-    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl" "${FTK_BACKEND_GLSL_DIR}/*.glsl")
+    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl" "${FTK_SHADER_INCLUDE_DIR}/*.glsl"
+                                      "${FTK_BACKEND_GLSL_DIR}/*.glsl")
 
     foreach(SHADER ${SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
@@ -51,6 +56,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
             COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
             COMMAND ${GLSLC} --target-env=vulkan1.3
                     -I ${SHADER_DIR}/include
+                    -I ${FTK_SHADER_INCLUDE_DIR}
                     -I ${FTK_BACKEND_GLSL_DIR}
                     ${SHADER} -o ${SPIRV_OUTPUT}
             DEPENDS ${SHADER} ${SHADER_INCLUDES}

@@ -14,7 +14,7 @@ namespace {
 
 // The test shaders in tests/shaders/, compiled by the build.
 ShaderLayout reflected(const std::string& name) {
-    const std::filesystem::path path = std::filesystem::path(FJELL_TEST_SHADER_DIR) / (name + ".spv");
+    const std::filesystem::path path = std::filesystem::path(FTK_TEST_SHADER_DIR) / (name + ".spv");
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     REQUIRE(file.good());
     std::vector<uint32_t> words(static_cast<size_t>(file.tellg()) / sizeof(uint32_t));

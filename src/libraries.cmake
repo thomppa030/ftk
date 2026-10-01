@@ -1,7 +1,6 @@
-# ftk's libraries, declared through ftk_library() (cmake/FjellLibrary.cmake),
-# and the Dear ImGui targets they draw with. Included from the top-level
-# CMakeLists.txt; the engine and hub are in src/CMakeLists.txt. Paths are
-# relative to src/.
+# ftk's libraries, declared through ftk_library() (cmake/FtkLibrary.cmake),
+# and the Dear ImGui targets they draw with. Included from ftk's
+# CMakeLists.txt. Paths are relative to src/.
 
 # ftk-base holds what any program needs before it has a window: the log,
 # results, delegates, handles and handle pools, the thread pool, the
@@ -87,6 +86,19 @@ function(ftk_vulkan_backend target)
     get_target_property(vma_dirs GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
     if(vma_dirs)
         target_include_directories(${target} SYSTEM PRIVATE ${vma_dirs})
+    endif()
+endfunction()
+
+# For a program that links the Vulkan backend and never calls it: the frame
+# graph records through gpu::Frame and gpu::CommandList, which the backend
+# implements, so linking the frame graph brings the backend and its calls
+# into the Vulkan loader. MSVC then loads vulkan-1.dll at the first call
+# rather than at startup, so the program runs on a machine without the
+# loader, a CI runner among them.
+function(ftk_delay_load_vulkan target)
+    if(MSVC)
+        target_link_options(${target} PRIVATE /DELAYLOAD:vulkan-1.dll)
+        target_link_libraries(${target} PRIVATE delayimp)
     endif()
 endfunction()
 
@@ -371,7 +383,7 @@ ftk_library(app
 # --- Dear ImGui ---
 # Built once for everything that draws with it. ftk-imgui-headless is the
 # core without a platform or renderer backend, which is what the unit tests
-# run editor UI on (tests/imgui_harness.hpp); ftk-imgui adds the SDL3 and
+# run editor UI on (ftk/test/imgui_harness.hpp); ftk-imgui adds the SDL3 and
 # Vulkan backends for a window that presents. Warnings are off: the code is
 # third-party, and the stack layout patch leaves unused parameters that only
 # surface once the optimiser runs.
