@@ -2,11 +2,12 @@
 
 // Lucide icon font glyph macros, merged into the Inter atlas at load time in
 // theme::load_font(). Code names icons by meaning through ui::icon
-// (ftk/ui/kit/icons.hpp); only the theme and the kit spell these macros, and the
-// editor UI check refuses them anywhere else.
+// (ftk/ui/kit/icons.hpp); only the theme, the kit and a program's own icon
+// file (ftk_check_editor_ui's ICONS) spell these macros, and the editor UI
+// check refuses them anywhere else.
 //
 // Codepoints live in the Private Use Area (U+E042..U+E685). Regenerated
-// from engine_assets/fonts/lucide.ttf (Lucide v1.17.0). To add a glyph:
+// from fonts/lucide.ttf (Lucide v1.17.0). To add a glyph:
 // look up its name in lucide-font/codepoints.json, encode the codepoint
 // as UTF-8, add it here.
 //

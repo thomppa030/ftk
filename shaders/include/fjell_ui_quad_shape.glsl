@@ -12,7 +12,7 @@
 // Every colour on a UiQuad is the stylesheet's sRGB value; the fill handed to
 // fjell_ui_quad_finish() is linear, and the border colour is decoded here.
 
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 
 float fjell_ui_sdf_rounded_rect(vec2 p, vec2 half_size, vec4 radii) {
     float r;

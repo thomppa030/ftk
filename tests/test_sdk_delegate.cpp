@@ -41,7 +41,7 @@ std::vector<std::string> code_of(const std::string& text) {
 } // namespace
 
 TEST_CASE("The SDK's delegate is ftk's, in the engine's namespace", "[delegate][sdk]") {
-    const auto ftk = code_of(read(FJELL_SOURCE_DIR "/src/ftk/base/delegate.hpp"));
+    const auto ftk = code_of(read(FJELL_SOURCE_DIR "/ftk/src/ftk/base/delegate.hpp"));
     const auto sdk = code_of(read(FJELL_SOURCE_DIR "/src/scripting/fjell/delegate.hpp"));
     REQUIRE_FALSE(ftk.empty());
 

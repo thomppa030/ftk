@@ -1,6 +1,6 @@
 # What only the engine, its tools and tests need, fetched when Fjell builds
-# its engine (FJELL_BUILD_ENGINE). The libraries' dependencies are in
-# FoundationDependencies.cmake, included first.
+# its engine (FJELL_BUILD_ENGINE). ftk's dependencies are in
+# ftk/cmake/Dependencies.cmake, added first.
 
 include(FetchContent)
 

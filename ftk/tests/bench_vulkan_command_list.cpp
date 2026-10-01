@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
         }
         gpu::Device& device = **made_device;
         device.set_shader_locator([](const std::string& relative) {
-            return std::string(FJELL_TEST_SHADER_DIR "/") + relative;
+            return std::string(FTK_TEST_SHADER_DIR "/") + relative;
         });
 
         auto pipeline = device.create(gpu::ComputePipelineDesc{.shader = "commands.comp"});

@@ -1,16 +1,15 @@
-# What ftk's libraries need, fetched whether Fjell builds its engine or is a
-# subproject of another program: windowing, maths, logging, JSON, stb, the
-# patched Dear ImGui, Vulkan with VMA, and Tracy when it is switched on. The
-# engine's own dependencies are in EngineDependencies.cmake. The libraries
+# What ftk's libraries need, fetched whether ftk is built on its own or as
+# part of a program: windowing, maths, logging, JSON, stb, the patched Dear
+# ImGui, Vulkan with VMA, and Tracy when it is switched on. Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
 
 include(FetchContent)
 
-# Every dependency uses the same MSVC runtime (dynamic CRT). Fjell's top level
-# sets it for its own directory and everything added below it; as the top
-# level it also pins the cache, and as a subproject it leaves the including
-# program's choice alone.
+# Every dependency uses the same MSVC runtime (dynamic CRT). The top-level
+# project sets it for its own directory and everything added below it; built
+# on its own, ftk also pins the cache, and as a subproject it leaves the
+# including program's choice alone.
 if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
 endif()
@@ -138,7 +137,7 @@ endblock()
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)
     message(FATAL_ERROR
-        "Vulkan SDK not found — it is the only dependency Fjell does not fetch itself. "
+        "Vulkan SDK not found — it is the only dependency ftk does not fetch itself. "
         "Install it from https://vulkan.lunarg.com/ (or your distro's vulkan-devel "
         "package) and make sure VULKAN_SDK is set in the environment.")
 endif()

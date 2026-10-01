@@ -162,15 +162,12 @@ add_executable(fjell-tests
     test_log.cpp
     test_resource_handle.cpp
     test_collision_channel.cpp
-    test_delegate.cpp
     test_sdk_delegate.cpp
-    test_thread_pool.cpp
     test_fjui_parser.cpp
     test_fjss_parser.cpp
     test_fjsl_loader.cpp
     test_fjsl_parser.cpp
     test_material_gi_params.cpp
-    test_color_space.cpp
     test_material_asset.cpp
     test_style_resolver.cpp
     test_ui_style_properties.cpp
@@ -182,7 +179,6 @@ add_executable(fjell-tests
     test_font_atlas_build.cpp
     test_font_kerning.cpp
     test_glyph_outline.cpp
-    test_utf8.cpp
     test_fjreflect_parser.cpp
     test_fjreflect_generator.cpp
     test_fjreflect_models.cpp
@@ -231,20 +227,7 @@ add_executable(fjell-tests
     test_ui_animation.cpp
     test_ui_bar_dynamics.cpp
     test_spline.cpp
-    test_vulkan_access.cpp
-    test_vulkan_frame_descriptor_cache.cpp
     test_vulkan_translate.cpp
-    test_gpu_access.cpp
-    test_frame_graph.cpp
-    test_gpu_binding.cpp
-    test_gpu_caps.cpp
-    test_gpu_command_list.cpp
-    test_gpu_release.cpp
-    test_gpu_shader.cpp
-    test_gpu_texture_view.cpp
-    test_gpu_transient_memory.cpp
-    test_handle_pool.cpp
-    test_small_vector.cpp
     test_clipmap.cpp
     test_character_controller.cpp
     test_sdk_headers.cpp
@@ -257,7 +240,6 @@ add_executable(fjell-tests
     test_input_source.cpp
     test_sdl_input_codes.cpp
     test_folder_colors.cpp
-    test_text_field.cpp
     test_component_edit_command.cpp
     test_node_edit_command.cpp
     test_component_storage.cpp
@@ -268,35 +250,14 @@ add_executable(fjell-tests
     test_resource_pool.cpp
     test_scene_node_kinds.cpp
     test_script_pools.cpp
-    test_curve_editor.cpp
-    test_asset_tile.cpp
-    test_choices.cpp
-    test_command_group.cpp
-    test_edit_record.cpp
     test_scene_order.cpp
-    test_search.cpp
-    test_status_bar.cpp
-    test_dialog.cpp
-    test_pages.cpp
-    test_document_history.cpp
-    test_asset_header.cpp
     test_collision_shape_fields.cpp
-    test_tree.cpp
-    test_shader_compiler.cpp
-    test_shader_diagnostic.cpp
-    test_grouped_picker.cpp
     test_node_slot.cpp
-    test_slot.cpp
-    test_fields.cpp
-    test_kit.cpp
     test_asset_kinds.cpp
     test_brand.cpp
-    test_node_graph.cpp
     test_texture_channels.cpp
-    test_list_editor.cpp
     test_track_lanes.cpp
     test_state_graph.cpp
-    test_canvas.cpp
     test_timeline.cpp
     test_vfx_expression.cpp
     test_vfx_pin.cpp
@@ -311,33 +272,19 @@ target_link_libraries(fjell-tests PRIVATE
     SDL3::Headers
 )
 # The Vulkan backend's own tests (test_vulkan_*.cpp) read its headers.
+find_package(Vulkan REQUIRED)
 target_link_libraries(fjell-tests PRIVATE Vulkan::Headers)
 # fjreflect's parser is tested in place; it depends on nothing from the engine.
 target_include_directories(fjell-tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
-# Tests that need a real font bake the engine's own.
+# Shader includes compiled as C++ (glsl_shim.hpp) include ftk's as well.
+target_include_directories(fjell-tests PRIVATE ${FTK_SHADER_INCLUDE_DIR})
+# Tests that need a real font bake the engine's own, or the theme's from ftk.
 target_compile_definitions(fjell-tests PRIVATE
     FJELL_ENGINE_FONTS_DIR="${CMAKE_SOURCE_DIR}/engine_assets/fonts"
+    FTK_FONTS_DIR="${FTK_FONTS_DIR}"
     FJELL_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-# Tests that read SPIR-V compile shaders of their own from tests/shaders/.
-compile_shaders(fjell-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-target_compile_definitions(fjell-tests PRIVATE
-    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
-
-# For a program that links the Vulkan backend and never calls it: the frame
-# graph records through gpu::Frame and gpu::CommandList, which the backend
-# implements, so linking the frame graph brings the backend and its calls
-# into the Vulkan loader. MSVC then loads vulkan-1.dll at the first call
-# rather than at startup, so the program runs on a machine without the
-# loader, a CI runner among them.
-function(fjell_delay_load_vulkan target)
-    if(MSVC)
-        target_link_options(${target} PRIVATE /DELAYLOAD:vulkan-1.dll)
-        target_link_libraries(${target} PRIVATE delayimp)
-    endif()
-endfunction()
-
 ftk_target_defaults(fjell-tests)
-fjell_delay_load_vulkan(fjell-tests)
+ftk_delay_load_vulkan(fjell-tests)
 # Keeps only the shared libraries something references. The backend the
 # frame graph brings in still references the Vulkan loader, so on Linux the
 # tests need it installed.
@@ -348,49 +295,3 @@ endif()
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(fjell-tests)
-
-# --- Library link checks ---
-# One program per library that links that library alone, and whole, so every
-# object in it is linked: a definition the library needs from outside itself
-# and its links fails here, where the include check cannot see it, rather
-# than in the first program outside Fjell that links the library. Each also
-# runs as a test, unless it is marked NEEDS_GPU: CI runners have no GPU or
-# display, so that one is built everywhere and run by hand.
-function(ftk_library_link_check name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "NEEDS_GPU" "" "")
-    string(REPLACE "-" "_" file ${name})
-    add_executable(ftk-link-${name} library_link/${file}.cpp)
-    target_link_libraries(ftk-link-${name} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,ftk::${name}>")
-    ftk_target_defaults(ftk-link-${name})
-    if(NOT arg_NEEDS_GPU)
-        add_test(NAME library_link.${name} COMMAND ftk-link-${name})
-    endif()
-endfunction()
-
-ftk_library_link_check(base)
-ftk_library_link_check(math)
-ftk_library_link_check(platform)
-ftk_library_link_check(framegraph)
-fjell_delay_load_vulkan(ftk-link-framegraph)
-ftk_library_link_check(shader)
-ftk_library_link_check(image)
-ftk_library_link_check(app-ui)
-ftk_library_link_check(imgui-harness)
-ftk_library_link_check(gpu NEEDS_GPU)
-# The GPU link test builds pipelines from the test shaders.
-add_dependencies(ftk-link-gpu fjell-tests_shaders)
-target_compile_definitions(ftk-link-gpu PRIVATE
-    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
-ftk_library_link_check(app NEEDS_GPU)
-
-# --- Benchmarks ---
-# Programs that time part of the engine on a real GPU against the same work
-# done straight through Vulkan. Built everywhere, run by hand in an optimised
-# build; they print what they measured.
-add_executable(fjell-bench-command-list bench_vulkan_command_list.cpp)
-target_link_libraries(fjell-bench-command-list PRIVATE ftk::gpu)
-ftk_vulkan_backend(fjell-bench-command-list)
-add_dependencies(fjell-bench-command-list fjell-tests_shaders)
-target_compile_definitions(fjell-bench-command-list PRIVATE
-    FJELL_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
-ftk_target_defaults(fjell-bench-command-list)

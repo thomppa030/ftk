@@ -19,24 +19,6 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `base_path` | Resolves paths relative to the executable |
 | `commands` | Concrete command implementations (transform, rename, add/remove, reparent, lights) |
 
-### `src/ftk/` — ftk, the toolkit
-
-What the engine is built on and other GUI programs can use: libraries declared
-in `src/libraries.cmake`, each linked as `ftk::<name>`, that know nothing of
-the engine.
-
-| Directory | Library | What it holds |
-|---|---|---|
-| `ftk/base/` | `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
-| `ftk/math/` | `ftk::math` | Colour space conversions and keyed curves |
-| `ftk/platform/` | `ftk::platform` | Paths, processes, file watching and shared libraries, one backend per OS |
-| `ftk/gpu/` | `ftk::gpu`, `ftk::gpu-imgui` | The GPU interface, the SDL window and Dear ImGui drawn through it; its Vulkan backend is `ftk/gpu/vulkan/`, and nothing else names Vulkan. See [GPU interface](Architecture/GPU-Interface.md) |
-| `ftk/framegraph/` | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
-| `ftk/shader/` | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, and glslc's errors read back |
-| `ftk/image/` | `ftk::image` | Image loading, saving and resizing (stb) |
-| `ftk/ui/` | `ftk::app-ui` | The editor theme, the icons and the kit of widgets (`ftk/ui/kit/`) |
-| `ftk/app/` | `ftk::app` | The ImGui layer, standalone windows, undo and its history panel, the console, the file browser, the icon cache and the `EditorContext` base |
-
 ### `src/renderer/` — Renderer
 
 **Core rendering:**
@@ -152,6 +134,29 @@ All panels use Dear ImGui. Each is a self-contained class.
 | `properties_panel` | Object inspector — transform, physics, lights, material params, components |
 | `stats_panel` | FPS, draw calls, GPU info |
 | `content_browser` | File browser with icon thumbnails (overlay panel) |
+
+## ftk — `ftk/`
+
+The toolkit the engine is built on and other GUI programs can use, a CMake
+project of its own that Fjell adds as a subdirectory. It knows nothing of the
+engine. `ftk/src/ftk/` holds its libraries, declared in
+`ftk/src/libraries.cmake` and each linked as `ftk::<name>`; `ftk/cmake/` its
+CMake functions and checks; `ftk/tests/` its tests (`ftk-tests`, a link check
+per library); `ftk/shaders/` the ImGui layer's fragment stage and the colour
+space include; `ftk/fonts/` the theme's fonts.
+
+| Directory (in `ftk/src/`) | Library | What it holds |
+|---|---|---|
+| `ftk/base/` | `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
+| `ftk/math/` | `ftk::math` | Colour space conversions and keyed curves |
+| `ftk/platform/` | `ftk::platform` | Paths, processes, file watching and shared libraries, one backend per OS |
+| `ftk/gpu/` | `ftk::gpu`, `ftk::gpu-imgui` | The GPU interface, the SDL window and Dear ImGui drawn through it; its Vulkan backend is `ftk/gpu/vulkan/`, and nothing else names Vulkan. See [GPU interface](Architecture/GPU-Interface.md) |
+| `ftk/framegraph/` | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
+| `ftk/shader/` | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, and glslc's errors read back |
+| `ftk/image/` | `ftk::image` | Image loading, saving and resizing (stb) |
+| `ftk/ui/` | `ftk::app-ui` | The editor theme, the icons and the kit of widgets (`ftk/ui/kit/`) |
+| `ftk/app/` | `ftk::app` | The ImGui layer, standalone windows, undo and its history panel, the console, the file browser, the icon cache and the `EditorContext` base |
+| `ftk/test/` | `ftk::imgui-harness` | Dear ImGui with no window, for a program's tests to drive its editor UI |
 
 ## Shaders — `shaders/`
 

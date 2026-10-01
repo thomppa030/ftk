@@ -7,7 +7,7 @@
 // already arrive linear: sRGB-format images decode on sample and the
 // engine's render targets hold linear light, so they pass straight through.
 
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 
 layout(location = 0) out vec4 fColor;
 layout(set = 0, binding = 0) uniform sampler2D sTexture;

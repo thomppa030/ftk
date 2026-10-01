@@ -1,5 +1,5 @@
-#ifndef FJELL_COLOR_SPACE_GLSL
-#define FJELL_COLOR_SPACE_GLSL
+#ifndef FTK_COLOR_SPACE_GLSL
+#define FTK_COLOR_SPACE_GLSL
 
 // The sRGB transfer curve, exact rather than a 2.2 power. Everything a person
 // authors — a stylesheet hex code, a picker swatch, an ImGui style colour —
@@ -22,4 +22,4 @@ vec3 linear_to_srgb(vec3 c) {
                greaterThan(c, vec3(0.0031308f)));
 }
 
-#endif // FJELL_COLOR_SPACE_GLSL
+#endif // FTK_COLOR_SPACE_GLSL

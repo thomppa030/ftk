@@ -1,7 +1,7 @@
 #ifndef FJELL_UI_TEXT_FILL_GLSL
 #define FJELL_UI_TEXT_FILL_GLSL
 
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 
 // Shared MSDF text fill logic for ui_text.frag and ui_text_world.frag — one
 // copy for the same reason fjell_ui_quad_fill.glsl exists (see its own note).

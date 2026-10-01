@@ -3,10 +3,10 @@
 // A slice through the scene's distance field for the SDF debug window:
 // blue inside, white on the surface, orange outside, each fading to its
 // dark end at max_distance. The window's legend draws the same ramp from
-// theme::sdf_*() in src/ftk/ui/theme.hpp: the colours are those sRGB values,
+// theme::sdf_*() in ftk/src/ftk/ui/theme.hpp: the colours are those sRGB values,
 // change both together.
 
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

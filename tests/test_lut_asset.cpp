@@ -21,7 +21,7 @@ extern "C" int stbi_write_png(char const* filename, int w, int h, int comp, cons
 // The shader half, compiled as C++ against a texture that filters the way the
 // GPU does. See glsl_shim.hpp. The colour transfer is the engine's own CPU
 // one: GLM will not multiply a vector by a double literal the way GLSL does,
-// so fjell_color_space.glsl stays out and what is checked here is the table
+// so ftk_color_space.glsl stays out and what is checked here is the table
 // lookup, which is what lut_sample() adds.
 #include "glsl_shim.hpp"
 
@@ -59,7 +59,7 @@ vec4 textureLod(const FjellTexture& s, vec2 uv, float /*lod*/) {
 }
 
 #define FJELL_BINDLESS_GLSL
-#define FJELL_COLOR_SPACE_GLSL
+#define FTK_COLOR_SPACE_GLSL
 vec3 linear_to_srgb(vec3 c) { return ftk::color_space::linear_to_srgb(c); }
 vec3 srgb_to_linear(vec3 c) { return ftk::color_space::srgb_to_linear(c); }
 

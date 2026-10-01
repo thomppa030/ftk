@@ -2,7 +2,7 @@
 #define FJELL_LUT_GLSL
 
 #include "fjell_bindless.glsl"
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 
 // A colour grade read from a LUT strip: N slices of N by N side by side, red
 // across a slice, green down it, blue from slice to slice (the layout is

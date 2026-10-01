@@ -36,3 +36,12 @@ file(GLOB_RECURSE GLSL_INCLUDES RELATIVE "${SHADER_SRC}/include" "${SHADER_SRC}/
 foreach(REL ${GLSL_INCLUDES})
     configure_file("${SHADER_SRC}/include/${REL}" "${SHADER_DST}/include/${REL}" COPYONLY)
 endforeach()
+
+# ftk's shader includes (the colour space) join the engine's: the FJSL
+# templates include them when shaders are compiled at run time.
+if(FTK_SHADER_INCLUDES)
+    file(GLOB_RECURSE FTK_GLSL_INCLUDES RELATIVE "${FTK_SHADER_INCLUDES}" "${FTK_SHADER_INCLUDES}/*.glsl")
+    foreach(REL ${FTK_GLSL_INCLUDES})
+        configure_file("${FTK_SHADER_INCLUDES}/${REL}" "${SHADER_DST}/include/${REL}" COPYONLY)
+    endforeach()
+endif()

@@ -11,6 +11,7 @@ target_include_directories(fjterraingen PRIVATE
 )
 
 target_link_libraries(fjterraingen PRIVATE
+    ftk::base
     glm::glm
 )
 ftk_target_defaults(fjterraingen)

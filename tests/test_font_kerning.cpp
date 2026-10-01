@@ -25,7 +25,7 @@ std::vector<uint8_t> read_file(const std::filesystem::path& path) {
 }
 
 const std::filesystem::path INTER = FJELL_ENGINE_FONTS_DIR "/Inter-Regular.ttf";
-const std::filesystem::path GEIST = FJELL_ENGINE_FONTS_DIR "/Geist-Regular.ttf";
+const std::filesystem::path GEIST = FTK_FONTS_DIR "/Geist-Regular.ttf";
 
 // The glyph index a font gives a character, through FreeType's reading of
 // its character map.

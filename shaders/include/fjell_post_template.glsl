@@ -19,7 +19,7 @@
 #include "fjell_environment.glsl"
 #include "fjell_gpu_types.glsl"
 #include "fjell_common.glsl"
-#include "fjell_color_space.glsl"
+#include "ftk_color_space.glsl"
 #include "fjell_lut.glsl"
 #include "tonemap/tonemap.glsl"
 

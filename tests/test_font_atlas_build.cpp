@@ -21,7 +21,7 @@ using namespace fjell::test;
 
 namespace {
 
-const std::filesystem::path GEIST_BOLD = FJELL_ENGINE_FONTS_DIR "/Geist-Bold.ttf";
+const std::filesystem::path GEIST_BOLD = FTK_FONTS_DIR "/Geist-Bold.ttf";
 
 msdfgen::Shape load_outline(const std::filesystem::path& font, uint32_t codepoint) {
     msdfgen::Shape shape;

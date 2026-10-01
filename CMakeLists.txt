@@ -7,12 +7,9 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 project(Fjell VERSION 0.1.0 LANGUAGES CXX)
 
 # As the top-level project Fjell builds its engine, hub, tools and tests. Added
-# to another program's build (FetchContent, add_subdirectory) it builds only its
-# libraries and what they need, and runs none of the checks over its own src/
-# except the libraries' boundary check. What runs in both modes names Fjell's
-# tree through PROJECT_SOURCE_DIR and PROJECT_BINARY_DIR, which stay Fjell's
-# when the including program's CMAKE_SOURCE_DIR does not.
-option(FJELL_BUILD_ENGINE "Build the engine, hub, tools and tests; off builds only the libraries"
+# to another program's build (FetchContent, add_subdirectory) it builds only
+# ftk, the toolkit in ftk/, and what it needs.
+option(FJELL_BUILD_ENGINE "Build the engine, hub, tools and tests; off builds only ftk"
        ${PROJECT_IS_TOP_LEVEL})
 
 set(CMAKE_CXX_STANDARD 23)
@@ -20,14 +17,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-include(cmake/FjellTargetDefaults.cmake)
-include(cmake/FjellLibrary.cmake)
-# ftk's checks, for Fjell and any program built on ftk: editor UI from the
-# theme and the kit, Vulkan only inside the GPU backend, POSIX only inside
-# the platform library.
-include(cmake/EditorUiCheck.cmake)
-include(cmake/GpuBackendCheck.cmake)
-include(cmake/PortabilityCheck.cmake)
+# ftk: its libraries, its checks and its editor data; with the engine, its
+# tests too, so one build and one ctest cover both.
+set(FTK_BUILD_TESTS ${FJELL_BUILD_ENGINE})
+add_subdirectory(ftk)
 
 if(FJELL_BUILD_ENGINE)
     # Only the tool directories that are built; tools/ also holds things like a
@@ -62,39 +55,10 @@ if(FJELL_BUILD_ENGINE)
     add_custom_target(fjell-fixed-tick-check DEPENDS "${FJELL_FIXED_TICK_STAMP}")
 endif()
 
-include(cmake/FoundationDependencies.cmake)
-# Shader compiling, and ftk_stage_editor_data() for any program built on
-# ftk-app; glslc is only looked for once something compiles a shader.
-include(cmake/CompileShaders.cmake)
-include(cmake/EditorData.cmake)
 if(FJELL_BUILD_ENGINE)
     include(cmake/EngineDependencies.cmake)
     include(cmake/GenerateShaderConstants.cmake)
-endif()
 
-include(src/libraries.cmake)
-
-# ftk's libraries include only their own files and those of the libraries
-# they link. Checked at configure, once src/libraries.cmake has declared them,
-# and again by ftk-library-check whenever a library's file changes.
-include(cmake/LibraryBoundaryCheck.cmake)
-set(FTK_LIBRARY_LISTS "${PROJECT_BINARY_DIR}/ftk_libraries.cmake")
-ftk_write_library_lists("${FTK_LIBRARY_LISTS}")
-ftk_check_library_boundaries("${FTK_LIBRARY_LISTS}")
-ftk_library_files(FTK_LIBRARY_FILES)
-set(FTK_LIBRARY_CHECK_STAMP "${PROJECT_BINARY_DIR}/library_check.stamp")
-add_custom_command(
-    OUTPUT "${FTK_LIBRARY_CHECK_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -DFTK_LIBRARY_LISTS=${FTK_LIBRARY_LISTS} -P "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${FTK_LIBRARY_CHECK_STAMP}"
-    DEPENDS ${FTK_LIBRARY_FILES}
-            "${FTK_LIBRARY_LISTS}"
-            "${PROJECT_SOURCE_DIR}/cmake/LibraryBoundaryCheck.cmake"
-    COMMENT "Checking each library's includes against its links"
-    VERBATIM)
-add_custom_target(ftk-library-check DEPENDS "${FTK_LIBRARY_CHECK_STAMP}")
-
-if(FJELL_BUILD_ENGINE)
     add_subdirectory(src)
     # Editor UI takes colours and widgets from the theme and the kit.
     ftk_check_editor_ui(fjell ROOTS src ALLOWLIST cmake/editor_ui_allowlist.txt ICONS src/ui/icons.hpp)

@@ -1,4 +1,4 @@
-# Holds each of ftk's libraries (cmake/FjellLibrary.cmake) to its boundary:
+# Holds each of ftk's libraries (cmake/FtkLibrary.cmake) to its boundary:
 # a file in a library may include its own library's files and those of the
 # ftk libraries it links directly, and nothing else from src/. A file listed
 # in no library is the engine's. Without the check, the next convenient

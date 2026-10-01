@@ -477,7 +477,7 @@ endif()
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
-compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
+ftk_compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
 
 # Mirror the shaders source tree into the build dir at every build via a
 # small inline cmake -P script. Using a script (not a one-shot file(GLOB) at
@@ -488,6 +488,7 @@ add_custom_target(fjell_shader_resources ALL
     COMMAND ${CMAKE_COMMAND}
             -DSHADER_SRC=${SHADER_DIR}
             -DSHADER_DST=${SHADER_OUTPUT_DIR}
+            -DFTK_SHADER_INCLUDES=${FTK_SHADER_INCLUDE_DIR}
             -P ${CMAKE_SOURCE_DIR}/cmake/MirrorShaderSources.cmake
     COMMENT "Mirroring FJSL shaders and includes to build directory"
 )
@@ -543,6 +544,8 @@ install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
 # The FJSL material system generates and compiles GLSL at runtime, so the
 # templates it injects and the .fjsl sources have to ship alongside the SPIR-V.
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/include" DESTINATION shaders
+        FILES_MATCHING PATTERN "*.glsl")
+install(DIRECTORY "${FTK_SHADER_INCLUDE_DIR}/" DESTINATION shaders/include
         FILES_MATCHING PATTERN "*.glsl")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.fjsl")
