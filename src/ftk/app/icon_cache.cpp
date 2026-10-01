@@ -27,8 +27,8 @@ struct Picture {
     std::vector<uint8_t> rgba;
 };
 
-fs::path thumbnail_cache_path(const fs::path& source) {
-    return source.parent_path() / ".fjcache" / (source.stem().string() + ".thumb.png");
+fs::path thumbnail_cache_path(const fs::path& source, const std::string& cache_folder) {
+    return source.parent_path() / cache_folder / (source.stem().string() + ".thumb.png");
 }
 
 /// Whether `cache` holds a thumbnail at least as new as `source`.
@@ -78,10 +78,10 @@ Picture make_thumbnail(const fs::path& source, const fs::path& cache) {
     return thumb;
 }
 
-/// `source`'s thumbnail: its current `.fjcache` copy, else one made and
-/// written there.
-Picture load_thumbnail(const fs::path& source) {
-    const fs::path cache = thumbnail_cache_path(source);
+/// `source`'s thumbnail: its current copy in `cache_folder`, else one made
+/// and written there.
+Picture load_thumbnail(const fs::path& source, const std::string& cache_folder) {
+    const fs::path cache = thumbnail_cache_path(source, cache_folder);
     if (cache_current(source, cache)) {
         Picture cached = read_rgba(cache);
         if (!cached.rgba.empty()) return cached;
@@ -101,13 +101,15 @@ struct IconCache::Inbox {
     std::vector<Decoded> decoded;
 };
 
-IconCache::IconCache(gpu::Device& device, ThreadPool& pool, const std::string& icons_dir)
+IconCache::IconCache(gpu::Device& device, ThreadPool& pool, const std::string& icons_dir,
+                     std::string cache_folder)
     : device_{device},
       pool_{pool},
       pixel_sampler_{device.sampler({.filter = gpu::Filter::nearest,
                                      .mip_filter = gpu::Filter::nearest,
                                      .address = gpu::Address::clamp})},
-      inbox_{std::make_shared<Inbox>()} {
+      inbox_{std::make_shared<Inbox>()},
+      cache_folder_{std::move(cache_folder)} {
     if (!fs::is_directory(icons_dir)) {
         FTK_CORE_WARN("Icons directory not found: {}", icons_dir);
         return;
@@ -176,8 +178,8 @@ ImTextureID IconCache::thumbnail(const std::string& path) {
         return it->second ? imgui_texture(it->second) : ImTextureID{};
     }
     if (decoding_.insert(path).second) {
-        (void)pool_.submit([inbox = inbox_, path, generation = generation_] {
-            Picture picture = load_thumbnail(path);
+        (void)pool_.submit([inbox = inbox_, path, generation = generation_, folder = cache_folder_] {
+            Picture picture = load_thumbnail(path, folder);
             std::lock_guard lock(inbox->mutex);
             inbox->decoded.push_back({path, generation, std::move(picture)});
         });
@@ -203,9 +205,9 @@ void IconCache::take_decoded() {
     }
 }
 
-void IconCache::ensure_thumbnail_cache(const std::string& path) {
+void IconCache::ensure_thumbnail_cache(const std::string& path, const std::string& cache_folder) {
     const fs::path source(path);
-    const fs::path cache = thumbnail_cache_path(source);
+    const fs::path cache = thumbnail_cache_path(source, cache_folder);
     if (!cache_current(source, cache)) (void)make_thumbnail(source, cache);
 }
 

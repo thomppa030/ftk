@@ -29,8 +29,9 @@ public:
     static constexpr int THUMBNAIL_SIZE = 80;
 
     /// Loads every PNG in `icons_dir` as an icon named by its file, less an
-    /// `icon_` prefix. Thumbnails are decoded on `pool`.
-    IconCache(gpu::Device& device, ThreadPool& pool, const std::string& icons_dir);
+    /// `icon_` prefix. Thumbnails are decoded on `pool`, and an image's is
+    /// kept in the folder named `cache_folder` beside it (".cache").
+    IconCache(gpu::Device& device, ThreadPool& pool, const std::string& icons_dir, std::string cache_folder);
     ~IconCache();
 
     IconCache(const IconCache&) = delete;
@@ -43,7 +44,7 @@ public:
     [[nodiscard]] ImTextureID icon(const std::string& name) const;
 
     /// The thumbnail of the image file at `path` as ImGui draws it. The first
-    /// ask decodes it on the pool, from its `.fjcache` copy when that is
+    /// ask decodes it on the pool, from its cached copy when that is
     /// newer than the file; none until it has arrived, or when the file does
     /// not read.
     [[nodiscard]] ImTextureID thumbnail(const std::string& path);
@@ -51,9 +52,13 @@ public:
     /// Forgets every thumbnail, and drops what is still being decoded.
     void clear_thumbnails();
 
-    /// Writes the `.fjcache` thumbnail of the image file at `path`, unless a
-    /// current one is there. No GPU work; safe from any thread.
-    static void ensure_thumbnail_cache(const std::string& path);
+    /// The folder beside an image its thumbnail is kept in.
+    [[nodiscard]] const std::string& cache_folder() const { return cache_folder_; }
+
+    /// Writes the thumbnail of the image file at `path` into the folder named
+    /// `cache_folder` beside it, unless a current one is there. No GPU work;
+    /// safe from any thread.
+    static void ensure_thumbnail_cache(const std::string& path, const std::string& cache_folder);
 
     /// A texture of `pixels`, RGBA8 in sRGB row after row, `width` × `height`,
     /// ready for the frames sent from now on. `name` labels it in debuggers
@@ -92,6 +97,7 @@ private:
     /// Moves on at every clear, so a decode started before one is dropped.
     uint64_t generation_{0};
     std::shared_ptr<Inbox> inbox_;
+    std::string cache_folder_;
 };
 
 } // namespace ftk
