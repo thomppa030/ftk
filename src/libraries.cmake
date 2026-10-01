@@ -28,7 +28,6 @@ fjell_library(core
         core/math/curve.hpp
         core/math/spline.hpp
         core/named_value.hpp
-        core/portable_math.hpp
         core/profiler.hpp
         core/result.hpp
         core/simd_trig.hpp
