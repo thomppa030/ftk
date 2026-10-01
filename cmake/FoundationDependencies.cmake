@@ -75,7 +75,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# Tracy profiler — opt-in with -DFJELL_ENABLE_TRACY=ON
+# Tracy profiler — opt-in with -DFTK_ENABLE_TRACY=ON
 option(FTK_ENABLE_TRACY "Enable Tracy profiler integration" OFF)
 
 if(FTK_ENABLE_TRACY)
