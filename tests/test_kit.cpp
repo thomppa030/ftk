@@ -226,13 +226,18 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
     using ftk::theme::Category;
-    CHECK(ui::asset_kind(".fjmat").category == Category::Rendering);
-    CHECK(std::string(ui::asset_kind(".fjmat").noun) == "material");
     CHECK(ui::asset_kind(".png").category == Category::Rendering);
-    CHECK(ui::asset_kind(".fjweather").category == Category::Environment);
-    CHECK(ui::asset_kind(".fjsurface").category == Category::Physics);
-    CHECK(ui::asset_kind(".fjanim").category == Category::Animation);
+    CHECK(std::string(ui::asset_kind(".png").noun) == "texture");
+    CHECK(ui::asset_kind(".ttf").category == Category::Ui);
+    CHECK(ui::asset_kind(".wav").category == Category::Audio);
     CHECK(std::string(ui::asset_kind(".xyz").noun) == "file");
+}
+
+TEST_CASE("A program's own file types show as it registered them", "[ui][kit]") {
+    using ftk::theme::Category;
+    ui::register_asset_kind(".kittest", {"kit test", ui::icon::file, Category::Logic});
+    CHECK(std::string(ui::asset_kind(".kittest").noun) == "kit test");
+    CHECK(ui::asset_kind(".kittest").category == Category::Logic);
 }
 
 TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {

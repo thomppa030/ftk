@@ -82,6 +82,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/physics/physics_subsystem.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/inspectors/collision_shape_fields.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/asset_kinds.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/folder_colors.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_slot.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/node_visuals.cpp
@@ -287,6 +288,7 @@ add_executable(fjell-tests
     test_slot.cpp
     test_fields.cpp
     test_kit.cpp
+    test_asset_kinds.cpp
     test_node_graph.cpp
     test_texture_channels.cpp
     test_list_editor.cpp
