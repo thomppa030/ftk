@@ -1,4 +1,4 @@
-#include "core/small_vector.hpp"
+#include "ftk/base/small_vector.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

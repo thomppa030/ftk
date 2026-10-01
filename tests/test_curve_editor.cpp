@@ -1,5 +1,5 @@
+#include "ftk/ui/kit/curve_editor.hpp"
 #include "imgui_harness.hpp"
-#include "ui/kit/curve_editor.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

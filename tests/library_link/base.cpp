@@ -2,8 +2,8 @@
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it calls into each part once.
 
-#include "core/log.hpp"
-#include "core/thread_pool.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/base/thread_pool.hpp"
 
 int main() {
     fjell::log::init({.level = spdlog::level::warn});

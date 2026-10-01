@@ -1,4 +1,4 @@
-#include "renderer/shader_diagnostic.hpp"
+#include "ftk/shader/shader_diagnostic.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

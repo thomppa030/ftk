@@ -1,4 +1,4 @@
-#include "renderer/shader_compiler.hpp"
+#include "ftk/shader/shader_compiler.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

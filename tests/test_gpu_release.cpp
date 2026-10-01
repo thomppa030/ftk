@@ -1,6 +1,6 @@
-#include "core/handle.hpp"
-#include "gpu/owned.hpp"
-#include "gpu/release_queue.hpp"
+#include "ftk/base/handle.hpp"
+#include "ftk/gpu/owned.hpp"
+#include "ftk/gpu/release_queue.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

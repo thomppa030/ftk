@@ -1,4 +1,4 @@
-#include "ui/document_history.hpp"
+#include "ftk/app/document_history.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

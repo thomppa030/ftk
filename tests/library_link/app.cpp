@@ -6,12 +6,12 @@
 //
 //     ftk-link-app <fonts directory> <imgui.frag.spv>
 
-#include "core/log.hpp"
-#include "gpu/device.hpp"
-#include "gpu/window.hpp"
-#include "ui/imgui_layer.hpp"
-#include "ui/kit/button.hpp"
-#include "ui/standalone_window.hpp"
+#include "ftk/app/imgui_layer.hpp"
+#include "ftk/app/standalone_window.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/gpu/device.hpp"
+#include "ftk/gpu/window.hpp"
+#include "ftk/ui/kit/button.hpp"
 
 #include <cstdio>
 

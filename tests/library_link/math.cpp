@@ -2,8 +2,8 @@
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it calls into each part once.
 
-#include "core/math/color_space.hpp"
-#include "core/math/curve.hpp"
+#include "ftk/math/color_space.hpp"
+#include "ftk/math/curve.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,6 +1,6 @@
-#include "gpu/access.hpp"
-#include "gpu/command_list.hpp"
-#include "gpu/format.hpp"
+#include "ftk/gpu/access.hpp"
+#include "ftk/gpu/command_list.hpp"
+#include "ftk/gpu/format.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

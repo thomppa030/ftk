@@ -3,9 +3,9 @@
 // dependencies. Running it keys a source for the SPIR-V cache and reads a
 // compiler error back, neither of which needs a GPU or glslc.
 
-#include "core/log.hpp"
-#include "renderer/shader_compiler.hpp"
-#include "renderer/shader_diagnostic.hpp"
+#include "ftk/base/log.hpp"
+#include "ftk/shader/shader_compiler.hpp"
+#include "ftk/shader/shader_diagnostic.hpp"
 
 #include <cstdint>
 #include <filesystem>

@@ -24,7 +24,7 @@ endfunction()
 # GLSL the GPU backend owns: what shaders write in a layout the backend
 # defines, such as the instance records a top-level acceleration structure is
 # built from. Every shader may include it.
-set(FTK_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/gpu/vulkan/glsl")
+set(FTK_BACKEND_GLSL_DIR "${CMAKE_CURRENT_LIST_DIR}/../src/ftk/gpu/vulkan/glsl")
 
 function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     ftk_find_glslc()
