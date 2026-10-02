@@ -10,6 +10,10 @@
 
 #include <glm/vec2.hpp>
 
+#include <optional>
+#include <string>
+#include <vector>
+
 namespace ftk::ui {
 
 struct WindowOptions {
@@ -53,6 +57,21 @@ struct WorkArea {
     glm::vec2 size;
 };
 [[nodiscard]] WorkArea work_area();
+
+/// A window of the program's own, as it was last drawn: its name (with any
+/// "##" or "###" part) and where it is on screen.
+struct ShownWindow {
+    std::string name;
+    glm::vec2 pos;
+    glm::vec2 size;
+};
+
+/// The top-level windows shown now, panels and dialogs, not the windows
+/// inside them: to pick one, such as a pane to capture.
+[[nodiscard]] std::vector<ShownWindow> shown_windows();
+
+/// The window `name`, when there is one.
+[[nodiscard]] std::optional<ShownWindow> window_named(const std::string& name);
 
 /// The window being drawn: its top-left on screen and its size, its title
 /// bar and padding included.

@@ -26,6 +26,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <imgui.h>
 
+#include <algorithm>
 #include <array>
 #include <string>
 #include <utility>
@@ -782,4 +783,28 @@ TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
     h.hover("label1");
     CHECK_FALSE(hovered[0]);
     CHECK(hovered[1]);
+}
+
+TEST_CASE("The windows shown are the top-level ones, found again by name", "[ui][kit]") {
+    ImGuiHarness h;
+    std::vector<ui::ShownWindow> shown;
+    h.set_ui([&] {
+        ui::next_window_place({100.0f, 120.0f}, {240.0f, 160.0f});
+        if (auto panel = ui::Panel("", "Stats", {.remembered = false})) {
+            if (auto region = ui::Region("##inside", {50.0f, 50.0f})) ui::text("a line");
+        }
+        shown = ui::shown_windows();
+    });
+    h.step(2);
+    std::vector<std::string> names;
+    for (const auto& window : shown) names.push_back(window.name);
+    CHECK(std::find(names.begin(), names.end(), "Stats") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "##harness") != names.end());
+    for (const auto& name : names) CHECK(name.find("##inside") == std::string::npos);
+
+    const auto stats = ui::window_named("Stats");
+    REQUIRE(stats.has_value());
+    CHECK(stats->pos == glm::vec2{100.0f, 120.0f});
+    CHECK(stats->size == glm::vec2{240.0f, 160.0f});
+    CHECK_FALSE(ui::window_named("Nowhere").has_value());
 }

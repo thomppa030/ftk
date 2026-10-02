@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace ftk::ui {
 
@@ -43,6 +44,24 @@ void next_window_size_limits(glm::vec2 min, glm::vec2 max) {
 WorkArea work_area() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     return {viewport->WorkPos, viewport->WorkSize};
+}
+
+std::vector<ShownWindow> shown_windows() {
+    std::vector<ShownWindow> shown;
+    const ImGuiContext* context = ImGui::GetCurrentContext();
+    if (context == nullptr) return shown;
+    for (const ImGuiWindow* window : context->Windows) {
+        if (window == nullptr || window->Hidden || window->IsFallbackWindow) continue;
+        if ((window->Flags & ImGuiWindowFlags_ChildWindow) != 0 || window->ParentWindow != nullptr) continue;
+        shown.push_back({window->Name, window->Pos, window->Size});
+    }
+    return shown;
+}
+
+std::optional<ShownWindow> window_named(const std::string& name) {
+    const ImGuiWindow* window = ImGui::FindWindowByName(name.c_str());
+    if (window == nullptr) return std::nullopt;
+    return ShownWindow{window->Name, window->Pos, window->Size};
 }
 
 glm::vec2 window_pos() {
