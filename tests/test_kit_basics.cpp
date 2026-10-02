@@ -15,6 +15,7 @@
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/settings_file.hpp"
 #include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/table.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -807,4 +808,31 @@ TEST_CASE("The windows shown are the top-level ones, found again by name", "[ui]
     CHECK(stats->pos == glm::vec2{100.0f, 120.0f});
     CHECK(stats->size == glm::vec2{240.0f, 160.0f});
     CHECK_FALSE(ui::window_named("Nowhere").has_value());
+}
+
+TEST_CASE("A settings section is read back from the settings file and written to it", "[ui][kit]") {
+    ImGuiHarness h;
+    int text_size = 14;
+    std::vector<std::string> read;
+    ui::add_settings_section({
+        .name = "KitView",
+        .read = [&](std::string_view entry, std::string_view line) {
+            read.push_back(std::string(entry) + ":" + std::string(line));
+            if (entry == "Editor" && line.starts_with("TextSize=")) text_size = std::stoi(std::string(line.substr(9)));
+        },
+        .write = [&] {
+            return std::vector<ui::SettingsEntry>{{"Editor", {"TextSize=" + std::to_string(text_size)}}};
+        },
+    });
+    ImGui::LoadIniSettingsFromMemory("[KitView][Editor]\nTextSize=17\n\n[KitView][Other]\nTextSize=9\n");
+    CHECK(text_size == 17);
+    CHECK(read == std::vector<std::string>{"Editor:TextSize=17", "Other:TextSize=9"});
+
+    text_size = 12;
+    ui::settings_changed();
+    const std::string saved = ImGui::SaveIniSettingsToMemory();
+    CHECK(saved.find("[KitView][Editor]\nTextSize=12\n") != std::string::npos);
+
+    // The kit keeps a section for the program's life; these callbacks don't.
+    ui::add_settings_section({.name = "KitView"});
 }
