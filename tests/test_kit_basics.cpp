@@ -14,6 +14,7 @@
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/table.hpp"
+#include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
@@ -23,6 +24,8 @@
 #include <imgui.h>
 
 #include <array>
+#include <string>
+#include <utility>
 #include <vector>
 
 using ftk::test::ImGuiHarness;
@@ -551,4 +554,51 @@ TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
     CHECK(height == ui::line_height());
     h.click("stop");
     CHECK(stops == 1);
+}
+
+TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it", "[ui][kit]") {
+    ImGuiHarness h;
+    std::string name;
+    std::string seen;
+    int entered = 0;
+    int left = 0;
+    bool focus = false;
+    h.set_ui([&] {
+        if (ui::text_entry("##name", name, {.hint = "Project name", .focus = std::exchange(focus, false)})) ++entered;
+        if (ui::item_deactivated()) ++left;
+        h.mark("name");
+        seen = name;
+        ui::button("Elsewhere");
+        h.mark("elsewhere");
+    });
+    h.step(2);
+    // Focus asked for on one frame takes the keyboard on the next.
+    focus = true;
+    h.step(2);
+    h.type("Fjord");
+    h.step();
+    CHECK(seen == "Fjord");
+    CHECK(entered == 0);
+    h.press(ImGuiKey_Enter);
+    h.step();
+    CHECK(entered == 1);
+
+    h.click("name");
+    h.type("s");
+    h.step();
+    h.click("elsewhere");
+    CHECK(name == "Fjords");
+    CHECK(entered == 1);
+    CHECK(left >= 1);
+}
+
+TEST_CASE("The mouse pointer takes the shape asked for this frame", "[ui][kit]") {
+    ImGuiHarness h;
+    ImGuiMouseCursor shape = ImGuiMouseCursor_None;
+    h.set_ui([&] {
+        ui::set_mouse_cursor(ui::MouseCursor::Text);
+        shape = ImGui::GetMouseCursor();
+    });
+    h.step();
+    CHECK(shape == ImGuiMouseCursor_TextInput);
 }

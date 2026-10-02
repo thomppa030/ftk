@@ -60,6 +60,13 @@ enum class MouseButton : uint8_t { Left, Right, Middle };
 /// `button` is held and the mouse has moved since it went down.
 [[nodiscard]] bool mouse_dragging(MouseButton button);
 
+/// The shapes the mouse pointer takes.
+enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS };
+
+/// The pointer's shape for this frame: over a place that types, drags or
+/// resizes, to say so before it is pressed.
+void set_mouse_cursor(MouseCursor cursor);
+
 /// Where the mouse is, in screen pixels.
 [[nodiscard]] glm::vec2 mouse_pos();
 

@@ -28,6 +28,14 @@ Edit text_field(const char* id, std::string& value) {
     return edit;
 }
 
+bool text_entry(const char* id, std::string& value, TextEntryOptions options) {
+    if (options.focus) ImGui::SetKeyboardFocusHere();
+    if (options.hint != nullptr) {
+        return ImGui::InputTextWithHint(id, options.hint, &value, ImGuiInputTextFlags_EnterReturnsTrue);
+    }
+    return ImGui::InputText(id, &value, ImGuiInputTextFlags_EnterReturnsTrue);
+}
+
 Edit TextField::draw(const char* id, std::string_view value) {
     text_.assign(value);
     const Edit edit = text_field(id, text_);

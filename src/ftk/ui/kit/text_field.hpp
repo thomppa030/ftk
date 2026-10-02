@@ -17,6 +17,21 @@ namespace ftk::ui {
 ///     }
 Edit text_field(const char* id, std::string& value);
 
+struct TextEntryOptions {
+    /// Shown dimmed while the field is empty.
+    const char* hint{nullptr};
+    /// The keyboard goes to the field on this draw.
+    bool focus{false};
+};
+
+/// A field whose text is live, unlike text_field's: `value` is written as
+/// it is typed, for a name a button waits on or a path to go to, where
+/// nothing is committed until the caller acts. Returns true on the frame
+/// Enter is pressed in it; item_deactivated() after it says it was left.
+///
+///     if (ui::text_entry("##name", name, {.hint = "Project name"})) create(name);
+bool text_entry(const char* id, std::string& value, TextEntryOptions options = {});
+
 /// The same field for a caller that applies the edit itself (through an
 /// undo command) and needs to know whether an edit is under way. Kept by
 /// the caller as a member, one per field, and never writes

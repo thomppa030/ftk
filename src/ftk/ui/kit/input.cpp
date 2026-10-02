@@ -41,6 +41,18 @@ ImGuiMouseButton imgui(MouseButton button) {
     return ImGuiMouseButton_Left;
 }
 
+ImGuiMouseCursor imgui(MouseCursor cursor) {
+    switch (cursor) {
+    case MouseCursor::Arrow: return ImGuiMouseCursor_Arrow;
+    case MouseCursor::Text: return ImGuiMouseCursor_TextInput;
+    case MouseCursor::Hand: return ImGuiMouseCursor_Hand;
+    case MouseCursor::ResizeAll: return ImGuiMouseCursor_ResizeAll;
+    case MouseCursor::ResizeEW: return ImGuiMouseCursor_ResizeEW;
+    case MouseCursor::ResizeNS: return ImGuiMouseCursor_ResizeNS;
+    }
+    return ImGuiMouseCursor_Arrow;
+}
+
 } // namespace
 
 bool key_pressed(Key key) {
@@ -87,6 +99,10 @@ bool mouse_released(MouseButton button) {
 
 bool mouse_dragging(MouseButton button) {
     return ImGui::IsMouseDragging(imgui(button), 0.0f);
+}
+
+void set_mouse_cursor(MouseCursor cursor) {
+    ImGui::SetMouseCursor(imgui(cursor));
 }
 
 glm::vec2 mouse_pos() {
