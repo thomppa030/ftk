@@ -85,6 +85,12 @@ void ImGuiHarness::click(const std::string& name) {
     click_at({(r.min.x + r.max.x) * 0.5f, (r.min.y + r.max.y) * 0.5f});
 }
 
+void ImGuiHarness::hover(const std::string& name) {
+    const Rect& r = marked(name);
+    ImGui::GetIO().AddMousePosEvent((r.min.x + r.max.x) * 0.5f, (r.min.y + r.max.y) * 0.5f);
+    step(30);
+}
+
 void ImGuiHarness::click_at(ImVec2 at) {
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(at.x, at.y);

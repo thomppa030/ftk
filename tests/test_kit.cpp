@@ -9,13 +9,16 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/pane.hpp"
 #include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -26,6 +29,8 @@
 #include <cfloat>
 #include <cmath>
 #include <string>
+#include <utility>
+#include <vector>
 
 using ftk::test::ImGuiHarness;
 namespace ui = ftk::ui;
@@ -813,4 +818,116 @@ TEST_CASE("A status line with an action keeps its text short of the button and r
     // The text does not answer for it.
     h.click_at({start.x + 30.0f, start.y + ImGui::GetFrameHeight() * 0.5f});
     CHECK(clicks == 1);
+}
+
+TEST_CASE("What is drawn in a disabled scope takes no clicks", "[ui][kit]") {
+    ImGuiHarness h;
+    bool disabled = true;
+    int clicks = 0;
+    h.set_ui([&] {
+        ui::Disabled off(disabled);
+        if (ui::button("Bake")) ++clicks;
+        h.mark("bake");
+    });
+    h.step(2);
+    h.click("bake");
+    CHECK(clicks == 0);
+
+    disabled = false;
+    h.step();
+    h.click("bake");
+    CHECK(clicks == 1);
+}
+
+TEST_CASE("An id scope tells the same label apart", "[ui][kit]") {
+    ImGuiHarness h;
+    int first = 0;
+    int second = 0;
+    h.set_ui([&] {
+        {
+            ui::IdScope id("first");
+            if (ui::button("Remove")) ++first;
+            h.mark("first");
+        }
+        {
+            ui::IdScope id(2);
+            if (ui::button("Remove")) ++second;
+            h.mark("second");
+        }
+    });
+    h.step(2);
+    h.click("second");
+    CHECK(first == 0);
+    CHECK(second == 1);
+}
+
+TEST_CASE("An id scope gives the ids ImGui's own push gave", "[ui][kit]") {
+    // What ImGui keeps by id (a fold, a column's width) is found again once
+    // a panel moves from PushID to the kit's scope.
+    ImGuiHarness h;
+    std::vector<std::pair<ImGuiID, ImGuiID>> ids;
+    h.set_ui([&] {
+        ids.clear();
+        // The kit's scope over `scoped`, ImGui's push of `pushed`.
+        const auto pair = [&](auto scoped, auto pushed) {
+            ImGuiID in_scope = 0;
+            {
+                ui::IdScope id(scoped);
+                in_scope = ImGui::GetID("##row");
+            }
+            ImGui::PushID(pushed);
+            ids.emplace_back(in_scope, ImGui::GetID("##row"));
+            ImGui::PopID();
+        };
+        pair("Layer", "Layer");
+        pair(std::string_view("Layer"), "Layer");
+        pair(std::string("Layer"), "Layer");
+        pair(7, 7);
+        pair(static_cast<const void*>(&ids), static_cast<const void*>(&ids));
+    });
+    h.step();
+    REQUIRE(ids.size() == 5);
+    for (const auto& [scoped, pushed] : ids) CHECK(scoped == pushed);
+}
+
+TEST_CASE("The next item goes beside the last, or under a rule", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        ui::button("Apply");
+        h.mark("apply");
+        ui::same_line();
+        ui::button("Revert");
+        h.mark("revert");
+        ui::same_line(20.0f);
+        ui::button("Close");
+        h.mark("close");
+        ui::separator();
+        ui::button("Help");
+        h.mark("help");
+    });
+    h.step(2);
+    CHECK(h.rect_min("revert").y == h.rect_min("apply").y);
+    CHECK(h.rect_min("revert").x > h.rect_max("apply").x);
+    CHECK(h.rect_min("close").x == h.rect_max("revert").x + 20.0f);
+    CHECK(h.rect_min("help").y > h.rect_max("apply").y);
+}
+
+TEST_CASE("An item's tooltip shows once the mouse rests on it", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        ui::button("Bake");
+        ui::item_tooltip("Bakes every probe in the scene", "Ctrl B");
+        h.mark("bake");
+        ui::button("Clear");
+        h.mark("clear");
+    });
+    const auto shown = [] {
+        const ImGuiWindow* tip = ImGui::FindWindowByName("##Tooltip_00");
+        return tip != nullptr && tip->Active;
+    };
+    h.step(2);
+    h.hover("clear");
+    CHECK_FALSE(shown());
+    h.hover("bake");
+    CHECK(shown());
 }

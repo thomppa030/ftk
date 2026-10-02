@@ -49,6 +49,10 @@ public:
     /// The same at a point, for an item that cannot be marked.
     void click_at(ImVec2 at);
 
+    /// Moves to the centre of a marked item and rests there for half a
+    /// second, past the delay before its tooltip shows.
+    void hover(const std::string& name);
+
     /// A marked item's rectangle, for aiming at a point inside it.
     [[nodiscard]] ImVec2 rect_min(const std::string& name) const;
     [[nodiscard]] ImVec2 rect_max(const std::string& name) const;
