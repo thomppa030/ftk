@@ -3,11 +3,18 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/region.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
+#include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
-#include <imgui.h>
 #include <spdlog/pattern_formatter.h>
 
 #include <algorithm>
@@ -29,7 +36,7 @@ namespace {
 
 // A line in its level's colour: trace and debug dimmed, warnings and
 // errors in the theme's own.
-ImVec4 level_colour(spdlog::level::level_enum level) {
+ui::Color level_colour(spdlog::level::level_enum level) {
     switch (level) {
         case spdlog::level::trace:
         case spdlog::level::debug:
@@ -80,23 +87,22 @@ void ConsoleSink::draw(const char* title) {
             selected_.clear();
             last_clicked_ = -1;
         }
-        ImGui::SameLine();
+        ui::same_line();
         if (ui::toggle_button("##follow", ui::icon::follow, auto_scroll_, "Follow the newest line")) {
             auto_scroll_ = !auto_scroll_;
         }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(100);
+        ui::same_line();
+        ui::next_width(100.0f);
         static constexpr const char* FILTERS[] = {"All", "Info+", "Warn+", "Error+"};
         (void)ui::choice("##filter", level_filter_, FILTERS);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1.0f);
+        ui::same_line();
+        ui::next_width(-1.0f);
         ui::search_field("##search", search_text_);
 
-        ImGui::Separator();
+        ui::separator();
 
         // Log entries
-        ImGui::BeginChild("##log_scroll", {0, 0}, ImGuiChildFlags_None,
-                          ImGuiWindowFlags_HorizontalScrollbar);
+        const ui::Region log("##log_scroll", {0.0f, 0.0f}, {.scroll_x = true});
 
         spdlog::level::level_enum min_level = spdlog::level::trace;
         if (level_filter_ == 1) min_level = spdlog::level::info;
@@ -116,17 +122,16 @@ void ConsoleSink::draw(const char* title) {
             int idx = visible[vi];
             const auto& entry = entries_[idx];
 
-            ImGui::PushStyleColor(ImGuiCol_Text, level_colour(entry.level));
-            ImGui::PushID(idx);
+            const ui::TextColour ink(level_colour(entry.level));
+            const ui::IdScope id(idx);
             bool is_sel = selected_.contains(idx);
-            if (ImGui::Selectable(entry.message.c_str(), is_sel,
-                                  ImGuiSelectableFlags_AllowOverlap)) {
-                if (ImGui::GetIO().KeyCtrl) {
+            if (ui::selectable(entry.message.c_str(), is_sel, {.overlap = true})) {
+                if (ui::modifiers().ctrl) {
                     // Toggle individual
                     if (is_sel) selected_.erase(idx);
                     else selected_.insert(idx);
                     last_clicked_ = vi;
-                } else if (ImGui::GetIO().KeyShift && last_clicked_ >= 0) {
+                } else if (ui::modifiers().shift && last_clicked_ >= 0) {
                     // Range select
                     int a = std::min(last_clicked_, vi);
                     int b = std::max(last_clicked_, vi);
@@ -139,15 +144,13 @@ void ConsoleSink::draw(const char* title) {
                     last_clicked_ = vi;
                 }
             }
-            ImGui::PopID();
-            ImGui::PopStyleColor();
         }
 
         // Ctrl+C: copy selected entries to clipboard. While the search field is
         // active it owns the keyboard and copies its own text selection instead.
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
-            !ImGui::IsAnyItemActive() &&
-            ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) &&
+        if (ui::window_or_child_focused() &&
+            !ui::any_item_active() &&
+            ui::modifiers().ctrl && ui::key_repeated(ui::Key::C) &&
             !selected_.empty()) {
             // Collect in order
             std::vector<int> sorted_sel(selected_.begin(), selected_.end());
@@ -157,14 +160,12 @@ void ConsoleSink::draw(const char* title) {
                 if (!clipboard.empty()) clipboard += '\n';
                 clipboard += entries_[i].message;
             }
-            ImGui::SetClipboardText(clipboard.c_str());
+            ui::set_clipboard(clipboard);
         }
 
-        if (auto_scroll_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
-            ImGui::SetScrollHereY(1.0f);
+        if (auto_scroll_ && ui::scroll_y() >= ui::scroll_max_y()) {
+            ui::scroll_to_cursor(1.0f);
         }
-
-        ImGui::EndChild();
     }
 }
 
