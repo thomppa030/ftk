@@ -252,6 +252,13 @@ public:
     /// The newest frame the GPU has finished.
     [[nodiscard]] uint64_t finished_frame() const;
 
+    /// Runs `fn` once the GPU has finished the frame recording now and every
+    /// one before it: for giving back what those frames may still read that
+    /// is no object of the device's, a range of a shared buffer or a slot of
+    /// a table. At teardown it runs while the device waits for the GPU, so
+    /// `fn` reaches nothing that is gone by then.
+    void after_frames(std::move_only_function<void()> fn);
+
     /// Sends the uploads not yet sent and waits until the GPU has finished
     /// everything sent to it. What is released waits for the frames that may
     /// use it on its own; this is for teardown, and for code that has yet to

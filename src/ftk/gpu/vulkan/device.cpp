@@ -737,6 +737,10 @@ void release(Device& device, Texture texture) {
         });
 }
 
+void Device::after_frames(std::move_only_function<void()> fn) {
+    impl_->release_later(std::move(fn));
+}
+
 Upload& Device::upload() {
     if (!impl_->upload) impl_->upload = std::make_unique<Upload>(*this, impl_->upload_state);
     return *impl_->upload;
