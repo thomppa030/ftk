@@ -23,16 +23,38 @@ float segment_width(float width, std::size_t count) {
     return (width - gaps) / static_cast<float>(count);
 }
 
+// Where a drop-down's field goes, taken before ImGui draws it: an open
+// list becomes the current window.
+struct DropdownFace {
+    ImVec2 min;
+    ImVec2 max;
+    ImDrawList* dl;
+};
+
+DropdownFace dropdown_face() {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    return {min, {min.x + ImGui::CalcItemWidth(), min.y + ImGui::GetFrameHeight()}, ImGui::GetWindowDrawList()};
+}
+
+// ImGui's combo draws its preview and a raised arrow box; the kit's is one
+// sunken field with the icon set's chevron inside, drawn over the frame
+// ImGui leaves empty.
+void draw_dropdown_face(const DropdownFace& face, const char* preview) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float chevron = ImGui::GetFrameHeight();
+    const float text_y = face.min.y + style.FramePadding.y;
+    face.dl->PushClipRect(face.min, {face.max.x - chevron, face.max.y}, true);
+    face.dl->AddText({face.min.x + style.FramePadding.x, text_y}, ImGui::GetColorU32(ImGuiCol_Text), preview);
+    face.dl->PopClipRect();
+    const float icon_w = ImGui::CalcTextSize(icon::dropdown).x;
+    face.dl->AddText({face.max.x - chevron + (chevron - icon_w) * 0.5f, text_y},
+                     ImGui::GetColorU32(theme::text_secondary()), icon::dropdown);
+}
+
 } // namespace
 
 Edit combo(const char* id, int& index, std::span<const char* const> names) {
-    // ImGui's combo draws its preview and a raised arrow box; the kit's is
-    // one sunken field with the icon set's chevron inside, drawn over the
-    // frame ImGui leaves empty.
-    const ImVec2 min = ImGui::GetCursorScreenPos();
-    const ImVec2 max{min.x + ImGui::CalcItemWidth(), min.y + ImGui::GetFrameHeight()};
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImGuiStyle& style = ImGui::GetStyle();
+    const DropdownFace face = dropdown_face();
     const bool known = index >= 0 && static_cast<std::size_t>(index) < names.size();
     const std::string before = known ? names[static_cast<std::size_t>(index)] : "";
 
@@ -51,18 +73,7 @@ Edit combo(const char* id, int& index, std::span<const char* const> names) {
     if (edit.committed) {
         detail::track_field(ImGui::GetID(id), before, names[static_cast<std::size_t>(index)], false, edit);
     }
-
-    const float chevron = ImGui::GetFrameHeight();
-    const float text_y = min.y + style.FramePadding.y;
-    dl->PushClipRect(min, {max.x - chevron, max.y}, true);
-    if (known) {
-        dl->AddText({min.x + style.FramePadding.x, text_y}, ImGui::GetColorU32(ImGuiCol_Text),
-                    names[static_cast<std::size_t>(index)]);
-    }
-    dl->PopClipRect();
-    const float icon_w = ImGui::CalcTextSize(icon::dropdown).x;
-    dl->AddText({max.x - chevron + (chevron - icon_w) * 0.5f, text_y},
-                ImGui::GetColorU32(theme::text_secondary()), icon::dropdown);
+    draw_dropdown_face(face, known ? names[static_cast<std::size_t>(index)] : "");
     return edit;
 }
 
@@ -134,3 +145,17 @@ bool fits_segmented(std::span<const char* const> names) {
 }
 
 } // namespace ftk::ui::detail
+
+namespace ftk::ui {
+
+Dropdown::Dropdown(const char* id, const char* preview) {
+    const detail::DropdownFace face = detail::dropdown_face();
+    open_ = ImGui::BeginCombo(id, "", ImGuiComboFlags_NoArrowButton);
+    detail::draw_dropdown_face(face, preview);
+}
+
+Dropdown::~Dropdown() {
+    if (open_) ImGui::EndCombo();
+}
+
+} // namespace ftk::ui

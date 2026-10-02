@@ -277,6 +277,7 @@ ftk_library(app-ui
         ftk/ui/kit/pages.cpp
         ftk/ui/kit/pane.cpp
         ftk/ui/kit/panel.cpp
+        ftk/ui/kit/plot.cpp
         ftk/ui/kit/popup.cpp
         ftk/ui/kit/row.cpp
         ftk/ui/kit/save_bar.cpp
@@ -288,6 +289,7 @@ ftk_library(app-ui
         ftk/ui/kit/state.cpp
         ftk/ui/kit/status_bar.cpp
         ftk/ui/kit/strip.cpp
+        ftk/ui/kit/table.cpp
         ftk/ui/kit/tabs.cpp
         ftk/ui/kit/text.cpp
         ftk/ui/kit/text_field.cpp
@@ -332,6 +334,7 @@ ftk_library(app-ui
         ftk/ui/kit/overlay.hpp
         ftk/ui/kit/pages.hpp
         ftk/ui/kit/pane.hpp
+        ftk/ui/kit/plot.hpp
         ftk/ui/kit/popup.hpp
         ftk/ui/kit/panel.hpp
         ftk/ui/kit/row.hpp
@@ -344,6 +347,7 @@ ftk_library(app-ui
         ftk/ui/kit/state.hpp
         ftk/ui/kit/status_bar.hpp
         ftk/ui/kit/strip.hpp
+        ftk/ui/kit/table.hpp
         ftk/ui/kit/tabs.hpp
         ftk/ui/kit/text.hpp
         ftk/ui/kit/text_field.hpp

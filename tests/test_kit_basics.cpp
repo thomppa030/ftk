@@ -1,16 +1,19 @@
 #include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/kit/plot.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/state.hpp"
+#include "ftk/ui/kit/table.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
@@ -18,6 +21,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui.h>
+
+#include <array>
+#include <vector>
 
 using ftk::test::ImGuiHarness;
 namespace ui = ftk::ui;
@@ -418,4 +424,131 @@ TEST_CASE("A region is its own size and scrolls with the wheel unless told not t
     h.wheel(centre(h, "lanes"), -3.0f);
     h.step(2);
     CHECK(lanes_scroll == 0.0f);
+}
+
+TEST_CASE("A table's rows go under its headers, and a click on a header sorts by it", "[ui][kit]") {
+    ImGuiHarness h;
+    static constexpr ui::Column COLUMNS[] = {
+        {.name = "Name", .default_sort = true},
+        {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
+    };
+    std::vector<ui::TableSort> sorts;
+    h.set_ui([&] {
+        if (auto table = ui::Table("##files", COLUMNS, {.sortable = true, .scroll = true})) {
+            ui::table_headers();
+            if (auto sort = ui::table_sort_changed()) sorts.push_back(*sort);
+            for (int i = 0; i < 3; ++i) {
+                ui::IdScope row(i);
+                ui::table_next_row();
+                ui::table_next_column();
+                ui::text("terrain.fjmesh");
+                h.mark("name" + std::to_string(i));
+                ui::table_next_column();
+                ui::text("12 KB");
+                h.mark("size" + std::to_string(i));
+            }
+        }
+    });
+    h.step(2);
+    REQUIRE(sorts.size() == 1);
+    CHECK(sorts[0].column == 0);
+    CHECK(sorts[0].ascending);
+    CHECK(h.rect_min("size0").x > h.rect_max("name0").x);
+    CHECK(h.rect_min("name1").y > h.rect_min("name0").y);
+    CHECK(h.rect_min("name1").x == h.rect_min("name0").x);
+
+    // The headers are a row above the first; the size column's is clicked.
+    const ImVec2 size_header{h.rect_min("size0").x + 10.0f, h.rect_min("size0").y - 8.0f};
+    h.click_at(size_header);
+    REQUIRE(sorts.size() == 2);
+    CHECK(sorts[1].column == 1);
+    CHECK(sorts[1].ascending);
+    h.click_at(size_header);
+    REQUIRE(sorts.size() == 3);
+    CHECK(sorts[2].column == 1);
+    CHECK_FALSE(sorts[2].ascending);
+}
+
+TEST_CASE("A plot is an item the size it is given", "[ui][kit]") {
+    ImGuiHarness h;
+    const std::array<float, 4> history{1.0f, 3.0f, 2.0f, 5.0f};
+    glm::vec2 size{};
+    h.set_ui([&] {
+        ui::plot_lines("##frame", history, 1, {200.0f, 35.0f}, {.max = 33.3f});
+        size = ui::item_max() - ui::item_min();
+    });
+    h.step(2);
+    CHECK(size == glm::vec2{200.0f, 35.0f});
+}
+
+TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {
+    ImGuiHarness h;
+    int picked = -1;
+    bool any_open = false;
+    float width = 0.0f;
+    h.set_ui([&] {
+        {
+            ui::next_width(160.0f);
+            ui::Dropdown list("##event", "Pick an event...");
+            if (!list) {
+                h.mark("dropdown");
+                width = ui::item_max().x - ui::item_min().x;
+            }
+            if (list) {
+                for (int i = 0; i < 2; ++i) {
+                    ui::IdScope entry(i);
+                    if (ui::selectable(i == 0 ? "Storm" : "Fog", false)) picked = i;
+                    h.mark("entry" + std::to_string(i));
+                }
+            }
+        }
+        any_open = ui::any_popup_open();
+    });
+    h.step(2);
+    CHECK(width == 160.0f);
+    CHECK_FALSE(any_open);
+    h.click("dropdown");
+    h.step();
+    CHECK(any_open);
+    h.click("entry1");
+    h.step();
+    CHECK(picked == 1);
+    CHECK_FALSE(any_open);
+}
+
+TEST_CASE("A menu on the bar opens on a click and runs its entries", "[ui][kit]") {
+    ImGuiHarness h;
+    int saved = 0;
+    h.set_ui([&] {
+        if (auto bar = ui::MenuBar()) {
+            const bool open = ui::begin_bar_menu("File");
+            if (!open) h.mark("file");
+            if (open) {
+                if (ui::menu_item({.label = "Save scene", .shortcut = "Ctrl S"})) ++saved;
+                h.mark("save");
+                ui::end_menu();
+            }
+        }
+    });
+    h.step(2);
+    h.click("file");
+    h.step();
+    h.click("save");
+    h.step();
+    CHECK(saved == 1);
+}
+
+TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
+    ImGuiHarness h;
+    int stops = 0;
+    float height = 0.0f;
+    h.set_ui([&] {
+        if (ui::small_button("Stop")) ++stops;
+        h.mark("stop");
+        height = ui::item_max().y - ui::item_min().y;
+    });
+    h.step(2);
+    CHECK(height == ui::line_height());
+    h.click("stop");
+    CHECK(stops == 1);
 }

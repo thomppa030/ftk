@@ -19,6 +19,10 @@ enum class ButtonKind {
 /// fills the row. Returns true when clicked.
 bool button(const char* label, ButtonKind kind = ButtonKind::Secondary, glm::vec2 size = {0.0f, 0.0f});
 
+/// A button as tall as a line of text, for the line it sits in ("Stop",
+/// "Replay" after a status). Returns true when clicked.
+bool small_button(const char* label);
+
 /// A button that does something to what it sits beside ("Fit to mesh",
 /// "Create material"): its icon from ui::icon, then the verb in sentence
 /// case. Secondary unless the action destroys something (GhostDanger). A

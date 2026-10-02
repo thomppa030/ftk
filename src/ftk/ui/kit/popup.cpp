@@ -12,6 +12,10 @@ bool popup_open(const char* id) {
     return ImGui::IsPopupOpen(id);
 }
 
+bool any_popup_open() {
+    return ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+}
+
 void close_popup() {
     ImGui::CloseCurrentPopup();
 }

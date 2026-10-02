@@ -113,4 +113,14 @@ void end_menu() {
     ImGui::EndMenu();
 }
 
+MenuBar::MenuBar() : open_{ImGui::BeginMainMenuBar()} {}
+
+MenuBar::~MenuBar() {
+    if (open_) ImGui::EndMainMenuBar();
+}
+
+bool begin_bar_menu(const char* label) {
+    return ImGui::BeginMenu(label);
+}
+
 } // namespace ftk::ui

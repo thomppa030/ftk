@@ -103,6 +103,10 @@ bool button(const char* label, ButtonKind kind, glm::vec2 size) {
     return draw(label, look_of(kind), size);
 }
 
+bool small_button(const char* label) {
+    return ImGui::SmallButton(label);
+}
+
 bool action(const char* icon, const char* label, ButtonKind kind, glm::vec2 size) {
     const std::string text = std::string(icon) + "  " + label;
     return draw(text.c_str(), look_of(kind), size);

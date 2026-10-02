@@ -33,8 +33,11 @@ void ImGuiHarness::step(int count) {
         ImGui::NewFrame();
         ImGui::SetNextWindowPos({0.0f, 0.0f});
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        // The harness is the background, as a dock host is: a window of
+        // its own, such as the main menu bar, stays over it.
         ImGui::Begin("##harness", nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoBringToFrontOnFocus);
         if (ui_) ui_();
         ImGui::End();
         ImGui::Render();

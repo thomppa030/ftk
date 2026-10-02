@@ -85,6 +85,30 @@ inline Edit choice(const char* id, int& index, std::span<const char* const> name
                                          : detail::combo(id, index, names);
 }
 
+/// A drop-down whose list the caller draws, for entries that are more than
+/// names: the field shows `preview`, and while this is true the list is
+/// open and its entries (ui::selectable) go inside the scope.
+///
+///     if (auto list = ui::Dropdown("##event", "Pick an event...")) {
+///         for (const Event& event : events) {
+///             if (ui::selectable(event.name, false)) play(event);
+///         }
+///     }
+class Dropdown {
+public:
+    Dropdown(const char* id, const char* preview);
+    ~Dropdown();
+    Dropdown(const Dropdown&) = delete;
+    Dropdown& operator=(const Dropdown&) = delete;
+    Dropdown(Dropdown&&) = delete;
+    Dropdown& operator=(Dropdown&&) = delete;
+
+    explicit operator bool() const { return open_; }
+
+private:
+    bool open_{false};
+};
+
 // Name tables are arrays; these take them without spelling out a span.
 template <typename E, std::size_t N>
 Edit combo(const char* id, E& value, const Choice<E> (&choices)[N]) {

@@ -20,6 +20,9 @@ void open_popup(const char* id);
 /// Whether the popup `id` is open.
 [[nodiscard]] bool popup_open(const char* id);
 
+/// Whether any popup is open: a menu, a picker or a dialog.
+[[nodiscard]] bool any_popup_open();
+
 /// Closes the popup being drawn: one of its entries was chosen.
 void close_popup();
 

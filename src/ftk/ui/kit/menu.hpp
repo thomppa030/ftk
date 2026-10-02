@@ -32,7 +32,35 @@ void menu_heading(const char* label);
 /// calls end_menu().
 bool begin_menu(const char* icon, const char* label, bool enabled = true);
 
-/// Ends a submenu begin_menu() opened.
+/// Ends a submenu begin_menu() or a menu begin_bar_menu() opened.
 void end_menu();
+
+/// The bar of menus across the top of the program's window. Its menus go
+/// inside the scope while this is true.
+///
+///     if (auto bar = ui::MenuBar()) {
+///         if (ui::begin_bar_menu("File")) {
+///             if (ui::menu_item({.label = "Save scene", .shortcut = "Ctrl S"})) save();
+///             ui::end_menu();
+///         }
+///     }
+class MenuBar {
+public:
+    MenuBar();
+    ~MenuBar();
+    MenuBar(const MenuBar&) = delete;
+    MenuBar& operator=(const MenuBar&) = delete;
+    MenuBar(MenuBar&&) = delete;
+    MenuBar& operator=(MenuBar&&) = delete;
+
+    explicit operator bool() const { return open_; }
+
+private:
+    bool open_{false};
+};
+
+/// A menu on the bar, by its name ("File"). Returns true while it is open;
+/// the caller then draws its entries and calls end_menu().
+bool begin_bar_menu(const char* label);
 
 } // namespace ftk::ui
