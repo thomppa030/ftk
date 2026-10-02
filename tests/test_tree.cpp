@@ -4,8 +4,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <cfloat>
 #include <optional>
 #include <string>
+#include <utility>
 
 using ftk::test::ImGuiHarness;
 namespace ui = ftk::ui;
@@ -195,4 +198,57 @@ TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     h.step(2);
     CHECK_FALSE(folded_open);
     CHECK(default_open);
+}
+
+namespace {
+
+// Where the glyphs drawn in `colour` lie across the band of `min`..`max`:
+// the font atlas's vertices, not the white pixel's.
+std::pair<float, float> glyphs_across(ImVec2 min, ImVec2 max, ImU32 colour) {
+    const ImVec2 white = ImGui::GetIO().Fonts->TexUvWhitePixel;
+    float lo = FLT_MAX;
+    float hi = -FLT_MAX;
+    for (const ImDrawList* list : ImGui::GetDrawData()->CmdLists) {
+        for (const ImDrawVert& v : list->VtxBuffer) {
+            if ((v.uv.x == white.x && v.uv.y == white.y) || v.col != colour) continue;
+            if (v.pos.y < min.y || v.pos.y > max.y) continue;
+            lo = std::min(lo, v.pos.x);
+            hi = std::max(hi, v.pos.x);
+        }
+    }
+    return {lo, hi};
+}
+
+} // namespace
+
+TEST_CASE("A row's tag sits at its end in the quiet colour, and a long name stops before it", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        // As narrow as a docked hierarchy gets.
+        ImGui::BeginChild("##panel", {240.0f, 120.0f});
+        if (auto tree = ui::Tree("##tree")) {
+            (void)ui::tree_row({.id = "1", .name = "managers", .tag = "persistent"});
+            h.mark("short");
+            (void)ui::tree_row({.id = "2", .name = "the far side of the northern harbour", .tag = "persistent"});
+            h.mark("long");
+        }
+        ImGui::EndChild();
+    });
+    h.step(2);
+
+    const ImU32 quiet = ImGui::GetColorU32(theme::text_disabled());
+    const ImU32 name = ImGui::GetColorU32(theme::text());
+    for (const char* row : {"short", "long"}) {
+        INFO(row);
+        const ImVec2 min = h.rect_min(row);
+        const ImVec2 max = h.rect_max(row);
+        const auto [tag_lo, tag_hi] = glyphs_across(min, max, quiet);
+        const auto [name_lo, name_hi] = glyphs_across(min, max, name);
+        REQUIRE(tag_lo < tag_hi);
+        REQUIRE(name_lo < name_hi);
+        // At the row's right end, inside it.
+        CHECK(tag_hi <= max.x);
+        CHECK(tag_hi > max.x - 16.0f);
+        CHECK(name_hi < tag_lo);
+    }
 }

@@ -165,7 +165,20 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
         dot_x += DOT + DOT_GAP;
     }
 
-    const float name_right = max.x - ROW_PAD - dots_w;
+    // The tag before the dots, at the small size, centred on the row's text.
+    float tag_w = 0.0f;
+    if (!spec.tag.empty()) {
+        const char* tag = spec.tag.data();
+        const char* tag_end = tag + spec.tag.size();
+        const float size = ImGui::GetFontSize() * theme::SMALL_TEXT / theme::BODY_TEXT;
+        const float w = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, tag, tag_end).x;
+        dl->AddText(ImGui::GetFont(), size,
+                    {max.x - ROW_PAD - dots_w - w, std::floor(text_y + (ImGui::GetFontSize() - size) * 0.5f)},
+                    ImGui::GetColorU32(theme::text_disabled()), tag, tag_end);
+        tag_w = w + PART_GAP;
+    }
+
+    const float name_right = max.x - ROW_PAD - dots_w - tag_w;
     const char* name = spec.name.data();
     const char* name_end = name + spec.name.size();
     const float name_w = ImGui::CalcTextSize(name, name_end).x;

@@ -68,6 +68,10 @@ struct TreeRowSpec {
     std::optional<Color> tint{};
     /// One dot per hue composed onto the node, in this order.
     std::span<const theme::Hue> dots{};
+    /// A quiet word at the row's end, before the dots, small and in the
+    /// disabled text colour: what kind of row it is ("persistent" on a
+    /// scene's). A long name stops short of it.
+    std::string_view tag{};
     RowSelection selection{RowSelection::None};
     /// The search being shown: the match in the name is amber. A row kept
     /// only because something under it matches is `dimmed`.
