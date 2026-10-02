@@ -259,12 +259,14 @@ add_library(ftk::harfbuzz ALIAS ftk-harfbuzz)
 # HarfBuzz stay inside it.
 ftk_library(text
     SOURCES
+        ftk/text/atlas.cpp
         ftk/text/face.cpp
         ftk/text/font_chain.cpp
         ftk/text/line_break.cpp
         ftk/text/shape.cpp
         ftk/text/system_fallback.cpp
     HEADERS
+        ftk/text/atlas.hpp
         ftk/text/detail/face_impl.hpp
         ftk/text/face.hpp
         ftk/text/font_chain.hpp

@@ -17,6 +17,11 @@ namespace {
 struct FcConfig;
 struct FcPattern;
 struct FcCharSet;
+struct FcFontSet {
+    int nfont;
+    int sfont;
+    FcPattern** fonts;
+};
 using FcChar8 = unsigned char;
 using FcChar32 = unsigned int;
 using FcBool = int;
@@ -39,7 +44,8 @@ struct Fontconfig {
     FcBool (*pattern_add_bool)(FcPattern*, const char*, FcBool){nullptr};
     FcBool (*config_substitute)(FcConfig*, FcPattern*, FcMatchKind){nullptr};
     void (*default_substitute)(FcPattern*){nullptr};
-    FcPattern* (*font_match)(FcConfig*, FcPattern*, FcResult*){nullptr};
+    FcFontSet* (*font_sort)(FcConfig*, FcPattern*, FcBool, FcCharSet**, FcResult*){nullptr};
+    void (*font_set_destroy)(FcFontSet*){nullptr};
     FcResult (*pattern_get_string)(const FcPattern*, const char*, int, FcChar8**){nullptr};
     FcResult (*pattern_get_integer)(const FcPattern*, const char*, int, int*){nullptr};
     FcResult (*pattern_get_charset)(const FcPattern*, const char*, int, FcCharSet**){nullptr};
@@ -65,7 +71,8 @@ struct Fontconfig {
         find(pattern_add_bool, "FcPatternAddBool");
         find(config_substitute, "FcConfigSubstitute");
         find(default_substitute, "FcDefaultSubstitute");
-        find(font_match, "FcFontMatch");
+        find(font_sort, "FcFontSort");
+        find(font_set_destroy, "FcFontSetDestroy");
         find(pattern_get_string, "FcPatternGetString");
         find(pattern_get_integer, "FcPatternGetInteger");
         find(pattern_get_charset, "FcPatternGetCharSet");
@@ -108,21 +115,28 @@ std::optional<FontFile> fallback_font(char32_t codepoint, std::string_view langu
     fc->config_substitute(fc->config, pattern, FcMatchPattern);
     fc->default_substitute(pattern);
 
-    // fontconfig always names its best font, so it is checked to draw the
-    // character before it is taken.
+    // fontconfig's fonts best first: the first that draws the character and
+    // is a file ftk's FreeType reads is taken. FreeType is built without
+    // compressed fonts, so WOFF and WOFF2 files are passed over.
     std::optional<FontFile> found;
     FcResult result = FcResultMatch;
-    if (FcPattern* match = fc->font_match(fc->config, pattern, &result)) {
-        FcCharSet* covered = nullptr;
-        FcChar8* file = nullptr;
-        int index = 0;
-        if (fc->pattern_get_charset(match, "charset", 0, &covered) == FcResultMatch &&
-            fc->charset_has_char(covered, codepoint) != 0 &&
-            fc->pattern_get_string(match, "file", 0, &file) == FcResultMatch) {
-            fc->pattern_get_integer(match, "index", 0, &index);
-            found = FontFile{.path = reinterpret_cast<const char*>(file), .index = static_cast<uint32_t>(index)};
+    if (FcFontSet* fonts = fc->font_sort(fc->config, pattern, 1, nullptr, &result)) {
+        for (int i = 0; i < fonts->nfont && !found; ++i) {
+            FcPattern* font = fonts->fonts[i];
+            FcCharSet* covered = nullptr;
+            FcChar8* file = nullptr;
+            int index = 0;
+            if (fc->pattern_get_charset(font, "charset", 0, &covered) != FcResultMatch ||
+                fc->charset_has_char(covered, codepoint) == 0 ||
+                fc->pattern_get_string(font, "file", 0, &file) != FcResultMatch) {
+                continue;
+            }
+            const std::filesystem::path path = reinterpret_cast<const char*>(file);
+            if (path.extension() == ".woff" || path.extension() == ".woff2") continue;
+            fc->pattern_get_integer(font, "index", 0, &index);
+            found = FontFile{.path = path, .index = static_cast<uint32_t>(index)};
         }
-        fc->pattern_destroy(match);
+        fc->font_set_destroy(fonts);
     }
     fc->pattern_destroy(pattern);
     fc->charset_destroy(wanted);

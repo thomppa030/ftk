@@ -54,6 +54,7 @@ add_executable(ftk-tests
     test_slot.cpp
     test_small_vector.cpp
     test_status_bar.cpp
+    test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp
     test_text_field.cpp
@@ -130,6 +131,14 @@ ftk_library_link_check(gpu NEEDS_GPU)
 add_dependencies(ftk-link-gpu ftk-tests_shaders)
 target_compile_definitions(ftk-link-gpu PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 ftk_library_link_check(app NEEDS_GPU)
+
+# --- Text sample ---
+# Draws text through ftk-text alone into a PNG, to look at before the UI core
+# draws text on screen. Built with the tests, run by hand.
+add_executable(ftk-text-sample text_sample.cpp)
+target_link_libraries(ftk-text-sample PRIVATE ftk::text ftk::image)
+target_compile_definitions(ftk-text-sample PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
+ftk_target_defaults(ftk-text-sample)
 
 # --- Benchmarks ---
 # Programs that time part of the GPU interface on a real GPU against the same
