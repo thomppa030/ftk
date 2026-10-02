@@ -403,6 +403,11 @@ add_library(ftk-imgui-headless STATIC
     ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
 )
 target_include_directories(ftk-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
+# ftk's ImGui configuration (src/ftk/imgui_config.hpp): ImGui's vectors and
+# glm's convert both ways, for ImGui and for every file that includes it.
+target_include_directories(ftk-imgui-headless PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_compile_definitions(ftk-imgui-headless PUBLIC "IMGUI_USER_CONFIG=\"ftk/imgui_config.hpp\"")
+target_link_libraries(ftk-imgui-headless PUBLIC glm::glm)
 add_library(ftk::imgui-headless ALIAS ftk-imgui-headless)
 
 add_library(ftk-imgui STATIC
