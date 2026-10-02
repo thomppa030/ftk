@@ -1,6 +1,7 @@
 # What ftk's libraries need, fetched whether ftk is built on its own or as
-# part of a program: windowing, maths, logging, JSON, stb, the patched Dear
-# ImGui, Vulkan with VMA, and Tracy when it is switched on. Fjell's libraries
+# part of a program: windowing, maths, logging, JSON, stb, FreeType and
+# HarfBuzz for text, the patched Dear ImGui, Vulkan with VMA, and Tracy when
+# it is switched on. Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
 
@@ -97,7 +98,35 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy)
+# FreeType reads font files and rasterizes their glyphs (ftk-text, and the
+# engine's MSDF baker). Only plain TrueType and OpenType are read: no
+# compressed fonts, PNG colour glyphs or Brotli-packed WOFF2, and FreeType's
+# own HarfBuzz hook for its auto-hinter stays off.
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG        VER-2-13-3
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
+# HarfBuzz shapes text (ftk-text). Consumed as plain sources: its single-file
+# build (src/harfbuzz.cc) is compiled into ftk-harfbuzz in src/libraries.cmake,
+# with none of its optional links (glib, ICU, graphite, cairo, FreeType).
+FetchContent_Declare(
+    harfbuzz
+    GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git
+    GIT_TAG        14.5.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake-here
+)
+
+FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz)
 
 # Consumed as plain sources: its files are compiled straight into the ImGui
 # targets in src/libraries.cmake, so it is fetched but never added as a

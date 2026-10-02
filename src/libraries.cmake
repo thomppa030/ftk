@@ -237,6 +237,31 @@ if(NOT MSVC)
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/ftk/image/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
 endif()
 
+# HarfBuzz from its single-file build, with its own OpenType font functions
+# and none of its optional links. Warnings are off: the code is third-party.
+add_library(ftk-harfbuzz STATIC ${harfbuzz_SOURCE_DIR}/src/harfbuzz.cc)
+target_include_directories(ftk-harfbuzz SYSTEM PUBLIC ${harfbuzz_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(ftk-harfbuzz PRIVATE /w /bigobj)
+else()
+    target_compile_options(ftk-harfbuzz PRIVATE -w)
+endif()
+add_library(ftk::harfbuzz ALIAS ftk-harfbuzz)
+
+# ftk-text turns strings into positioned glyphs and glyphs into pixels:
+# font faces through FreeType, shaping through HarfBuzz. FreeType and
+# HarfBuzz stay inside it.
+ftk_library(text
+    SOURCES
+        ftk/text/face.cpp
+    HEADERS
+        ftk/text/detail/face_impl.hpp
+        ftk/text/face.hpp
+    LINKS
+        PUBLIC ftk::base
+        PRIVATE freetype ftk::harfbuzz
+)
+
 # ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
 # the icons and every widget of the kit, on ImGui's core alone, so it draws
 # headless in the unit tests and in any window a program brings.

@@ -54,6 +54,7 @@ add_executable(ftk-tests
     test_slot.cpp
     test_small_vector.cpp
     test_status_bar.cpp
+    test_text_face.cpp
     test_text_field.cpp
     test_theme.cpp
     test_thread_pool.cpp
@@ -70,6 +71,7 @@ target_link_libraries(ftk-tests PRIVATE
     ftk::math
     ftk::platform
     ftk::shader
+    ftk::text
     Catch2::Catch2WithMain
 )
 # The Vulkan backend's own tests (test_vulkan_*.cpp) read its headers.
@@ -77,6 +79,8 @@ target_link_libraries(ftk-tests PRIVATE Vulkan::Headers)
 # Tests that read SPIR-V compile shaders of their own from shaders/.
 ftk_compile_shaders(ftk-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 target_compile_definitions(ftk-tests PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
+# The text tests read ftk's own fonts.
+target_compile_definitions(ftk-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
 ftk_target_defaults(ftk-tests)
 ftk_delay_load_vulkan(ftk-tests)
 # Keeps only the shared libraries something references. The backend the
@@ -115,6 +119,7 @@ ftk_library_link_check(framegraph)
 ftk_delay_load_vulkan(ftk-link-framegraph)
 ftk_library_link_check(shader)
 ftk_library_link_check(image)
+ftk_library_link_check(text)
 ftk_library_link_check(app-ui)
 ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
