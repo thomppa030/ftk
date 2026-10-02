@@ -78,4 +78,12 @@ void settings_changed() {
     ImGui::MarkIniSettingsDirty();
 }
 
+void save_settings_file(const std::string& path) {
+    ImGui::SaveIniSettingsToDisk(path.c_str());
+}
+
+void load_settings_file(const std::string& path) {
+    ImGui::LoadIniSettingsFromDisk(path.c_str());
+}
+
 } // namespace ftk::ui

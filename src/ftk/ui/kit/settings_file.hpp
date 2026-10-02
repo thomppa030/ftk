@@ -45,4 +45,12 @@ void add_settings_section(SettingsSection section);
 /// A setting kept in a section changed: the file is saved soon after.
 void settings_changed();
 
+/// Writes everything the settings file holds, panels and sections, to
+/// `path` now: a named layout.
+void save_settings_file(const std::string& path);
+
+/// Reads `path` as the settings file, as a named layout is loaded: the
+/// windows take the places it gives them as they are next drawn.
+void load_settings_file(const std::string& path);
+
 } // namespace ftk::ui

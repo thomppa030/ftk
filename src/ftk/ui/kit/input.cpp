@@ -72,6 +72,22 @@ bool typing() {
     return ImGui::GetIO().WantTextInput;
 }
 
+bool any_key_pressed() {
+    for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
+        if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false)) return true;
+    }
+    return false;
+}
+
+void set_keyboard_ignored(bool ignored) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (ignored) {
+        io.ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
+    } else {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoKeyboard;
+    }
+}
+
 void set_clipboard(const std::string& text) {
     ImGui::SetClipboardText(text.c_str());
 }
@@ -99,6 +115,13 @@ bool mouse_released(MouseButton button) {
 
 bool mouse_dragging(MouseButton button) {
     return ImGui::IsMouseDragging(imgui(button), 0.0f);
+}
+
+bool any_mouse_released() {
+    for (int button = 0; button < ImGuiMouseButton_COUNT; ++button) {
+        if (ImGui::IsMouseReleased(button)) return true;
+    }
+    return false;
 }
 
 void set_mouse_cursor(MouseCursor cursor) {

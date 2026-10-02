@@ -258,6 +258,7 @@ ftk_library(app-ui
         ftk/ui/kit/component_block.cpp
         ftk/ui/kit/curve_editor.cpp
         ftk/ui/kit/dialog.cpp
+        ftk/ui/kit/dock.cpp
         ftk/ui/kit/drag_drop.cpp
         ftk/ui/kit/edit_record.cpp
         ftk/ui/kit/feedback.cpp
@@ -316,6 +317,7 @@ ftk_library(app-ui
         ftk/ui/kit/component_block.hpp
         ftk/ui/kit/curve_editor.hpp
         ftk/ui/kit/dialog.hpp
+        ftk/ui/kit/dock.hpp
         ftk/ui/kit/drag_drop.hpp
         ftk/ui/kit/edit.hpp
         ftk/ui/kit/edit_record.hpp

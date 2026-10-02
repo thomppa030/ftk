@@ -113,4 +113,24 @@ ContextTabBar::~ContextTabBar() {
     ImGui::End();
 }
 
+DocumentTabs::DocumentTabs(const char* id) : open_{ImGui::BeginTabBar(id, ImGuiTabBarFlags_Reorderable)} {}
+
+DocumentTabs::~DocumentTabs() {
+    if (open_) ImGui::EndTabBar();
+}
+
+DocumentTabResult document_tab(const DocumentTab& tab) {
+    ImGuiTabItemFlags flags = ImGuiTabItemFlags_None;
+    if (tab.select) flags |= ImGuiTabItemFlags_SetSelected;
+    if (tab.unsaved) flags |= ImGuiTabItemFlags_UnsavedDocument;
+    bool open = true;
+    DocumentTabResult result;
+    if (ImGui::BeginTabItem(tab.label, tab.closable ? &open : nullptr, flags)) {
+        result.front = true;
+        ImGui::EndTabItem();
+    }
+    result.closed = tab.closable && !open;
+    return result;
+}
+
 } // namespace ftk::ui

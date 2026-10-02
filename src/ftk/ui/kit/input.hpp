@@ -41,6 +41,13 @@ struct Modifiers {
 /// A text field has the keyboard: keys are its, not shortcuts.
 [[nodiscard]] bool typing();
 
+/// Some key went down this frame, any of them.
+[[nodiscard]] bool any_key_pressed();
+
+/// While true the UI takes no keys at all, as when a game being played has
+/// them; key_pressed() and the rest stay false.
+void set_keyboard_ignored(bool ignored);
+
 /// Puts `text` on the system clipboard, as a copy does.
 void set_clipboard(const std::string& text);
 
@@ -59,6 +66,8 @@ enum class MouseButton : uint8_t { Left, Right, Middle };
 [[nodiscard]] bool mouse_released(MouseButton button);
 /// `button` is held and the mouse has moved since it went down.
 [[nodiscard]] bool mouse_dragging(MouseButton button);
+/// Some mouse button came up this frame, any of them.
+[[nodiscard]] bool any_mouse_released();
 
 /// The shapes the mouse pointer takes.
 enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS };
