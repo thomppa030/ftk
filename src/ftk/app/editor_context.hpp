@@ -63,12 +63,12 @@ public:
     /// calls this rather than draw().
     void draw_frame(float dt);
 
-    // Build default dockspace layout for this context (called within
-    // DockBuilder block): the preset's, unless the context lays out its own.
+    // Build default dockspace layout for this context (called within a
+    // ui::DockBuild): the preset's, unless the context lays out its own.
     virtual void setup_dockspace(ui::Id main_area);
 
     /// The editor's own actions in the header (open the shader, play in the
-    /// scene), each drawn after ImGui::SameLine(). None by default.
+    /// scene), each drawn after ui::same_line(). None by default.
     virtual void draw_header_actions() {}
 
     // Handle context-specific shortcuts. Return true if consumed.

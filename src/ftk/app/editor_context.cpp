@@ -2,12 +2,13 @@
 #include "ftk/app/console.hpp"
 #include "ftk/ui/kit/asset_header.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
+#include "ftk/ui/kit/dock.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
+#include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/base/log.hpp"
 
 #include <filesystem>
-
-#include <imgui_internal.h>
 
 namespace ftk {
 
@@ -29,13 +30,7 @@ constexpr double UNSAVED_RECHECK = 0.25;
 // Whether this frame could have finished an edit made without holding an
 // item: a click released, a key pressed (Delete, Enter), a drop.
 bool input_finished_something() {
-    for (int b = 0; b < ImGuiMouseButton_COUNT; ++b) {
-        if (ImGui::IsMouseReleased(b)) return true;
-    }
-    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
-        if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) return true;
-    }
-    return false;
+    return ui::any_mouse_released() || ui::any_key_pressed();
 }
 
 } // namespace
@@ -46,7 +41,7 @@ void EditorContext::draw_frame(float dt) {
     draw(dt);
     ui::edit_scope({});
 
-    const bool editing = ImGui::IsAnyItemActive();
+    const bool editing = ui::any_item_active();
     const bool finished = !editing && input_finished_something();
     std::string what = std::string("Edit ") + name();
     if (finished || !editing) {
@@ -71,12 +66,12 @@ Result<> EditorContext::save() {
     save_error_.clear();
     saved_document_ = document();
     unsaved_ = false;
-    unsaved_checked_at_ = ImGui::GetTime();
+    unsaved_checked_at_ = ui::seconds();
     return {};
 }
 
 bool EditorContext::has_unsaved_changes() const {
-    const double now = ImGui::GetTime();
+    const double now = ui::seconds();
     if (unsaved_checked_at_ < 0.0 || now - unsaved_checked_at_ >= UNSAVED_RECHECK) {
         unsaved_ = document() != saved_document_;
         unsaved_checked_at_ = now;
@@ -153,35 +148,40 @@ std::vector<std::string> EditorContext::docked_window_names() const {
     return names;
 }
 
-void EditorContext::setup_dockspace(ImGuiID main_area) {
+void EditorContext::setup_dockspace(ui::Id main_area) {
     const DockPreset preset = dock_preset();
     // Columns first (tree, inspector), then the rows of the middle one:
-    // the bottom tabs, then what sits under the preview.
-    ImGuiID centre = main_area;
-    ImGuiID tree = 0;
-    ImGuiID inspector = 0;
-    ImGuiID under = 0;
-    ImGuiID bottom = 0;
+    // the bottom tabs, then what sits under the preview. Each split leaves
+    // the middle with the rest.
+    ui::Id centre = main_area;
+    ui::Id tree = 0;
+    ui::Id inspector = 0;
+    ui::Id under = 0;
+    const auto split = [&](ui::DockSide side, float ratio) {
+        const ui::DockSplit parts = ui::split_dock(centre, side, ratio);
+        centre = parts.rest;
+        return parts.side;
+    };
     if (!preset.tree.empty()) {
-        tree = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22f, nullptr, &centre);
+        tree = split(ui::DockSide::Left, 0.22f);
     }
     if (!preset.inspector.empty()) {
         const float share = preset.tree.empty() ? 0.29f : 0.33f;
-        inspector = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, share, nullptr, &centre);
+        inspector = split(ui::DockSide::Right, share);
     }
-    bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.27f, nullptr, &centre);
+    const ui::Id bottom = split(ui::DockSide::Bottom, 0.27f);
     if (!preset.under_preview.empty()) {
-        under = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.38f, nullptr, &centre);
+        under = split(ui::DockSide::Bottom, 0.38f);
     }
 
-    auto dock = [&](const std::vector<std::string>& names, ImGuiID node) {
-        for (const auto& name : names) ImGui::DockBuilderDockWindow(ctx_title(name.c_str()).c_str(), node);
+    auto dock = [&](const std::vector<std::string>& names, ui::Id node) {
+        for (const auto& name : names) ui::dock_window(ctx_title(name.c_str()), node);
     };
     dock(preset.tree, tree);
     dock(preset.preview, centre);
     dock(preset.under_preview, under);
     dock(preset.inspector, inspector);
-    for (const auto& name : bottom_tabs()) ImGui::DockBuilderDockWindow(ctx_title(name.c_str()).c_str(), bottom);
+    dock(bottom_tabs(), bottom);
 }
 
 } // namespace ftk
