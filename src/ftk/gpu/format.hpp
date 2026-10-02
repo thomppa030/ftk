@@ -25,6 +25,7 @@ enum class Format : uint8_t {
     r32_float,
     r16_uint,
     r32_uint,
+    rg8_uint,
     rgba32_float,
     d32_float,
     d32_float_s8_uint,
@@ -50,6 +51,7 @@ enum class FormatKind : uint8_t {
             return FormatKind::none;
         case Format::r16_uint:
         case Format::r32_uint:
+        case Format::rg8_uint:
             return FormatKind::color_uint;
         case Format::d32_float:
             return FormatKind::depth;
@@ -88,6 +90,7 @@ enum class FormatKind : uint8_t {
         case Format::r16_unorm:
         case Format::r16_float:
         case Format::r16_uint:
+        case Format::rg8_uint:
             return 2;
         case Format::rgba8_unorm:
         case Format::rgba8_srgb:

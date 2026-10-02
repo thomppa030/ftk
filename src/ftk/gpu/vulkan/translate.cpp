@@ -24,6 +24,7 @@ VkFormat to_vk(Format format) {
         case Format::r32_float:         return VK_FORMAT_R32_SFLOAT;
         case Format::r16_uint:          return VK_FORMAT_R16_UINT;
         case Format::r32_uint:          return VK_FORMAT_R32_UINT;
+        case Format::rg8_uint:          return VK_FORMAT_R8G8_UINT;
         case Format::rgba32_float:      return VK_FORMAT_R32G32B32A32_SFLOAT;
         case Format::d32_float:         return VK_FORMAT_D32_SFLOAT;
         case Format::d32_float_s8_uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -48,6 +49,7 @@ Format from_vk(VkFormat format) {
         case VK_FORMAT_R32_SFLOAT:          return Format::r32_float;
         case VK_FORMAT_R16_UINT:            return Format::r16_uint;
         case VK_FORMAT_R32_UINT:            return Format::r32_uint;
+        case VK_FORMAT_R8G8_UINT:           return Format::rg8_uint;
         case VK_FORMAT_R32G32B32A32_SFLOAT: return Format::rgba32_float;
         case VK_FORMAT_D32_SFLOAT:          return Format::d32_float;
         case VK_FORMAT_D32_SFLOAT_S8_UINT:  return Format::d32_float_s8_uint;
