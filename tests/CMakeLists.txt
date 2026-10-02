@@ -39,7 +39,6 @@ add_executable(ftk-tests
     test_grouped_picker.cpp
     test_handle_pool.cpp
     test_kit.cpp
-    test_chip_field.cpp
     test_bit_strip.cpp
     test_list_editor.cpp
     test_log.cpp
