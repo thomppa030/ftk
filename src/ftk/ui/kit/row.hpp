@@ -55,10 +55,21 @@ public:
 };
 
 namespace detail {
-/// Starts a row; false when a RowFilter leaves it out.
-bool begin_row(const char* label, const char* help);
+/// Starts a row, its label bold when `bold`; false when a RowFilter leaves
+/// it out.
+bool begin_row(const char* label, const char* help, bool bold = false);
 /// Whether a RowFilter with a query is in effect.
 [[nodiscard]] bool filtering();
+
+/// Where an inherited row's reset goes, taken before its value is drawn.
+struct InheritedValue {
+    float top;
+    float right;
+};
+/// Narrows the value to leave the reset's room.
+[[nodiscard]] InheritedValue begin_inherited_value();
+/// The reset after the value, or its room; true when it was clicked.
+bool end_inherited_value(const InheritedValue& value, bool set_here, const char* reset_tip);
 } // namespace detail
 
 /// One row: `label` on the left, then `draw_value` in the value column with
@@ -75,6 +86,20 @@ template <typename F>
 void row(const char* label, const char* help, F&& draw_value) {
     if (!detail::begin_row(label, help)) return;
     std::forward<F>(draw_value)();
+}
+
+/// A row whose value is either set on the thing being edited or comes from
+/// what it inherits from, a parent material or a shader's default (sheet 37,
+/// I1). Set here, its label is bold and a reset at the row's end takes the
+/// value back, `reset_tip` saying to what; inherited, it looks like any other
+/// row. The value leaves the reset's room either way, so the values of a
+/// table line up. Returns true when the reset was clicked.
+template <typename F>
+bool inherited_row(const char* label, bool set_here, const char* reset_tip, F&& draw_value) {
+    if (!detail::begin_row(label, nullptr, set_here)) return false;
+    const detail::InheritedValue value = detail::begin_inherited_value();
+    std::forward<F>(draw_value)();
+    return detail::end_inherited_value(value, set_here, reset_tip);
 }
 
 /// The next row's label leads with an amber dot when `set_here`: its value

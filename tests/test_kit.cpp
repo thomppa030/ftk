@@ -724,3 +724,40 @@ TEST_CASE("A tag after a field is as wide as tag_width says and stays on the fie
     CHECK(tag_min.y == field_min.y);
     CHECK(tag_min.x > field_min.x);
 }
+
+TEST_CASE("An inherited row lines its value up with the others and resets only what is set here", "[ui][kit]") {
+    ImGuiHarness h;
+    float set_value = 0.5f;
+    float inherited_value = 0.25f;
+    float set_right = 0.0f;
+    float inherited_right = 0.0f;
+    float plain_right = 0.0f;
+    int resets = 0;
+    h.set_ui([&] {
+        if (auto t = ui::PropertyTable("##values")) {
+            if (ui::inherited_row("Roughness", true, "Use the parent's value", [&] {
+                    (void)ui::drag("##set", set_value);
+                    set_right = ImGui::GetItemRectMax().x;
+                })) {
+                ++resets;
+            }
+            h.mark("reset");
+            if (ui::inherited_row("Metallic", false, "Use the parent's value", [&] {
+                    (void)ui::drag("##inherited", inherited_value);
+                    inherited_right = ImGui::GetItemRectMax().x;
+                })) {
+                ++resets;
+            }
+            ui::row("Plain", [&] {
+                (void)ui::drag("##plain", inherited_value);
+                plain_right = ImGui::GetItemRectMax().x;
+            });
+        }
+    });
+    h.step(2);
+    CHECK(set_right == inherited_right);
+    // The reset's room is left after the value, set here or not.
+    CHECK(set_right < plain_right - ImGui::GetFrameHeight());
+    h.click("reset");
+    CHECK(resets == 1);
+}

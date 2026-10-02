@@ -1,5 +1,6 @@
 #include "ftk/ui/kit/row.hpp"
 
+#include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/search.hpp"
@@ -102,7 +103,7 @@ PropertyTable::~PropertyTable() {
     detail::set_edit_label(nullptr);
 }
 
-bool detail::begin_row(const char* label, const char* help) {
+bool detail::begin_row(const char* label, const char* help, bool bold) {
     // Taken here so a row a search leaves out doesn't hand its mark on.
     const Mark mark = std::exchange(next_mark(), Mark::None);
     Filter& search = filter();
@@ -112,12 +113,14 @@ bool detail::begin_row(const char* label, const char* help) {
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
     if (mark != Mark::None) draw_mark(mark);
+    if (bold) ImGui::PushFont(theme::bold_font(), 0.0f);
     if (search.active) {
         ++search.matches;
         highlighted_text(label, search.query);
     } else {
         ImGui::TextUnformatted(label);
     }
+    if (bold) ImGui::PopFont();
     if (help != nullptr) {
         ImGui::SameLine(0.0f, theme::GAP_S);
         help_icon(help);
@@ -125,6 +128,28 @@ bool detail::begin_row(const char* label, const char* help) {
     ImGui::TableSetColumnIndex(1);
     ImGui::SetNextItemWidth(-FLT_MIN);
     return true;
+}
+
+detail::InheritedValue detail::begin_inherited_value() {
+    const float room = ImGui::GetFrameHeight() + theme::GAP_S;
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const InheritedValue value{.top = start.y, .right = start.x + ImGui::GetContentRegionAvail().x};
+    // Every item of the value, not only its first, stops short of the reset.
+    ImGui::SetNextItemWidth(-room);
+    ImGui::PushItemWidth(-room);
+    return value;
+}
+
+bool detail::end_inherited_value(const InheritedValue& value, bool set_here, const char* reset_tip) {
+    ImGui::PopItemWidth();
+    const float size = ImGui::GetFrameHeight();
+    ImGui::SameLine();
+    ImGui::SetCursorScreenPos({value.right - size, value.top});
+    if (!set_here) {
+        ImGui::Dummy({size, size});
+        return false;
+    }
+    return icon_button("##reset", icon::revert, reset_tip);
 }
 
 void mark_next_row(bool set_here) {
