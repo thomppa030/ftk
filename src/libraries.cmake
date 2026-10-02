@@ -246,6 +246,7 @@ ftk_library(app-ui
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/asset_tile.cpp
         ftk/ui/kit/button.cpp
+        ftk/ui/kit/bit_strip.cpp
         ftk/ui/kit/canvas.cpp
         ftk/ui/kit/chip_field.cpp
         ftk/ui/kit/choice.cpp
@@ -284,6 +285,7 @@ ftk_library(app-ui
         ftk/ui/kit/asset_kind.hpp
         ftk/ui/kit/asset_tile.hpp
         ftk/ui/kit/button.hpp
+        ftk/ui/kit/bit_strip.hpp
         ftk/ui/kit/canvas.hpp
         ftk/ui/kit/chip_field.hpp
         ftk/ui/kit/choice.hpp
