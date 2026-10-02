@@ -16,4 +16,56 @@ void separator() {
     ImGui::Separator();
 }
 
+void spacing() {
+    ImGui::Spacing();
+}
+
+void new_line() {
+    ImGui::NewLine();
+}
+
+glm::vec2 cursor() {
+    return ImGui::GetCursorScreenPos();
+}
+
+void set_cursor(glm::vec2 at) {
+    ImGui::SetCursorScreenPos(at);
+}
+
+glm::vec2 space_left() {
+    return ImGui::GetContentRegionAvail();
+}
+
+void next_width(float width) {
+    ImGui::SetNextItemWidth(width);
+}
+
+void reserve(glm::vec2 size) {
+    ImGui::Dummy(size);
+}
+
+void align_text_to_frame() {
+    ImGui::AlignTextToFramePadding();
+}
+
+float frame_height() {
+    return ImGui::GetFrameHeight();
+}
+
+float line_height() {
+    return ImGui::GetTextLineHeight();
+}
+
+glm::vec2 text_size(std::string_view text) {
+    return ImGui::CalcTextSize(text.data(), text.data() + text.size());
+}
+
+Group::Group() {
+    ImGui::BeginGroup();
+}
+
+Group::~Group() {
+    ImGui::EndGroup();
+}
+
 } // namespace ftk::ui

@@ -29,7 +29,10 @@ void menu_heading(const char* label);
 
 /// An entry that opens a submenu ("Create new"), led by its icon. Returns
 /// true while the submenu is open; the caller then draws its entries and
-/// calls ImGui::EndMenu().
+/// calls end_menu().
 bool begin_menu(const char* icon, const char* label, bool enabled = true);
+
+/// Ends a submenu begin_menu() opened.
+void end_menu();
 
 } // namespace ftk::ui

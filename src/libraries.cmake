@@ -262,7 +262,10 @@ ftk_library(app-ui
         ftk/ui/kit/field.cpp
         ftk/ui/kit/gallery.cpp
         ftk/ui/kit/grouped_picker.cpp
+        ftk/ui/kit/image.cpp
+        ftk/ui/kit/input.cpp
         ftk/ui/kit/inset_group.cpp
+        ftk/ui/kit/item.cpp
         ftk/ui/kit/key_cap.cpp
         ftk/ui/kit/layout.cpp
         ftk/ui/kit/list_editor.cpp
@@ -273,6 +276,7 @@ ftk_library(app-ui
         ftk/ui/kit/pages.cpp
         ftk/ui/kit/pane.cpp
         ftk/ui/kit/panel.cpp
+        ftk/ui/kit/popup.cpp
         ftk/ui/kit/row.cpp
         ftk/ui/kit/save_bar.cpp
         ftk/ui/kit/scope.cpp
@@ -282,6 +286,7 @@ ftk_library(app-ui
         ftk/ui/kit/status_bar.cpp
         ftk/ui/kit/strip.cpp
         ftk/ui/kit/tabs.cpp
+        ftk/ui/kit/text.cpp
         ftk/ui/kit/text_field.cpp
         ftk/ui/kit/tooltip.cpp
         ftk/ui/kit/tree.cpp
@@ -310,7 +315,10 @@ ftk_library(app-ui
         ftk/ui/kit/gallery.hpp
         ftk/ui/kit/grouped_picker.hpp
         ftk/ui/kit/icons.hpp
+        ftk/ui/kit/image.hpp
+        ftk/ui/kit/input.hpp
         ftk/ui/kit/inset_group.hpp
+        ftk/ui/kit/item.hpp
         ftk/ui/kit/key_cap.hpp
         ftk/ui/kit/layout.hpp
         ftk/ui/kit/list_editor.hpp
@@ -320,6 +328,7 @@ ftk_library(app-ui
         ftk/ui/kit/overlay.hpp
         ftk/ui/kit/pages.hpp
         ftk/ui/kit/pane.hpp
+        ftk/ui/kit/popup.hpp
         ftk/ui/kit/panel.hpp
         ftk/ui/kit/row.hpp
         ftk/ui/kit/save_bar.hpp
@@ -330,6 +339,7 @@ ftk_library(app-ui
         ftk/ui/kit/status_bar.hpp
         ftk/ui/kit/strip.hpp
         ftk/ui/kit/tabs.hpp
+        ftk/ui/kit/text.hpp
         ftk/ui/kit/text_field.hpp
         ftk/ui/kit/tooltip.hpp
         ftk/ui/kit/tree.hpp

@@ -89,6 +89,11 @@ void DrawList::text(glm::vec2 at, Color colour, std::string_view text) {
     list_->AddText(at, pack(colour), text.data(), text.data() + text.size());
 }
 
+void DrawList::image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding) {
+    // At no rounding ImGui draws the plain image.
+    list_->AddImageRounded(texture.id, min, max, {0.0f, 0.0f}, {1.0f, 1.0f}, IM_COL32_WHITE, rounding);
+}
+
 void DrawList::push_clip(glm::vec2 min, glm::vec2 max) {
     list_->PushClipRect(min, max, true);
 }

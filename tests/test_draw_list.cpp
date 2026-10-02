@@ -181,3 +181,26 @@ TEST_CASE("A draw list's clip falls within the one already there", "[ui][draw_li
     CHECK(inner_max == glm::vec2{100.0f, 200.0f});
     CHECK(after_min == outer_min);
 }
+
+TEST_CASE("A draw list draws a picture as ImGui's would", "[ui][draw_list]") {
+    const ui::Texture picture{0x5EED};
+    Drawn facade;
+    Drawn imgui;
+    ImGuiHarness h;
+    h.set_ui([&] {
+        facade = draw_in_window("##facade", [&] {
+            ui::DrawList dl = ui::DrawList::window();
+            dl.image(picture, {10.0f, 10.0f}, {74.0f, 74.0f});
+            dl.image(picture, {80.0f, 10.0f}, {144.0f, 74.0f}, 6.0f);
+        });
+        imgui = draw_in_window("##imgui", [&] {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddImage(picture.id, {10.0f, 10.0f}, {74.0f, 74.0f});
+            dl->AddImageRounded(picture.id, {80.0f, 10.0f}, {144.0f, 74.0f}, {0.0f, 0.0f}, {1.0f, 1.0f},
+                                IM_COL32_WHITE, 6.0f);
+        });
+    });
+    h.step(2);
+    REQUIRE_FALSE(facade.vertices.empty());
+    CHECK(same(facade, imgui));
+}

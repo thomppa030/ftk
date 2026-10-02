@@ -4,12 +4,13 @@
 // behind a corner note, a spinner. The calls are the shapes the UI core
 // draws as signed distances (decision 16 of the UI core plan): rectangles,
 // rounded or not, filled or outlined; lines and polylines; circles and
-// arcs; triangles and quads; and text, each within the clip rectangles
-// pushed around it. Points are in screen pixels.
+// arcs; triangles and quads; text and pictures, each within the clip
+// rectangles pushed around it. Points are in screen pixels.
 //
 //     ui::DrawList dl = ui::DrawList::window();
 //     dl.rect_filled(min, max, theme::surface_sunken(), 4.0f);
 //     dl.text({x, y}, theme::text_secondary(), "Opening");
+//     dl.image(thumbnail, min, max, 4.0f);
 //
 // While ImGui draws the kit, a DrawList forwards to one of ImGui's.
 
@@ -74,6 +75,9 @@ public:
 
     /// `text` in the current font at its size, its top-left at `at`.
     void text(glm::vec2 at, Color colour, std::string_view text);
+
+    /// `texture` filling `min`..`max`, its corners rounded by `rounding`.
+    void image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding = 0.0f);
 
     /// What follows is drawn only within `min`..`max` and the clip already
     /// there, until the matching pop_clip().
