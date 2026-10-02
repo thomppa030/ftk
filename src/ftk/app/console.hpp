@@ -2,8 +2,6 @@
 
 #include <spdlog/sinks/base_sink.h>
 
-#include <imgui.h>
-
 #include <mutex>
 #include <string>
 #include <unordered_set>

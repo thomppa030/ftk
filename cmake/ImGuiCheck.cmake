@@ -20,6 +20,9 @@
 # What draws with ImGui is exempt at its place in ftk's tree, not by its
 # name: the kit and the theme (src/ftk/ui/), the ImGui layer and its renderer,
 # the test harness that drives ImGui headless, and ImGui's configuration.
+# ftk's own ImGuiLayer and ImGuiLayerFiles, and their header, are not hits:
+# they name the layer a program runs its UI with, which takes the UI core's
+# name when the core takes over the frame loop, not ImGui's API.
 
 # Scans `roots` under `base`, skipping what `allowlist` names, and fails with
 # every offender. Also run on its own by the build step (script mode below).
@@ -72,6 +75,7 @@ function(_ftk_scan_imgui base allowlist)
                 string(STRIP "${hit}" hit)
                 # A comment, or ImGui named only in a comment after the code.
                 string(REGEX REPLACE "//.*$" "" code "${hit}")
+                string(REGEX REPLACE "ImGuiLayer(Files)?|ftk/app/imgui_layer\\.hpp" "" code "${code}")
                 if(hit MATCHES "^(\\*|/\\*)" OR NOT code MATCHES "${pattern}")
                     continue()
                 endif()

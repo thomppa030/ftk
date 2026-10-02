@@ -7,6 +7,7 @@
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
 #include <spdlog/pattern_formatter.h>
 
 #include <algorithm>
