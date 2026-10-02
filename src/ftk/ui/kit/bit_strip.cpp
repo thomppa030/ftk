@@ -59,7 +59,7 @@ std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits) 
                 text = theme::text_disabled();
                 break;
         }
-        char number[8];
+        char number[24];  // any size_t
         std::snprintf(number, sizeof(number), "%zu", i + 1);
         ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
         const ImVec2 size = ImGui::CalcTextSize(number);
@@ -73,7 +73,7 @@ std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits) 
 }
 
 void bit_line(std::size_t index, const char* label, const char* from) {
-    char number[8];
+    char number[24];  // any size_t
     std::snprintf(number, sizeof(number), "%zu", index + 1);
     ImGui::AlignTextToFramePadding();
     const ImVec2 start = ImGui::GetCursorScreenPos();
