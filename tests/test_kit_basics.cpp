@@ -7,6 +7,7 @@
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/state.hpp"
@@ -378,4 +379,32 @@ TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
     CHECK(picked == 1);
     h.click("entry2");
     CHECK(picked == 2);
+}
+
+TEST_CASE("A region is its own size and scrolls with the wheel unless told not to", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 inside{};
+    float log_scroll = -1.0f;
+    float lanes_scroll = -1.0f;
+    h.set_ui([&] {
+        if (auto log = ui::Region("##log", {200.0f, 100.0f})) {
+            inside = ui::window_size();
+            for (int i = 0; i < 50; ++i) ui::text("A line of the log");
+            log_scroll = ui::scroll_y();
+        }
+        h.mark("log");
+        if (auto lanes = ui::Region("##lanes", {200.0f, 100.0f}, {.wheel_scrolls = false})) {
+            for (int i = 0; i < 50; ++i) ui::text("A lane");
+            lanes_scroll = ui::scroll_y();
+        }
+        h.mark("lanes");
+    });
+    h.step(2);
+    CHECK(inside == glm::vec2{200.0f, 100.0f});
+    h.wheel(centre(h, "log"), -3.0f);
+    h.step(2);
+    CHECK(log_scroll > 0.0f);
+    h.wheel(centre(h, "lanes"), -3.0f);
+    h.step(2);
+    CHECK(lanes_scroll == 0.0f);
 }

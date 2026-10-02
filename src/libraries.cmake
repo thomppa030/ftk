@@ -251,6 +251,7 @@ ftk_library(app-ui
         ftk/ui/kit/button.cpp
         ftk/ui/kit/bit_strip.cpp
         ftk/ui/kit/rail.cpp
+        ftk/ui/kit/region.cpp
         ftk/ui/kit/canvas.cpp
         ftk/ui/kit/choice.cpp
         ftk/ui/kit/color_field.cpp
@@ -304,6 +305,7 @@ ftk_library(app-ui
         ftk/ui/kit/button.hpp
         ftk/ui/kit/bit_strip.hpp
         ftk/ui/kit/rail.hpp
+        ftk/ui/kit/region.hpp
         ftk/ui/kit/canvas.hpp
         ftk/ui/kit/choice.hpp
         ftk/ui/kit/color_field.hpp

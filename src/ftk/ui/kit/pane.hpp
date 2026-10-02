@@ -6,7 +6,7 @@
 // edge to edge in its surface, with the kit's window padding inside.
 //
 //     { ui::Pane side("##side", {220.0f, height}, ui::PaneSurface::Sunken); ... }
-//     ImGui::SameLine(0.0f, 0.0f);
+//     ui::same_line(0.0f);
 //     { ui::Pane main("##main", {0.0f, height}); ... }
 
 namespace ftk::ui {
