@@ -322,6 +322,7 @@ ftk_library(app-ui
         ftk/ui/kit/tree.hpp
         ftk/ui/kit/viewport_toolbar.hpp
         ftk/ui/theme.hpp
+        ftk/ui/types.hpp
     LINKS
         PUBLIC ftk::base ftk::math ftk::imgui-headless glm::glm
 )

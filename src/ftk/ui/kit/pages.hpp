@@ -16,7 +16,7 @@
 //         }
 //     }
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 namespace ftk::ui {
 
@@ -25,7 +25,7 @@ namespace ftk::ui {
 /// title bar closes it through `open`.
 class PagedWindow {
 public:
-    PagedWindow(const char* title, bool* open, ImVec2 size);
+    PagedWindow(const char* title, bool* open, glm::vec2 size);
     ~PagedWindow();
 
     PagedWindow(const PagedWindow&) = delete;

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 #include <functional>
 #include <optional>
@@ -46,7 +48,7 @@ struct PromptSpec {
 /// Where a dialog hangs (sheet 18): the middle of its top edge, or its left
 /// end with `align` 0, flush with the bottom of the surface that asked.
 struct DialogAnchor {
-    ImVec2 at{};
+    glm::vec2 at{};
     float align{0.5f};
 };
 
@@ -116,7 +118,7 @@ UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text
 /// One unsaved thing in the list quitting asks about.
 struct UnsavedItem {
     const char* icon{nullptr};
-    ImVec4 icon_colour{};
+    Color icon_colour{};
     std::string name{};    ///< "crate_wood.json"
     std::string detail{};  ///< what else saving it writes, dimmed after the name
     bool save{true};       ///< ticked: saved when the answer is Save

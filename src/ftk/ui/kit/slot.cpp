@@ -6,6 +6,8 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
+
 #include <algorithm>
 #include <filesystem>
 #include <string>

@@ -1,8 +1,7 @@
 #pragma once
 
 #include "ftk/ui/theme.hpp"
-
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -66,7 +65,7 @@ struct TreeRowSpec {
     const char* icon{nullptr};
     std::optional<theme::Hue> hue{};
     /// Colours the icon in place of its hue (a preset).
-    std::optional<ImVec4> tint{};
+    std::optional<Color> tint{};
     /// One dot per hue composed onto the node, in this order.
     std::span<const theme::Hue> dots{};
     RowSelection selection{RowSelection::None};

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 // A part of a standalone window, such as the hub's sidebar (sheet 9): filled
 // edge to edge in its surface, with the kit's window padding inside.
@@ -15,7 +15,7 @@ enum class PaneSurface { Base, Sunken };
 
 class Pane {
 public:
-    Pane(const char* id, ImVec2 size, PaneSurface surface = PaneSurface::Base);
+    Pane(const char* id, glm::vec2 size, PaneSurface surface = PaneSurface::Base);
     ~Pane();
     Pane(const Pane&) = delete;
     Pane& operator=(const Pane&) = delete;

@@ -2,9 +2,11 @@
 
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
+
 namespace ftk::ui {
 
-Pane::Pane(const char* id, ImVec2 size, PaneSurface surface) {
+Pane::Pane(const char* id, glm::vec2 size, PaneSurface surface) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg,
                           surface == PaneSurface::Sunken ? theme::surface_sunken() : theme::surface_base());
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {theme::GAP_L, theme::GAP_L});

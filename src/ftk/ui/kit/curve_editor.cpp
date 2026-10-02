@@ -258,7 +258,7 @@ Edit curve_editor(const char* id, Curve& curve, const CurveOptions& o) {
     return edit;
 }
 
-ImVec2 curve_editor_point(const char* id, glm::vec2 at) {
+glm::vec2 curve_editor_point(const char* id, glm::vec2 at) {
     ImGui::PushID(id);
     const ImGuiID self = ImGui::GetID("##curve");
     ImGui::PopID();

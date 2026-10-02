@@ -2,6 +2,8 @@
 
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
+
 #include <algorithm>
 
 namespace ftk::ui {

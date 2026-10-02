@@ -3,6 +3,8 @@
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
+
 #include <algorithm>
 #include <cctype>
 #include <string>

@@ -21,7 +21,7 @@ constexpr float HEADING_SIZE = 11.5f;
 
 } // namespace
 
-InsetGroup::InsetGroup(const char* id, const char* heading, const char* icon, const ImVec4& icon_colour)
+InsetGroup::InsetGroup(const char* id, const char* heading, const char* icon, const Color& icon_colour)
     : InsetGroup(id, InsetHeading{.text = heading, .icon = icon, .icon_colour = icon_colour}) {}
 
 InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {

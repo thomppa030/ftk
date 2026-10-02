@@ -1,8 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/save_bar.hpp"
-
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
 
 #include <string>
 
@@ -25,7 +24,7 @@ inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
 
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon
-    ImVec4 icon_colour{};       ///< its hue
+    Color icon_colour{};        ///< its hue
     std::string name{};         ///< the file name, "crate_wood.png"
     std::string folder{};       ///< where it lives, "Props / Crates"
     bool unsaved{false};

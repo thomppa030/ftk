@@ -99,11 +99,11 @@ Look toggle_look(bool on) {
 
 } // namespace
 
-bool button(const char* label, ButtonKind kind, ImVec2 size) {
+bool button(const char* label, ButtonKind kind, glm::vec2 size) {
     return draw(label, look_of(kind), size);
 }
 
-bool action(const char* icon, const char* label, ButtonKind kind, ImVec2 size) {
+bool action(const char* icon, const char* label, ButtonKind kind, glm::vec2 size) {
     const std::string text = std::string(icon) + "  " + label;
     return draw(text.c_str(), look_of(kind), size);
 }

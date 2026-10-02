@@ -1,8 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/edit.hpp"
-
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
 
 #include <optional>
 #include <string>
@@ -50,7 +49,7 @@ void set_edit_label(const char* label);
 /// under `id` until the edit is finished. A field drawn inside another (the
 /// hex code in a colour field) records first and is replaced by the outer
 /// field on the same frame.
-void track_field(ImGuiID id, const std::string& before, const std::string& after, bool started,
+void track_field(Id id, const std::string& before, const std::string& after, bool started,
                  const Edit& edit);
 
 /// A number with its unit, the way the field shows it ("2.50 kg", "90°").

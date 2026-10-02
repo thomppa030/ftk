@@ -2,8 +2,9 @@
 
 #include "ftk/ui/kit/edit.hpp"
 #include "ftk/ui/theme.hpp"
+#include "ftk/ui/types.hpp"
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -73,16 +74,16 @@ public:
 private:
     void end_scroll();
 
-    ImGuiID list_id_{0};
+    Id list_id_{0};
     ListOptions options_;
     bool scrolling_{false};
     std::size_t index_{0};
     bool selected_{false};
     bool clicked_{false};
     bool summary_colour_{false};  // a closed card's text colour is pushed
-    ImVec2 card_min_{};
+    glm::vec2 card_min_{};
     float card_width_{0.0f};
-    ImGuiID card_id_{0};
+    Id card_id_{0};
     // The window's right edges while a card has them pulled in.
     float work_right_{0.0f};
     float content_right_{0.0f};

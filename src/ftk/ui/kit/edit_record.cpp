@@ -1,5 +1,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 
+#include <imgui.h>
+
 #include <cstring>
 #include <unordered_map>
 #include <utility>
@@ -48,7 +50,7 @@ void set_edit_label(const char* label) {
     if (auto hash = g_label.find("##"); hash != std::string::npos) g_label.resize(hash);
 }
 
-void track_field(ImGuiID id, const std::string& before, const std::string& after, bool started,
+void track_field(Id id, const std::string& before, const std::string& after, bool started,
                  const Edit& edit) {
     if (started) g_started[id] = before;
     if (!edit.committed) return;

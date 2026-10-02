@@ -1,6 +1,6 @@
 #pragma once
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 namespace ftk::ui {
 
@@ -17,14 +17,14 @@ enum class ButtonKind {
 /// A button with text, optionally led by an icon from ui::icon
 /// ("Add point", not "Add Point"). A zero size fits the text; a width of -1
 /// fills the row. Returns true when clicked.
-bool button(const char* label, ButtonKind kind = ButtonKind::Secondary, ImVec2 size = {0.0f, 0.0f});
+bool button(const char* label, ButtonKind kind = ButtonKind::Secondary, glm::vec2 size = {0.0f, 0.0f});
 
 /// A button that does something to what it sits beside ("Fit to mesh",
 /// "Create material"): its icon from ui::icon, then the verb in sentence
 /// case. Secondary unless the action destroys something (GhostDanger). A
 /// width of -1 fills the row.
 bool action(const char* icon, const char* label, ButtonKind kind = ButtonKind::Secondary,
-            ImVec2 size = {0.0f, 0.0f});
+            glm::vec2 size = {0.0f, 0.0f});
 
 /// A square button, frame-height tall, showing only an icon. `tooltip`
 /// names the action and its shortcut ("Snap to grid (Ctrl G)"): an icon on

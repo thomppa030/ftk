@@ -5,7 +5,6 @@
 #include "ftk/ui/theme.hpp"
 
 #include <glm/vec2.hpp>
-#include <imgui.h>
 
 // A curve over time 0..1 on a canvas (sheet 8): its keys as handles, the
 // selected key's tangents to drag, the curve in its track's colour.
@@ -21,7 +20,7 @@ namespace ftk::ui {
 
 struct CurveOptions {
     /// Width (-1 for all there is) and height, gutters included.
-    ImVec2 size{-1.0f, 120.0f};
+    glm::vec2 size{-1.0f, 120.0f};
     float v_min{0.0f};
     float v_max{1.0f};
     /// The kind of thing the curve drives, which colours it.
@@ -34,6 +33,6 @@ Edit curve_editor(const char* id, Curve& curve, const CurveOptions& options = {}
 
 /// Where the point `at` (time, value) of the editor drawn under `id` in the
 /// current ID scope is on screen, as last drawn.
-[[nodiscard]] ImVec2 curve_editor_point(const char* id, glm::vec2 at);
+[[nodiscard]] glm::vec2 curve_editor_point(const char* id, glm::vec2 at);
 
 } // namespace ftk::ui

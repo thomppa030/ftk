@@ -15,7 +15,7 @@ constexpr float TITLE_SIZE = 16.0f;
 
 } // namespace
 
-PagedWindow::PagedWindow(const char* title, bool* open, ImVec2 size) {
+PagedWindow::PagedWindow(const char* title, bool* open, glm::vec2 size) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_FirstUseEver, {0.5f, 0.5f});
     ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);

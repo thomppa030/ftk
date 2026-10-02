@@ -3,6 +3,7 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>

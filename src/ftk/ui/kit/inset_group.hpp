@@ -1,6 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 // A block of values that belongs to a component but is something of its own,
 // set apart in a sunken box: the material a component paints itself with,
@@ -17,7 +19,7 @@ namespace ftk::ui {
 struct InsetHeading {
     const char* text{""};
     const char* icon{nullptr};
-    ImVec4 icon_colour{};
+    Color icon_colour{};
     /// The heading names the box, bold at the body size and as written (an
     /// input action, sheet 16), rather than labelling a block of values in
     /// small capitals (a material's).
@@ -45,7 +47,7 @@ class InsetGroup {
 public:
     /// Draws the box's heading, which folds, open by default, with `icon` in
     /// `icon_colour`. The contents follow while it is open, inside the box.
-    InsetGroup(const char* id, const char* heading, const char* icon, const ImVec4& icon_colour);
+    InsetGroup(const char* id, const char* heading, const char* icon, const Color& icon_colour);
     InsetGroup(const char* id, const InsetHeading& heading);
     ~InsetGroup();
     InsetGroup(const InsetGroup&) = delete;
@@ -57,8 +59,8 @@ public:
 
 private:
     bool open_{true};
-    ImGuiID height_id_{0};
-    ImVec2 min_{};
+    Id height_id_{0};
+    glm::vec2 min_{};
     float width_{0.0f};
     float work_right_{0.0f};
     float content_right_{0.0f};

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 // A row of an editor's own settings on a raised strip across its panel, above
 // what the panel lists (an input context's name and switches, sheet 16).
@@ -23,8 +25,8 @@ public:
     explicit operator bool() const { return true; }
 
 private:
-    ImGuiID height_id_{0};
-    ImVec2 min_{};
+    Id height_id_{0};
+    glm::vec2 min_{};
     float width_{0.0f};
 };
 

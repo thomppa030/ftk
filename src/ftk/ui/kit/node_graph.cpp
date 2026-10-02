@@ -3,6 +3,7 @@
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <glm/trigonometric.hpp>
+#include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
