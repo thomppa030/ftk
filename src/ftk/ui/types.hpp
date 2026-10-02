@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 // ImGui's font, which a Font is while ImGui draws the kit. Named here, not
 // included: the bridge goes with ImGui.
@@ -54,6 +55,13 @@ private:
 struct Payload {
     const void* data{nullptr};
     std::size_t size{0};
+
+    /// The bytes as text, without the zero a text payload ends with.
+    [[nodiscard]] std::string_view text() const {
+        const auto* chars = static_cast<const char*>(data);
+        const std::size_t length = size > 0 && chars[size - 1] == '\0' ? size - 1 : size;
+        return {chars, length};
+    }
 };
 
 } // namespace ftk::ui

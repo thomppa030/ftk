@@ -1,6 +1,7 @@
 #include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
@@ -601,4 +602,67 @@ TEST_CASE("The mouse pointer takes the shape asked for this frame", "[ui][kit]")
     });
     h.step();
     CHECK(shape == ImGuiMouseCursor_TextInput);
+}
+
+TEST_CASE("A drag carries its payload to a target that takes its type", "[ui][kit]") {
+    ImGuiHarness h;
+    std::string dropped;
+    std::string dropped_on_window;
+    bool offered = false;
+    bool offered_other = false;
+    int quiet_frames = 0;
+    int quiet_deliveries = 0;
+    h.set_ui([&] {
+        ui::button("Source");
+        h.mark("source");
+        if (auto drag = ui::DragSource()) {
+            drag.carry("ASSET_PATH", std::string_view("textures/rock.png"));
+            ui::text("rock.png");
+        }
+        ui::button("Target");
+        h.mark("target");
+        if (auto drop = ui::DropTarget()) {
+            offered = offered || drop.offered("ASSET_PATH").has_value();
+            offered_other = offered_other || drop.offered("HIERARCHY_NODE").has_value();
+            if (auto payload = drop.dropped("ASSET_PATH")) dropped = payload->text();
+        }
+        ui::button("Quiet");
+        h.mark("quiet");
+        if (auto drop = ui::DropTarget()) {
+            if (auto taking = drop.take("ASSET_PATH")) {
+                ++quiet_frames;
+                if (taking->delivered) ++quiet_deliveries;
+            }
+        }
+        if (auto region = ui::Region("##panel", {200.0f, 100.0f})) {
+            ui::text("Drop anywhere here");
+            if (auto drop = ui::DropTarget::window("##panel_drop")) {
+                if (auto payload = drop.dropped("ASSET_PATH")) dropped_on_window = payload->text();
+            }
+        }
+        h.mark("panel");
+    });
+    h.step(2);
+    h.drag(centre(h, "source"), centre(h, "target"));
+    h.step();
+    CHECK(offered);
+    CHECK_FALSE(offered_other);
+    CHECK(dropped == "textures/rock.png");
+
+    h.drag(centre(h, "source"), centre(h, "quiet"));
+    h.step();
+    CHECK(quiet_frames > 1);
+    CHECK(quiet_deliveries == 1);
+
+    // Low in the region, under its only line.
+    h.drag(centre(h, "source"), {centre(h, "panel").x, h.rect_max("panel").y - 10.0f});
+    h.step();
+    CHECK(dropped_on_window == "textures/rock.png");
+}
+
+TEST_CASE("A payload reads as text without the zero that ends it", "[ui][kit]") {
+    const char with_zero[] = "rock.png";
+    CHECK(ui::Payload{with_zero, sizeof(with_zero)}.text() == "rock.png");
+    CHECK(ui::Payload{with_zero, 4}.text() == "rock");
+    CHECK(ui::Payload{}.text().empty());
 }
