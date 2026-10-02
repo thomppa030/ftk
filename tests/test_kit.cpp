@@ -549,6 +549,21 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     CHECK(right_edge > image_max.x - 16.0f);
 }
 
+TEST_CASE("A window leaves out what its options say and nothing else", "[ui][kit]") {
+    using ui::detail::imgui_window_flags;
+    CHECK(imgui_window_flags({}) == ImGuiWindowFlags_None);
+    CHECK(imgui_window_flags({.title_bar = false}) == ImGuiWindowFlags_NoTitleBar);
+    CHECK(imgui_window_flags({.resize = false}) == ImGuiWindowFlags_NoResize);
+    CHECK(imgui_window_flags({.move = false}) == ImGuiWindowFlags_NoMove);
+    CHECK(imgui_window_flags({.collapse = false}) == ImGuiWindowFlags_NoCollapse);
+    CHECK(imgui_window_flags({.scrollbar = false}) == ImGuiWindowFlags_NoScrollbar);
+    CHECK(imgui_window_flags({.background = false}) == ImGuiWindowFlags_NoBackground);
+    CHECK(imgui_window_flags({.docking = false}) == ImGuiWindowFlags_NoDocking);
+    CHECK(imgui_window_flags({.to_front = false}) == ImGuiWindowFlags_NoBringToFrontOnFocus);
+    CHECK(imgui_window_flags({.nav_focus = false}) == ImGuiWindowFlags_NoNavFocus);
+    CHECK(imgui_window_flags({.remembered = false}) == ImGuiWindowFlags_NoSavedSettings);
+}
+
 TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") {
     ImGuiHarness h;
     ImVec2 window_pos{};
@@ -556,7 +571,7 @@ TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") 
     h.set_ui([&] {
         ImGui::SetNextWindowPos({50.0f, 60.0f});
         ImGui::SetNextWindowSize({200.0f, 150.0f});
-        if (auto window = ui::ViewportWindow("##viewport", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+        if (auto window = ui::ViewportWindow("##viewport", nullptr, {.title_bar = false})) {
             window_pos = ImGui::GetWindowPos();
             first = ImGui::GetCursorScreenPos();
         }
@@ -581,7 +596,7 @@ TEST_CASE("The context tab bar and a host window leave ImGui's stacks as they fo
                 ImGui::EndTabBar();
             }
         }
-        (void)ui::begin_host_window("##host", ImGuiWindowFlags_NoTitleBar);
+        (void)ui::begin_host_window("##host");
         ImGui::End();
         style_vars = g.StyleVarStack.Size - vars_before;
         colours = g.ColorStack.Size - colours_before;

@@ -244,9 +244,7 @@ void FileBrowser::confirm_selection() {
 bool FileBrowser::draw_ui(float window_w, float window_h) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
-    (void)ui::begin_host_window("##FileBrowser", ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                                                     ImGuiWindowFlags_NoScrollbar);
+    (void)ui::begin_host_window("##FileBrowser", {.scrollbar = false});
     draw_top_bar();
     // The bar at the bottom: a rule, its padding, a line of buttons.
     const float bar_h = ImGui::GetFrameHeight() + theme::GAP_M * 2.0f + 1.0f;

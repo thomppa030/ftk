@@ -574,9 +574,8 @@ void KitGallery::draw(bool* open) {
 void KitGallery::draw_page(float width, float height) {
     ImGui::SetNextWindowPos({0.0f, 0.0f});
     ImGui::SetNextWindowSize({width, height});
-    constexpr ImGuiWindowFlags page = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
-                                    | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings
-                                    | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    const WindowOptions page{.title_bar = false, .resize = false, .move = false, .to_front = false,
+                             .remembered = false};
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", page)) {
         sections();
     }

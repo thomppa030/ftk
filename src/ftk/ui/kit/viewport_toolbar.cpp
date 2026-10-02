@@ -14,7 +14,7 @@ constexpr float ROUNDING = 6.0f;
 constexpr float BACKING_ALPHA = 0.82f;
 } // namespace
 
-ViewportPill::ViewportPill(const char* id, ImVec2 image_min, ImVec2 image_max, PillPlace place) {
+ViewportPill::ViewportPill(const char* id, glm::vec2 image_min, glm::vec2 image_max, PillPlace place) {
     ImGui::PushID(id);
     size_id_ = ImGui::GetID("##size");
     // Placed by the size its buttons took last frame, which only the right
@@ -47,23 +47,27 @@ ViewportPill::~ViewportPill() {
     ImGui::PopID();
 }
 
-float pill_row_bottom(ImVec2 image_min) {
+float pill_row_bottom(glm::vec2 image_min) {
     return image_min.y + INSET + ImGui::GetFrameHeight() + PAD * 2.0f;
 }
 
-bool begin_host_window(const char* name, ImGuiWindowFlags flags) {
+bool begin_host_window(const char* name, WindowOptions options) {
+    options.title_bar = false;
+    options.resize = false;
+    options.move = false;
+    options.collapse = false;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    const bool visible = ImGui::Begin(name, nullptr, flags);
+    const bool visible = ImGui::Begin(name, nullptr, detail::imgui_window_flags(options));
     ImGui::PopStyleVar(3);
     return visible;
 }
 
-ViewportWindow::ViewportWindow(const char* title, bool* open, ImGuiWindowFlags flags) {
+ViewportWindow::ViewportWindow(const char* title, bool* open, WindowOptions options) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
-    visible_ = ImGui::Begin(title, open, flags);
+    visible_ = ImGui::Begin(title, open, detail::imgui_window_flags(options));
 }
 
 ViewportWindow::~ViewportWindow() {

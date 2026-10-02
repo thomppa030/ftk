@@ -269,6 +269,7 @@ ftk_library(app-ui
         ftk/ui/kit/overlay.cpp
         ftk/ui/kit/pages.cpp
         ftk/ui/kit/pane.cpp
+        ftk/ui/kit/panel.cpp
         ftk/ui/kit/row.cpp
         ftk/ui/kit/save_bar.cpp
         ftk/ui/kit/search.cpp
@@ -280,6 +281,7 @@ ftk_library(app-ui
         ftk/ui/kit/text_field.cpp
         ftk/ui/kit/tree.cpp
         ftk/ui/kit/viewport_toolbar.cpp
+        ftk/ui/kit/window.cpp
     HEADERS
         ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
@@ -323,6 +325,7 @@ ftk_library(app-ui
         ftk/ui/kit/text_field.hpp
         ftk/ui/kit/tree.hpp
         ftk/ui/kit/viewport_toolbar.hpp
+        ftk/ui/kit/window.hpp
         ftk/ui/theme.hpp
         ftk/ui/types.hpp
     LINKS
