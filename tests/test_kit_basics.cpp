@@ -158,6 +158,17 @@ TEST_CASE("A key is pressed once and repeated while it is held", "[ui][kit]") {
     CHECK_FALSE(ctrl);
 }
 
+TEST_CASE("What is put on the clipboard is what it holds", "[ui][kit]") {
+    ImGuiHarness h;
+    std::string held;
+    h.set_ui([&] {
+        ui::set_clipboard("[info] Opened harbour");
+        held = ui::clipboard();
+    });
+    h.step();
+    CHECK(held == "[info] Opened harbour");
+}
+
 TEST_CASE("A popup opens by name and closes when an entry is chosen", "[ui][kit]") {
     ImGuiHarness h;
     int chosen = 0;

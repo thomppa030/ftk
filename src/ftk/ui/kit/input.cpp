@@ -60,6 +60,15 @@ bool typing() {
     return ImGui::GetIO().WantTextInput;
 }
 
+void set_clipboard(const std::string& text) {
+    ImGui::SetClipboardText(text.c_str());
+}
+
+std::string clipboard() {
+    const char* text = ImGui::GetClipboardText();
+    return text != nullptr ? std::string(text) : std::string();
+}
+
 bool mouse_clicked(MouseButton button) {
     return ImGui::IsMouseClicked(imgui(button));
 }

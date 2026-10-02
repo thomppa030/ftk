@@ -8,6 +8,7 @@
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <string>
 
 namespace ftk::ui {
 
@@ -39,6 +40,12 @@ struct Modifiers {
 
 /// A text field has the keyboard: keys are its, not shortcuts.
 [[nodiscard]] bool typing();
+
+/// Puts `text` on the system clipboard, as a copy does.
+void set_clipboard(const std::string& text);
+
+/// What the system clipboard holds, as text; empty when it holds none.
+[[nodiscard]] std::string clipboard();
 
 enum class MouseButton : uint8_t { Left, Right, Middle };
 
