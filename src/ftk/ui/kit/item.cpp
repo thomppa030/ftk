@@ -49,6 +49,10 @@ bool any_item_hovered() {
     return ImGui::IsAnyItemHovered();
 }
 
+void next_item_allows_overlap() {
+    ImGui::SetNextItemAllowOverlap();
+}
+
 bool hit_area(const char* id, glm::vec2 size, HitButtons buttons) {
     ImGuiButtonFlags flags = ImGuiButtonFlags_None;
     if (buttons.left) flags |= ImGuiButtonFlags_MouseButtonLeft;

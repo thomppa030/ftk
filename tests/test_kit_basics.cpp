@@ -4,11 +4,14 @@
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -301,4 +304,74 @@ TEST_CASE("A window scrolls to the cursor's line", "[ui][kit]") {
     h.step(3);
     CHECK(most > 0.0f);
     CHECK(scrolled == most);
+}
+
+TEST_CASE("A host window goes where it is placed and ends with end_host_window()", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 pos{};
+    glm::vec2 size{};
+    h.set_ui([&] {
+        ui::next_window_place({40.0f, 30.0f}, {300.0f, 200.0f});
+        if (ui::begin_host_window("##host")) {
+            pos = ui::window_pos();
+            size = ui::window_size();
+        }
+        ui::end_host_window();
+    });
+    h.step(2);
+    CHECK(pos == glm::vec2{40.0f, 30.0f});
+    CHECK(size == glm::vec2{300.0f, 200.0f});
+}
+
+TEST_CASE("A window's first size is only its first", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 size{};
+    h.set_ui([&] {
+        ui::next_window_size_once({320.0f, 240.0f});
+        ImGui::Begin("Preview");
+        size = ui::window_size();
+        ImGui::End();
+    });
+    h.step(2);
+    CHECK(size == glm::vec2{320.0f, 240.0f});
+    ImGui::SetWindowSize("Preview", {400.0f, 300.0f});
+    h.step(2);
+    CHECK(size == glm::vec2{400.0f, 300.0f});
+}
+
+TEST_CASE("An item that allows overlap lets one drawn over it take the mouse", "[ui][kit]") {
+    ImGuiHarness h;
+    int under = 0;
+    int over = 0;
+    h.set_ui([&] {
+        const glm::vec2 at = ui::cursor();
+        ui::next_item_allows_overlap();
+        if (ui::hit_area("##picture", {200.0f, 100.0f})) ++under;
+        ui::set_cursor(at);
+        if (ui::button("Fit")) ++over;
+        h.mark("fit");
+    });
+    h.step(2);
+    h.click("fit");
+    CHECK(over == 1);
+    CHECK(under == 0);
+}
+
+TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
+    ImGuiHarness h;
+    int picked = -1;
+    h.set_ui([&] {
+        for (int i = 0; i < 3; ++i) {
+            ui::IdScope id(i);
+            if (ui::selectable("Entry", picked == i)) picked = i;
+            h.mark("entry" + std::to_string(i));
+        }
+        ui::progress_bar(0.5f, 120.0f, "Halfway");
+        CHECK(ui::item_max().x - ui::item_min().x == 120.0f);
+    });
+    h.step(2);
+    h.click("entry1");
+    CHECK(picked == 1);
+    h.click("entry2");
+    CHECK(picked == 2);
 }

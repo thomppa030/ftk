@@ -64,6 +64,10 @@ bool begin_host_window(const char* name, WindowOptions options) {
     return visible;
 }
 
+void end_host_window() {
+    ImGui::End();
+}
+
 ViewportWindow::ViewportWindow(const char* title, bool* open, WindowOptions options) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});

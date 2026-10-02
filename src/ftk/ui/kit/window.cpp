@@ -23,6 +23,15 @@ int imgui_window_flags(const WindowOptions& options) {
 
 } // namespace detail
 
+void next_window_place(glm::vec2 pos, glm::vec2 size) {
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
+}
+
+void next_window_size_once(glm::vec2 size) {
+    ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
+}
+
 glm::vec2 window_pos() {
     return ImGui::GetWindowPos();
 }

@@ -34,6 +34,10 @@ namespace ftk::ui {
 /// The mouse is on some item anywhere.
 [[nodiscard]] bool any_item_hovered();
 
+/// The next item lets an item drawn over it afterwards take the mouse there:
+/// a picture under its toolbar.
+void next_item_allows_overlap();
+
 /// The mouse buttons a hit area answers to.
 struct HitButtons {
     bool left{true};

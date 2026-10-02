@@ -48,8 +48,12 @@ namespace ftk::ui {
 /// Begins a window that fills its place edge to edge, with no rounding,
 /// border or padding: the host of a dockspace. It has no title bar and is
 /// never resized, moved or collapsed, whatever `options` say. Its style is
-/// its own, so nothing drawn in it inherits it. End it with ImGui::End().
+/// its own, so nothing drawn in it inherits it. End it with
+/// end_host_window(), whether or not it is visible.
 bool begin_host_window(const char* name, WindowOptions options = {});
+
+/// Ends the window begin_host_window() began.
+void end_host_window();
 
 class ViewportWindow {
 public:

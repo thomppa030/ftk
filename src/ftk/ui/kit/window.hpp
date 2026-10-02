@@ -31,6 +31,14 @@ struct WindowOptions {
     bool remembered{true};
 };
 
+/// The next window opens at `pos`, `size` big, and stays there however it is
+/// dragged: a host filling its place.
+void next_window_place(glm::vec2 pos, glm::vec2 size);
+
+/// The next window's size the first time it opens with no layout saved;
+/// after that it keeps the size it is left at.
+void next_window_size_once(glm::vec2 size);
+
 /// The window being drawn: its top-left on screen and its size, its title
 /// bar and padding included.
 [[nodiscard]] glm::vec2 window_pos();

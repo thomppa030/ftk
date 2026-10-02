@@ -28,4 +28,8 @@ void loading(DrawList list, glm::vec2 top_centre, std::string_view what, float s
                 ImGui::GetColorU32(theme::text_secondary()), begin, end);
 }
 
+void progress_bar(float fraction, float width, const char* label) {
+    ImGui::ProgressBar(fraction, {width, 0.0f}, label);
+}
+
 } // namespace ftk::ui
