@@ -64,6 +64,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_FLASHLIGHT         "\xee\x83\x93"  // U+E0D3
 #define ICON_LC_CAMERA             "\xee\x81\xa4"  // U+E064
 #define ICON_LC_CLOUD              "\xee\x82\x88"  // U+E088
+#define ICON_LC_GIT_BRANCH_PLUS    "\xee\x87\xb4"  // U+E1F4
 #define ICON_LC_GLOBE              "\xee\x83\xa8"  // U+E0E8
 #define ICON_LC_IMAGE              "\xee\x83\xb6"  // U+E0F6
 #define ICON_LC_PACKAGE            "\xee\x84\xa9"  // U+E129
