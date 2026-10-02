@@ -4,8 +4,7 @@
 #include "ftk/app/document_history.hpp"
 #include "ftk/app/history_panel.hpp"
 #include "ftk/base/result.hpp"
-
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
 
 #include <cstdio>
 #include <string>
@@ -66,7 +65,7 @@ public:
 
     // Build default dockspace layout for this context (called within
     // DockBuilder block): the preset's, unless the context lays out its own.
-    virtual void setup_dockspace(ImGuiID main_area);
+    virtual void setup_dockspace(ui::Id main_area);
 
     /// The editor's own actions in the header (open the shader, play in the
     /// scene), each drawn after ImGui::SameLine(). None by default.
@@ -121,8 +120,8 @@ public:
     void mark_dockspace_built() { dockspace_built_ = true; }
 
     // Per-context dockspace ID and index (set by Engine)
-    void set_dockspace_id(ImGuiID id) { dockspace_id_ = id; }
-    [[nodiscard]] ImGuiID dockspace_id() const { return dockspace_id_; }
+    void set_dockspace_id(ui::Id id) { dockspace_id_ = id; }
+    [[nodiscard]] ui::Id dockspace_id() const { return dockspace_id_; }
     void set_context_index(int idx) { context_index_ = idx; }
     [[nodiscard]] int context_index() const { return context_index_; }
 
@@ -169,7 +168,7 @@ private:
     /// restore(), and the unsaved check redone after it.
     [[nodiscard]] Result<> restore_document(const std::string& text);
     HistoryPanel history_panel_;
-    ImGuiID dockspace_id_{0};
+    ui::Id dockspace_id_{0};
     int context_index_{0};
     bool dockspace_built_{false};
 };
