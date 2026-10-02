@@ -5,4 +5,3 @@
 src/ftk/app/console.cpp
 src/ftk/app/editor_context.cpp
 src/ftk/app/file_browser.cpp
-src/ftk/app/history_panel.cpp

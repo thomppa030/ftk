@@ -3,11 +3,20 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace ftk {
 
@@ -15,20 +24,21 @@ namespace {
 
 // Draws a description at `pos`, the values it marks in colour:
 // \x01...\x02 is the value before the change, \x03...\x04 the value after.
-void draw_marked_text(ImVec2 pos, const std::string& text) {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 plain = ImGui::GetColorU32(theme::text());
-    const ImU32 before = ImGui::GetColorU32(theme::error());
-    const ImU32 after = ImGui::GetColorU32(theme::success());
+void draw_marked_text(glm::vec2 pos, const std::string& text) {
+    ui::DrawList dl = ui::DrawList::window();
+    const ui::Color plain = theme::text();
+    const ui::Color before = theme::error();
+    const ui::Color after = theme::success();
 
     const char* p = text.c_str();
     const char* end = p + text.size();
-    ImU32 colour = plain;
+    ui::Color colour = plain;
     const char* run = p;
     auto flush = [&](const char* stop) {
         if (stop > run) {
-            dl->AddText(pos, colour, run, stop);
-            pos.x += ImGui::CalcTextSize(run, stop).x;
+            const std::string_view piece(run, static_cast<std::size_t>(stop - run));
+            dl.text(pos, colour, piece);
+            pos.x += ui::text_size(piece).x;
         }
     };
     for (; p < end; ++p) {
@@ -70,16 +80,17 @@ void HistoryPanel::draw(const char* title) {
 
         // "Initial state" entry: click to undo everything
         const bool is_initial = current == -1;
-        ImGui::PushStyleColor(ImGuiCol_Text, is_initial ? theme::text() : theme::text_disabled());
-        if (ImGui::Selectable("Initial state", is_initial)) {
-            history_->jump_to(-1);
+        {
+            const ui::TextColour ink(is_initial ? theme::text() : theme::text_disabled());
+            if (ui::selectable("Initial state", is_initial)) {
+                history_->jump_to(-1);
+            }
         }
-        ImGui::PopStyleColor();
 
         // Command entries. An undone step is drawn plain and dimmed; a done
         // one shows its before and after values in colour.
         for (int i = 0; i < static_cast<int>(cmds.size()); ++i) {
-            ImGui::PushID(i);
+            const ui::IdScope id(i);
 
             const bool is_current = i == current;
             const bool is_undone = i > current;
@@ -87,25 +98,22 @@ void HistoryPanel::draw(const char* title) {
             const bool has_markers = desc.find('\x01') != std::string::npos;
 
             if (has_markers && !is_undone) {
-                const ImVec2 size{0.0f, ImGui::GetTextLineHeight()};
-                if (ImGui::Selectable("##cmd", is_current, ImGuiSelectableFlags_None, size)) {
+                if (ui::selectable("##cmd", is_current, {.size = {0.0f, ui::line_height()}})) {
                     history_->jump_to(i);
                 }
-                draw_marked_text(ImGui::GetItemRectMin(), desc);
+                draw_marked_text(ui::item_min(), desc);
             } else {
-                if (is_undone) ImGui::PushStyleColor(ImGuiCol_Text, theme::text_disabled());
-                if (ImGui::Selectable(plain_text(desc).c_str(), is_current)) {
+                std::optional<ui::TextColour> dim;
+                if (is_undone) dim.emplace(theme::text_disabled());
+                if (ui::selectable(plain_text(desc).c_str(), is_current)) {
                     history_->jump_to(i);
                 }
-                if (is_undone) ImGui::PopStyleColor();
             }
-
-            ImGui::PopID();
         }
 
         // Auto-scroll to current
-        if (current >= 0 && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20) {
-            ImGui::SetScrollHereY(1.0f);
+        if (current >= 0 && ui::scroll_y() >= ui::scroll_max_y() - 20) {
+            ui::scroll_to_cursor(1.0f);
         }
     }
 }
