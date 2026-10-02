@@ -3,9 +3,10 @@
 #include <glm/common.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
-#include <imgui.h>
 
+#include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/types.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -21,7 +22,7 @@
 //     ImGui::InvisibleButton("##canvas", size, ...);
 //     view_.input(ImGui::IsItemHovered());
 //     if (!view_.panning() && ImGui::IsItemActivated()) { ...pick what is under the mouse... }
-//     const ImVec2 at = view_.to_screen(point);
+//     const glm::vec2 at = view_.to_screen(point);
 
 namespace ftk::ui {
 
@@ -64,7 +65,7 @@ public:
     /// Where the canvas is on screen this frame. Call before mapping or
     /// input; calling it again in the same frame for another part of the
     /// canvas (a ruler over lanes) moves the mapping, not the view.
-    void place(ImVec2 origin, ImVec2 size);
+    void place(glm::vec2 origin, glm::vec2 size);
 
     /// The wheel and a pan starting, over the item just drawn. Call after
     /// each item that covers part of the canvas.
@@ -90,20 +91,20 @@ public:
     /// curve in an inspector): the view ImGui keeps under `id` in the
     /// current window, which is per asset since every editor's windows are.
     /// False when there is none yet: the caller frames.
-    bool load(ImGuiID id);
+    bool load(Id id);
     /// Keeps the view, and where it was last placed, under `id` for the
     /// next frame's load().
-    void store(ImGuiID id) const;
+    void store(Id id) const;
 
-    [[nodiscard]] ImVec2 to_screen(glm::vec2 world) const;
-    [[nodiscard]] glm::vec2 to_world(ImVec2 screen) const;
+    [[nodiscard]] glm::vec2 to_screen(glm::vec2 world) const;
+    [[nodiscard]] glm::vec2 to_world(glm::vec2 screen) const;
     [[nodiscard]] float to_screen_x(float world) const;
     [[nodiscard]] float to_world_x(float screen) const;
     /// Screen pixels per world unit across and down.
     [[nodiscard]] float scale_x() const;
     [[nodiscard]] float scale_y() const;
-    [[nodiscard]] ImVec2 origin() const { return origin_; }
-    [[nodiscard]] ImVec2 size() const { return size_; }
+    [[nodiscard]] glm::vec2 origin() const { return origin_; }
+    [[nodiscard]] glm::vec2 size() const { return size_; }
 
 private:
     void clamp_horizontal();
@@ -111,8 +112,8 @@ private:
     void keep();
 
     Options options_{};
-    ImVec2 origin_{};
-    ImVec2 size_{1.0f, 1.0f};
+    glm::vec2 origin_{};
+    glm::vec2 size_{1.0f, 1.0f};
     glm::vec2 min_{0.0f};   // the world at the canvas's top-left
     float scale_{1.0f};     // Uniform
     glm::vec2 span_{1.0f};  // Horizontal and Both: the world across the canvas
@@ -127,7 +128,7 @@ private:
 
 /// Lines every `step` world units across the visible canvas, both ways,
 /// on whole pixels; none when they would come closer than `min_px`.
-void canvas_grid(ImDrawList* dl, const CanvasView& view, float step, const ImVec4& colour, float min_px = 6.0f);
+void canvas_grid(DrawList dl, const CanvasView& view, float step, const Color& colour, float min_px = 6.0f);
 
 /// A plot's axes (sheet 8): lines at round values in the plot, the major
 /// ones brighter and zero brighter still, and their values in gutters
@@ -141,18 +142,18 @@ struct PlotAxes {
 
 /// Where the plot sits in `origin`..`origin + size` once its gutters are
 /// taken: place the plot's view there.
-void plot_area(ImVec2 origin, ImVec2 size, const PlotAxes& axes, ImVec2* plot_origin, ImVec2* plot_size);
+void plot_area(glm::vec2 origin, glm::vec2 size, const PlotAxes& axes, glm::vec2* plot_origin, glm::vec2* plot_size);
 
 /// Draws the plot (the view's area) with its grid, and the gutters around it.
-void canvas_plot_axes(ImDrawList* dl, const CanvasView& view, const PlotAxes& axes);
+void canvas_plot_axes(DrawList dl, const CanvasView& view, const PlotAxes& axes);
 
 /// A time ruler across the top of a Horizontal canvas, `height` tall:
 /// ticks at round times, the major ones valued.
-void canvas_ruler(ImDrawList* dl, const CanvasView& view, float height);
+void canvas_ruler(DrawList dl, const CanvasView& view, float height);
 
 /// The playhead at screen `x` from `top` to `bottom`, headed by a small
 /// triangle when it runs through a ruler.
-void canvas_playhead(ImDrawList* dl, float x, float top, float bottom, bool head);
+void canvas_playhead(DrawList dl, float x, float top, float bottom, bool head);
 
 enum class HandleShape { Circle, Diamond };
 
@@ -161,12 +162,12 @@ struct HandleLook {
     float radius{4.0f};
     /// The handle's own colour (a gradient stop's): the state then shows
     /// in its outline.
-    const ImVec4* fill{nullptr};
+    const Color* fill{nullptr};
 };
 
 /// A point the mouse can take: at rest in the secondary text colour,
 /// brighter with a ring under the mouse, the accent when selected.
-void canvas_handle(ImDrawList* dl, ImVec2 at, bool hot, bool selected, HandleLook look = {});
+void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLook look = {});
 
 /// A number drawn inside a canvas, at `min`..`max` on screen with its text
 /// at `text_size` (sheet 31): dragged sideways it changes by `speed` a
@@ -178,15 +179,15 @@ struct NumberSpec {
     float hi{1e9f};
     const char* format{"%.2f"};
 };
-Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, float& value, const NumberSpec& spec = {});
-Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, uint32_t& value, const NumberSpec& spec = {});
+Edit canvas_number(const char* id, glm::vec2 min, glm::vec2 max, float text_size, float& value, const NumberSpec& spec = {});
+Edit canvas_number(const char* id, glm::vec2 min, glm::vec2 max, float text_size, uint32_t& value, const NumberSpec& spec = {});
 
 /// A colour drawn inside a canvas as a swatch that opens the kit's picker.
 /// The colour is sRGB, alpha included.
-Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb);
+Edit canvas_swatch(const char* id, glm::vec2 min, glm::vec2 max, glm::vec4& srgb);
 
 /// What a handle being dragged is at, in a small box beside it, kept inside
 /// `clip_min`..`clip_max`.
-void canvas_readout(ImDrawList* dl, ImVec2 handle, const char* text, ImVec2 clip_min, ImVec2 clip_max);
+void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max);
 
 } // namespace ftk::ui

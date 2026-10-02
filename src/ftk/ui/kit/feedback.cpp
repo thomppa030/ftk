@@ -212,7 +212,8 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
     return clicked;
 }
 
-void unsaved_dot(ImDrawList* draw_list, ImVec2 centre) {
+void unsaved_dot(DrawList list, glm::vec2 centre) {
+    ImDrawList* draw_list = list.imgui();
     draw_list->AddCircleFilled(centre, UNSAVED_DOT_RADIUS, ImGui::GetColorU32(theme::text()));
 }
 

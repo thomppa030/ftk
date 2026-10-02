@@ -27,22 +27,24 @@ std::size_t find_match(std::string_view text, std::string_view query) {
                          : static_cast<std::size_t>(found.begin() - text.begin());
 }
 
-void draw_highlighted(ImDrawList* draw_list, ImVec2 pos, std::string_view text,
-                      std::string_view query, ImU32 colour) {
+void draw_highlighted(DrawList list, glm::vec2 pos, std::string_view text,
+                      std::string_view query, Color colour) {
+    ImDrawList* draw_list = list.imgui();
+    const ImU32 packed = ImGui::GetColorU32(colour);
     const char* begin = text.data();
     const char* end = begin + text.size();
     const std::size_t at = query.empty() ? std::string_view::npos : find_match(text, query);
     if (at == std::string_view::npos) {
-        draw_list->AddText(pos, colour, begin, end);
+        draw_list->AddText(pos, packed, begin, end);
         return;
     }
     const char* match = begin + at;
     const char* match_end = match + query.size();
-    draw_list->AddText(pos, colour, begin, match);
+    draw_list->AddText(pos, packed, begin, match);
     pos.x += ImGui::CalcTextSize(begin, match).x;
     draw_list->AddText(pos, ImGui::GetColorU32(theme::accent()), match, match_end);
     pos.x += ImGui::CalcTextSize(match, match_end).x;
-    draw_list->AddText(pos, colour, match_end, end);
+    draw_list->AddText(pos, packed, match_end, end);
 }
 
 } // namespace detail
@@ -55,7 +57,7 @@ void highlighted_text(std::string_view text, std::string_view query, bool dimmed
     const ImVec2 size = ImGui::CalcTextSize(text.data(), text.data() + text.size());
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     ImGui::Dummy(size);
-    const ImU32 colour = ImGui::GetColorU32(dimmed ? theme::text_disabled() : theme::text());
+    const Color colour = dimmed ? theme::text_disabled() : theme::text();
     // A dimmed parent has no match of its own to mark.
     detail::draw_highlighted(ImGui::GetWindowDrawList(), pos, text, dimmed ? std::string_view{} : query,
                              colour);

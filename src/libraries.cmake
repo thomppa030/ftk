@@ -242,6 +242,7 @@ endif()
 # headless in the unit tests and in any window a program brings.
 ftk_library(app-ui
     SOURCES
+        ftk/ui/draw_list.cpp
         ftk/ui/kit/asset_header.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/asset_tile.cpp
@@ -280,6 +281,7 @@ ftk_library(app-ui
         ftk/ui/kit/tree.cpp
         ftk/ui/kit/viewport_toolbar.cpp
     HEADERS
+        ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
         ftk/ui/kit/asset_header.hpp
         ftk/ui/kit/asset_kind.hpp

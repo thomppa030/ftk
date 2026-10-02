@@ -1,6 +1,9 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 #include <string>
 #include <string_view>
@@ -38,8 +41,8 @@ namespace detail {
 
 /// The same, drawn at `pos` into `draw_list` without adding an item, for
 /// widgets that lay their own row out (a tree row, a picker row).
-void draw_highlighted(ImDrawList* draw_list, ImVec2 pos, std::string_view text,
-                      std::string_view query, ImU32 colour);
+void draw_highlighted(DrawList draw_list, glm::vec2 pos, std::string_view text,
+                      std::string_view query, Color colour);
 
 /// Where `query` first occurs in `text`, ignoring case, or npos.
 [[nodiscard]] std::size_t find_match(std::string_view text, std::string_view query);

@@ -1,6 +1,9 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 #include <optional>
 #include <span>
@@ -22,7 +25,7 @@ inline constexpr float OVERLAY_INSET = 8.0f;
 
 /// The plate text sits on over a picture: the sunken surface at 85 %, with
 /// the frame rounding.
-void overlay_plate(ImDrawList* draw_list, ImVec2 min, ImVec2 max);
+void overlay_plate(DrawList draw_list, glm::vec2 min, glm::vec2 max);
 
 /// A piece of a line over a picture: words, or a key drawn as a small cap
 /// (sheet 26's key, sized to the line).
@@ -39,13 +42,13 @@ struct CornerNoteSpec {
     std::span<const OverlayPiece> line;
     /// The words' colour: theme::warning() for a debug view left on,
     /// text_secondary() for a hint, text() for a name.
-    ImVec4 ink;
+    Color ink;
     /// The icon's colour when it isn't the words' (a hue).
-    std::optional<ImVec4> icon_ink{};
+    std::optional<Color> icon_ink{};
 };
 
 /// A one-line note on a plate, its `corner` at `at`. Returns the plate's
 /// size, for what is placed beside it.
-ImVec2 corner_note(ImDrawList* draw_list, ImVec2 at, Corner corner, const CornerNoteSpec& spec);
+glm::vec2 corner_note(DrawList draw_list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec);
 
 } // namespace ftk::ui

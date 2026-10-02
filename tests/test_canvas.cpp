@@ -219,8 +219,8 @@ TEST_CASE("A plot pans with the mouse and keeps its range when resized", "[ui][c
 }
 
 TEST_CASE("A plot leaves room for its values and names outside it", "[ui][canvas]") {
-    ImVec2 origin;
-    ImVec2 size;
+    glm::vec2 origin{};
+    glm::vec2 size{};
     ui::plot_area(ORIGIN, SIZE, {.x_name = "speed", .y_name = "direction"}, &origin, &size);
     CHECK(origin.x > ORIGIN.x + 40.0f);   // the y values and the name beside them
     CHECK(origin.y == ORIGIN.y);

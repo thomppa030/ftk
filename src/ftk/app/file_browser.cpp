@@ -485,7 +485,7 @@ void FileBrowser::draw_file_list() {
         ImGui::PopID();
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddText(row, colour(tint), icon);
-        ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, colour(theme::text()));
+        ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, theme::text());
 
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
         if (show_size) {

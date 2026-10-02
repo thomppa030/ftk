@@ -174,7 +174,7 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
                                    min.y + (row_height() - ImGui::GetFrameHeight()) * 0.5f});
         result.renamed = spec.rename->draw(std::max(name_right - x, 1.0f));
     } else if (x + name_w <= name_right) {
-        const ImU32 colour = ImGui::GetColorU32(spec.dimmed ? theme::text_disabled() : theme::text());
+        const Color colour = spec.dimmed ? theme::text_disabled() : theme::text();
         detail::draw_highlighted(dl, {x, text_y}, spec.name, spec.dimmed ? std::string_view{} : spec.query,
                                  colour);
     } else {

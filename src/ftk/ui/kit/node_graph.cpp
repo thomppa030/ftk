@@ -180,10 +180,10 @@ const NodeGraph::LaidPin* NodeGraph::find_pin(const NodeEnd& end) const {
 ImVec2 NodeGraph::end_position(const NodeEnd& end) const {
     if (end.pin != 0) {
         const LaidPin* pin = find_pin(end);
-        return pin != nullptr ? view_.to_screen(pin->at) : ImVec2{};
+        return pin != nullptr ? view_.to_screen(pin->at) : glm::vec2{};
     }
     const LaidNode* node = find_node(end.node);
-    return node != nullptr ? view_.to_screen(node->centre()) : ImVec2{};
+    return node != nullptr ? view_.to_screen(node->centre()) : glm::vec2{};
 }
 
 bool NodeGraph::kit_allows(const NodeEnd& from, const NodeEnd& to) const {

@@ -54,7 +54,7 @@ void format_value(char* out, std::size_t size, float value, float step) {
 
 } // namespace
 
-void CanvasView::place(ImVec2 origin, ImVec2 size) {
+void CanvasView::place(glm::vec2 origin, glm::vec2 size) {
     origin_ = origin;
     size_ = {std::max(size.x, 1.0f), std::max(size.y, 1.0f)};
 
@@ -144,7 +144,7 @@ bool CanvasView::recall(const std::string& key) {
     return true;
 }
 
-bool CanvasView::load(ImGuiID id) {
+bool CanvasView::load(Id id) {
     ImGuiStorage* st = ImGui::GetStateStorage();
     if (!st->GetBool(ImHashStr("has", 0, id))) return false;
     min_ = {st->GetFloat(ImHashStr("min_x", 0, id)), st->GetFloat(ImHashStr("min_y", 0, id))};
@@ -157,7 +157,7 @@ bool CanvasView::load(ImGuiID id) {
     return true;
 }
 
-void CanvasView::store(ImGuiID id) const {
+void CanvasView::store(Id id) const {
     ImGuiStorage* st = ImGui::GetStateStorage();
     st->SetBool(ImHashStr("has", 0, id), true);
     st->SetFloat(ImHashStr("min_x", 0, id), min_.x);
@@ -195,13 +195,13 @@ void CanvasView::clamp_horizontal() {
     min_.x = std::clamp(min_.x, options_.bound_min, std::max(options_.bound_min, options_.bound_max - span_.x));
 }
 
-ImVec2 CanvasView::to_screen(glm::vec2 world) const {
+glm::vec2 CanvasView::to_screen(glm::vec2 world) const {
     if (options_.zoom == CanvasZoom::Horizontal) return {to_screen_x(world.x), origin_.y};
     const float down = (world.y - min_.y) * scale_y();
     return {to_screen_x(world.x), options_.y_up ? origin_.y + size_.y - down : origin_.y + down};
 }
 
-glm::vec2 CanvasView::to_world(ImVec2 screen) const {
+glm::vec2 CanvasView::to_world(glm::vec2 screen) const {
     if (options_.zoom == CanvasZoom::Horizontal) return {to_world_x(screen.x), 0.0f};
     const float down = options_.y_up ? origin_.y + size_.y - screen.y : screen.y - origin_.y;
     return {to_world_x(screen.x), min_.y + down / scale_y()};
@@ -232,7 +232,8 @@ bool canvas_has_keys() {
     return ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsAnyItemActive();
 }
 
-void canvas_grid(ImDrawList* dl, const CanvasView& view, float step, const ImVec4& c, float min_px) {
+void canvas_grid(DrawList list, const CanvasView& view, float step, const Color& c, float min_px) {
+    ImDrawList* dl = list.imgui();
     const float px = step * view.scale_x();
     if (px < min_px) return;
     const ImVec2 lo = view.origin();
@@ -251,7 +252,8 @@ void canvas_grid(ImDrawList* dl, const CanvasView& view, float step, const ImVec
     }
 }
 
-void canvas_ruler(ImDrawList* dl, const CanvasView& view, float height) {
+void canvas_ruler(DrawList list, const CanvasView& view, float height) {
+    ImDrawList* dl = list.imgui();
     const ImVec2 lo = view.origin();
     const ImVec2 hi{lo.x + view.size().x, lo.y + height};
     dl->AddRectFilled(lo, hi, colour(theme::surface_base()));
@@ -280,13 +282,15 @@ void canvas_ruler(ImDrawList* dl, const CanvasView& view, float height) {
     dl->AddLine({lo.x, hi.y - 0.5f}, {hi.x, hi.y - 0.5f}, colour(theme::border()));
 }
 
-void canvas_playhead(ImDrawList* dl, float x, float top, float bottom, bool head) {
+void canvas_playhead(DrawList list, float x, float top, float bottom, bool head) {
+    ImDrawList* dl = list.imgui();
     const float px = std::floor(x) + 0.5f;
     dl->AddLine({px, top}, {px, bottom}, colour(theme::text()), 1.5f);
     if (head) dl->AddTriangleFilled({px - 5.0f, top}, {px + 5.0f, top}, {px, top + 6.0f}, colour(theme::text()));
 }
 
-void canvas_handle(ImDrawList* dl, ImVec2 at, bool hot, bool selected, HandleLook look) {
+void canvas_handle(DrawList list, glm::vec2 at, bool hot, bool selected, HandleLook look) {
+    ImDrawList* dl = list.imgui();
     const ImVec4& state = selected ? theme::accent() : hot ? theme::text() : theme::text_secondary();
     const float r = look.radius;
     if (look.shape == HandleShape::Diamond) {
@@ -309,7 +313,8 @@ void canvas_handle(ImDrawList* dl, ImVec2 at, bool hot, bool selected, HandleLoo
     if (hot && !selected) dl->AddCircle(at, r + 3.0f, colour(theme::text_secondary()));
 }
 
-void canvas_readout(ImDrawList* dl, ImVec2 handle, const char* text, ImVec2 clip_min, ImVec2 clip_max) {
+void canvas_readout(DrawList list, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max) {
+    ImDrawList* dl = list.imgui();
     ImGui::PushFont(theme::mono_font(), theme::SMALL_TEXT);
     const ImVec2 ts = ImGui::CalcTextSize(text);
     const ImVec2 pad{7.0f, 4.0f};
@@ -352,13 +357,14 @@ bool is_multiple(float value, float step) {
 
 } // namespace
 
-void plot_area(ImVec2 origin, ImVec2 size, const PlotAxes& axes, ImVec2* plot_origin, ImVec2* plot_size) {
+void plot_area(glm::vec2 origin, glm::vec2 size, const PlotAxes& axes, glm::vec2* plot_origin, glm::vec2* plot_size) {
     const float left = axes.y_axis ? GUTTER_VALUES + (axes.y_name != nullptr ? GUTTER_NAME : 0.0f) : 0.0f;
     *plot_origin = {origin.x + left, origin.y};
     *plot_size = {std::max(size.x - left, 1.0f), std::max(size.y - GUTTER_BOTTOM, 1.0f)};
 }
 
-void canvas_plot_axes(ImDrawList* dl, const CanvasView& view, const PlotAxes& axes) {
+void canvas_plot_axes(DrawList list, const CanvasView& view, const PlotAxes& axes) {
+    ImDrawList* dl = list.imgui();
     const ImVec2 lo = view.origin();
     const ImVec2 hi{lo.x + view.size().x, lo.y + view.size().y};
     const float left = axes.y_axis ? GUTTER_VALUES + (axes.y_name != nullptr ? GUTTER_NAME : 0.0f) : 0.0f;
@@ -534,18 +540,18 @@ Edit canvas_number_of(const char* id, ImVec2 min, ImVec2 max, float text_size, T
 
 } // namespace
 
-Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, float& value, const NumberSpec& spec) {
+Edit canvas_number(const char* id, glm::vec2 min, glm::vec2 max, float text_size, float& value, const NumberSpec& spec) {
     return canvas_number_of(id, min, max, text_size, value, spec, ImGuiDataType_Float);
 }
 
-Edit canvas_number(const char* id, ImVec2 min, ImVec2 max, float text_size, uint32_t& value, const NumberSpec& spec) {
+Edit canvas_number(const char* id, glm::vec2 min, glm::vec2 max, float text_size, uint32_t& value, const NumberSpec& spec) {
     NumberSpec whole = spec;
     whole.lo = std::max(spec.lo, 0.0f);
     if (std::string_view(whole.format).find('f') != std::string_view::npos) whole.format = "%u";
     return canvas_number_of(id, min, max, text_size, value, whole, ImGuiDataType_U32);
 }
 
-Edit canvas_swatch(const char* id, ImVec2 min, ImVec2 max, glm::vec4& srgb) {
+Edit canvas_swatch(const char* id, glm::vec2 min, glm::vec2 max, glm::vec4& srgb) {
     Edit edit;
     ImGui::PushID(id);
     const ImVec2 size{std::max(max.x - min.x, 4.0f), std::max(max.y - min.y, 4.0f)};

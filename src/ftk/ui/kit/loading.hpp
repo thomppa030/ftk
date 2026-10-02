@@ -1,6 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/draw_list.hpp"
+
+#include <glm/vec2.hpp>
 
 #include <string_view>
 
@@ -11,11 +13,11 @@ namespace ftk::ui {
 
 /// Something is loading: an arc in the accent turning around `centre`,
 /// `seconds` since it started.
-void spinner(ImDrawList* draw_list, ImVec2 centre, float radius, float seconds);
+void spinner(DrawList draw_list, glm::vec2 centre, float radius, float seconds);
 
 /// Something is loading and this is what: the spinner with its caption
 /// under it in the secondary colour ("Opening harbour…"), centred on
 /// `top_centre`, the middle of the spinner's top edge.
-void loading(ImDrawList* draw_list, ImVec2 top_centre, std::string_view what, float seconds);
+void loading(DrawList draw_list, glm::vec2 top_centre, std::string_view what, float seconds);
 
 } // namespace ftk::ui

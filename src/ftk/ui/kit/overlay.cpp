@@ -42,13 +42,15 @@ void draw_key(ImDrawList* dl, ImVec2 pos, float width, std::string_view name) {
 }
 } // namespace
 
-void overlay_plate(ImDrawList* draw_list, ImVec2 min, ImVec2 max) {
+void overlay_plate(DrawList list, glm::vec2 min, glm::vec2 max) {
+    ImDrawList* draw_list = list.imgui();
     ImVec4 plate = theme::surface_sunken();
     plate.w = PLATE_ALPHA;
     draw_list->AddRectFilled(min, max, ImGui::GetColorU32(plate), ImGui::GetStyle().FrameRounding);
 }
 
-ImVec2 corner_note(ImDrawList* draw_list, ImVec2 at, Corner corner, const CornerNoteSpec& spec) {
+glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec) {
+    ImDrawList* draw_list = list.imgui();
     // Keys stand a little taller than the words, so a line holding one gets
     // their height.
     bool has_key = false;

@@ -90,8 +90,8 @@ Edit curve_editor(const char* id, Curve& curve, const CurveOptions& o) {
     if (size.x <= 0.0f) size.x = ImGui::GetContentRegionAvail().x;
     size.x = std::max(size.x, 80.0f);
     const PlotAxes axes{};
-    ImVec2 origin;
-    ImVec2 plot;
+    glm::vec2 origin{};
+    glm::vec2 plot{};
     plot_area(outer, size, axes, &origin, &plot);
     CanvasView view({.zoom = CanvasZoom::Both, .y_up = true});
     const bool had_view = view.load(self);

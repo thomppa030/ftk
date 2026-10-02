@@ -1,8 +1,10 @@
 #pragma once
 
-// How the editor tells you something that isn't a value.
+#include "ftk/ui/draw_list.hpp"
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
+
+// How the editor tells you something that isn't a value.
 
 namespace ftk::ui {
 
@@ -31,7 +33,7 @@ bool callout(Severity severity, const char* title, const char* text,
 
 /// The unsaved mark: a small dot in the text colour, centred on `centre`,
 /// the same on the tab, the header, the status bar and a footer.
-void unsaved_dot(ImDrawList* draw_list, ImVec2 centre);
+void unsaved_dot(DrawList draw_list, glm::vec2 centre);
 
 /// Its radius, to leave room for it.
 inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;

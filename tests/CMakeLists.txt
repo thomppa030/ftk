@@ -24,6 +24,7 @@ add_executable(ftk-tests
     test_curve_editor.cpp
     test_delegate.cpp
     test_dialog.cpp
+    test_draw_list.cpp
     test_document_history.cpp
     test_edit_record.cpp
     test_fields.cpp
