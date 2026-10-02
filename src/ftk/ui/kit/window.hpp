@@ -1,9 +1,14 @@
 #pragma once
 
-// What a window the kit opens leaves out. A window has everything unless
-// it says otherwise:
+// What a window the kit opens leaves out, and what the window being drawn
+// is: where, how big, whether the mouse or the keyboard is on it, how far
+// it is scrolled. A window has everything unless it says otherwise:
 //
 //     ui::begin_host_window("##Hub", {.scrollbar = false, .to_front = false});
+//
+//     if (ui::window_focused() && ui::key_pressed(ui::Key::Delete)) remove_selected();
+
+#include <glm/vec2.hpp>
 
 namespace ftk::ui {
 
@@ -25,6 +30,33 @@ struct WindowOptions {
     /// back next run.
     bool remembered{true};
 };
+
+/// The window being drawn: its top-left on screen and its size, its title
+/// bar and padding included.
+[[nodiscard]] glm::vec2 window_pos();
+[[nodiscard]] glm::vec2 window_size();
+
+/// Where its content goes, on screen: inside the padding, as scrolled now.
+[[nodiscard]] glm::vec2 window_content_min();
+[[nodiscard]] glm::vec2 window_content_max();
+
+/// The mouse is over the window being drawn, and nothing above it has the
+/// mouse; or over it or a window inside it.
+[[nodiscard]] bool window_hovered();
+[[nodiscard]] bool window_or_child_hovered();
+
+/// The window being drawn has the keyboard; or it or a window inside it.
+[[nodiscard]] bool window_focused();
+[[nodiscard]] bool window_or_child_focused();
+
+/// How far the window being drawn is scrolled down, and how far it can be.
+[[nodiscard]] float scroll_y();
+[[nodiscard]] float scroll_max_y();
+void set_scroll_y(float y);
+
+/// Scrolls the window being drawn so the cursor's line sits `ratio` of the
+/// way down it: 0 the top, 1 the bottom, as a log follows its last line.
+void scroll_to_cursor(float ratio);
 
 namespace detail {
 

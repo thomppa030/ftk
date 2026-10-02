@@ -2,7 +2,9 @@
 
 #include <imgui.h>
 
-namespace ftk::ui::detail {
+namespace ftk::ui {
+
+namespace detail {
 
 int imgui_window_flags(const WindowOptions& options) {
     ImGuiWindowFlags flags = ImGuiWindowFlags_None;
@@ -19,4 +21,54 @@ int imgui_window_flags(const WindowOptions& options) {
     return flags;
 }
 
-} // namespace ftk::ui::detail
+} // namespace detail
+
+glm::vec2 window_pos() {
+    return ImGui::GetWindowPos();
+}
+
+glm::vec2 window_size() {
+    return ImGui::GetWindowSize();
+}
+
+glm::vec2 window_content_min() {
+    return glm::vec2(ImGui::GetWindowPos()) + glm::vec2(ImGui::GetWindowContentRegionMin());
+}
+
+glm::vec2 window_content_max() {
+    return glm::vec2(ImGui::GetWindowPos()) + glm::vec2(ImGui::GetWindowContentRegionMax());
+}
+
+bool window_hovered() {
+    return ImGui::IsWindowHovered();
+}
+
+bool window_or_child_hovered() {
+    return ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+}
+
+bool window_focused() {
+    return ImGui::IsWindowFocused();
+}
+
+bool window_or_child_focused() {
+    return ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+}
+
+float scroll_y() {
+    return ImGui::GetScrollY();
+}
+
+float scroll_max_y() {
+    return ImGui::GetScrollMaxY();
+}
+
+void set_scroll_y(float y) {
+    ImGui::SetScrollY(y);
+}
+
+void scroll_to_cursor(float ratio) {
+    ImGui::SetScrollHereY(ratio);
+}
+
+} // namespace ftk::ui

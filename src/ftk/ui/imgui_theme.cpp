@@ -129,7 +129,7 @@ void apply(ImGuiStyle& style) {
 
     // Geometry
     style.WindowRounding = 0.0f;
-    style.FrameRounding = 4.0f;
+    style.FrameRounding = FRAME_ROUNDING;
     style.GrabRounding = 2.0f;
     style.ScrollbarRounding = 8.0f;
     style.TabRounding = 2.0f;

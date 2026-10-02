@@ -6,7 +6,11 @@
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/window.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <imgui.h>
@@ -201,4 +205,99 @@ TEST_CASE("An image is an item the size it is given", "[ui][kit]") {
     });
     h.step(2);
     CHECK(size == glm::vec2{64.0f, 32.0f});
+}
+
+TEST_CASE("What is stored under an id comes back the next frame", "[ui][kit]") {
+    ImGuiHarness h;
+    int frame = 0;
+    int seen = -2;
+    bool same_id = false;
+    h.set_ui([&] {
+        const ui::Id picked = ui::id("##picked");
+        same_id = picked == ImGui::GetID("##picked");
+        seen = ui::stored_int(picked, -1);
+        ui::store_int(picked, frame++);
+        ui::store_bool(ui::id("##open"), true);
+        ui::store_float(ui::id("##width"), 120.0f);
+    });
+    h.step();
+    CHECK(seen == -1);
+    h.step();
+    CHECK(seen == 0);
+    CHECK(same_id);
+    h.set_ui([&] {
+        CHECK(ui::stored_bool(ui::id("##open")));
+        CHECK(ui::stored_float(ui::id("##width")) == 120.0f);
+        CHECK_FALSE(ui::stored_bool(ui::id("##never")));
+    });
+    h.step();
+}
+
+TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scope its colour", "[ui][kit]") {
+    ImGuiHarness h;
+    float inside = 0.0f;
+    float after = 0.0f;
+    float before = 0.0f;
+    ui::Color text_inside{};
+    h.set_ui([&] {
+        before = ui::font_size();
+        {
+            ui::FontScope small({}, 9.0f);
+            inside = ui::font_size();
+            ui::TextColour dim(ftk::theme::text_secondary());
+            text_inside = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        }
+        after = ui::font_size();
+    });
+    h.step(2);
+    CHECK(inside == 9.0f);
+    CHECK(after == before);
+    CHECK(text_inside == ftk::theme::text_secondary());
+}
+
+TEST_CASE("The style's spacing and padding are the kit's metrics", "[ui][kit]") {
+    ImGuiHarness h;
+    h.set_ui([&] {
+        CHECK(ui::item_spacing() == glm::vec2(ImGui::GetStyle().ItemSpacing));
+        CHECK(ui::item_inner_spacing() == glm::vec2(ImGui::GetStyle().ItemInnerSpacing));
+        CHECK(ui::frame_padding() == glm::vec2(ImGui::GetStyle().FramePadding));
+    });
+    h.step();
+}
+
+TEST_CASE("The window being drawn knows where it is and whether the mouse is on it", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 pos{-1.0f};
+    glm::vec2 size{};
+    glm::vec2 content_min{};
+    bool hovered = false;
+    h.set_ui([&] {
+        pos = ui::window_pos();
+        size = ui::window_size();
+        content_min = ui::window_content_min();
+        hovered = ui::window_hovered();
+        ui::button("Bake");
+        h.mark("bake");
+    });
+    h.step(2);
+    CHECK(pos == glm::vec2{0.0f, 0.0f});
+    CHECK(size == glm::vec2{800.0f, 600.0f});
+    CHECK(content_min == glm::vec2(ImGui::GetStyle().WindowPadding));
+    h.hover("bake");
+    CHECK(hovered);
+}
+
+TEST_CASE("A window scrolls to the cursor's line", "[ui][kit]") {
+    ImGuiHarness h;
+    float scrolled = -1.0f;
+    float most = -1.0f;
+    h.set_ui([&] {
+        for (int i = 0; i < 200; ++i) ui::text("A line of the log");
+        ui::scroll_to_cursor(1.0f);
+        scrolled = ui::scroll_y();
+        most = ui::scroll_max_y();
+    });
+    h.step(3);
+    CHECK(most > 0.0f);
+    CHECK(scrolled == most);
 }

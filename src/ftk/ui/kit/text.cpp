@@ -14,4 +14,24 @@ void text(std::string_view text, Color colour) {
     ImGui::PopStyleColor();
 }
 
+float font_size() {
+    return ImGui::GetFontSize();
+}
+
+FontScope::FontScope(Font font, float size) {
+    ImGui::PushFont(font, size);
+}
+
+FontScope::~FontScope() {
+    ImGui::PopFont();
+}
+
+TextColour::TextColour(Color colour) {
+    ImGui::PushStyleColor(ImGuiCol_Text, colour);
+}
+
+TextColour::~TextColour() {
+    ImGui::PopStyleColor();
+}
+
 } // namespace ftk::ui

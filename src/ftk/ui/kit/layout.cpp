@@ -60,6 +60,18 @@ glm::vec2 text_size(std::string_view text) {
     return ImGui::CalcTextSize(text.data(), text.data() + text.size());
 }
 
+glm::vec2 item_spacing() {
+    return ImGui::GetStyle().ItemSpacing;
+}
+
+glm::vec2 item_inner_spacing() {
+    return ImGui::GetStyle().ItemInnerSpacing;
+}
+
+glm::vec2 frame_padding() {
+    return ImGui::GetStyle().FramePadding;
+}
+
 Group::Group() {
     ImGui::BeginGroup();
 }

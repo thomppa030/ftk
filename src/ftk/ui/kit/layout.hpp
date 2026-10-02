@@ -67,6 +67,15 @@ void align_text_to_frame();
 /// The room `text` takes on one line.
 [[nodiscard]] glm::vec2 text_size(std::string_view text);
 
+/// The space between items, across and down.
+[[nodiscard]] glm::vec2 item_spacing();
+
+/// The space inside one item between its parts: a field and its label.
+[[nodiscard]] glm::vec2 item_inner_spacing();
+
+/// The space between a field's or a button's edge and its text.
+[[nodiscard]] glm::vec2 frame_padding();
+
 /// While it lives, what is drawn is one item to same_line() and the item_
 /// queries: a field with its unit, a pill of buttons.
 class Group {

@@ -198,6 +198,9 @@ inline constexpr float TOOL_ICON = 20.0f;
 inline constexpr float TREE_ROW = 24.0f;
 inline constexpr float TREE_INDENT = 16.0f;
 
+/// The rounding of a field's or a button's corners.
+inline constexpr float FRAME_ROUNDING = 4.0f;
+
 /// Height of the status bar along the bottom of the editor.
 inline constexpr float STATUS_BAR = 24.0f;
 

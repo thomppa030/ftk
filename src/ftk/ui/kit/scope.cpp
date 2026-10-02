@@ -32,4 +32,8 @@ IdScope::~IdScope() {
     ImGui::PopID();
 }
 
+Id id(std::string_view label) {
+    return ImGui::GetID(label.data(), label.data() + label.size());
+}
+
 } // namespace ftk::ui

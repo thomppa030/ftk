@@ -12,6 +12,8 @@
 //         ui::row("Opacity", ...);  // the same label in every layer, told apart
 //     }
 
+#include "ftk/ui/types.hpp"
+
 #include <string_view>
 
 namespace ftk::ui {
@@ -30,6 +32,10 @@ public:
 
 /// While it lives, widgets are told apart by `id` as well as by their
 /// labels: the same label once per element of a list.
+/// The id a widget labelled `label` gets here, under the ids pushed now:
+/// for keeping something of its own under it (ui/kit/state.hpp).
+[[nodiscard]] Id id(std::string_view label);
+
 class IdScope {
 public:
     explicit IdScope(std::string_view id);

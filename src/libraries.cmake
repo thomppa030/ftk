@@ -283,6 +283,7 @@ ftk_library(app-ui
         ftk/ui/kit/search.cpp
         ftk/ui/kit/section.cpp
         ftk/ui/kit/slot.cpp
+        ftk/ui/kit/state.cpp
         ftk/ui/kit/status_bar.cpp
         ftk/ui/kit/strip.cpp
         ftk/ui/kit/tabs.cpp
@@ -336,6 +337,7 @@ ftk_library(app-ui
         ftk/ui/kit/search.hpp
         ftk/ui/kit/section.hpp
         ftk/ui/kit/slot.hpp
+        ftk/ui/kit/state.hpp
         ftk/ui/kit/status_bar.hpp
         ftk/ui/kit/strip.hpp
         ftk/ui/kit/tabs.hpp
