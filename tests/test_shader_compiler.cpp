@@ -75,6 +75,17 @@ TEST_CASE("A cache key is exactly what it was", "[shader][compiler]") {
     CHECK(compiler.cache_key(plain) == 0xbae69c53d4f95297ULL);
 }
 
+TEST_CASE("An optimised job is kept apart from the plain one", "[shader][compiler]") {
+    ShaderTree tree;
+    tree.write("shaders/generated/x.frag", "void main() {}\n");
+    const ShaderCompiler compiler = tree.compiler();
+
+    ShaderCompiler::Job job{tree.path("shaders/generated/x.frag"), "x"};
+    const uint64_t plain = compiler.cache_key(job);
+    job.optimize = true;
+    CHECK(compiler.cache_key(job) != plain);
+}
+
 TEST_CASE("An edited include changes the key once it is hashed again", "[shader][compiler]") {
     ShaderTree tree;
     tree.write("shaders/generated/x.frag", "void main() {}\n");

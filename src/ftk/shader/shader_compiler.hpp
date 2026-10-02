@@ -60,6 +60,10 @@ public:
         std::vector<std::string> defines{};
         /// glslc's -fshader-stage; empty infers it from the extension.
         std::string stage{};
+        /// glslc's -O: code whose result nothing uses, and the resources only
+        /// it read, are dropped, and the names stay. For a shape of a source
+        /// that uses part of what the source computes.
+        bool optimize{false};
     };
 
     /// Compiles `job` and returns the SPIR-V's path, from the cache when the
@@ -72,7 +76,9 @@ public:
     [[nodiscard]] std::vector<std::string> compile_all(std::span<const Job> jobs) const;
 
     /// What `job`'s SPIR-V is kept under: a hash of the includes, the source,
-    /// the defines, the stage and the generator's version. glslc is
+    /// the defines, the stage, whether it is optimised (only when it is, so
+    /// an unoptimised job keeps the key it always had) and the generator's
+    /// version. glslc is
     /// deterministic, so the same key is the same SPIR-V. The generator's
     /// version is there for GLSL a program writes rather than an author: when
     /// what it writes changes shape, the file it writes from has not moved but

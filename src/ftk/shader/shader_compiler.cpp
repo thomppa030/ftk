@@ -54,12 +54,18 @@ std::optional<std::string> read_text(const std::string& path) {
 // What a compiled shader is a function of, beyond its own source: the
 // includes it pulls in, the defines it was built with, the stage it was built
 // as, and the generator that wrote it.
+// glslc's flags for an optimised job: -O, with the debug names kept, since
+// a pipeline's resources are bound by the names the shader gives them and -O
+// alone strips them.
+constexpr std::string_view OPTIMIZE_FLAGS = " -O -g";
+
 uint64_t key_of(uint64_t include_hash, std::string_view source, const ShaderCompiler::Job& job,
                 uint32_t generator_version) {
     uint64_t key = include_hash;
     key = hash_bytes(source, key);
     for (const auto& define : job.defines) key = hash_bytes(define, key);
     key = hash_bytes(job.stage, key);
+    if (job.optimize) key = hash_bytes(OPTIMIZE_FLAGS, key);
     key = hash_bytes(std::string_view{reinterpret_cast<const char*>(&generator_version),
                                       sizeof(generator_version)}, key);
     return key;
@@ -176,6 +182,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
     if (!job.stage.empty()) {
         cmd += " -fshader-stage=" + job.stage;
     }
+    if (job.optimize) cmd += OPTIMIZE_FLAGS;
     for (const auto& define : job.defines) {
         cmd += " -D" + define;
     }
