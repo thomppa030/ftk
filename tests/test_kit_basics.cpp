@@ -1,6 +1,7 @@
 #include "ftk/test/imgui_harness.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
@@ -8,6 +9,7 @@
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/plot.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/region.hpp"
@@ -705,4 +707,55 @@ TEST_CASE("Under the mouse is hovered even while another item is held", "[ui][ki
     h.step(2);
     CHECK(hovered);
     CHECK(window_hovered);
+}
+
+TEST_CASE("A window placed each frame stays put and keeps within its size limits", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 pos{};
+    glm::vec2 size{};
+    ui::WorkArea area{};
+    h.set_ui([&] {
+        area = ui::work_area();
+        ui::next_window_size_once({300.0f, 50.0f});
+        ui::next_window_size_limits({200.0f, 100.0f}, {400.0f, 150.0f});
+        ui::next_window_pos({40.0f, 60.0f});
+        if (auto panel = ui::Panel("", "Pinned", {.remembered = false})) {
+            pos = ui::window_pos();
+            size = ui::window_size();
+        }
+    });
+    h.step(3);
+    CHECK(area.size == glm::vec2(ImGui::GetIO().DisplaySize));
+    CHECK(pos == glm::vec2{40.0f, 60.0f});
+    CHECK(size == glm::vec2{300.0f, 100.0f});
+}
+
+TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged to", "[ui][kit]") {
+    ImGuiHarness h;
+    int picked = 0;
+    glm::vec3 colour{0.2f, 0.4f, 0.6f};
+    ui::Edit last{};
+    bool committed = false;
+    h.set_ui([&] {
+        if (ui::swatch("##amber", {0.83f, 0.63f, 0.31f, 1.0f}, {20.0f, 20.0f})) ++picked;
+        h.mark("swatch");
+        ui::bullet_text("textures/rock.png");
+        ui::next_width(200.0f);
+        last = ui::color_picker("##custom", colour);
+        committed = committed || last.committed;
+        h.mark("picker");
+    });
+    h.step(2);
+    CHECK(h.rect_max("swatch").x - h.rect_min("swatch").x == 20.0f);
+    h.click("swatch");
+    CHECK(picked == 1);
+    // A press near the square's top-left corner: white, the brightest and
+    // least saturated.
+    const glm::vec2 corner = glm::vec2(h.rect_min("picker")) + glm::vec2{2.0f, 2.0f};
+    h.click_at(corner);
+    h.step();
+    CHECK(colour.r > 0.9f);
+    CHECK(colour.g > 0.9f);
+    CHECK(colour.b > 0.9f);
+    CHECK(committed);
 }

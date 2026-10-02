@@ -32,6 +32,19 @@ void next_window_size_once(glm::vec2 size) {
     ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
 }
 
+void next_window_pos(glm::vec2 pos) {
+    ImGui::SetNextWindowPos(pos);
+}
+
+void next_window_size_limits(glm::vec2 min, glm::vec2 max) {
+    ImGui::SetNextWindowSizeConstraints(min, max);
+}
+
+WorkArea work_area() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    return {viewport->WorkPos, viewport->WorkSize};
+}
+
 glm::vec2 window_pos() {
     return ImGui::GetWindowPos();
 }

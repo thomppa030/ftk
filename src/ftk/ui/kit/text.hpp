@@ -25,6 +25,9 @@ void text(std::string_view text);
 /// In `colour`, a theme token.
 void text(std::string_view text, Color colour);
 
+/// Led by a bullet: a line of a list in a dialog.
+void bullet_text(std::string_view text);
+
 /// The size of the text drawn now, in pixels.
 [[nodiscard]] float font_size();
 

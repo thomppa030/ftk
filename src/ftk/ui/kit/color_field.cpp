@@ -123,4 +123,22 @@ Edit color(const char* id, glm::vec4& value, ColorSpace space) {
     return edit;
 }
 
+bool swatch(const char* id, glm::vec4 colour, glm::vec2 size) {
+    return ImGui::ColorButton(id, colour, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder, size);
+}
+
+Edit color_picker(const char* id, glm::vec3& value) {
+    float rgba[4]{value.r, value.g, value.b, 1.0f};
+    const std::string before = to_hex(rgba, false);
+    const ImGuiID field_id = ImGui::GetID(id);
+    Edit edit;
+    edit.changed = ImGui::ColorPicker3(id, rgba,
+                                       ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |
+                                           ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_DisplayHex);
+    edit.committed = ImGui::IsItemDeactivatedAfterEdit();
+    if (edit.changed) value = {rgba[0], rgba[1], rgba[2]};
+    detail::track_field(field_id, before, to_hex(rgba, false), ImGui::IsItemActivated(), edit);
+    return edit;
+}
+
 } // namespace ftk::ui

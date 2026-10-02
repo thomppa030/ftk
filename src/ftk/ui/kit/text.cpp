@@ -14,6 +14,11 @@ void text(std::string_view text, Color colour) {
     ImGui::PopStyleColor();
 }
 
+void bullet_text(std::string_view text) {
+    ImGui::Bullet();
+    ImGui::TextUnformatted(text.data(), text.data() + text.size());
+}
+
 float font_size() {
     return ImGui::GetFontSize();
 }

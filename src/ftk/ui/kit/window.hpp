@@ -39,6 +39,21 @@ void next_window_place(glm::vec2 pos, glm::vec2 size);
 /// after that it keeps the size it is left at.
 void next_window_size_once(glm::vec2 size);
 
+/// The next window goes at `pos` this frame, wherever it was left: a
+/// panel pinned to an edge.
+void next_window_pos(glm::vec2 pos);
+
+/// The next window can be resized only between `min` and `max`.
+void next_window_size_limits(glm::vec2 min, glm::vec2 max);
+
+/// The part of the program's window that panels go in, less its menu bar,
+/// in screen pixels.
+struct WorkArea {
+    glm::vec2 pos;
+    glm::vec2 size;
+};
+[[nodiscard]] WorkArea work_area();
+
 /// The window being drawn: its top-left on screen and its size, its title
 /// bar and padding included.
 [[nodiscard]] glm::vec2 window_pos();

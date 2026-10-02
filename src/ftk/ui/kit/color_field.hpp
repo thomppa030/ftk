@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/edit.hpp"
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
@@ -21,5 +22,14 @@ enum class ColorSpace {
 /// Intensity field.
 Edit color(const char* id, glm::vec3& value, ColorSpace space);
 Edit color(const char* id, glm::vec4& value, ColorSpace space);
+
+/// A square of `colour`, `size` big: one of a set of colours to choose.
+/// Returns true when clicked.
+bool swatch(const char* id, glm::vec4 colour, glm::vec2 size);
+
+/// The picker itself, in place rather than behind a swatch, for a menu
+/// that is about one colour: the square, the hue bar, and the hex code
+/// under them, as wide as the next width. `value` is sRGB.
+Edit color_picker(const char* id, glm::vec3& value);
 
 } // namespace ftk::ui
