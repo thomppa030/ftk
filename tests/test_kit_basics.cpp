@@ -759,3 +759,27 @@ TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged t
     CHECK(colour.b > 0.9f);
     CHECK(committed);
 }
+
+TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
+    ImGuiHarness h;
+    static constexpr ui::Column COLUMNS[] = {{.name = "Property"}, {.name = "Value"}};
+    std::array<bool, 2> hovered{};
+    h.set_ui([&] {
+        if (auto table = ui::Table("##rows", COLUMNS)) {
+            for (int i = 0; i < 2; ++i) {
+                ui::IdScope row(i);
+                ui::table_next_row();
+                ui::table_next_column();
+                ui::text("width");
+                h.mark("label" + std::to_string(i));
+                ui::table_next_column();
+                ui::text("120 px");
+                hovered[static_cast<std::size_t>(i)] = ui::table_row_hovered();
+            }
+        }
+    });
+    h.step(2);
+    h.hover("label1");
+    CHECK_FALSE(hovered[0]);
+    CHECK(hovered[1]);
+}

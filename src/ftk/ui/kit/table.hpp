@@ -75,6 +75,10 @@ void table_next_row();
 /// Moves to the next cell of the row. False when its column is hidden.
 bool table_next_column();
 
+/// The mouse is on the row being drawn, in any of its cells: a property
+/// row's menu opens from anywhere on it.
+[[nodiscard]] bool table_row_hovered();
+
 /// Which column the rows are to be sorted by, and which way.
 struct TableSort {
     int column{0};

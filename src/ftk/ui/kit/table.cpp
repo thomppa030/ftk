@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/table.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace ftk::ui {
 
@@ -36,6 +37,10 @@ void table_next_row() {
 
 bool table_next_column() {
     return ImGui::TableNextColumn();
+}
+
+bool table_row_hovered() {
+    return ImGui::TableGetHoveredRow() == ImGui::TableGetRowIndex();
 }
 
 std::optional<TableSort> table_sort_changed() {
