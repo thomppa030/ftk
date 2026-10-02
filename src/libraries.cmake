@@ -254,11 +254,15 @@ add_library(ftk::harfbuzz ALIAS ftk-harfbuzz)
 ftk_library(text
     SOURCES
         ftk/text/face.cpp
+        ftk/text/font_chain.cpp
+        ftk/text/shape.cpp
     HEADERS
         ftk/text/detail/face_impl.hpp
         ftk/text/face.hpp
+        ftk/text/font_chain.hpp
+        ftk/text/shape.hpp
     LINKS
-        PUBLIC ftk::base
+        PUBLIC ftk::base glm::glm
         PRIVATE freetype ftk::harfbuzz
 )
 

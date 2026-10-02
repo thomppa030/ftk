@@ -56,6 +56,7 @@ add_executable(ftk-tests
     test_status_bar.cpp
     test_text_face.cpp
     test_text_field.cpp
+    test_text_shape.cpp
     test_theme.cpp
     test_thread_pool.cpp
     test_tree.cpp
