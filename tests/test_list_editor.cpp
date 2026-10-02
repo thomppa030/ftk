@@ -255,3 +255,50 @@ TEST_CASE("A closed card that opens reads dim, and in full text under the mouse"
     h.step(2);
     CHECK(same(summary_colour, ftk::theme::text()));
 }
+
+namespace {
+
+// Selectable cards headed by card_heading(), each with a tag and a summary.
+struct HeadedFixture {
+    ImGuiHarness h;
+    std::vector<int> items{10, 20};
+    int selected{-1};
+    float right{0.0f};
+
+    HeadedFixture() {
+        h.set_ui([this] {
+            right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+            (void)ui::selectable_list_editor(
+                "##headed", items, selected, "Add", "Nothing", {},
+                [this](const int&, std::size_t i) {
+                    ui::card_heading(nullptr, ftk::theme::Hue::blue, "name", "Tag");
+                    h.mark("tag" + std::to_string(i));
+                    ui::card_summary("summary");
+                    h.mark("summary" + std::to_string(i));
+                },
+                [this](int&, std::size_t i) {
+                    ui::card_heading(nullptr, ftk::theme::Hue::blue, "name", "Tag");
+                    h.mark("tag" + std::to_string(i));
+                    return ui::Edit{};
+                },
+                [] { return 0; });
+        });
+        h.step(3);
+    }
+};
+
+} // namespace
+
+TEST_CASE("A card heading's tag ends where the card's fields end", "[ui][kit]") {
+    HeadedFixture f;
+    // The fields end a gap short of the trash icon, a frame square inset by
+    // the card's padding.
+    const float fields_end = f.right - 4.0f - ImGui::GetFrameHeight() - ftk::theme::GAP_S;
+    CHECK(std::abs(f.h.rect_max("tag0").x - fields_end) < 1.0f);
+}
+
+TEST_CASE("Clicking a headed card's summary selects the card", "[ui][kit]") {
+    HeadedFixture f;
+    f.h.click("summary1");
+    CHECK(f.selected == 1);
+}

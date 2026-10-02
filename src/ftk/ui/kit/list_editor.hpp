@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <imgui.h>
 
@@ -87,6 +88,15 @@ private:
     float content_right_{0.0f};
     std::optional<std::pair<std::size_t, std::size_t>> moved_;
 };
+
+/// A card's first line, for an item that is a thing with a name: its icon
+/// in `hue`, its name in the text colour (on a closed card too, above its
+/// summary), and at the line's end a `tag` saying where or what it is.
+void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag = nullptr);
+
+/// A closed card's one line about its item, under a card_heading(), in the
+/// colour the card gives it.
+void card_summary(const char* text);
 
 /// Where the item at `index` is after the one at `from` moved in front of
 /// `to`, for keeping a selection on the item it was on.

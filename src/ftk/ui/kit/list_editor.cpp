@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -274,6 +275,31 @@ void ListEditor::empty(const char* text) {
     ImGui::PopFont();
     ImGui::SetCursorScreenPos(min);
     ImGui::Dummy({width, height});
+}
+
+void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag_text) {
+    ImGui::AlignTextToFramePadding();
+    if (icon != nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::hue(hue));
+        ImGui::TextUnformatted(icon);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(0.0f, theme::GAP_S + theme::GAP_XS);
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text());
+    ImGui::TextUnformatted(name);
+    ImGui::PopStyleColor();
+    if (tag_text == nullptr) return;
+    // At the end of the line the card's fields end at.
+    ImGui::SameLine(0.0f, theme::GAP_M);
+    const float room = ImGui::GetContentRegionAvail().x - tag_width(tag_text);
+    if (room > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room);
+    tag(tag_text);
+}
+
+void card_summary(const char* text) {
+    ImGui::PushFont(nullptr, theme::SMALL_TEXT);
+    ImGui::TextUnformatted(text);
+    ImGui::PopFont();
 }
 
 bool ListEditor::add_button(const char* label) {
