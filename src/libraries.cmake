@@ -261,12 +261,14 @@ ftk_library(text
     SOURCES
         ftk/text/face.cpp
         ftk/text/font_chain.cpp
+        ftk/text/line_break.cpp
         ftk/text/shape.cpp
         ftk/text/system_fallback.cpp
     HEADERS
         ftk/text/detail/face_impl.hpp
         ftk/text/face.hpp
         ftk/text/font_chain.hpp
+        ftk/text/line_break.hpp
         ftk/text/shape.hpp
         ftk/text/system_fallback.hpp
     LINKS

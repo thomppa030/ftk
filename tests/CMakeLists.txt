@@ -57,6 +57,7 @@ add_executable(ftk-tests
     test_text_face.cpp
     test_text_fallback.cpp
     test_text_field.cpp
+    test_text_line_break.cpp
     test_text_shape.cpp
     test_theme.cpp
     test_thread_pool.cpp
