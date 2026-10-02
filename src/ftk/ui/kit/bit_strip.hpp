@@ -4,14 +4,14 @@
 #include <optional>
 #include <span>
 
-// A row of numbered squares, one per bit of a small mask, such as a node's
-// marks (sheet 37, M7). A bit set here is filled in the toggle colour; one
-// that comes from elsewhere is ringed and does nothing here; one that can be
-// set is a plain square; one that cannot be (nothing is named for it) is dim
-// and inert. Each square's tooltip names its bit. Under the strip, a
-// bit_line() for each bit the thing carries says what it is.
+// A row of numbered squares, one per bit of a small mask. A bit set here is
+// filled in the toggle colour; one that comes from elsewhere is ringed and
+// does nothing here; one that can be set is a plain square; one that cannot
+// be (nothing is named for it) is dim and inert. Each square's tooltip names
+// its bit. Under the strip, a bit_line() for each bit the thing carries says
+// what it is.
 //
-//     if (const auto clicked = ui::bit_strip("##marks", bits)) toggle(*clicked);
+//     if (const auto clicked = ui::bit_strip("##flags", bits)) toggle(*clicked);
 //     for (const uint32_t bit : carried) ui::bit_line(bit, names[bit], inherited_from(bit));
 
 namespace ftk::ui {
@@ -21,7 +21,7 @@ enum class BitState : unsigned char {
     unavailable,
     off,
     on,
-    /// Set by something else, a parent: ringed, and clicking does nothing.
+    /// Set by something else: ringed, and clicking does nothing.
     inherited,
 };
 
