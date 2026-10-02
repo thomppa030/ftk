@@ -29,6 +29,12 @@ enum class Key : uint8_t {
 /// what steps, such as moving through a list.
 [[nodiscard]] bool key_repeated(Key key);
 
+/// Keeps `key` for the shortcut `owner` names, so keyboard navigation
+/// leaves it alone (End would otherwise jump to the window's last item).
+/// The claim lapses on a frame the key is not held, so it is made every
+/// frame the shortcut is live, before the key is read.
+void claim_key(Key key, const char* owner);
+
 /// The modifier keys held now.
 struct Modifiers {
     bool ctrl{false};

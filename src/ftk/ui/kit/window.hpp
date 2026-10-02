@@ -73,6 +73,28 @@ struct ShownWindow {
 /// The window `name`, when there is one.
 [[nodiscard]] std::optional<ShownWindow> window_named(const std::string& name);
 
+/// While it lives, what is drawn goes into the window `name`, drawn earlier
+/// this frame, over what it already holds: an overlay on a viewport drawn
+/// by someone else. Draw while it is true, which is while the window shows.
+class InWindow {
+public:
+    explicit InWindow(const char* name);
+    ~InWindow();
+    InWindow(const InWindow&) = delete;
+    InWindow& operator=(const InWindow&) = delete;
+    InWindow(InWindow&&) = delete;
+    InWindow& operator=(InWindow&&) = delete;
+
+    explicit operator bool() const { return visible_; }
+
+private:
+    bool visible_{false};
+};
+
+/// Gives the window `name` the keyboard and brings it to the front, as a
+/// click on it would.
+void focus_window(const char* name);
+
 /// The window being drawn: its top-left on screen and its size, its title
 /// bar and padding included.
 [[nodiscard]] glm::vec2 window_pos();

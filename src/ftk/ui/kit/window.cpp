@@ -116,4 +116,15 @@ void scroll_to_cursor(float ratio) {
     ImGui::SetScrollHereY(ratio);
 }
 
+InWindow::InWindow(const char* name) : visible_{ImGui::Begin(name)} {}
+
+InWindow::~InWindow() {
+    // Ended whether or not it showed, as ImGui asks.
+    ImGui::End();
+}
+
+void focus_window(const char* name) {
+    ImGui::SetWindowFocus(name);
+}
+
 } // namespace ftk::ui

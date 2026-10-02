@@ -836,3 +836,45 @@ TEST_CASE("A settings section is read back from the settings file and written to
     // The kit keeps a section for the program's life; these callbacks don't.
     ui::add_settings_section({.name = "KitView"});
 }
+
+TEST_CASE("Drawing in a window again lands in it, and a window is given focus", "[ui][kit]") {
+    ImGuiHarness h;
+    glm::vec2 panel_pos{};
+    glm::vec2 again_pos{};
+    glm::vec2 note_min{};
+    bool focused = false;
+    bool focus_viewport = false;
+    h.set_ui([&] {
+        ui::next_window_place({300.0f, 100.0f}, {200.0f, 150.0f});
+        if (auto panel = ui::Panel("", "Viewport", {.remembered = false})) panel_pos = ui::window_pos();
+        ui::next_window_place({50.0f, 100.0f}, {200.0f, 150.0f});
+        if (auto panel = ui::Panel("", "Hierarchy", {.remembered = false})) focused = ui::window_focused();
+        if (focus_viewport) ui::focus_window("Viewport");
+        // Back in the viewport, after another window was drawn.
+        if (auto again = ui::InWindow("Viewport")) {
+            again_pos = ui::window_pos();
+            ui::text("Over the picture");
+            note_min = ui::item_min();
+        }
+    });
+    h.step(3);
+    CHECK(again_pos == panel_pos);
+    CHECK(note_min.x >= 300.0f);
+    CHECK(note_min.x < 500.0f);
+    CHECK(focused);
+    focus_viewport = true;
+    h.step(2);
+    CHECK_FALSE(focused);
+}
+
+TEST_CASE("A claimed key is still read by its shortcut", "[ui][kit]") {
+    ImGuiHarness h;
+    bool snapped = false;
+    h.set_ui([&] {
+        ui::claim_key(ui::Key::End, "##snap_to_floor");
+        snapped = snapped || ui::key_pressed(ui::Key::End);
+    });
+    h.step(2);
+    h.press(ImGuiKey_End);
+    CHECK(snapped);
+}

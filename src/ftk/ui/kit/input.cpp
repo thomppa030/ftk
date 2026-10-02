@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/input.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <iterator>
 
@@ -61,6 +62,10 @@ bool key_pressed(Key key) {
 
 bool key_repeated(Key key) {
     return ImGui::IsKeyPressed(imgui(key), true);
+}
+
+void claim_key(Key key, const char* owner) {
+    ImGui::SetKeyOwner(imgui(key), ImGui::GetID(owner));
 }
 
 Modifiers modifiers() {
