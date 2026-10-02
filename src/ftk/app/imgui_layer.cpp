@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <fstream>
 #include <stdexcept>
 
@@ -140,7 +141,24 @@ void ImGuiLayer::begin_frame() {
   ImGui::SetCurrentContext(context_);
   renderer_->new_frame();
   ImGui_ImplSDL3_NewFrame();
+  if (fixed_size_) {
+    // The backend has just taken the window's size, scale, mouse and clock;
+    // a fixed frame keeps none of them.
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(static_cast<float>(fixed_size_->x), static_cast<float>(fixed_size_->y));
+    io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+  }
   ImGui::NewFrame();
+}
+
+void ImGuiLayer::draw_fixed(glm::uvec2 size) {
+  fixed_size_ = size;
+  ImGuiContext* previous = ImGui::GetCurrentContext();
+  ImGui::SetCurrentContext(context_);
+  ImGui::GetIO().IniFilename = nullptr;
+  ImGui::SetCurrentContext(previous);
 }
 
 void ImGuiLayer::end_frame() {

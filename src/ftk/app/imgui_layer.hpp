@@ -5,10 +5,12 @@
 #include "ftk/gpu/sampler.hpp"
 #include "ftk/gpu/texture.hpp"
 
+#include <glm/vec2.hpp>
 #include <imgui.h>
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -52,6 +54,14 @@ public:
     /// the format. Nothing records into the scope after it.
     void render(gpu::RenderEncoder& pass);
 
+    /// Draws every frame from the next on at `size` and a scale of one, with
+    /// the mouse outside and a frame time of 1/60 s, instead of at the
+    /// window's size and from its input: for frames drawn off screen at a
+    /// size of their own, such as a shot. ImGui's saved layout (imgui.ini) is
+    /// neither read nor written from then on, so windows open where their
+    /// code first puts them. Call it before the layer's first frame.
+    void draw_fixed(glm::uvec2 size);
+
     /// `view` as this layer's ImGui shows it, sampled with `sampler`, or
     /// linearly and clamped: made the first time it is asked for, and let go
     /// once the texture is released and the frames that drew it are done.
@@ -81,6 +91,8 @@ private:
     ImGuiContext* context_{nullptr};
     std::unique_ptr<gpu::ImGuiRenderer> renderer_;
     ImGuiContext* prev_context_{nullptr}; // saved by activate(), restored by deactivate()
+    /// The size draw_fixed() asked for, in place of the window's.
+    std::optional<glm::uvec2> fixed_size_;
 };
 
 /// `view` as the current ImGui context shows it (`ImGui::Image` and the

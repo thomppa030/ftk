@@ -353,11 +353,13 @@ ftk_library(gpu-imgui
 ftk_vulkan_backend(ftk-gpu-imgui)
 
 # ftk-app is what a creative app's or an editor's window needs around the
-# kit: the ImGui layer on a window of its own, the console, undo and the
-# history panel, the icon cache, the file browser, and the EditorContext a
-# tool's documents build on. Where a host keeps its files is passed in.
+# kit: the main window and its frame loop, the ImGui layer on a window of its
+# own, the console, undo and the history panel, the icon cache, the file
+# browser, and the EditorContext a tool's documents build on. Where a host
+# keeps its files is passed in.
 ftk_library(app
     SOURCES
+        ftk/app/app_window.cpp
         ftk/app/command_history.cpp
         ftk/app/console.cpp
         ftk/app/document_history.cpp
@@ -368,6 +370,7 @@ ftk_library(app
         ftk/app/imgui_layer.cpp
         ftk/app/standalone_window.cpp
     HEADERS
+        ftk/app/app_window.hpp
         ftk/app/command.hpp
         ftk/app/command_history.hpp
         ftk/app/console.hpp
