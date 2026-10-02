@@ -262,6 +262,7 @@ ftk_library(text
         ftk/text/atlas.cpp
         ftk/text/face.cpp
         ftk/text/font_chain.cpp
+        ftk/text/last_resort.cpp
         ftk/text/line_break.cpp
         ftk/text/shape.cpp
         ftk/text/system_fallback.cpp
@@ -271,6 +272,7 @@ ftk_library(text
         ftk/text/detail/face_impl.hpp
         ftk/text/face.hpp
         ftk/text/font_chain.hpp
+        ftk/text/last_resort.hpp
         ftk/text/line_break.hpp
         ftk/text/shape.hpp
         ftk/text/system_fallback.hpp
@@ -279,6 +281,8 @@ ftk_library(text
         PUBLIC ftk::base ftk::platform glm::glm
         PRIVATE freetype ftk::harfbuzz nlohmann_json::nlohmann_json
 )
+# The face of last resort, compiled in so every program has it.
+ftk_embed_file(ftk-text "${FTK_SOURCE_ROOT}/../fonts/LastResortHE-Regular.ttf")
 
 # ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
 # the icons and every widget of the kit, on ImGui's core alone, so it draws

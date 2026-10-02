@@ -9,6 +9,7 @@
 
 #include "ftk/base/log.hpp"
 #include "ftk/text/atlas.hpp"
+#include "ftk/text/last_resort.hpp"
 #include "ftk/text/line_break.hpp"
 #include "ftk/text/shape.hpp"
 #include "ftk/text/system_fallback.hpp"
@@ -106,10 +107,11 @@ int main(int argc, char** argv) {
     const auto mono = load("JetBrainsMono-Regular.ttf");
     const auto icons = load("lucide.ttf");
     const auto system = std::make_shared<text::SystemFallback>("ja");
-    text::FontChain body({inter}, system);
+    const auto resort = text::last_resort();
+    text::FontChain body({inter}, system, resort);
     body.claim(icons, 0xE042, 0xE685);
-    text::FontChain heading({bold}, system);
-    const text::FontChain code({mono}, system);
+    text::FontChain heading({bold}, system, resort);
+    const text::FontChain code({mono}, system, resort);
 
     text::GlyphAtlas atlas({.page_size = 512, .max_pages = 4});
     atlas.begin_frame();
@@ -128,11 +130,12 @@ int main(int argc, char** argv) {
              "日本語の文章は文字の間で折り返します。「括弧」の中や句読点の前では折り返しません。ちょっと待って。",
              16.0f, left, y, 300.0f, INK);
     y = draw(image, atlas, code, "for (int i = 0; i < count; ++i) total += values[i];", 14.0f, left, y, column, DIM);
-    // U+100000, a private-use codepoint no font has, then a colour emoji,
-    // which the atlas, holding coverage only, leaves out.
+    // U+100000, a private-use codepoint no installed font has, then a
+    // colour emoji, which the atlas, holding coverage only, leaves out.
     y = draw(image, atlas, body,
-             "What no font has is a box: \xf4\x80\x80\x80. Colour emoji aren't drawn yet: \xf0\x9f\x8e\xb5.", 13.0f,
-             left, y, column, DIM);
+             "What no font has, the last resort names: \xf4\x80\x80\x80. Colour emoji aren't drawn yet: "
+             "\xf0\x9f\x8e\xb5.",
+             13.0f, left, y, column, DIM);
 
     const int height = std::min(image.height, static_cast<int>(std::ceil(y)) + MARGIN / 2);
     if (stbi_write_png(argv[1], image.width, height, 3, image.rgb.data(), image.width * 3) == 0) {

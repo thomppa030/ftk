@@ -39,7 +39,8 @@ bool joins_previous(hb_unicode_funcs_t* unicode, char32_t codepoint) {
 // Splits `text` where the face that draws it or its script changes. A space
 // or a punctuation mark the run's face has stays in the run, so a line of
 // ideographs drawn by a fallback face keeps that face's spaces; a character
-// another face claims never does.
+// another face claims never does, and the last resort keeps none, since it
+// has every character only to name what is missing.
 std::vector<Run> itemize(std::string_view text, const FontChain& chain, hb_unicode_funcs_t* unicode) {
     std::vector<Run> runs;
     std::size_t i = 0;
@@ -50,7 +51,8 @@ std::vector<Run> itemize(std::string_view text, const FontChain& chain, hb_unico
         const Face* claimed = chain.claimant(codepoint);
         if (!runs.empty() && (claimed == nullptr || claimed == runs.back().face)) {
             Run& run = runs.back();
-            if (joins_previous(unicode, codepoint) || (neutral(script) && run.face->covers(codepoint))) {
+            const bool keeps_neutral = run.face != chain.last_resort() && run.face->covers(codepoint);
+            if (joins_previous(unicode, codepoint) || (neutral(script) && keeps_neutral)) {
                 run.end = i;
                 continue;
             }

@@ -1,4 +1,5 @@
 #include "ftk/platform/system_fonts.hpp"
+#include "ftk/text/last_resort.hpp"
 #include "ftk/text/shape.hpp"
 #include "ftk/text/system_fallback.hpp"
 
@@ -82,6 +83,32 @@ TEST_CASE("A system font that doesn't draw the character isn't taken", "[text]")
     const auto unreadable = std::make_shared<text::SystemFallback>(
         "", [](char32_t, std::string_view) { return std::optional(platform::FontFile{FONTS / "Nowhere.ttf", 0}); });
     CHECK(unreadable->face_for(U'A') == nullptr);
+}
+
+TEST_CASE("The face of last resort draws what nothing else does, after the system's fonts", "[text]") {
+    const auto resort = text::last_resort();
+    REQUIRE(resort != nullptr);
+    CHECK(resort->covers(U'日'));
+    CHECK(resort->covers(0x100000));
+    CHECK(text::last_resort() == resort);
+
+    const auto inter = load("Inter-Regular.ttf");
+    const text::FontChain chain({inter}, nullptr, resort);
+    CHECK(&chain.face_for(U'A') == inter.get());
+    CHECK(&chain.face_for(U'日') == resort.get());
+
+    IconSystem system;
+    const text::FontChain both({inter}, std::make_shared<text::SystemFallback>("", system.lookup()), resort);
+    CHECK(both.face_for(SAVE_ICON).family() == "lucide");
+    CHECK(&both.face_for(U'日') == resort.get());
+
+    // The full stop and space after a character only the last resort has
+    // are Inter's again, though the last resort has them too.
+    const text::ShapedText shaped = text::shape("日. A", chain, 16.0f);
+    REQUIRE(shaped.glyphs.size() == 4);
+    CHECK(shaped.glyphs[0].face == resort.get());
+    CHECK(shaped.glyphs[1].face == inter.get());
+    CHECK(shaped.glyphs[2].face == inter.get());
 }
 
 TEST_CASE("This system names a font that draws a Latin letter", "[text][system]") {
