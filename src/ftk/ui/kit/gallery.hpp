@@ -21,7 +21,15 @@ public:
     /// Draws the window; `open` is cleared when it is closed.
     void draw(bool* open);
 
+    /// The gallery as a page of its own: every section in a window filling
+    /// the frame's top-left `width` × `height`, with no title bar, no close
+    /// button and nothing to move or resize. For a program that shows the
+    /// gallery alone, as ftk's example app does.
+    void draw_page(float width, float height);
+
 private:
+    /// Every section, top to bottom.
+    void sections();
     void buttons();
     void rows();
     void fields();

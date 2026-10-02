@@ -69,9 +69,11 @@ if(FTK_BUILD_TESTS)
     # ftk's own tree, held to its own checks: the kit and the theme are where
     # editor UI may style, the backend where Vulkan may be named.
     ftk_check_editor_ui(ftk-app ROOTS src)
-    ftk_check_gpu_backend(ftk-app ROOTS src tests)
-    ftk_check_portability(ftk-app ROOTS src tests)
+    ftk_check_gpu_backend(ftk-app ROOTS src tests example-app)
+    ftk_check_portability(ftk-app ROOTS src tests example-app)
 
     enable_testing()
     add_subdirectory(tests)
+    # ftk-example-app: the toolkit's own test program, a window of pages.
+    add_subdirectory(example-app)
 endif()

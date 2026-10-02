@@ -8,3 +8,6 @@ compile_commands.json
 .idea/
 *.swp
 *~
+
+# Dear ImGui keeps its window layout here, wherever a program runs from.
+imgui.ini

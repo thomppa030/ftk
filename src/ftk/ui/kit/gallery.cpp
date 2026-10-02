@@ -552,18 +552,33 @@ void KitGallery::feedback() {
     }
 }
 
+void KitGallery::sections() {
+    tokens();
+    headings();
+    buttons();
+    rows();
+    fields();
+    blocks();
+    lists();
+    graphs();
+    feedback();
+}
+
 void KitGallery::draw(bool* open) {
     ImGui::SetNextWindowSize({420.0f, 640.0f}, ImGuiCond_FirstUseEver);
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", open)) {
-        tokens();
-        headings();
-        buttons();
-        rows();
-        fields();
-        blocks();
-        lists();
-        graphs();
-        feedback();
+        sections();
+    }
+}
+
+void KitGallery::draw_page(float width, float height) {
+    ImGui::SetNextWindowPos({0.0f, 0.0f});
+    ImGui::SetNextWindowSize({width, height});
+    constexpr ImGuiWindowFlags page = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+                                    | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings
+                                    | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", page)) {
+        sections();
     }
 }
 
