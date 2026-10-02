@@ -1,4 +1,5 @@
 #include "ftk/test/imgui_harness.hpp"
+#include "ftk/ui/imgui_theme.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/component_block.hpp"

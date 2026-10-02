@@ -92,10 +92,12 @@ function(_ftk_scan_editor_ui base allowlist icons)
             if(in_src MATCHES "^\\.\\./")
                 set(in_src "")
             endif()
-            # The theme defines the tokens, icons_lc.hpp the glyphs, and the
-            # kit is the one place that turns them into widgets.
-            if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/icons_lc.hpp"
-               OR in_src MATCHES "^ftk/ui/kit/")
+            # The theme defines the tokens (and imgui_theme.cpp loads its
+            # fonts, the glyphs among them, and writes its style), icons_lc.hpp
+            # the glyphs, and the kit is the one place that turns them into
+            # widgets.
+            if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/imgui_theme.cpp"
+               OR in_src STREQUAL "ftk/ui/icons_lc.hpp" OR in_src MATCHES "^ftk/ui/kit/")
                 continue()
             endif()
             if(source IN_LIST icon_files)

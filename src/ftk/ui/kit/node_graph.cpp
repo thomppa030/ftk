@@ -38,7 +38,7 @@ ImU32 colour(const ImVec4& c, float alpha = 1.0f) {
     return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * alpha));
 }
 
-ImVec4 mix(const ImVec4& a, const ImVec4& b, float t) {
+Color mix_opaque(const Color& a, const Color& b, float t) {
     return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1.0f};
 }
 
@@ -600,7 +600,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         const float head = HEADER_H * zoom;
         const float pad = TEXT_INSET * zoom;
         dl->AddRectFilled(lo, hi, colour(theme::surface_raised()), rounding);
-        dl->AddRectFilled(lo, {hi.x, lo.y + head}, colour(mix(theme::surface_raised(), nd.hue, 0.3f)), rounding,
+        dl->AddRectFilled(lo, {hi.x, lo.y + head}, colour(mix_opaque(theme::surface_raised(), nd.hue, 0.3f)), rounding,
                           ImDrawFlags_RoundCornersTop);
         // A link dragged out onto an edge node that takes it lights it like
         // the mouse over it.

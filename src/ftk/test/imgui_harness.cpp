@@ -1,5 +1,6 @@
 #include "ftk/test/imgui_harness.hpp"
 
+#include "ftk/ui/imgui_theme.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <stdexcept>

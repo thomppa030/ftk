@@ -1,4 +1,5 @@
 #include "ftk/app/imgui_layer.hpp"
+#include "ftk/ui/imgui_theme.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/gpu/window.hpp"
 

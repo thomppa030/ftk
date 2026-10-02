@@ -65,12 +65,13 @@ void draw_text(const char* number, Unit unit, const Axis* axis, bool signed_rang
     float text_left = left;
     if (axis != nullptr) {
         // Sit the smaller bold letter on the number's baseline.
+        ImFont* bold = theme::bold_font();
         const float baseline = ImGui::GetFontBaked()->Ascent
-            - theme::bold_font()->GetFontBaked(AXIS_LETTER_SIZE)->Ascent;
-        dl->AddText(theme::bold_font(), AXIS_LETTER_SIZE, {left, y + std::floor(baseline)},
+            - bold->GetFontBaked(AXIS_LETTER_SIZE)->Ascent;
+        dl->AddText(bold, AXIS_LETTER_SIZE, {left, y + std::floor(baseline)},
                     ImGui::GetColorU32(axis->colour), axis->letter);
-        text_left += theme::bold_font()->CalcTextSizeA(AXIS_LETTER_SIZE, FLT_MAX, 0.0f,
-                                                        axis->letter).x
+        text_left += bold->CalcTextSizeA(AXIS_LETTER_SIZE, FLT_MAX, 0.0f,
+                                         axis->letter).x
                    + theme::GAP_S + theme::GAP_XS;
     }
 

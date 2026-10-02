@@ -243,6 +243,7 @@ endif()
 ftk_library(app-ui
     SOURCES
         ftk/ui/draw_list.cpp
+        ftk/ui/imgui_theme.cpp
         ftk/ui/kit/asset_header.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/asset_tile.cpp
@@ -285,6 +286,7 @@ ftk_library(app-ui
     HEADERS
         ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
+        ftk/ui/imgui_theme.hpp
         ftk/ui/kit/asset_header.hpp
         ftk/ui/kit/asset_kind.hpp
         ftk/ui/kit/asset_tile.hpp

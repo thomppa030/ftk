@@ -73,9 +73,9 @@ bool page_entry(const char* icon, const char* label, bool selected, bool dimmed)
         dl->AddRectFilled(min, max, ImGui::GetColorU32(theme::surface_hover()), rounding);
     }
 
-    const ImVec4 ink = dimmed ? theme::text_disabled()
-                     : selected || hovered ? theme::text() : theme::text_secondary();
-    const ImVec4 icon_ink = dimmed ? theme::text_disabled() : selected ? theme::accent() : ink;
+    const Color ink = dimmed ? theme::text_disabled()
+                    : selected || hovered ? theme::text() : theme::text_secondary();
+    const Color icon_ink = dimmed ? theme::text_disabled() : selected ? theme::accent() : ink;
     const float y = min.y + (ENTRY_HEIGHT - ImGui::GetTextLineHeight()) * 0.5f;
     const float x = min.x + theme::GAP_M;
     dl->AddText({x, y}, ImGui::GetColorU32(icon_ink), icon);
