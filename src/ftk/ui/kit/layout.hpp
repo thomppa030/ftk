@@ -10,9 +10,11 @@
 //     ui::separator();
 //
 //     ui::next_width(ui::space_left().x - ui::frame_height());
+//     ui::next_width(ui::FILL);
 
 #include <glm/vec2.hpp>
 
+#include <limits>
 #include <string_view>
 
 namespace ftk::ui {
@@ -43,8 +45,11 @@ void set_cursor(glm::vec2 at);
 [[nodiscard]] glm::vec2 space_left();
 
 /// The next field, slider or list is `width` wide. Less than zero leaves
-/// that much room at the right: -1 for all the room there is.
+/// that much room at the right; FILL reaches the right edge.
 void next_width(float width);
+
+/// For next_width(): the next item reaches the right edge of the room.
+inline constexpr float FILL = -std::numeric_limits<float>::min();
 
 /// Takes `size` at the cursor as an item: room for what was drawn there by
 /// hand.
