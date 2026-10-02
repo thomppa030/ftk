@@ -317,6 +317,7 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     VkPipelineMultisampleStateCreateInfo multisample{};
     multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisample.rasterizationSamples = vulkan::to_vk(desc.samples);
+    multisample.alphaToCoverageEnable = desc.alpha_to_coverage ? VK_TRUE : VK_FALSE;
 
     VkPipelineDepthStencilStateCreateInfo depth{};
     depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;

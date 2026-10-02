@@ -240,6 +240,12 @@ struct GraphicsPipelineDesc {
     std::vector<ColorTarget> color{};
     Format depth_format{Format::undefined};
     Samples samples{Samples::x1};
+    /// Each sample a fragment covers is kept in proportion to the alpha the
+    /// fragment writes to its first colour output, so a cut edge (a leaf, a
+    /// grass card) comes out soft under multisampling without being sorted.
+    /// The fragment stage declares that output even where the pass has no
+    /// colour target, a depth pass. Metal has the same switch.
+    bool alpha_to_coverage{false};
     /// The shared layouts the pipeline binds; each takes the set its shaders
     /// declare it at (see `place_shared`). Every other set is the pipeline's
     /// own.
