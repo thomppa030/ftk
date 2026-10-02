@@ -18,6 +18,7 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 
@@ -930,4 +931,21 @@ TEST_CASE("An item's tooltip shows once the mouse rests on it", "[ui][kit]") {
     CHECK_FALSE(shown());
     h.hover("bake");
     CHECK(shown());
+}
+
+TEST_CASE("An item's tooltip can hold what is drawn in its scope", "[ui][kit]") {
+    ImGuiHarness h;
+    bool drawn_inside = false;
+    h.set_ui([&] {
+        ui::button("Crate");
+        h.mark("crate");
+        if (auto tip = ui::ItemTooltip()) {
+            ui::text("props/crate_wood.png");
+            drawn_inside = ImGui::GetCurrentWindow()->Name == std::string_view("##Tooltip_00");
+        }
+    });
+    h.step(2);
+    CHECK_FALSE(drawn_inside);
+    h.hover("crate");
+    CHECK(drawn_inside);
 }

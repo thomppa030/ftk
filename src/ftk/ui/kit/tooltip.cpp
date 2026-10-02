@@ -27,4 +27,14 @@ void tooltip(std::string_view text, std::string_view shortcut) {
     ImGui::EndTooltip();
 }
 
+ItemTooltip::ItemTooltip() : open_{ImGui::BeginItemTooltip()} {
+    if (open_) ImGui::PushTextWrapPos(theme::TOOLTIP_WRAP);
+}
+
+ItemTooltip::~ItemTooltip() {
+    if (!open_) return;
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
 } // namespace ftk::ui
