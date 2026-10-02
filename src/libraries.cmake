@@ -265,6 +265,7 @@ ftk_library(text
         ftk/text/line_break.cpp
         ftk/text/shape.cpp
         ftk/text/system_fallback.cpp
+        ftk/text/translate.cpp
     HEADERS
         ftk/text/atlas.hpp
         ftk/text/detail/face_impl.hpp
@@ -273,9 +274,10 @@ ftk_library(text
         ftk/text/line_break.hpp
         ftk/text/shape.hpp
         ftk/text/system_fallback.hpp
+        ftk/text/translate.hpp
     LINKS
         PUBLIC ftk::base ftk::platform glm::glm
-        PRIVATE freetype ftk::harfbuzz
+        PRIVATE freetype ftk::harfbuzz nlohmann_json::nlohmann_json
 )
 
 # ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
