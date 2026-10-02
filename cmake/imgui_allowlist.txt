@@ -7,5 +7,3 @@ src/ftk/app/editor_context.cpp
 src/ftk/app/editor_context.hpp
 src/ftk/app/file_browser.cpp
 src/ftk/app/history_panel.cpp
-src/ftk/app/icon_cache.cpp
-src/ftk/app/icon_cache.hpp

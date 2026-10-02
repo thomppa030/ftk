@@ -3,8 +3,7 @@
 #include "ftk/gpu/owned.hpp"
 #include "ftk/gpu/sampler.hpp"
 #include "ftk/gpu/texture.hpp"
-
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -39,15 +38,15 @@ public:
     IconCache(IconCache&&) = delete;
     IconCache& operator=(IconCache&&) = delete;
 
-    /// A named icon (e.g. "folder", "mesh") as ImGui draws it; none when
+    /// A named icon (e.g. "folder", "mesh") as the UI draws it; none when
     /// there is no such icon.
-    [[nodiscard]] ImTextureID icon(const std::string& name) const;
+    [[nodiscard]] ui::Texture icon(const std::string& name) const;
 
-    /// The thumbnail of the image file at `path` as ImGui draws it. The first
+    /// The thumbnail of the image file at `path` as the UI draws it. The first
     /// ask decodes it on the pool, from its cached copy when that is
     /// newer than the file; none until it has arrived, or when the file does
     /// not read.
-    [[nodiscard]] ImTextureID thumbnail(const std::string& path);
+    [[nodiscard]] ui::Texture thumbnail(const std::string& path);
 
     /// Forgets every thumbnail, and drops what is still being decoded.
     void clear_thumbnails();

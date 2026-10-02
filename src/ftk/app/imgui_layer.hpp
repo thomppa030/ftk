@@ -4,6 +4,7 @@
 #include "ftk/gpu/format.hpp"
 #include "ftk/gpu/sampler.hpp"
 #include "ftk/gpu/texture.hpp"
+#include "ftk/ui/types.hpp"
 
 #include <glm/vec2.hpp>
 #include <imgui.h>
@@ -62,11 +63,12 @@ public:
     /// code first puts them. Call it before the layer's first frame.
     void draw_fixed(glm::uvec2 size);
 
-    /// `view` as this layer's ImGui shows it, sampled with `sampler`, or
-    /// linearly and clamped: made the first time it is asked for, and let go
-    /// once the texture is released and the frames that drew it are done.
-    [[nodiscard]] ImTextureID texture(const gpu::TextureView& view, gpu::Sampler sampler);
-    [[nodiscard]] ImTextureID texture(const gpu::TextureView& view);
+    /// `view` as this layer's UI shows it (ui::image(), DrawList::image()),
+    /// sampled with `sampler`, or linearly and clamped: made the first time
+    /// it is asked for, and let go once the texture is released and the
+    /// frames that drew it are done.
+    [[nodiscard]] ui::Texture texture(const gpu::TextureView& view, gpu::Sampler sampler);
+    [[nodiscard]] ui::Texture texture(const gpu::TextureView& view);
 
     /// The layer whose ImGui context is current, or null without one.
     [[nodiscard]] static ImGuiLayer* current();
@@ -95,10 +97,10 @@ private:
     std::optional<glm::uvec2> fixed_size_;
 };
 
-/// `view` as the current ImGui context shows it (`ImGui::Image` and the
-/// like), sampled with `sampler`, or linearly and clamped. None for a texture
-/// that is not there, or a context without a layer, as a headless test's.
-[[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler);
-[[nodiscard]] ImTextureID imgui_texture(const gpu::TextureView& view);
+/// `view` as the current UI shows it (ui::image(), DrawList::image()),
+/// sampled with `sampler`, or linearly and clamped. None for a texture that
+/// is not there, or a context without a layer, as a headless test's.
+[[nodiscard]] ui::Texture imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler);
+[[nodiscard]] ui::Texture imgui_texture(const gpu::TextureView& view);
 
 } // namespace ftk

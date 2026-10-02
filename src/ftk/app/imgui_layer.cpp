@@ -192,7 +192,7 @@ void ImGuiLayer::render(gpu::RenderEncoder& pass) {
   renderer_->render(pass);
 }
 
-ImTextureID ImGuiLayer::texture(const gpu::TextureView& view, gpu::Sampler sampler) {
+ui::Texture ImGuiLayer::texture(const gpu::TextureView& view, gpu::Sampler sampler) {
   // The backend makes the image in the current context's pool, which has
   // to be this layer's for the image to go back to it.
   ImGuiContext* current = ImGui::GetCurrentContext();
@@ -202,7 +202,7 @@ ImTextureID ImGuiLayer::texture(const gpu::TextureView& view, gpu::Sampler sampl
   return id;
 }
 
-ImTextureID ImGuiLayer::texture(const gpu::TextureView& view) {
+ui::Texture ImGuiLayer::texture(const gpu::TextureView& view) {
   ImGuiContext* current = ImGui::GetCurrentContext();
   ImGui::SetCurrentContext(context_);
   const ImTextureID id = renderer_->texture(view);
@@ -219,14 +219,14 @@ void ImGuiLayer::setup_style() {
   theme::apply(ImGui::GetStyle());
 }
 
-ImTextureID imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler) {
+ui::Texture imgui_texture(const gpu::TextureView& view, gpu::Sampler sampler) {
   ImGuiLayer* layer = ImGuiLayer::current();
-  return layer != nullptr ? layer->texture(view, sampler) : ImTextureID{};
+  return layer != nullptr ? layer->texture(view, sampler) : ui::Texture{};
 }
 
-ImTextureID imgui_texture(const gpu::TextureView& view) {
+ui::Texture imgui_texture(const gpu::TextureView& view) {
   ImGuiLayer* layer = ImGuiLayer::current();
-  return layer != nullptr ? layer->texture(view) : ImTextureID{};
+  return layer != nullptr ? layer->texture(view) : ui::Texture{};
 }
 
 } // namespace ftk
