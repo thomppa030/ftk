@@ -56,6 +56,10 @@ bool window_or_child_hovered() {
     return ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 }
 
+bool window_under_mouse() {
+    return ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+}
+
 bool window_focused() {
     return ImGui::IsWindowFocused();
 }

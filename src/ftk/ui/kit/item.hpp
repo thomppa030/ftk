@@ -15,6 +15,9 @@ namespace ftk::ui {
 
 /// The mouse is on the item, and nothing else has it.
 [[nodiscard]] bool item_hovered();
+/// The mouse is on the item, even while another item is held: a canvas a
+/// drag from elsewhere passes over.
+[[nodiscard]] bool item_under_mouse();
 /// The item is being pressed, dragged or typed into.
 [[nodiscard]] bool item_active();
 /// It became so this frame.

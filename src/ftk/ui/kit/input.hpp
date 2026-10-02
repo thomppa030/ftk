@@ -70,6 +70,10 @@ void set_mouse_cursor(MouseCursor cursor);
 /// Where the mouse is, in screen pixels.
 [[nodiscard]] glm::vec2 mouse_pos();
 
+/// The mouse is in the rectangle from `min` to `max`, in the part of it
+/// the window being drawn shows.
+[[nodiscard]] bool mouse_over(glm::vec2 min, glm::vec2 max);
+
 /// How far the wheel turned this frame, in notches: up is positive.
 [[nodiscard]] float mouse_wheel();
 

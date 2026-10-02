@@ -666,3 +666,43 @@ TEST_CASE("A payload reads as text without the zero that ends it", "[ui][kit]") 
     CHECK(ui::Payload{with_zero, 4}.text() == "rock");
     CHECK(ui::Payload{}.text().empty());
 }
+
+TEST_CASE("Under the mouse is hovered even while another item is held", "[ui][kit]") {
+    ImGuiHarness h;
+    bool hovered = false;
+    bool under = false;
+    bool window_hovered = false;
+    bool window_under = false;
+    bool over = false;
+    glm::vec2 field_min{};
+    h.set_ui([&] {
+        ui::button("Held");
+        h.mark("held");
+        ui::button("Canvas");
+        h.mark("canvas");
+        hovered = ui::item_hovered();
+        under = ui::item_under_mouse();
+        window_hovered = ui::window_hovered();
+        window_under = ui::window_under_mouse();
+        field_min = ui::item_min();
+        over = ui::mouse_over(ui::item_min(), ui::item_max());
+    });
+    h.step(2);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(centre(h, "held").x, centre(h, "held").y);
+    h.step();
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    h.step();
+    CHECK_FALSE(over);
+    io.AddMousePosEvent(centre(h, "canvas").x, centre(h, "canvas").y);
+    h.step(2);
+    CHECK(over);
+    CHECK_FALSE(hovered);
+    CHECK(under);
+    CHECK_FALSE(window_hovered);
+    CHECK(window_under);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    h.step(2);
+    CHECK(hovered);
+    CHECK(window_hovered);
+}

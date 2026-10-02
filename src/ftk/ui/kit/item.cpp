@@ -8,6 +8,10 @@ bool item_hovered() {
     return ImGui::IsItemHovered();
 }
 
+bool item_under_mouse() {
+    return ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+}
+
 bool item_active() {
     return ImGui::IsItemActive();
 }

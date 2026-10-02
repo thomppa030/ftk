@@ -52,6 +52,9 @@ void next_window_size_once(glm::vec2 size);
 /// mouse; or over it or a window inside it.
 [[nodiscard]] bool window_hovered();
 [[nodiscard]] bool window_or_child_hovered();
+/// The mouse is over the window being drawn, even while an item is held:
+/// a row that stays lit while its own button is pressed.
+[[nodiscard]] bool window_under_mouse();
 
 /// The window being drawn has the keyboard; or it or a window inside it.
 [[nodiscard]] bool window_focused();

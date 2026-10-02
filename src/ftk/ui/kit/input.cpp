@@ -109,6 +109,10 @@ glm::vec2 mouse_pos() {
     return ImGui::GetMousePos();
 }
 
+bool mouse_over(glm::vec2 min, glm::vec2 max) {
+    return ImGui::IsMouseHoveringRect(min, max);
+}
+
 float mouse_wheel() {
     return ImGui::GetIO().MouseWheel;
 }
