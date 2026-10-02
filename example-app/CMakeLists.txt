@@ -8,3 +8,4 @@ ftk_target_defaults(ftk-example-app)
 ftk_stage_editor_data(ftk-example-app)
 # The example app's own UI is the kit's, as any program's would be.
 ftk_check_editor_ui(ftk-example-app ROOTS .)
+ftk_check_imgui(ftk-example-app ROOTS .)

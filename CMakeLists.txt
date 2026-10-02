@@ -24,9 +24,10 @@ endif()
 include(cmake/FtkTargetDefaults.cmake)
 include(cmake/FtkLibrary.cmake)
 # The checks, for ftk and any program built on it: editor UI from the theme and
-# the kit, Vulkan only inside the GPU backend, POSIX only inside the platform
-# library.
+# the kit, ImGui only inside the kit, Vulkan only inside the GPU backend, POSIX
+# only inside the platform library.
 include(cmake/EditorUiCheck.cmake)
+include(cmake/ImGuiCheck.cmake)
 include(cmake/GpuBackendCheck.cmake)
 include(cmake/PortabilityCheck.cmake)
 
@@ -69,8 +70,9 @@ add_custom_target(ftk-library-check DEPENDS "${FTK_LIBRARY_CHECK_STAMP}")
 
 if(FTK_BUILD_TESTS)
     # ftk's own tree, held to its own checks: the kit and the theme are where
-    # editor UI may style, the backend where Vulkan may be named.
+    # editor UI may style and ImGui may be named, the backend where Vulkan may.
     ftk_check_editor_ui(ftk-app ROOTS src)
+    ftk_check_imgui(ftk-app ROOTS src ALLOWLIST cmake/imgui_allowlist.txt)
     ftk_check_gpu_backend(ftk-app ROOTS src tests example-app)
     ftk_check_portability(ftk-app ROOTS src tests example-app)
 
