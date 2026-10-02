@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 namespace ftk::ui {
 
@@ -78,6 +79,33 @@ void status(Severity severity, const char* text) {
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::PopFont();
+}
+
+bool status(Severity severity, const char* text, const char* action_icon, const char* action) {
+    const std::string label = std::string(action_icon) + "  " + action;
+    const float button_width = ImGui::CalcTextSize(label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float right = start.x + ImGui::GetContentRegionAvail().x;
+
+    ImGui::PushFont(nullptr, theme::SMALL_TEXT);
+    ImGui::PushStyleColor(ImGuiCol_Text, colour_of(severity));
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(glyph_of(severity));
+    ImGui::SameLine(0.0f, theme::GAP_S + theme::GAP_XS);
+    const float wrap = right - button_width - theme::GAP_M;
+    ImGui::PushTextWrapPos(wrap - ImGui::GetWindowPos().x + ImGui::GetScrollX());
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    const float text_bottom = ImGui::GetCursorScreenPos().y;
+
+    // On the line's first row, at its end.
+    ImGui::SetCursorScreenPos({right - button_width, start.y});
+    const bool clicked = ui::action(action_icon, action, ButtonKind::Ghost);
+    ImGui::SetCursorScreenPos({start.x, std::max(text_bottom, ImGui::GetCursorScreenPos().y)});
+    ImGui::Dummy({0.0f, 0.0f});
+    return clicked;
 }
 
 bool callout(Severity severity, const char* title, const char* text, const char* action_icon,

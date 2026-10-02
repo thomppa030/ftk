@@ -14,6 +14,11 @@ enum class Severity { Success, Warning, Error };
 /// working until it is fixed is a callout, not a status line.
 void status(Severity severity, const char* text);
 
+/// A status line with the one thing to do about it at its end: a ghost
+/// button led by `action_icon` (an unused value's Remove), the text
+/// wrapping short of it. Returns true when it is clicked.
+bool status(Severity severity, const char* text, const char* action_icon, const char* action);
+
 /// A problem that stops something working until it is fixed (a shader that
 /// failed to compile, a font that failed to bake): a box tinted in the
 /// severity's colour with that colour on its left edge, the icon and

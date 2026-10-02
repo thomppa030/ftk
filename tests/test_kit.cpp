@@ -761,3 +761,30 @@ TEST_CASE("An inherited row lines its value up with the others and resets only w
     h.click("reset");
     CHECK(resets == 1);
 }
+
+TEST_CASE("A status line with an action keeps its text short of the button and reports its click", "[ui][kit]") {
+    ImGuiHarness h;
+    ImVec2 start{};
+    float right = 0.0f;
+    float after = 0.0f;
+    int clicks = 0;
+    h.set_ui([&] {
+        start = ImGui::GetCursorScreenPos();
+        right = start.x + ImGui::GetContentRegionAvail().x;
+        if (ui::status(ui::Severity::Warning,
+                       "leaf_colour is no longer in foliage.fjsl, and this line is long enough to wrap",
+                       ui::icon::remove, "Remove")) {
+            ++clicks;
+        }
+        after = ImGui::GetCursorScreenPos().y;
+    });
+    h.step(2);
+    // What follows starts below the line, button and wrapped text alike.
+    CHECK(after >= start.y + ImGui::GetFrameHeight());
+    // The button sits at the end of the line's first row.
+    h.click_at({right - 4.0f, start.y + ImGui::GetFrameHeight() * 0.5f});
+    CHECK(clicks == 1);
+    // The text does not answer for it.
+    h.click_at({start.x + 30.0f, start.y + ImGui::GetFrameHeight() * 0.5f});
+    CHECK(clicks == 1);
+}
