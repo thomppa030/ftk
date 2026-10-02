@@ -51,6 +51,10 @@ void next_width(float width);
 /// For next_width(): the next item reaches the right edge of the room.
 inline constexpr float FILL = -std::numeric_limits<float>::min();
 
+/// The width the next field takes as things stand: what next_width() set,
+/// or the window's usual width for one.
+[[nodiscard]] float next_item_width();
+
 /// Takes `size` at the cursor as an item: room for what was drawn there by
 /// hand.
 void reserve(glm::vec2 size);

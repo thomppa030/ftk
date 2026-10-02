@@ -68,6 +68,7 @@ TEST_CASE("next_width sets the next field's width, and a group is one item", "[u
     h.set_ui([&] {
         static float value = 0.0f;
         ui::next_width(120.0f);
+        CHECK(ui::next_item_width() == 120.0f);
         ImGui::SliderFloat("##value", &value, 0.0f, 1.0f);
         field_width = ui::item_max().x - ui::item_min().x;
         {

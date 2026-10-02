@@ -40,6 +40,10 @@ void next_width(float width) {
     ImGui::SetNextItemWidth(width);
 }
 
+float next_item_width() {
+    return ImGui::CalcItemWidth();
+}
+
 void reserve(glm::vec2 size) {
     ImGui::Dummy(size);
 }
