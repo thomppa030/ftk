@@ -33,6 +33,7 @@ add_executable(ftk-tests
     test_handle_pool.cpp
     test_jsonrpc.cpp
     test_log.cpp
+    test_range_allocator.cpp
     test_shader_compiler.cpp
     test_shader_diagnostic.cpp
     test_small_vector.cpp

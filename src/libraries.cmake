@@ -2,16 +2,18 @@
 # Included from ftk's CMakeLists.txt. Paths are relative to src/.
 
 # ftk-base holds what any program needs before it has a window: the log,
-# results, delegates, handles and handle pools, the thread pool, the
+# results, delegates, handles and handle pools, range allocation, the thread pool, the
 # profiler, and the string and UTF-8 helpers.
 ftk_library(base
     SOURCES
         ftk/base/log.cpp
+        ftk/base/range_allocator.cpp
         ftk/base/thread_pool.cpp
     HEADERS
         ftk/base/delegate.hpp
         ftk/base/handle.hpp
         ftk/base/handle_pool.hpp
+        ftk/base/range_allocator.hpp
         ftk/base/small_vector.hpp
         ftk/base/log.hpp
         ftk/base/profiler.hpp
