@@ -55,6 +55,7 @@ add_executable(ftk-tests
     test_small_vector.cpp
     test_status_bar.cpp
     test_text_face.cpp
+    test_text_fallback.cpp
     test_text_field.cpp
     test_text_shape.cpp
     test_theme.cpp

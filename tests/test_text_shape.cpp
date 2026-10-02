@@ -76,6 +76,23 @@ TEST_CASE("Each character is drawn by the first face of the chain that has it", 
     CHECK(missing.glyphs[0].index == 0);
 }
 
+TEST_CASE("A face that claims a range draws it ahead of a face that has it too", "[text]") {
+    const auto inter = load("Inter-Regular.ttf");
+    const auto icons = load("lucide.ttf");
+    // U+E225 is an icon, and one of Inter's own private-use glyphs.
+    REQUIRE(inter->covers(0xE225));
+    CHECK(&text::FontChain({inter, icons}).face_for(0xE225) == inter.get());
+
+    text::FontChain chain({inter, icons});
+    chain.claim(icons, 0xE042, 0xE685);
+    CHECK(&chain.face_for(0xE225) == icons.get());
+    CHECK(&chain.face_for(U'A') == inter.get());
+    // Not kept in the run of the letter before it, though Inter has it.
+    const text::ShapedText shaped = text::shape("A\xee\x88\xa5", chain, 16.0f);
+    REQUIRE(shaped.glyphs.size() == 2);
+    CHECK(shaped.glyphs[1].face == icons.get());
+}
+
 TEST_CASE("A combining mark is shaped with its letter", "[text]") {
     const text::FontChain chain({load("Inter-Regular.ttf")});
     // e and a combining acute: one character, whatever glyphs draw it.

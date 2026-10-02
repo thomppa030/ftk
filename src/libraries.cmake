@@ -55,13 +55,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         ftk/platform/linux/platform_linux.cpp
         ftk/platform/linux/file_watcher_linux.cpp
         ftk/platform/linux/shared_library_linux.cpp
+        ftk/platform/linux/system_fonts_linux.cpp
     )
+    set(FTK_PLATFORM_LINKS "")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(FTK_PLATFORM_SOURCES
         ftk/platform/windows/platform_windows.cpp
         ftk/platform/windows/file_watcher_windows.cpp
         ftk/platform/windows/shared_library_windows.cpp
+        ftk/platform/windows/system_fonts_windows.cpp
     )
+    # DirectWrite, for the system's fallback fonts.
+    set(FTK_PLATFORM_LINKS dwrite)
 else()
     message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
@@ -73,9 +78,10 @@ ftk_library(platform
         ftk/platform/file_watcher.hpp
         ftk/platform/platform.hpp
         ftk/platform/shared_library.hpp
+        ftk/platform/system_fonts.hpp
     LINKS
         PUBLIC ftk::base
-        PRIVATE ${CMAKE_DL_LIBS}
+        PRIVATE ${CMAKE_DL_LIBS} ${FTK_PLATFORM_LINKS}
 )
 
 # The Vulkan backend's code, in whichever target holds it: Vulkan and VMA for
@@ -256,13 +262,15 @@ ftk_library(text
         ftk/text/face.cpp
         ftk/text/font_chain.cpp
         ftk/text/shape.cpp
+        ftk/text/system_fallback.cpp
     HEADERS
         ftk/text/detail/face_impl.hpp
         ftk/text/face.hpp
         ftk/text/font_chain.hpp
         ftk/text/shape.hpp
+        ftk/text/system_fallback.hpp
     LINKS
-        PUBLIC ftk::base glm::glm
+        PUBLIC ftk::base ftk::platform glm::glm
         PRIVATE freetype ftk::harfbuzz
 )
 
