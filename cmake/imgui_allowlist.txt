@@ -3,4 +3,3 @@
 # file moves onto the kit, delete its line here: the check fails while a
 # listed file has no ImGui left, so the list only shrinks.
 src/ftk/app/editor_context.cpp
-src/ftk/app/file_browser.cpp

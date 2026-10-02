@@ -7,19 +7,29 @@
 #include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/pane.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
+#include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/table.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
+#include "ftk/ui/kit/window.hpp"
+#include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/theme.hpp"
-
-#include <imgui.h>
-#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <span>
+#include <utility>
 
 namespace ftk {
 
@@ -49,8 +59,6 @@ std::string shown(const fs::path& dir) {
     if (!home.empty() && path.starts_with(home)) return "~" + path.substr(home.size());
     return path;
 }
-
-ImU32 colour(const ImVec4& c) { return ImGui::GetColorU32(c); }
 
 } // namespace
 
@@ -242,80 +250,76 @@ void FileBrowser::confirm_selection() {
 // ── ImGui UI ────────────────────────────────────────────────────────────
 
 bool FileBrowser::draw_ui(float window_w, float window_h) {
-    ImGui::SetNextWindowPos({0, 0});
-    ImGui::SetNextWindowSize({window_w, window_h});
+    ui::next_window_place({0.0f, 0.0f}, {window_w, window_h});
     (void)ui::begin_host_window("##FileBrowser", {.scrollbar = false});
     draw_top_bar();
     // The bar at the bottom: a rule, its padding, a line of buttons.
-    const float bar_h = ImGui::GetFrameHeight() + theme::GAP_M * 2.0f + 1.0f;
-    const float body_h = std::max(ImGui::GetContentRegionAvail().y - bar_h, 1.0f);
+    const float bar_h = ui::frame_height() + theme::GAP_M * 2.0f + 1.0f;
+    const float body_h = std::max(ui::space_left().y - bar_h, 1.0f);
     if (auto places = ui::Pane("##places", {PLACES_W, body_h}, ui::PaneSurface::Sunken)) draw_places();
-    ImGui::SameLine(0.0f, 0.0f);
+    ui::same_line(0.0f);
     if (auto files = ui::Pane("##entries", {0.0f, body_h})) draw_file_list();
 
-    ImGui::SetCursorPosX(theme::GAP_M);
+    ui::set_cursor({ui::window_pos().x + theme::GAP_M, ui::cursor().y});
     const bool close = draw_bottom_bar();
-    ImGui::End();
+    ui::end_host_window();
     return close;
 }
 
 void FileBrowser::draw_top_bar() {
-    ImGui::SetCursorPos({theme::GAP_M, theme::GAP_M});
-    ImGui::BeginDisabled(back_.empty());
-    if (ui::icon_button("##back", ui::icon::back, "Back")) {
-        const fs::path to = back_.back();
-        back_.pop_back();
-        navigate(to, false);
+    ui::set_cursor(ui::window_pos() + glm::vec2{theme::GAP_M, theme::GAP_M});
+    {
+        ui::Disabled none_back(back_.empty());
+        if (ui::icon_button("##back", ui::icon::back, "Back")) {
+            const fs::path to = back_.back();
+            back_.pop_back();
+            navigate(to, false);
+        }
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine(0.0f, theme::GAP_XS);
+    ui::same_line(theme::GAP_XS);
     const fs::path parent = current_dir_.parent_path();
-    ImGui::BeginDisabled(parent == current_dir_);
-    if (ui::icon_button("##up", ui::icon::up_folder, "Up to the folder this one is in")) navigate(parent);
-    ImGui::EndDisabled();
-    ImGui::SameLine(0.0f, theme::GAP_S);
+    {
+        ui::Disabled at_root(parent == current_dir_);
+        if (ui::icon_button("##up", ui::icon::up_folder, "Up to the folder this one is in")) navigate(parent);
+    }
+    ui::same_line(theme::GAP_S);
 
-    const float crumbs_w = ImGui::GetContentRegionAvail().x - SEARCH_W - theme::GAP_S - theme::GAP_M;
+    const float crumbs_w = ui::space_left().x - SEARCH_W - theme::GAP_S - theme::GAP_M;
     draw_breadcrumbs(std::max(crumbs_w, 40.0f));
-    ImGui::SameLine(0.0f, theme::GAP_S);
-    ImGui::SetNextItemWidth(SEARCH_W);
+    ui::same_line(theme::GAP_S);
+    ui::next_width(SEARCH_W);
     if (ui::search_field("##search", search_)) {
         refilter();
         selected_index_ = -1;
     }
 
     // A rule under the bar, across the window.
-    const float y = ImGui::GetCursorScreenPos().y + theme::GAP_M - ImGui::GetStyle().ItemSpacing.y;
-    ImGui::GetWindowDrawList()->AddLine({ImGui::GetWindowPos().x, y + 0.5f},
-                                        {ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, y + 0.5f},
-                                        colour(theme::border()));
-    ImGui::SetCursorScreenPos({ImGui::GetWindowPos().x, y + 1.0f});
+    const float y = ui::cursor().y + theme::GAP_M - ui::item_spacing().y;
+    const glm::vec2 window = ui::window_pos();
+    ui::DrawList::window().line({window.x, y + 0.5f}, {window.x + ui::window_size().x, y + 0.5f}, theme::border());
+    ui::set_cursor({window.x, y + 1.0f});
 }
 
 void FileBrowser::draw_breadcrumbs(float width) {
     if (typing_path_) {
         // A path typed or pasted: Enter goes there, leaving the field keeps
         // the folder as it was.
-        ImGui::SetNextItemWidth(width);
-        if (focus_path_) {
-            ImGui::SetKeyboardFocusHere();
-            focus_path_ = false;
-        }
-        if (ImGui::InputText("##path", &typed_path_, ImGuiInputTextFlags_EnterReturnsTrue)) {
+        ui::next_width(width);
+        if (ui::text_entry("##path", typed_path_, {.focus = std::exchange(focus_path_, false)})) {
             std::error_code ec;
             if (fs::is_directory(typed_path_, ec)) navigate(typed_path_);
             typing_path_ = false;
-        } else if (ImGui::IsItemDeactivated()) {
+        } else if (ui::item_deactivated()) {
             typing_path_ = false;
         }
         return;
     }
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const float h = ImGui::GetFrameHeight();
-    const ImVec2 p1{p0.x + width, p0.y + h};
-    dl->AddRectFilled(p0, p1, colour(theme::surface_sunken()), ImGui::GetStyle().FrameRounding);
+    ui::DrawList dl = ui::DrawList::window();
+    const glm::vec2 p0 = ui::cursor();
+    const float h = ui::frame_height();
+    const glm::vec2 p1{p0.x + width, p0.y + h};
+    dl.rect_filled(p0, p1, theme::surface_sunken(), theme::FRAME_ROUNDING);
 
     // The folders from the root (or home) down to this one; the leading ones
     // go when they don't fit.
@@ -333,8 +337,8 @@ void FileBrowser::draw_breadcrumbs(float width) {
     std::reverse(crumbs.begin(), crumbs.end());
 
     const float pad = 6.0f;
-    const float sep_w = ImGui::CalcTextSize("/").x + pad;
-    const auto crumb_w = [&](const std::string& text) { return ImGui::CalcTextSize(text.c_str()).x + pad * 2.0f; };
+    const float sep_w = ui::text_size("/").x + pad;
+    const auto crumb_w = [&](const std::string& text) { return ui::text_size(text).x + pad * 2.0f; };
     float total = 0.0f;
     for (const auto& c : crumbs) total += crumb_w(c.first) + sep_w;
     std::size_t first = 0;
@@ -342,73 +346,72 @@ void FileBrowser::draw_breadcrumbs(float width) {
     while (total > room && first + 1 < crumbs.size()) total -= crumb_w(crumbs[first++].first) + sep_w;
 
     float x = p0.x + theme::GAP_XS;
-    ImGui::PushID("##crumbs");
-    for (std::size_t i = first; i < crumbs.size(); ++i) {
-        const auto& [text, path] = crumbs[i];
-        const bool last = i + 1 == crumbs.size();
-        const float w = crumb_w(text);
-        ImGui::SetCursorScreenPos({x, p0.y});
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::InvisibleButton("##crumb", {w, h}) && !last) navigate(path);
-        const bool hot = ImGui::IsItemHovered();
-        ImGui::PopID();
-        if (hot) {
-            dl->AddRectFilled({x, p0.y + 2.0f}, {x + w, p1.y - 2.0f}, colour(theme::surface_hover()),
-                              ImGui::GetStyle().FrameRounding);
-        }
-        dl->AddText({x + pad, p0.y + (h - ImGui::GetTextLineHeight()) * 0.5f},
-                    colour(last || hot ? theme::text() : theme::text_secondary()), text.c_str());
-        x += w;
-        if (!last) {
-            dl->AddText({x, p0.y + (h - ImGui::GetTextLineHeight()) * 0.5f}, colour(theme::text_disabled()), "/");
-            x += sep_w;
+    const float text_y = p0.y + (h - ui::line_height()) * 0.5f;
+    {
+        ui::IdScope crumbs_id("##crumbs");
+        for (std::size_t i = first; i < crumbs.size(); ++i) {
+            const auto& [text, path] = crumbs[i];
+            const bool last = i + 1 == crumbs.size();
+            const float w = crumb_w(text);
+            ui::set_cursor({x, p0.y});
+            bool hot = false;
+            {
+                ui::IdScope crumb_id(static_cast<int>(i));
+                if (ui::hit_area("##crumb", {w, h}) && !last) navigate(path);
+                hot = ui::item_hovered();
+            }
+            if (hot) dl.rect_filled({x, p0.y + 2.0f}, {x + w, p1.y - 2.0f}, theme::surface_hover(), theme::FRAME_ROUNDING);
+            dl.text({x + pad, text_y}, last || hot ? theme::text() : theme::text_secondary(), text);
+            x += w;
+            if (!last) {
+                dl.text({x, text_y}, theme::text_disabled(), "/");
+                x += sep_w;
+            }
         }
     }
-    ImGui::PopID();
 
     // The empty end: a click there types a path.
     const float rest = p1.x - x;
     if (rest > 1.0f) {
-        ImGui::SetCursorScreenPos({x, p0.y});
-        if (ImGui::InvisibleButton("##type_path", {rest, h})) {
+        ui::set_cursor({x, p0.y});
+        if (ui::hit_area("##type_path", {rest, h})) {
             typing_path_ = true;
             focus_path_ = true;
             typed_path_ = current_dir_.string();
         }
-        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
-        ImGui::SetItemTooltip("Type or paste a path");
+        if (ui::item_hovered()) ui::set_mouse_cursor(ui::MouseCursor::Text);
+        ui::item_tooltip("Type or paste a path");
     }
-    ImGui::SetCursorScreenPos({p1.x, p0.y});
-    ImGui::Dummy({0.0f, h});
+    ui::set_cursor({p1.x, p0.y});
+    ui::reserve({0.0f, h});
 }
 
 void FileBrowser::draw_places() {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float width = ImGui::GetContentRegionAvail().x;
+    ui::DrawList dl = ui::DrawList::window();
+    const float width = ui::space_left().x;
     const auto heading = [&](const char* text) {
-        ImGui::PushFont(theme::bold_font(), theme::SMALL_TEXT - 1.0f);
-        ImGui::TextColored(theme::text_secondary(), "%s", text);
-        ImGui::PopFont();
+        ui::FontScope bold(theme::bold_font(), theme::SMALL_TEXT - 1.0f);
+        ui::text(text, theme::text_secondary());
     };
     const auto place = [&](const char* icon, const std::string& label, const fs::path& dir) {
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        const ImVec2 p1{p0.x + width, p0.y + PLACE_H};
-        ImGui::PushID(dir.string().c_str());
-        if (ImGui::InvisibleButton("##place", {width, PLACE_H})) navigate(dir);
-        const bool hot = ImGui::IsItemHovered();
-        ImGui::SetItemTooltip("%s", dir.string().c_str());
-        ImGui::PopID();
+        const glm::vec2 p0 = ui::cursor();
+        const glm::vec2 p1{p0.x + width, p0.y + PLACE_H};
+        bool hot = false;
+        {
+            ui::IdScope id(dir.string());
+            if (ui::hit_area("##place", {width, PLACE_H})) navigate(dir);
+            hot = ui::item_hovered();
+            ui::item_tooltip(dir.string());
+        }
         const bool here = dir == current_dir_;
         if (here || hot) {
-            dl->AddRectFilled(p0, p1, colour(here ? theme::selection() : theme::surface_hover()),
-                              ImGui::GetStyle().FrameRounding);
+            dl.rect_filled(p0, p1, here ? theme::selection() : theme::surface_hover(), theme::FRAME_ROUNDING);
         }
-        const float ty = p0.y + (PLACE_H - ImGui::GetTextLineHeight()) * 0.5f;
-        dl->AddText({p0.x + theme::GAP_M, ty}, colour(theme::text_secondary()), icon);
-        dl->PushClipRect({p0.x, p0.y}, {p1.x - theme::GAP_S, p1.y}, true);
-        dl->AddText({p0.x + theme::GAP_M + 22.0f, ty}, colour(here || hot ? theme::text() : theme::text_secondary()),
-                    label.c_str());
-        dl->PopClipRect();
+        const float ty = p0.y + (PLACE_H - ui::line_height()) * 0.5f;
+        dl.text({p0.x + theme::GAP_M, ty}, theme::text_secondary(), icon);
+        dl.push_clip(p0, {p1.x - theme::GAP_S, p1.y});
+        dl.text({p0.x + theme::GAP_M + 22.0f, ty}, here || hot ? theme::text() : theme::text_secondary(), label);
+        dl.pop_clip();
     };
 
     std::error_code ec;
@@ -421,7 +424,7 @@ void FileBrowser::draw_places() {
     if (fs::is_directory(home / "Downloads", ec)) place(ui::icon::downloads, "Downloads", home / "Downloads");
 
     if (!recent_folders_.empty()) {
-        ImGui::Dummy({0.0f, theme::GAP_S});
+        ui::reserve({0.0f, theme::GAP_S});
         heading("Recent");
         for (const auto& folder : recent_folders_) {
             if (fs::is_directory(folder, ec)) place(ui::icon::folder, shown(folder), folder);
@@ -430,76 +433,74 @@ void FileBrowser::draw_places() {
 }
 
 void FileBrowser::draw_file_list() {
-    const ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY |
-                                  ImGuiTableFlags_BordersInnerV;
+    static constexpr ui::Column WITH_SIZE[] = {
+        {.name = "Name", .default_sort = true},
+        {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
+        {.name = "Modified", .sizing = ui::ColumnWidth::Fixed, .width = 130.0f},
+    };
+    // Only files have a size worth a column.
+    static constexpr ui::Column WITHOUT_SIZE[] = {WITH_SIZE[0], WITH_SIZE[2]};
     const bool show_size = mode_ == Mode::select_file;
-    if (!ImGui::BeginTable("##files", show_size ? 3 : 2, flags)) return;
-    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthStretch);
-    if (show_size) ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-    ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
-    ImGui::TableHeadersRow();
-    ImGui::PopStyleColor();
+    const auto table = ui::Table("##files", show_size ? std::span<const ui::Column>(WITH_SIZE) : WITHOUT_SIZE,
+                                 {.resizable = true, .sortable = true, .scroll = true, .column_lines = true});
+    if (!table) return;
+    {
+        ui::TextColour dim(theme::text_secondary());
+        ui::table_headers();
+    }
 
-    if (auto* sort_specs = ImGui::TableGetSortSpecs(); sort_specs != nullptr && sort_specs->SpecsDirty &&
-                                                        sort_specs->SpecsCount > 0) {
-        const auto& spec = sort_specs->Specs[0];
-        if (spec.ColumnIndex == 0) {
+    if (const auto sort = ui::table_sort_changed()) {
+        if (sort->column == 0) {
             sort_column_ = SortColumn::name;
-        } else if (show_size && spec.ColumnIndex == 1) {
+        } else if (show_size && sort->column == 1) {
             sort_column_ = SortColumn::size;
         } else {
             sort_column_ = SortColumn::date;
         }
-        sort_ascending_ = spec.SortDirection == ImGuiSortDirection_Ascending;
-        sort_specs->SpecsDirty = false;
+        sort_ascending_ = sort->ascending;
         refresh();
     }
 
     for (int fi = 0; fi < static_cast<int>(filtered_indices_.size()); ++fi) {
         const auto& entry = entries_[filtered_indices_[static_cast<size_t>(fi)]];
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
+        ui::table_next_row();
+        ui::table_next_column();
 
         // Its icon in its kind's colour: a folder in the structure grey.
         const ui::AssetKind& kind = ui::asset_kind(fs::path(entry.name).extension().string());
         const char* icon = entry.is_directory ? ui::icon::folder : kind.icon;
-        const ImVec4 tint = theme::hue(entry.is_directory ? theme::Hue::grey : kind.hue);
+        const ui::Color tint = theme::hue(entry.is_directory ? theme::Hue::grey : kind.hue);
 
-        ImGui::PushID(fi);
-        const ImVec2 row = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable("##entry", fi == selected_index_,
-                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
-            selected_index_ = fi;
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                if (entry.is_directory) {
-                    navigate(current_dir_ / entry.name);
-                } else if (mode_ == Mode::select_file) {
-                    confirm_selection();
+        const glm::vec2 row = ui::cursor();
+        {
+            ui::IdScope id(fi);
+            if (ui::selectable("##entry", fi == selected_index_, {.span_columns = true, .double_click = true})) {
+                selected_index_ = fi;
+                if (ui::mouse_double_clicked(ui::MouseButton::Left)) {
+                    if (entry.is_directory) {
+                        navigate(current_dir_ / entry.name);
+                    } else if (mode_ == Mode::select_file) {
+                        confirm_selection();
+                    }
                 }
             }
         }
-        ImGui::PopID();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddText(row, colour(tint), icon);
+        ui::DrawList dl = ui::DrawList::window();
+        dl.text(row, tint, icon);
         ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, theme::text());
 
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
+        ui::TextColour dim(theme::text_secondary());
         if (show_size) {
-            ImGui::TableNextColumn();
+            ui::table_next_column();
             if (!entry.is_directory) {
                 const std::string size = format_size(entry.size);
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
-                                     ImGui::CalcTextSize(size.c_str()).x);
-                ImGui::TextUnformatted(size.c_str());
+                ui::set_cursor({ui::cursor().x + ui::space_left().x - ui::text_size(size).x, ui::cursor().y});
+                ui::text(size);
             }
         }
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(format_time(entry.modified).c_str());
-        ImGui::PopStyleColor();
+        ui::table_next_column();
+        ui::text(format_time(entry.modified));
     }
-    ImGui::EndTable();
 }
 
 bool FileBrowser::draw_bottom_bar() {
@@ -509,16 +510,14 @@ bool FileBrowser::draw_bottom_bar() {
          .why_not = mode_ == Mode::select_location ? "Give it a name first" : "Pick a file first",
          .focus_confirm = false},
         [&](float width) {
-            ImGui::AlignTextToFramePadding();
+            ui::align_text_to_frame();
             const char* label = mode_ == Mode::select_location ? "Name" : mode_ == Mode::select_file ? "File" : "Folder";
-            ImGui::TextColored(theme::text_secondary(), "%s", label);
-            ImGui::SameLine();
-            const float field_w = std::max(width - ImGui::CalcTextSize(label).x - ImGui::GetStyle().ItemSpacing.x, 40.0f);
-            ImGui::SetNextItemWidth(field_w);
+            ui::text(label, theme::text_secondary());
+            ui::same_line();
+            const float field_w = std::max(width - ui::text_size(label).x - ui::item_spacing().x, 40.0f);
+            ui::next_width(field_w);
             if (mode_ == Mode::select_location) {
-                if (ImGui::InputTextWithHint("##name", "Project name", &name_, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    confirm_selection();
-                }
+                if (ui::text_entry("##name", name_, {.hint = "Project name"})) confirm_selection();
                 return;
             }
             // What the verb would take: the selected entry, or this folder.
