@@ -39,6 +39,7 @@ inline constexpr const char* font    = ICON_LC_TYPE;
 
 // Menus, folding and dropdowns
 inline constexpr const char* checked     = ICON_LC_CHECK;
+inline constexpr const char* inherited   = ICON_LC_CORNER_DOWN_RIGHT;  // a value that comes from elsewhere
 inline constexpr const char* fold_open   = ICON_LC_CHEVRON_DOWN;
 inline constexpr const char* fold_closed = ICON_LC_CHEVRON_RIGHT;
 inline constexpr const char* dropdown    = ICON_LC_CHEVRON_DOWN;
