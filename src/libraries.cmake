@@ -244,6 +244,7 @@ ftk_library(app-ui
     SOURCES
         ftk/ui/draw_list.cpp
         ftk/ui/imgui_theme.cpp
+        ftk/ui/theme.cpp
         ftk/ui/kit/asset_header.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/asset_tile.cpp
@@ -332,7 +333,10 @@ ftk_library(app-ui
         ftk/ui/types.hpp
     LINKS
         PUBLIC ftk::base ftk::math ftk::imgui-headless glm::glm
+        PRIVATE nlohmann_json::nlohmann_json
 )
+# The approved dark palette, the theme's until a program uses another.
+ftk_embed_file(ftk-app-ui "${FTK_SOURCE_ROOT}/ftk/ui/palettes/dark.json")
 
 # ftk-imgui-harness runs Dear ImGui with no window and no renderer, so a
 # program's tests can drive its editor UI: set the UI, feed it input, step

@@ -121,6 +121,11 @@ bool load_font(const std::string& font_dir) {
 
 void apply(ImGuiStyle& style) {
     auto& c = style.Colors;
+    // A palette colour at `alpha`.
+    const auto faded = [](ui::Color colour, float alpha) {
+        colour.a = alpha;
+        return colour;
+    };
 
     // Geometry
     style.WindowRounding = 0.0f;
@@ -145,9 +150,9 @@ void apply(ImGuiStyle& style) {
     // Backgrounds
     c[ImGuiCol_WindowBg]     = surface_base();
     c[ImGuiCol_ChildBg]      = surface_base();
-    c[ImGuiCol_PopupBg]      = hex(0x111214, 0.98f);  // surface_sunken, nearly opaque
+    c[ImGuiCol_PopupBg]      = faded(surface_sunken(), 0.98f);  // nearly opaque
     // Behind a dialog the editor darkens; ImGui's default grey washes it out.
-    c[ImGuiCol_ModalWindowDimBg] = hex(0x000000, 0.45f);
+    c[ImGuiCol_ModalWindowDimBg] = backdrop();
     c[ImGuiCol_Border]       = border();
     c[ImGuiCol_BorderShadow] = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -159,7 +164,7 @@ void apply(ImGuiStyle& style) {
     // Title / menu
     c[ImGuiCol_TitleBg]          = surface_sunken();
     c[ImGuiCol_TitleBgActive]    = surface_sunken();
-    c[ImGuiCol_TitleBgCollapsed] = hex(0x111214, 0.6f);
+    c[ImGuiCol_TitleBgCollapsed] = faded(surface_sunken(), 0.6f);
     c[ImGuiCol_MenuBarBg]        = surface_sunken();
 
     // Headers / selectables
@@ -178,7 +183,7 @@ void apply(ImGuiStyle& style) {
     c[ImGuiCol_TabHovered]        = surface_raised();
     c[ImGuiCol_TabSelected]       = surface_base();
     c[ImGuiCol_TabDimmed]         = surface_sunken();
-    c[ImGuiCol_TabDimmedSelected] = hex(0x17181B);  // between sunken and base
+    c[ImGuiCol_TabDimmedSelected] = surface_between();
 
     // Separators
     c[ImGuiCol_Separator]        = border();
@@ -191,10 +196,10 @@ void apply(ImGuiStyle& style) {
     c[ImGuiCol_ResizeGripActive]  = accent();
 
     // Scrollbar
-    c[ImGuiCol_ScrollbarBg]          = hex(0x111214, 0.5f);
+    c[ImGuiCol_ScrollbarBg]          = faded(surface_sunken(), 0.5f);
     c[ImGuiCol_ScrollbarGrab]        = surface_raised();
     c[ImGuiCol_ScrollbarGrabHovered] = surface_active();
-    c[ImGuiCol_ScrollbarGrabActive]  = hex(0x4E5058);
+    c[ImGuiCol_ScrollbarGrabActive]  = surface_grabbed();
 
     // Slider
     c[ImGuiCol_SliderGrab]       = accent();
@@ -223,9 +228,9 @@ void apply(ImGuiStyle& style) {
     c[ImGuiCol_DragDropTarget]    = accent();
     c[ImGuiCol_TableHeaderBg]     = surface_sunken();
     c[ImGuiCol_TableBorderStrong] = border();
-    c[ImGuiCol_TableBorderLight]  = hex(0x0E0E10, 0.5f);
+    c[ImGuiCol_TableBorderLight]  = faded(border(), 0.5f);
     c[ImGuiCol_TableRowBg]        = {0.0f, 0.0f, 0.0f, 0.0f};
-    c[ImGuiCol_TableRowBgAlt]     = hex(0x1E1F22, 0.15f);
+    c[ImGuiCol_TableRowBgAlt]     = faded(surface_base(), 0.15f);
 
     // Tooltips appear after the short delay, so sweeping across a toolbar
     // doesn't flash one for every button passed.

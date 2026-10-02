@@ -31,10 +31,12 @@ include(cmake/GpuBackendCheck.cmake)
 include(cmake/PortabilityCheck.cmake)
 
 include(cmake/Dependencies.cmake)
-# Shader compiling, and ftk_stage_editor_data() for any program built on
-# ftk-app; glslc is only looked for once something compiles a shader.
+# Shader compiling, ftk_stage_editor_data() for any program built on
+# ftk-app, and ftk_embed_file() to build a file into a library; glslc is only
+# looked for once something compiles a shader.
 include(cmake/CompileShaders.cmake)
 include(cmake/EditorData.cmake)
+include(cmake/EmbedFile.cmake)
 
 include(src/libraries.cmake)
 

@@ -41,8 +41,6 @@ function(_ftk_scan_editor_ui base allowlist icons)
         # ui::Color{0.8f, ...}, ui::Color red = {0.8f, ...}: the kit's colour
         "ui::Color[ \t]*[({][ \t]*-?[0-9.]"
         "ui::Color[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=?[ \t]*[({][ \t]*-?[0-9.]"
-        # theme::srgb(...) is the theme's own spelling of a literal
-        "theme::srgb[ \t]*\\("
         # ImColor(0.8f, ...), ImColor(212, 160, 84)
         "ImColor[ \t]*[({][ \t]*-?[0-9.]"
         # ImColor red(0.8f, ...)
