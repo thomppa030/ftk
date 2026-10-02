@@ -177,7 +177,7 @@ const NodeGraph::LaidPin* NodeGraph::find_pin(const NodeEnd& end) const {
     return nullptr;
 }
 
-ImVec2 NodeGraph::end_position(const NodeEnd& end) const {
+glm::vec2 NodeGraph::end_position(const NodeEnd& end) const {
     if (end.pin != 0) {
         const LaidPin* pin = find_pin(end);
         return pin != nullptr ? view_.to_screen(pin->at) : glm::vec2{};
@@ -562,7 +562,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
                               {mid.x - d.x * s * 0.8f - n.x * s, mid.y - d.y * s * 0.8f - n.y * s}, colour(ink));
         if (c.link->marked) {
             const LaidNode* from = find_node(c.link->from.node);
-            const ImVec4 mark = from != nullptr ? from->desc->hue : theme::text_secondary();
+            const Color mark = from != nullptr ? from->desc->hue : Color(theme::text_secondary());
             dl->AddCircleFilled({mid.x + n.x * (r + 5.0f * zoom), mid.y + n.y * (r + 5.0f * zoom)}, 2.5f * zoom,
                                 colour(mark));
         }
@@ -622,7 +622,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         if (nd.picture) {
             const ImVec2 p = view_.to_screen(node.picture_min);
             const float s = PICTURE * zoom;
-            dl->AddImage(nd.picture, p, {p.x + s, p.y + s});
+            dl->AddImage(nd.picture.id, p, {p.x + s, p.y + s});
         }
 
         // Pin names and lines of text.
@@ -660,7 +660,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
             const float r = PIN_R * zoom;
             const bool linked = std::any_of(desc.links.begin(), desc.links.end(),
                                             [&](const NodeLink& l) { return l.from == self || l.to == self; });
-            dl->AddCircleFilled(p, r, colour(linked ? pin.pin->colour : theme::surface_sunken(), alpha));
+            dl->AddCircleFilled(p, r, colour(linked ? pin.pin->colour : Color(theme::surface_sunken()), alpha));
             dl->AddCircle(p, r, colour(pin.pin->colour, alpha), 0, std::max(1.2f, 2.0f * zoom));
             if (pin_takes) {
                 dl->AddCircle(p, r + 3.5f * zoom, colour(self == hot_pin ? theme::accent() : theme::text()), 0, 1.3f);

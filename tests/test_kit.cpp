@@ -549,6 +549,16 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     CHECK(right_edge > image_max.x - 16.0f);
 }
 
+TEST_CASE("A texture holds the ImGui id it is made from, and none is zero", "[ui][kit]") {
+    const ImTextureID imgui_id = 0x5EED;
+    const ui::Texture texture = imgui_id;
+    CHECK(texture.id == 0x5EED);
+    CHECK(static_cast<bool>(texture));
+    CHECK_FALSE(static_cast<bool>(ui::Texture{}));
+    CHECK(texture == ui::Texture{0x5EED});
+    CHECK(texture != ui::Texture{});
+}
+
 TEST_CASE("A window leaves out what its options say and nothing else", "[ui][kit]") {
     using ui::detail::imgui_window_flags;
     CHECK(imgui_window_flags({}) == ImGuiWindowFlags_None);

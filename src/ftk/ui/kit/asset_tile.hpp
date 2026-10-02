@@ -2,8 +2,9 @@
 
 #include "ftk/ui/kit/tree.hpp"
 #include "ftk/ui/theme.hpp"
+#include "ftk/ui/types.hpp"
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -24,13 +25,13 @@ struct AssetTileSpec {
     std::string_view name{};
     /// The tile's picture: a rendered thumbnail, or an icon image; 0 for
     /// none. Drawn as it is unless `tint` is set.
-    ImTextureID picture{0};
+    Texture picture{};
     /// Without a picture: the kind's icon glyph and colour. `tint` colours
     /// the picture or overrides its hue (a folder the user
     /// coloured).
     const char* icon{nullptr};
     std::optional<theme::Hue> hue{};
-    std::optional<ImVec4> tint{};
+    std::optional<Color> tint{};
     bool selected{false};
     /// The search being shown: its match in the name is amber.
     std::string_view query{};
@@ -49,6 +50,6 @@ struct AssetTileResult {
 AssetTileResult asset_tile(const AssetTileSpec& spec);
 
 /// The size one tile takes, for laying out a grid of them.
-[[nodiscard]] ImVec2 asset_tile_size();
+[[nodiscard]] glm::vec2 asset_tile_size();
 
 } // namespace ftk::ui

@@ -36,13 +36,13 @@ struct SlotUnderTest {
             field = ImGui::GetCursorScreenPos();
             ImGui::SetNextItemWidth(240.0f);
             ImGui::PushID("##item");
-            ui::Slot slot(PAYLOAD, [](const ImGuiPayload& payload) -> std::string {
-                const std::string name = static_cast<const char*>(payload.Data);
+            ui::Slot slot(PAYLOAD, [](const ui::Payload& payload) -> std::string {
+                const std::string name = static_cast<const char*>(payload.data);
                 return name == "crate" ? "Crates do not fit." : std::string();
             });
             h.mark("field");
             if (slot.clicked()) ++clicks;
-            if (const ImGuiPayload* dropped = slot.dropped()) held = static_cast<const char*>(dropped->Data);
+            if (const ui::Payload* dropped = slot.dropped()) held = static_cast<const char*>(dropped->data);
             std::string text = held.empty() ? "None" : held;
             if (slot.finish({.text = text}, held.empty(), {})) {
                 held.clear();

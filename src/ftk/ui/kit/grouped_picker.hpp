@@ -1,8 +1,9 @@
 #pragma once
 
 #include "ftk/ui/theme.hpp"
+#include "ftk/ui/types.hpp"
 
-#include <imgui.h>
+#include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -34,12 +35,12 @@ struct Item {
     std::string sublabel{};
     /// A picture drawn at the head of the row, or 0 for none. The caller owns
     /// it and must keep it alive for the frame.
-    ImTextureID preview{0};
+    Texture preview{};
     /// A short word in a coloured pill before the label — "KB", "PAD". Empty
     /// draws no pill.
     std::string tag{};
     /// The pill's colour. Ignored when `tag` is empty.
-    ImU32 tag_color{0};
+    Color tag_color{};
     /// Searched along with the label, for text a row does not show. An
     /// asset's folder, say, so "materials/" finds everything under it.
     std::string search_text{};
@@ -79,7 +80,7 @@ struct Config {
     /// Suppress group headers. For a picker whose items all sit in one group,
     /// where the single header would only repeat the field's own label.
     bool hide_group_headers{false};
-    ImVec2 size{320.0F, 400.0F};
+    glm::vec2 size{320.0F, 400.0F};
 };
 
 /// Open the picker owned by `widget_id` on the next draw. A picker is known by

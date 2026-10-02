@@ -42,7 +42,7 @@ bool matches_search(const Item& item, std::string_view needle) {
 }
 
 /// A short word in a coloured pill, for a row's kind.
-void draw_tag(const std::string& text, ImU32 color) {
+void draw_tag(const std::string& text, Color color) {
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
     const ImVec2 pad{6.0F, 2.0F};
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -50,7 +50,7 @@ void draw_tag(const std::string& text, ImU32 color) {
                     p0.y + text_size.y + pad.y * 2.0F};
 
     auto* draw_list = ImGui::GetWindowDrawList();
-    draw_list->AddRectFilled(p0, p1, color, 4.0F);
+    draw_list->AddRectFilled(p0, p1, ImGui::GetColorU32(color), 4.0F);
     draw_list->AddText({p0.x + pad.x, p0.y + pad.y}, ImGui::GetColorU32(theme::text_on_accent()),
                        text.c_str());
     ImGui::Dummy({p1.x - p0.x, p1.y - p0.y});
@@ -62,7 +62,7 @@ void draw_tag(const std::string& text, ImU32 color) {
 bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_view query) {
     const bool two_line = !item.sublabel.empty();
     const float text_height = ImGui::GetTextLineHeight() * (two_line ? 2.0F : 1.0F);
-    const float row_height = item.preview != 0
+    const float row_height = item.preview
         ? std::max(PREVIEW_SIZE, text_height)
         : text_height;
 
@@ -89,8 +89,8 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
         ImGui::Dummy({DOT_COLUMN, row_height});
         ImGui::SameLine();
     }
-    if (item.preview != 0) {
-        ImGui::Image(item.preview, {PREVIEW_SIZE, PREVIEW_SIZE});
+    if (item.preview) {
+        ImGui::Image(item.preview.id, {PREVIEW_SIZE, PREVIEW_SIZE});
         ImGui::SameLine();
     } else if (!item.tag.empty()) {
         draw_tag(item.tag, item.tag_color);

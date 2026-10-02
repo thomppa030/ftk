@@ -67,7 +67,7 @@ void draw_line(ImDrawList* dl, float left, float width, float y, const char* beg
 
 } // namespace
 
-ImVec2 asset_tile_size() {
+glm::vec2 asset_tile_size() {
     const float name_h = ImGui::GetTextLineHeight() * NAME_LINES;
     return {TILE_WIDTH, PAD_TOP + PICTURE + NAME_GAP + name_h + PAD_BOTTOM};
 }
@@ -105,17 +105,16 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     // tile is hovered or selected: at rest the icon stands on the panel.
     const ImVec2 pic_min{std::floor(min.x + (size.x - PICTURE) * 0.5f), min.y + PAD_TOP};
     const ImVec2 pic_max{pic_min.x + PICTURE, pic_min.y + PICTURE};
-    if (spec.picture != 0) {
+    if (spec.picture) {
         const ImU32 tint = spec.tint ? ImGui::GetColorU32(*spec.tint) : IM_COL32_WHITE;
-        dl->AddImageRounded(spec.picture, pic_min, pic_max, {0.0f, 0.0f}, {1.0f, 1.0f}, tint, ROUNDING);
+        dl->AddImageRounded(spec.picture.id, pic_min, pic_max, {0.0f, 0.0f}, {1.0f, 1.0f}, tint, ROUNDING);
     } else {
         if (spec.selected || hovered) {
             dl->AddRectFilled(pic_min, pic_max, ImGui::GetColorU32(theme::surface_sunken()), ROUNDING);
         }
         if (spec.icon != nullptr) {
-            const ImVec4 colour = spec.tint ? *spec.tint
-                                : spec.hue ? theme::hue(*spec.hue)
-                                                : theme::text_secondary();
+            const Color colour =
+                spec.tint.value_or(spec.hue ? theme::hue(*spec.hue) : theme::text_secondary());
             ImFont* font = ImGui::GetFont();
             const ImVec2 icon = font->CalcTextSizeA(ICON, FLT_MAX, 0.0f, spec.icon);
             dl->AddText(font, ICON,

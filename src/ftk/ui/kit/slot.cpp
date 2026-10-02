@@ -20,7 +20,7 @@ constexpr float FIELD_PICTURE = 18.0f;
 
 } // namespace
 
-void draw_slot_face(ImVec2 min, ImVec2 max, const SlotFace& face) {
+void draw_slot_face(glm::vec2 min, glm::vec2 max, const SlotFace& face) {
     const ImGuiStyle& style = ImGui::GetStyle();
     const float height = max.y - min.y;
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -36,9 +36,9 @@ void draw_slot_face(ImVec2 min, ImVec2 max, const SlotFace& face) {
 
     const float text_y = min.y + style.FramePadding.y;
     float x = min.x + style.FramePadding.x;
-    if (face.picture != 0) {
+    if (face.picture) {
         const float top = min.y + (height - FIELD_PICTURE) * 0.5f;
-        dl->AddImage(face.picture, {x, top}, {x + FIELD_PICTURE, top + FIELD_PICTURE});
+        dl->AddImage(face.picture.id, {x, top}, {x + FIELD_PICTURE, top + FIELD_PICTURE});
         x += FIELD_PICTURE + theme::GAP_S + theme::GAP_XS;
     } else if (face.glyph != nullptr) {
         dl->AddText({x, text_y}, ImGui::GetColorU32(face.glyph_colour), face.glyph);
@@ -87,7 +87,8 @@ Slot::Slot(const char* payload, const Judge& judge) {
     if (payload == nullptr || !ImGui::BeginDragDropTarget()) return;
     if (const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
         dragged != nullptr && dragged->IsDataType(payload)) {
-        const std::string refusal = judge ? judge(*dragged) : std::string();
+        const Payload carried{dragged->Data, static_cast<std::size_t>(dragged->DataSize)};
+        const std::string refusal = judge ? judge(carried) : std::string();
         if (refusal.empty()) {
             drop_ = SlotDrop::fits;
             if (const ImGuiPayload* taken = ImGui::AcceptDragDropPayload(
@@ -95,8 +96,7 @@ Slot::Slot(const char* payload, const Judge& judge) {
                 taken != nullptr && taken->IsDelivery()) {
                 const auto* bytes = static_cast<const char*>(taken->Data);
                 dropped_data_.assign(bytes, bytes + taken->DataSize);
-                dropped_ = *taken;
-                dropped_.Data = dropped_data_.data();
+                dropped_ = {dropped_data_.data(), dropped_data_.size()};
                 has_drop_ = true;
             }
         } else {

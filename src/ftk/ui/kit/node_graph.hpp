@@ -2,11 +2,11 @@
 
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/theme.hpp"
+#include "ftk/ui/types.hpp"
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
-#include <imgui.h>
 
 #include <cstdint>
 #include <functional>
@@ -70,7 +70,7 @@ struct NodePin {
     /// The caller's type, for its link rule; the kit never reads it.
     int type{0};
     /// The type's colour (sheet 30). Hollow until linked.
-    ImVec4 colour{theme::text_secondary()};
+    Color colour{theme::text_secondary()};
 };
 
 /// A row of a node: a pin each side, a value, or a line of text.
@@ -107,11 +107,11 @@ struct NodeDesc {
     float width{NODE_WIDTH};
     std::string title;
     /// The node's hue, mixed 30 % into the header.
-    ImVec4 hue{theme::hue(theme::Hue::slate)};
+    Color hue{theme::hue(theme::Hue::slate)};
     /// Switched off: the title dims.
     bool dimmed{false};
     /// Shown under the rows (a module's texture); none when null.
-    ImTextureID picture{};
+    Texture picture{};
     NodeConnect connect{NodeConnect::Pins};
     std::vector<NodeRow> rows;
 };
@@ -210,10 +210,10 @@ public:
     void clear_selection();
 
     /// Where a point of the graph is on screen, as last drawn.
-    [[nodiscard]] ImVec2 screen_position(glm::vec2 graph_point) const { return view_.to_screen(graph_point); }
+    [[nodiscard]] glm::vec2 screen_position(glm::vec2 graph_point) const { return view_.to_screen(graph_point); }
     /// Where an end is on screen as last drawn: a pin, or with no pin a
     /// node's centre. (0, 0) for an end that was not drawn.
-    [[nodiscard]] ImVec2 end_position(const NodeEnd& end) const;
+    [[nodiscard]] glm::vec2 end_position(const NodeEnd& end) const;
 
 private:
     enum class Drag : uint8_t { None, Move, Link };

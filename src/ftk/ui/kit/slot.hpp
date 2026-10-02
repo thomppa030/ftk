@@ -1,6 +1,8 @@
 #pragma once
 
-#include <imgui.h>
+#include "ftk/ui/types.hpp"
+
+#include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -22,17 +24,17 @@ enum class SlotDrop : uint8_t {
 /// clipped before the chevron at the field's end.
 struct SlotFace {
     const char* glyph{nullptr};
-    ImVec4 glyph_colour{};
-    ImTextureID picture{0}; ///< drawn instead of the glyph; 0 for none
+    Color glyph_colour{};
+    Texture picture{}; ///< drawn instead of the glyph; 0 for none
     std::string_view text;
-    ImVec4 text_colour{};
+    Color text_colour{};
     SlotDrop drop{SlotDrop::none};
     bool hovered{false};
 };
 
 /// Draws a slot's field between `min` and `max`, over the item the caller
 /// has already placed there (the button that opens its picker).
-void draw_slot_face(ImVec2 min, ImVec2 max, const SlotFace& face);
+void draw_slot_face(glm::vec2 min, glm::vec2 max, const SlotFace& face);
 
 /// The tooltip beside a drag a slot refuses: the refused icon, then why, in
 /// the error colour. Call it while the drag is over the field.
@@ -48,10 +50,10 @@ void refusal_tooltip(std::string_view why);
 /// with what it holds is said under it.
 ///
 ///     ImGui::PushID(id);
-///     ui::Slot slot(PAYLOAD, [&](const ImGuiPayload& p) { return why_not(p); });
+///     ui::Slot slot(PAYLOAD, [&](const ui::Payload& p) { return why_not(p); });
 ///     if (slot.clicked()) ui::grouped_picker::open(id);
 ///     if (slot.hovered()) ImGui::SetItemTooltip("%s", full_name.c_str());
-///     if (const ImGuiPayload* p = slot.dropped()) value = decode(*p);
+///     if (const ui::Payload* p = slot.dropped()) value = decode(*p);
 ///     ui::grouped_picker::draw(id, groups, {}, picked);  // hangs under the field
 ///     if (slot.finish(face_of(value), value.empty(), problem)) value.clear();
 ///     ImGui::PopID();
@@ -61,7 +63,7 @@ void refusal_tooltip(std::string_view why);
 class Slot {
 public:
     /// Why a dragged payload cannot go in the slot, or empty when it can.
-    using Judge = std::function<std::string(const ImGuiPayload&)>;
+    using Judge = std::function<std::string(const Payload&)>;
 
     /// Places the field at the cursor, as wide as the next item less the
     /// clear button, and judges anything of type `payload` dragged over it.
@@ -81,7 +83,7 @@ public:
     /// What was let go on the field this frame and fits, or null. The slot's
     /// own copy: ImGui clears its payload as the drop target closes, before
     /// the caller could read it.
-    [[nodiscard]] const ImGuiPayload* dropped() const { return has_drop_ ? &dropped_ : nullptr; }
+    [[nodiscard]] const Payload* dropped() const { return has_drop_ ? &dropped_ : nullptr; }
 
     /// Draws the face over the field, then the clear button, disabled while
     /// `empty`, then `problem` under the field when there is one. The face's
@@ -90,13 +92,13 @@ public:
     bool finish(SlotFace face, bool empty, std::string_view problem);
 
 private:
-    ImVec2 min_{};
-    ImVec2 max_{};
+    glm::vec2 min_{};
+    glm::vec2 max_{};
     bool clicked_{false};
     bool hovered_{false};
     SlotDrop drop_{SlotDrop::none};
     bool has_drop_{false};
-    ImGuiPayload dropped_{};
+    Payload dropped_{};
     std::vector<char> dropped_data_;
 };
 
