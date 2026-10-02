@@ -44,6 +44,11 @@ void DrawList::rect(glm::vec2 min, glm::vec2 max, Color colour, float rounding, 
     list_->AddRect(min, max, pack(colour), rounding, flags(corners), thickness);
 }
 
+void DrawList::rect_gradient(glm::vec2 min, glm::vec2 max, Color left, Color right) {
+    // Its corners clockwise from the top-left.
+    list_->AddRectFilledMultiColor(min, max, pack(left), pack(right), pack(right), pack(left));
+}
+
 void DrawList::line(glm::vec2 from, glm::vec2 to, Color colour, float thickness) {
     list_->AddLine(from, to, pack(colour), thickness);
 }

@@ -90,6 +90,7 @@ TEST_CASE("A draw list draws what ImGui's would for the same shapes", "[ui][draw
             dl.push_clip({0.0f, 130.0f}, {150.0f, 160.0f});
             dl.text({10.0f, 135.0f}, theme::text(), "Opening harbour");
             dl.pop_clip();
+            dl.rect_gradient({200.0f, 100.0f}, {300.0f, 120.0f}, theme::sdf_inside_far(), theme::sdf_inside_near());
         });
         imgui = draw_in_window("##imgui", [&] {
             ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -113,6 +114,9 @@ TEST_CASE("A draw list draws what ImGui's would for the same shapes", "[ui][draw
             dl->PushClipRect({0.0f, 130.0f}, {150.0f, 160.0f}, true);
             dl->AddText({10.0f, 135.0f}, packed(theme::text()), "Opening harbour");
             dl->PopClipRect();
+            dl->AddRectFilledMultiColor({200.0f, 100.0f}, {300.0f, 120.0f}, packed(theme::sdf_inside_far()),
+                                        packed(theme::sdf_inside_near()), packed(theme::sdf_inside_near()),
+                                        packed(theme::sdf_inside_far()));
         });
     });
     h.step(2);

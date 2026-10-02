@@ -248,6 +248,10 @@ TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scop
         {
             ui::FontScope small({}, 9.0f);
             inside = ui::font_size();
+            {
+                ui::FontScope same({}, 0.0f);
+                CHECK(ui::font_size() == 9.0f);
+            }
             ui::TextColour dim(ftk::theme::text_secondary());
             text_inside = ImGui::GetStyleColorVec4(ImGuiCol_Text);
         }

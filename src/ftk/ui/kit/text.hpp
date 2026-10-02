@@ -29,7 +29,7 @@ void text(std::string_view text, Color colour);
 [[nodiscard]] float font_size();
 
 /// While it lives, text is drawn in `font` (the current face when none) at
-/// `size` pixels.
+/// `size` pixels, or at the current size when `size` is 0.
 class FontScope {
 public:
     FontScope(Font font, float size);

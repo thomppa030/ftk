@@ -54,6 +54,9 @@ public:
                      RoundCorners corners = RoundCorners::All);
     void rect(glm::vec2 min, glm::vec2 max, Color colour, float rounding = 0.0f,
               RoundCorners corners = RoundCorners::All, float thickness = 1.0f);
+    /// Filled, shading from `left` at its left edge to `right` at its right:
+    /// a ramp.
+    void rect_gradient(glm::vec2 min, glm::vec2 max, Color left, Color right);
 
     void line(glm::vec2 from, glm::vec2 to, Color colour, float thickness = 1.0f);
     /// Lines through `points` in order, and back to the first when `closed`.
