@@ -44,8 +44,13 @@ void Context::begin_frame(double time) {
     drag_.seen = false;
     disabled_.clear();
     text_.begin_frame();
+    // A frame that takes input is followed by another: what a click or a
+    // key changes partway through a frame, the parts drawn before it show
+    // only when drawn again.
+    const bool input = !events_.empty() || !key_events_.empty() || !typed_next_.empty() || composition_next_;
     take_input();
     take_keys();
+    if (input) request_frame();
     // Told it had the keyboard, then never drawn again: nothing to tell.
     if (told_focused_.size() > 4) told_focused_.erase(told_focused_.begin(), told_focused_.end() - 2);
     focus_seen_ = false;

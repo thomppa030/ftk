@@ -234,11 +234,15 @@ TEST_CASE("A tooltip shows once the mouse rests for the delay, at a deadline, an
     h.move_to(h.rect("Bake").centre());
     const double rested = h.time();
     CHECK(due == 0);
+    // The frame after the move, which a frame that took input asks for;
+    // then asleep until the delay is up.
+    CHECK(h.output().next.now);
+    h.step();
     REQUIRE(h.output().next.at.has_value());
     CHECK(*h.output().next.at == Catch::Approx(rested + 0.15));
     CHECK_FALSE(h.output().next.now);
 
-    h.step(8);
+    h.step(7);
     CHECK(due == 0);
     h.step(2);
     CHECK(due > 0);

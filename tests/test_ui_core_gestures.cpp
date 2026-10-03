@@ -134,12 +134,15 @@ TEST_CASE("A finger held still is a long press, at a deadline, and doesn't click
     const double pressed_at = h.time();
     h.send({.kind = PointerEvent::Kind::Down, .type = PointerType::Touch, .id = 9, .sample = {.position = h.rect("node").centre()}});
     h.step();
-    // Asleep until the press would be long, not drawing every frame.
+    // The frame after the press, which a frame that took input asks for;
+    // then asleep until the press would be long, not drawing every frame.
+    CHECK(h.output().next.now);
+    h.step();
     REQUIRE(h.output().next.at.has_value());
     CHECK(*h.output().next.at == Catch::Approx(pressed_at + 0.5));
     CHECK_FALSE(h.output().next.now);
     frames.clear();
-    h.step(30);
+    h.step(29);
     h.send({.kind = PointerEvent::Kind::Up, .type = PointerType::Touch, .id = 9, .sample = {.position = h.rect("node").centre()}});
     h.step();
     int long_pressed = 0;

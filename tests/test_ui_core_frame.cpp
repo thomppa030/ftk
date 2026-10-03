@@ -86,6 +86,21 @@ TEST_CASE("A frame says when the next is wanted", "[ui-core]") {
         ui.begin_frame(1.1);
         CHECK(ui.end_frame().next.waits_for_input());
     }
+    SECTION("Once more after a frame that took input, to show what it changed") {
+        ui.add_pointer_event({.kind = core::PointerEvent::Kind::Down});
+        ui.begin_frame(1.0);
+        CHECK(ui.end_frame().next.now);
+        ui.begin_frame(1.1);
+        CHECK(ui.end_frame().next.waits_for_input());
+        ui.add_key_event({.kind = core::KeyEvent::Kind::Down, .key = ftk::ui::Key::A});
+        ui.begin_frame(1.2);
+        CHECK(ui.end_frame().next.now);
+        ui.add_text("a");
+        ui.begin_frame(1.3);
+        CHECK(ui.end_frame().next.now);
+        ui.begin_frame(1.4);
+        CHECK(ui.end_frame().next.waits_for_input());
+    }
 }
 
 TEST_CASE("Ids are one space across windows, and a window can't leak pushed ids", "[ui-core]") {
