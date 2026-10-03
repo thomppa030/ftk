@@ -3,8 +3,30 @@
 // Entries of a menu or popup (sheet 6): an icon column, kept when an entry
 // has no icon, the label, and the real shortcut on the right in the mono
 // face. A destructive entry is drawn in the error colour and goes last.
+//
+// Menus are data, drawn in the window everywhere (decision 21 of the UI
+// core plan), so a native menu bar can show the same ones later:
+//
+//     const ui::Menu file{"File", [&] {
+//         return std::vector<ui::MenuEntry>{
+//             {.label = "Save scene", .icon = icon::save, .shortcut = "Ctrl S", .chosen = [&] { save(); }},
+//             ui::MenuEntry::separator(),
+//             {.label = "Show grid", .checked = grid.visible, .chosen = [&] { grid.visible = !grid.visible; }},
+//         };
+//     }};
+//     ui::menu_bar(std::array{file});
 
+#include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/theme.hpp"
+
+#include <cstdint>
+#include <functional>
 #include <optional>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace ftk::ui {
 
@@ -62,5 +84,96 @@ private:
 /// A menu on the bar, by its name ("File"). Returns true while it is open;
 /// the caller then draws its entries and calls end_menu().
 bool begin_bar_menu(const char* label);
+
+/// An entry of a menu as data.
+struct MenuEntry {
+    enum class Kind : uint8_t {
+        /// Chosen, its `chosen` runs and the menu closes.
+        Action,
+        /// A line between groups of entries.
+        Separator,
+        /// A heading over a group of entries: not an entry.
+        Heading,
+        /// A line of dim text that tells something ("No project open"): not
+        /// an entry.
+        Note,
+        /// An entry that opens `entries` as a submenu.
+        Submenu,
+        /// What the program draws itself with `draw`, in the window's menu
+        /// only: fields set in place. A native menu passes it over.
+        Custom,
+    };
+    Kind kind{Kind::Action};
+    std::string label{};
+    const char* icon{nullptr};
+    std::string shortcut{};
+    bool enabled{true};
+    std::string disabled_reason{};
+    bool destructive{false};
+    std::optional<bool> checked{};
+    std::function<void()> chosen{};
+    std::vector<MenuEntry> entries{};
+    std::function<void()> draw{};
+
+    static MenuEntry separator() { return {.kind = Kind::Separator}; }
+    static MenuEntry heading(std::string label) { return {.kind = Kind::Heading, .label = std::move(label)}; }
+    static MenuEntry note(std::string text) { return {.kind = Kind::Note, .label = std::move(text)}; }
+    static MenuEntry submenu(const char* icon, std::string label, std::vector<MenuEntry> entries) {
+        return {.kind = Kind::Submenu, .label = std::move(label), .icon = icon, .entries = std::move(entries)};
+    }
+    static MenuEntry custom(std::function<void()> draw) { return {.kind = Kind::Custom, .draw = std::move(draw)}; }
+};
+
+/// A menu of the bar as data: its name, and its entries, made as it opens,
+/// as what they show changes from one opening to the next.
+struct Menu {
+    std::string label;
+    std::function<std::vector<MenuEntry>()> entries;
+};
+
+/// `entries` in the menu or popup being drawn. An entry chosen runs its
+/// `chosen` there, inside the menu.
+inline void menu_entries(std::span<const MenuEntry> entries) {
+    for (const MenuEntry& entry : entries) {
+        switch (entry.kind) {
+        case MenuEntry::Kind::Action:
+            if (menu_item({.icon = entry.icon,
+                           .label = entry.label.c_str(),
+                           .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str(),
+                           .enabled = entry.enabled,
+                           .disabled_reason = entry.disabled_reason.empty() ? nullptr : entry.disabled_reason.c_str(),
+                           .destructive = entry.destructive,
+                           .checked = entry.checked}) &&
+                entry.chosen) {
+                entry.chosen();
+            }
+            break;
+        case MenuEntry::Kind::Separator: separator(); break;
+        case MenuEntry::Kind::Heading: menu_heading(entry.label.c_str()); break;
+        case MenuEntry::Kind::Note: text(entry.label, theme::text_disabled()); break;
+        case MenuEntry::Kind::Submenu:
+            if (begin_menu(entry.icon, entry.label.c_str(), entry.enabled)) {
+                menu_entries(entry.entries);
+                end_menu();
+            }
+            break;
+        case MenuEntry::Kind::Custom:
+            if (entry.draw) entry.draw();
+            break;
+        }
+    }
+}
+
+/// The bar of menus across the top of the program's window, drawn from
+/// `menus`.
+inline void menu_bar(std::span<const Menu> menus) {
+    if (auto bar = MenuBar()) {
+        for (const Menu& menu : menus) {
+            if (!begin_bar_menu(menu.label.c_str())) continue;
+            if (menu.entries) menu_entries(menu.entries());
+            end_menu();
+        }
+    }
+}
 
 } // namespace ftk::ui

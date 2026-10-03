@@ -6,6 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <vector>
+
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
@@ -92,4 +94,59 @@ TEST_CASE("A menu on the bar opens on a click and runs its entries", "[ui][kit]"
     h.click("save");
     h.step();
     CHECK(saved == 1);
+}
+
+TEST_CASE("A menu as data runs the entry chosen, leaves a disabled one, and opens its submenus", "[ui][kit]") {
+    KitHarness h;
+    int saved = 0;
+    int exported = 0;
+    bool grid = false;
+    // Drawn after an entry, it marks that entry for the harness to click.
+    const auto marking = [&h](const char* name) { return ui::MenuEntry::custom([&h, name] { h.mark(name); }); };
+    h.set_ui([&] {
+        if (auto bar = ui::MenuBar()) {
+            const bool open = ui::begin_bar_menu("File");
+            if (!open) h.mark("file");
+            if (open) {
+                const std::vector<ui::MenuEntry> entries{
+                    {.label = "Save scene", .shortcut = "Ctrl S", .chosen = [&] { ++saved; }},
+                    marking("save"),
+                    ui::MenuEntry::separator(),
+                    {.label = "Show grid", .checked = grid, .chosen = [&] { grid = !grid; }},
+                    marking("grid"),
+                    {.label = "Bake", .enabled = false, .disabled_reason = "Nothing to bake", .chosen = [&] { ++saved; }},
+                    marking("bake"),
+                    ui::MenuEntry::note("No project open"),
+                    ui::MenuEntry::submenu(nullptr, "Export",
+                                           {{.label = "As glTF", .chosen = [&] { ++exported; }}, marking("gltf")}),
+                    marking("export"),
+                };
+                ui::menu_entries(entries);
+                ui::end_menu();
+            }
+        }
+    });
+    h.step(2);
+    h.click("file");
+    h.step();
+    h.click("save");
+    h.step();
+    CHECK(saved == 1);
+
+    h.click("file");
+    h.step();
+    h.click("grid");
+    h.step();
+    CHECK(grid);
+
+    h.click("file");
+    h.step();
+    h.click("bake");
+    h.step();
+    CHECK(saved == 1);
+    h.click("export");
+    h.step(2);
+    h.click("gltf");
+    h.step();
+    CHECK(exported == 1);
 }
