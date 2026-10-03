@@ -1,7 +1,8 @@
 #pragma once
 
 // The types the UI core and the kit above it share: a colour, a widget's
-// id, a picture by handle, and what a drag carries. They are the kit's
+// id, a picture by handle, the corners a rectangle rounds, and what a drag
+// carries. They are the kit's
 // (ftk/ui/types.hpp includes them), kept here so the core has them without
 // the kit. Points and sizes are glm::vec2.
 
@@ -33,6 +34,20 @@ struct Texture {
 
     constexpr explicit operator bool() const { return id != 0; }
     friend constexpr bool operator==(Texture, Texture) = default;
+};
+
+/// The corners of a rectangle that are rounded.
+enum class RoundCorners : uint8_t {
+    All,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    None,
 };
 
 /// What a drag carries: the bytes its source gave, as it gave them.

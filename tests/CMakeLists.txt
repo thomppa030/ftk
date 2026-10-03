@@ -64,8 +64,10 @@ add_executable(ftk-tests
     test_theme.cpp
     test_thread_pool.cpp
     test_tree.cpp
+    test_ui_core_draw.cpp
     test_ui_core_frame.cpp
     test_ui_core_ids.cpp
+    test_ui_core_text.cpp
     test_utf8.cpp
     test_vulkan_access.cpp
     test_vulkan_frame_descriptor_cache.cpp

@@ -28,19 +28,8 @@ struct ImDrawList;
 
 namespace ftk::ui {
 
-/// The corners of a rectangle that are rounded.
-enum class RoundCorners : uint8_t {
-    All,
-    Top,
-    Bottom,
-    Left,
-    Right,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-    None,
-};
+// RoundCorners, the corners a rectangle rounds, is the core's
+// (ftk/ui/core/types.hpp), shared with its draw list.
 
 class DrawList {
 public:

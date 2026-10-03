@@ -13,6 +13,12 @@ Context* current_context = nullptr;
 
 } // namespace
 
+Context::Context(text::AtlasOptions atlas) : text_{atlas} {}
+
+Context::~Context() {
+    if (current_context == this) current_context = nullptr;
+}
+
 void Context::begin_frame(double time) {
     if (in_frame_) {
         FTK_CORE_ERROR("UI: a frame began before the last one ended");
@@ -26,19 +32,26 @@ void Context::begin_frame(double time) {
     next_at_.reset();
     output_.roots.clear();
     output_.next = {};
+    text_.begin_frame();
 }
 
 void Context::begin_root(RootId root, glm::vec2 size, float scale) {
     assert(in_frame_ && "UI: a root begun outside a frame");
-    if (root_) {
+    if (root_ != nullptr) {
         FTK_CORE_ERROR("UI: window {} began inside window {}", root, root_->id);
         end_root();
     }
-    root_ = Root{.id = root, .size = size, .scale = scale};
+    std::unique_ptr<Root>& kept = roots_[root];
+    if (!kept) kept = std::make_unique<Root>();
+    root_ = kept.get();
+    root_->id = root;
+    root_->size = size;
+    root_->scale = scale;
+    root_->list.reset(root_->draw, size, scale, &text_);
 }
 
 void Context::end_root() {
-    if (!root_) {
+    if (root_ == nullptr) {
         FTK_CORE_ERROR("UI: a window ended that never began");
         return;
     }
@@ -47,12 +60,25 @@ void Context::end_root() {
         FTK_CORE_ERROR("UI: window {} ended with {} id(s) still pushed", root_->id, ids_.depth());
         ids_.clear();
     }
-    output_.roots.push_back({.root = root_->id, .size = root_->size, .scale = root_->scale});
-    root_.reset();
+    output_.roots.push_back({.root = root_->id, .size = root_->size, .scale = root_->scale, .draw = &root_->draw});
+    root_ = nullptr;
+}
+
+void Context::forget_root(RootId root) {
+    if (root_ != nullptr && root_->id == root) {
+        FTK_CORE_ERROR("UI: window {} forgotten while it is drawn", root);
+        return;
+    }
+    roots_.erase(root);
+}
+
+DrawList& Context::draw_list() {
+    assert(root_ != nullptr && "UI: drawn outside a window; call begin_root() first");
+    return root_->list;
 }
 
 const FrameOutput& Context::end_frame() {
-    if (root_) {
+    if (root_ != nullptr) {
         FTK_CORE_ERROR("UI: the frame ended inside window {}", root_->id);
         end_root();
     }

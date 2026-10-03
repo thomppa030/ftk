@@ -21,14 +21,18 @@
 //
 // Used from one thread.
 
+#include "ftk/ui/core/draw_list.hpp"
 #include "ftk/ui/core/id.hpp"
 #include "ftk/ui/core/storage.hpp"
+#include "ftk/ui/core/text.hpp"
 #include "ftk/ui/core/types.hpp"
 
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace ftk::ui::core {
@@ -55,6 +59,8 @@ struct RootOutput {
     glm::vec2 size{0.0f};
     /// Its pixels to one of those units.
     float scale{1.0f};
+    /// What it drew, in order.
+    const DrawData* draw{nullptr};
 };
 
 /// What a frame leaves for the program.
@@ -66,7 +72,8 @@ struct FrameOutput {
 
 class Context {
 public:
-    Context() = default;
+    explicit Context(text::AtlasOptions atlas = {});
+    ~Context();
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
     Context(Context&&) = delete;
@@ -82,6 +89,13 @@ public:
     /// units, `scale` pixels to the unit, until end_root().
     void begin_root(RootId root, glm::vec2 size, float scale);
     void end_root();
+    /// Lets go of what was kept for a window that is gone.
+    void forget_root(RootId root);
+
+    /// Where the root being drawn records its shapes.
+    [[nodiscard]] DrawList& draw_list();
+    /// The program's fonts, the style text is drawn in, and the atlas.
+    [[nodiscard]] TextSystem& text() { return text_; }
 
     /// Seconds on the program's clock at this frame's start, and since the
     /// last frame's (zero on the first).
@@ -106,20 +120,26 @@ public:
     void request_frame_at(double time);
 
 private:
+    // What is kept for an OS window from frame to frame.
     struct Root {
         RootId id{0};
         glm::vec2 size{0.0f};
         float scale{1.0f};
+        DrawData draw;
+        DrawList list;
     };
 
     double time_{0.0};
     float delta_{0.0f};
     uint64_t frame_{0};
     bool in_frame_{false};
-    std::optional<Root> root_{};
+    // Each OS window's, by its id; the one being drawn.
+    std::unordered_map<RootId, std::unique_ptr<Root>> roots_;
+    Root* root_{nullptr};
 
     IdStack ids_;
     Storage storage_;
+    TextSystem text_;
 
     bool next_now_{false};
     std::optional<double> next_at_{};
