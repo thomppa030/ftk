@@ -1,0 +1,152 @@
+#pragma once
+
+// Input as the UI core takes it. Keys, buttons and pointer shapes are the
+// kit's vocabulary (ftk/ui/kit/input.hpp includes them from here). Mouse,
+// pen and each finger are pointers of one kind (decision 8 of the UI core
+// plan): each has a position, pressure, tilt and twist, buttons, and
+// whether it can hover, and a canvas gets every sample of one since the
+// last frame.
+//
+// A program queues what its window reports, in order, and the next frame
+// takes it:
+//
+//     ui.add_pointer_event({.kind = PointerEvent::Kind::Down, .type = PointerType::Pen, .id = pen,
+//                           .root = window, .sample = {.position = at, .pressure = 0.4f, .time = t}});
+
+#include <glm/vec2.hpp>
+
+#include <cstdint>
+#include <vector>
+
+namespace ftk::ui {
+
+enum class Key : uint8_t {
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Digit0, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    Escape, Enter, Tab, Space, Backspace, Delete, Insert,
+    Home, End, PageUp, PageDown, Left, Right, Up, Down,
+    Minus, Equal, LeftBracket, RightBracket, Backslash, Semicolon, Apostrophe, Comma, Period,
+    Slash, GraveAccent,
+};
+
+/// The modifier keys held.
+struct Modifiers {
+    bool ctrl{false};
+    bool shift{false};
+    bool alt{false};
+    bool super{false};
+};
+
+/// A mouse's buttons. A pen's tip is Left and its barrel button Right; a
+/// finger is Left.
+enum class MouseButton : uint8_t { Left, Right, Middle };
+
+/// The shapes the mouse pointer takes.
+enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS };
+
+} // namespace ftk::ui
+
+namespace ftk::ui::core {
+
+/// The program's name for one of its OS windows.
+using RootId = uint32_t;
+
+enum class PointerType : uint8_t { Mouse, Pen, Touch };
+
+/// A pointer's name among those of its type: the mouse is 0, a pen and a
+/// finger go by the ids the system gives them.
+using PointerId = uint64_t;
+
+/// One reading of a pointer.
+struct PointerSample {
+    /// In layout units from the root's top-left.
+    glm::vec2 position{0.0f};
+    /// From 0 to 1; a mouse presses at 1.
+    float pressure{1.0f};
+    /// A pen's lean along x and y, from -1 to 1.
+    glm::vec2 tilt{0.0f};
+    /// A pen's turn about its own axis, in radians, where it says.
+    float twist{0.0f};
+    /// Seconds on the frame clock.
+    double time{0.0};
+};
+
+struct PointerEvent {
+    enum class Kind : uint8_t {
+        /// Moved, or came into the window or near it (a pen in proximity).
+        Move,
+        /// A button, a pen's tip or a finger went down.
+        Down,
+        Up,
+        /// A finger the system took back: its touch is undone, not let go.
+        /// Android reports a palm so, after the fact.
+        Cancel,
+        /// Left the window, or a pen went out of proximity.
+        Leave,
+        /// The wheel turned, by `wheel` notches.
+        Wheel,
+    };
+    Kind kind{Kind::Move};
+    PointerType type{PointerType::Mouse};
+    PointerId id{0};
+    RootId root{0};
+    MouseButton button{MouseButton::Left};
+    PointerSample sample{};
+    /// A pen's eraser end is down or near.
+    bool eraser{false};
+    /// Notches across and down; up and right are positive.
+    glm::vec2 wheel{0.0f};
+};
+
+/// The distances and times pointers are judged by.
+struct PointerStyle {
+    /// How far a held mouse or pen moves before it drags.
+    float drag_threshold{3.0f};
+    /// The same for a finger, which wanders.
+    float touch_drag_threshold{8.0f};
+    /// The most between two presses that make a double click, in seconds
+    /// and in layout units.
+    double double_click_time{0.3};
+    float double_click_distance{6.0f};
+    /// How far one notch of the wheel scrolls.
+    float wheel_step{48.0f};
+};
+
+/// A pointer as the frame sees it.
+struct Pointer {
+    PointerType type{PointerType::Mouse};
+    PointerId id{0};
+    /// The window it is in.
+    RootId root{0};
+    /// Where it is now, and how.
+    PointerSample now{};
+    bool eraser{false};
+    /// Touch has no hover: a finger is only somewhere while it is down.
+    bool can_hover{true};
+    /// Over the window (the mouse), near it (a pen), or down (a finger).
+    bool present{false};
+    /// The buttons held now, and those that went down and came up this
+    /// frame, a bit each by MouseButton.
+    uint8_t buttons{0};
+    uint8_t pressed{0};
+    uint8_t released{0};
+    /// Taken back by the system this frame: what it started is dropped.
+    bool cancelled{false};
+    /// Where each button last went down, and where the pointer was let go.
+    glm::vec2 press_position[3]{};
+    glm::vec2 release_position{0.0f};
+    /// Presses in quick succession at about the same place, per button.
+    int click_count[3]{};
+    double last_press_time[3]{};
+    /// Every reading since the last frame, in order.
+    std::vector<PointerSample> samples{};
+    /// The wheel's turn this frame (the mouse).
+    glm::vec2 wheel{0.0f};
+};
+
+[[nodiscard]] constexpr uint8_t button_bit(MouseButton button) {
+    return static_cast<uint8_t>(1u << static_cast<unsigned>(button));
+}
+
+} // namespace ftk::ui::core

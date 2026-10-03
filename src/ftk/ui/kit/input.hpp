@@ -5,6 +5,8 @@
 //     if (ui::modifiers().ctrl && ui::key_pressed(ui::Key::S)) save();
 //     if (ui::item_hovered() && ui::mouse_clicked(ui::MouseButton::Right)) open_menu();
 
+#include "ftk/ui/core/input.hpp"
+
 #include <glm/vec2.hpp>
 
 #include <cstdint>
@@ -12,15 +14,8 @@
 
 namespace ftk::ui {
 
-enum class Key : uint8_t {
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    Digit0, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    Escape, Enter, Tab, Space, Backspace, Delete, Insert,
-    Home, End, PageUp, PageDown, Left, Right, Up, Down,
-    Minus, Equal, LeftBracket, RightBracket, Backslash, Semicolon, Apostrophe, Comma, Period,
-    Slash, GraveAccent,
-};
+// Key, Modifiers, MouseButton and MouseCursor are the UI core's
+// (ftk/ui/core/input.hpp), shared with it.
 
 /// `key` went down this frame.
 [[nodiscard]] bool key_pressed(Key key);
@@ -36,12 +31,6 @@ enum class Key : uint8_t {
 void claim_key(Key key, const char* owner);
 
 /// The modifier keys held now.
-struct Modifiers {
-    bool ctrl{false};
-    bool shift{false};
-    bool alt{false};
-    bool super{false};
-};
 [[nodiscard]] Modifiers modifiers();
 
 /// A text field has the keyboard: keys are its, not shortcuts.
@@ -60,8 +49,6 @@ void set_clipboard(const std::string& text);
 /// What the system clipboard holds, as text; empty when it holds none.
 [[nodiscard]] std::string clipboard();
 
-enum class MouseButton : uint8_t { Left, Right, Middle };
-
 /// `button` went down this frame.
 [[nodiscard]] bool mouse_clicked(MouseButton button);
 /// `button` went down this frame for the second time in quick succession.
@@ -74,9 +61,6 @@ enum class MouseButton : uint8_t { Left, Right, Middle };
 [[nodiscard]] bool mouse_dragging(MouseButton button);
 /// Some mouse button came up this frame, any of them.
 [[nodiscard]] bool any_mouse_released();
-
-/// The shapes the mouse pointer takes.
-enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS };
 
 /// The pointer's shape for this frame: over a place that types, drags or
 /// resizes, to say so before it is pressed.

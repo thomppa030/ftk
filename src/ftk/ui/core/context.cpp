@@ -35,7 +35,12 @@ void Context::begin_frame(double time) {
     next_at_.reset();
     output_.roots.clear();
     output_.next = {};
+    last_widget_ = 0;
+    last_interaction_ = {};
+    any_hovered_ = false;
+    disabled_.clear();
     text_.begin_frame();
+    take_input();
     if (frame_ % KEEP_FRAMES == 0) sweep();
 }
 
@@ -60,7 +65,11 @@ void Context::begin_root(RootId root, glm::vec2 size, float scale) {
     root_->id = root;
     root_->size = size;
     root_->scale = scale;
+    root_->cursor = MouseCursor::Arrow;
     root_->list.reset(root_->draw, size, scale, &text_);
+    root_->base_hits.clear();
+    root_->areas_next.clear();
+    hit_targets_.assign(1, &root_->base_hits);
     layout_.reset();
     layout_.begin_area({.min = {0.0f, 0.0f}, .max = size});
     areas_.clear();
@@ -87,18 +96,36 @@ void Context::end_root() {
         ids_.clear();
     }
 
-    // The panels drawn this frame go over the root's own shapes, in order.
+    // The panels drawn this frame go over the root's own shapes, in order,
+    // and so do the places their widgets take the pointers.
     std::vector<Panel*> drawn;
     for (const auto& panel : root_->panels) {
         if (panel->frame == frame_) drawn.push_back(panel.get());
     }
     std::ranges::sort(drawn, {}, &Panel::order);
+    root_->hits = root_->base_hits;
     for (const Panel* panel : drawn) {
         root_->draw.primitives.insert(root_->draw.primitives.end(), panel->primitives.begin(), panel->primitives.end());
+        root_->hits.insert(root_->hits.end(), panel->hits.begin(), panel->hits.end());
+    }
+    std::swap(root_->areas, root_->areas_next);
+
+    // Hover found by last frame's places: if this frame's put something else
+    // on top under a pointer, the next frame shows it.
+    for (const Tracked& tracked : pointers_) {
+        const Pointer& p = tracked.pointer;
+        if (p.root != root_->id || !p.present) continue;
+        const Hit* top = top_hit(root_->hits, p.now.position);
+        if ((top != nullptr ? top->id : 0) != tracked.top) request_frame();
     }
 
-    output_.roots.push_back({.root = root_->id, .size = root_->size, .scale = root_->scale, .draw = &root_->draw});
+    output_.roots.push_back({.root = root_->id,
+                             .size = root_->size,
+                             .scale = root_->scale,
+                             .draw = &root_->draw,
+                             .cursor = root_->cursor});
     root_ = nullptr;
+    hit_targets_.clear();
 }
 
 void Context::forget_root(RootId root) {
@@ -124,21 +151,35 @@ Context::Panel& Context::panel(Id id) {
     return *added;
 }
 
+Id Context::current_panel() const {
+    for (auto area = areas_.rbegin(); area != areas_.rend(); ++area) {
+        if (area->panel) return area->id;
+    }
+    return 0;
+}
+
 void Context::begin_panel(std::string_view name, Rect rect, const PanelOptions& options) {
     assert(root_ != nullptr && "UI: a panel begun outside a window");
     const Id id = ids_.id(name);
+    const Id parent_area = current_area();
     Panel& shown = panel(id);
     shown.rect = rect;
     shown.frame = frame_;
     root_->list.push_target(shown.primitives);
     root_->list.push_clip(rect.min, rect.max);
+    shown.hits.clear();
+    hit_targets_.push_back(&shown.hits);
+    // The panel itself, under its widgets: what is beneath it isn't reached
+    // through it.
+    shown.hits.push_back({.id = id, .rect = rect.intersect({.min = {0.0f, 0.0f}, .max = root_->size}), .panel = id, .area = id});
     // Its items' ids under its own, whatever it was begun inside.
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
-    scroll.frame = frame_;
+    if (options.scroll) scroll_area(id, scroll);
     const Rect inside{.min = rect.min + options.padding, .max = rect.max - options.padding};
     layout_.begin_area(inside, options.scroll ? scroll.offset : glm::vec2{0.0f, 0.0f});
     areas_.push_back({.id = id, .panel = true, .scrolls = options.scroll, .visible = inside});
+    root_->areas_next.push_back({.id = id, .parent = parent_area});
 }
 
 void Context::end_panel() {
@@ -150,19 +191,22 @@ void Context::end_panel() {
     ids_.pop();
     root_->list.pop_clip();
     root_->list.pop_target();
+    hit_targets_.pop_back();
 }
 
 void Context::begin_region(std::string_view name, glm::vec2 size) {
     const Id id = ids_.id(name);
+    const Id parent_area = current_area();
     const glm::vec2 room = layout_.space_left();
     const float height = size.y == FILL ? room.y : (size.y < 0.0f ? std::max(room.y + size.y, 0.0f) : size.y);
     const Rect rect = layout_.next({layout_.resolve_width(size.x), height});
     root_->list.push_clip(rect.min, rect.max);
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
-    scroll.frame = frame_;
+    scroll_area(id, scroll);
     layout_.begin_area(rect, scroll.offset);
     areas_.push_back({.id = id, .panel = false, .scrolls = true, .visible = rect});
+    root_->areas_next.push_back({.id = id, .parent = parent_area});
 }
 
 void Context::end_region() {
@@ -175,6 +219,27 @@ void Context::end_region() {
     root_->list.pop_clip();
 }
 
+void Context::scroll_area(Id id, Scroll& scroll) {
+    scroll.frame = frame_;
+    const glm::vec2 room = glm::max(scroll.content - scroll.visible, glm::vec2{0.0f});
+    if (id == wheel_area_) {
+        // Turned up, what it holds comes down; turned right, it goes left.
+        const glm::vec2 turn{wheel_.x, -wheel_.y};
+        scroll.target = glm::clamp(scroll.target + turn * pointer_style_.wheel_step, glm::vec2{0.0f}, room);
+        wheel_area_ = 0;
+    }
+    // Smooth: most of the way there each frame, then the rest at once.
+    if (scroll.offset != scroll.target) {
+        const float step = std::min(1.0f, delta_ * 18.0f);
+        scroll.offset += (scroll.target - scroll.offset) * step;
+        if (glm::all(glm::lessThan(glm::abs(scroll.target - scroll.offset), glm::vec2{0.5f}))) {
+            scroll.offset = scroll.target;
+        } else {
+            request_frame();
+        }
+    }
+}
+
 void Context::end_area() {
     const Area area = areas_.back();
     areas_.pop_back();
@@ -184,9 +249,16 @@ void Context::end_area() {
     scroll.content = content;
     scroll.visible = area.visible.size();
     // What no longer reaches as far scrolls back, seen next frame.
-    const glm::vec2 kept = glm::clamp(scroll.offset, glm::vec2{0.0f}, glm::max(content - scroll.visible, glm::vec2{0.0f}));
+    const glm::vec2 room = glm::max(content - scroll.visible, glm::vec2{0.0f});
+    const glm::vec2 kept = glm::clamp(scroll.offset, glm::vec2{0.0f}, room);
     if (kept != scroll.offset) request_frame();
     scroll.offset = kept;
+    scroll.target = glm::clamp(scroll.target, glm::vec2{0.0f}, room);
+    for (AreaLink& link : root_->areas_next) {
+        if (link.id != area.id) continue;
+        link.room = room;
+        link.offset = scroll.target;
+    }
 }
 
 glm::vec2 Context::scroll() const {
@@ -211,6 +283,7 @@ void Context::set_scroll(glm::vec2 offset) {
         Scroll& scroll = scrolls_.at(area->id);
         // Items already placed this frame stay; the next frame shows it.
         scroll.offset = glm::clamp(offset, glm::vec2{0.0f}, glm::max(scroll.content - scroll.visible, glm::vec2{0.0f}));
+        scroll.target = scroll.offset;
         request_frame();
         return;
     }

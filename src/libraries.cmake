@@ -292,6 +292,7 @@ ftk_embed_file(ftk-text "${FTK_SOURCE_ROOT}/../fonts/LastResortHE-Regular.ttf")
 ftk_library(ui-core
     SOURCES
         ftk/ui/core/context.cpp
+        ftk/ui/core/context_input.cpp
         ftk/ui/core/draw_list.cpp
         ftk/ui/core/id.cpp
         ftk/ui/core/layout.cpp
@@ -300,6 +301,7 @@ ftk_library(ui-core
         ftk/ui/core/context.hpp
         ftk/ui/core/draw_list.hpp
         ftk/ui/core/id.hpp
+        ftk/ui/core/input.hpp
         ftk/ui/core/layout.hpp
         ftk/ui/core/rect.hpp
         ftk/ui/core/storage.hpp
@@ -441,6 +443,17 @@ ftk_library(app-ui
 )
 # The approved dark palette, the theme's until a program uses another.
 ftk_embed_file(ftk-app-ui "${FTK_SOURCE_ROOT}/ftk/ui/palettes/dark.json")
+
+# ftk-ui-harness runs the UI core with no window and no renderer, as
+# ftk-imgui-harness runs ImGui: set the UI, feed it pointers, step frames.
+ftk_library(ui-harness
+    SOURCES
+        ftk/test/ui_harness.cpp
+    HEADERS
+        ftk/test/ui_harness.hpp
+    LINKS
+        PUBLIC ftk::ui-core
+)
 
 # ftk-imgui-harness runs Dear ImGui with no window and no renderer, so a
 # program's tests can drive its editor UI: set the UI, feed it input, step

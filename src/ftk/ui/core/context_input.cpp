@@ -1,0 +1,274 @@
+// The UI core's pointers (decision 8 of the UI core plan): the events a
+// frame takes, what is under each pointer, and what the widgets make of
+// them.
+//
+// Every widget leaves where it took the pointers in this frame's hits,
+// bottom to top: a panel's over the root's, a later widget's over an
+// earlier one's. The next frame's hover and presses go to whatever was on
+// top there, so what is drawn over another takes the pointer without
+// anything said. When the hits move under a still pointer, the frame asks
+// for another, which finds the new top.
+
+#include "ftk/ui/core/context.hpp"
+
+#include "ftk/base/log.hpp"
+
+#include <glm/geometric.hpp>
+
+#include <algorithm>
+
+namespace ftk::ui::core {
+
+namespace {
+
+// The first of `buttons`, left before right before middle.
+MouseButton first_button(uint8_t buttons) {
+    if ((buttons & button_bit(MouseButton::Left)) != 0) return MouseButton::Left;
+    if ((buttons & button_bit(MouseButton::Right)) != 0) return MouseButton::Right;
+    return MouseButton::Middle;
+}
+
+std::size_t index(MouseButton button) {
+    return static_cast<std::size_t>(button);
+}
+
+} // namespace
+
+const Context::Hit* Context::top_hit(const std::vector<Hit>& hits, glm::vec2 at) {
+    for (auto hit = hits.rbegin(); hit != hits.rend(); ++hit) {
+        if (hit->rect.contains(at)) return &*hit;
+    }
+    return nullptr;
+}
+
+Context::Tracked& Context::track(PointerType type, PointerId id) {
+    for (Tracked& tracked : pointers_) {
+        if (tracked.pointer.type == type && tracked.pointer.id == id) return tracked;
+    }
+    Tracked& added = pointers_.emplace_back();
+    added.pointer.type = type;
+    added.pointer.id = id;
+    added.pointer.can_hover = type != PointerType::Touch;
+    return added;
+}
+
+const Pointer* Context::find_pointer(PointerType type, PointerId id) const {
+    for (const Tracked& tracked : pointers_) {
+        if (tracked.pointer.type == type && tracked.pointer.id == id) return &tracked.pointer;
+    }
+    return nullptr;
+}
+
+void Context::apply(const PointerEvent& event) {
+    Tracked& tracked = track(event.type, event.id);
+    Pointer& p = tracked.pointer;
+    p.root = event.root;
+    p.eraser = event.eraser;
+    const auto record = [&] {
+        p.now = event.sample;
+        p.samples.push_back(event.sample);
+    };
+    const uint8_t bit = button_bit(event.button);
+    const std::size_t b = index(event.button);
+    switch (event.kind) {
+    case PointerEvent::Kind::Move:
+        record();
+        // A finger is somewhere only while it is down.
+        if (p.type != PointerType::Touch) p.present = true;
+        break;
+    case PointerEvent::Kind::Down: {
+        record();
+        p.present = true;
+        p.buttons |= bit;
+        p.pressed |= bit;
+        const bool again = p.click_count[b] > 0 &&
+                           event.sample.time - p.last_press_time[b] <= pointer_style_.double_click_time &&
+                           glm::distance(event.sample.position, p.press_position[b]) <= pointer_style_.double_click_distance;
+        p.click_count[b] = again ? p.click_count[b] + 1 : 1;
+        p.last_press_time[b] = event.sample.time;
+        p.press_position[b] = event.sample.position;
+        input_mode_ = p.type;
+        break;
+    }
+    case PointerEvent::Kind::Up:
+        record();
+        p.buttons &= static_cast<uint8_t>(~bit);
+        p.released |= bit;
+        p.release_position = event.sample.position;
+        if (p.type == PointerType::Touch) tracked.ended = true;
+        break;
+    case PointerEvent::Kind::Cancel:
+        record();
+        p.cancelled = true;
+        p.released |= p.buttons;
+        p.buttons = 0;
+        if (p.type == PointerType::Touch) tracked.ended = true;
+        break;
+    case PointerEvent::Kind::Leave:
+        p.present = false;
+        break;
+    case PointerEvent::Kind::Wheel:
+        p.now.position = event.sample.position;
+        p.present = true;
+        p.wheel += event.wheel;
+        break;
+    }
+}
+
+void Context::take_input() {
+    // What the last frame let go of is free again, and so is what was held
+    // by a widget that wasn't drawn; lifted fingers are forgotten.
+    for (Tracked& tracked : pointers_) {
+        Pointer& p = tracked.pointer;
+        if (tracked.holder != 0) {
+            const bool let_go = (p.released & button_bit(tracked.hold_button)) != 0 || p.cancelled || !tracked.holder_seen;
+            if (let_go) {
+                tracked.holder = 0;
+                tracked.dragging = false;
+            }
+        }
+        tracked.holder_seen = false;
+        tracked.press_top = 0;
+        p.pressed = 0;
+        p.released = 0;
+        p.cancelled = false;
+        p.samples.clear();
+        p.wheel = {0.0f, 0.0f};
+    }
+    std::erase_if(pointers_, [](const Tracked& tracked) { return tracked.ended; });
+    for (const PointerEvent& event : events_) apply(event);
+    events_.clear();
+
+    // What is on top under each pointer, and where each press was, by the
+    // last frame's hits.
+    wheel_area_ = 0;
+    wheel_ = {0.0f, 0.0f};
+    for (Tracked& tracked : pointers_) {
+        const Pointer& p = tracked.pointer;
+        const auto root = roots_.find(p.root);
+        if (root == roots_.end()) {
+            tracked.top = 0;
+            continue;
+        }
+        Root& kept = *root->second;
+        const Hit* top = p.present ? top_hit(kept.hits, p.now.position) : nullptr;
+        tracked.top = top != nullptr ? top->id : 0;
+        if (p.pressed != 0) {
+            const Hit* pressed = top_hit(kept.hits, p.press_position[index(first_button(p.pressed))]);
+            tracked.press_top = pressed != nullptr ? pressed->id : 0;
+            // A press brings the panel it lands in to the front.
+            if (pressed != nullptr && pressed->panel != 0) {
+                for (const auto& panel : kept.panels) {
+                    if (panel->id == pressed->panel) panel->order = kept.next_order++;
+                }
+            }
+        }
+        // The wheel turns the innermost area under the mouse that can still
+        // scroll that way.
+        if (p.wheel != glm::vec2{0.0f} && top != nullptr) {
+            for (Id area = top->area; area != 0;) {
+                const auto link = std::ranges::find(kept.areas, area, &AreaLink::id);
+                if (link == kept.areas.end()) break;
+                const bool down = p.wheel.y < 0.0f && link->offset.y < link->room.y;
+                const bool up = p.wheel.y > 0.0f && link->offset.y > 0.0f;
+                const bool right = p.wheel.x > 0.0f && link->offset.x < link->room.x;
+                const bool left = p.wheel.x < 0.0f && link->offset.x > 0.0f;
+                if (down || up || right || left) {
+                    wheel_area_ = area;
+                    wheel_ = p.wheel;
+                    break;
+                }
+                area = link->parent;
+            }
+        }
+    }
+}
+
+Interaction Context::interact(Id id, Rect rect, Sense sense) {
+    last_widget_ = id;
+    last_interaction_ = {};
+    if (root_ == nullptr) return {};
+    const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
+    if (hidden() || visible.empty()) return {};
+    hit_targets_.back()->push_back({.id = id, .rect = visible, .panel = current_panel(), .area = current_area()});
+    if (disabled()) return {};
+
+    const uint8_t takes = static_cast<uint8_t>((sense.left ? button_bit(MouseButton::Left) : 0) |
+                                               (sense.right ? button_bit(MouseButton::Right) : 0) |
+                                               (sense.middle ? button_bit(MouseButton::Middle) : 0));
+    Interaction in;
+    const auto describe = [&](const Tracked& tracked, MouseButton button) {
+        const Pointer& p = tracked.pointer;
+        in.pointer_type = p.type;
+        in.pointer = p.id;
+        in.button = button;
+        in.position = p.now.position;
+        in.press_position = p.press_position[index(button)];
+        in.pressure = p.now.pressure;
+    };
+    for (Tracked& tracked : pointers_) {
+        Pointer& p = tracked.pointer;
+        if (p.root != root_->id) continue;
+        const bool over = p.present && tracked.top == id && visible.contains(p.now.position);
+        in.under = in.under || over;
+
+        // A press where this was on top: it holds the pointer from now on.
+        const uint8_t pressed = p.pressed & takes;
+        if (tracked.holder == 0 && pressed != 0 && tracked.press_top == id &&
+            visible.contains(p.press_position[index(first_button(pressed))])) {
+            tracked.holder = id;
+            tracked.hold_button = first_button(pressed);
+            tracked.held_since = frame_;
+            tracked.dragging = false;
+        }
+        if (tracked.holder == id) {
+            tracked.holder_seen = true;
+            const MouseButton button = tracked.hold_button;
+            describe(tracked, button);
+            in.held = true;
+            in.pressed = in.pressed || tracked.held_since == frame_;
+            in.double_clicked = in.double_clicked || (tracked.held_since == frame_ && p.click_count[index(button)] == 2);
+            if (p.cancelled) {
+                in.cancelled = true;
+                in.released = true;
+            } else if ((p.released & button_bit(button)) != 0) {
+                in.released = true;
+                in.clicked = in.clicked || visible.contains(p.release_position);
+            }
+            const float threshold = p.type == PointerType::Touch ? pointer_style_.touch_drag_threshold
+                                                                 : pointer_style_.drag_threshold;
+            if (!tracked.dragging) {
+                tracked.dragging = glm::distance(p.now.position, p.press_position[index(button)]) > threshold;
+            }
+            in.dragging = in.dragging || tracked.dragging;
+            in.hovered = in.hovered || (p.can_hover && over);
+            continue;
+        }
+        // Held by another widget, the pointer hovers nothing else.
+        if (tracked.holder == 0 && p.can_hover && over) {
+            in.hovered = true;
+            if (!in.held) describe(tracked, MouseButton::Left);
+        }
+    }
+    any_hovered_ = any_hovered_ || in.hovered;
+    last_interaction_ = in;
+    return in;
+}
+
+bool Context::any_held() const {
+    return std::ranges::any_of(pointers_, [](const Tracked& tracked) { return tracked.holder != 0; });
+}
+
+void Context::pop_disabled() {
+    if (disabled_.empty()) {
+        FTK_CORE_ERROR("UI: a disabled scope popped that was never pushed");
+        return;
+    }
+    disabled_.pop_back();
+}
+
+void Context::set_cursor_shape(MouseCursor cursor) {
+    if (root_ != nullptr) root_->cursor = cursor;
+}
+
+} // namespace ftk::ui::core

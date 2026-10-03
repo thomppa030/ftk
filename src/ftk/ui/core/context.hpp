@@ -23,6 +23,7 @@
 
 #include "ftk/ui/core/draw_list.hpp"
 #include "ftk/ui/core/id.hpp"
+#include "ftk/ui/core/input.hpp"
 #include "ftk/ui/core/layout.hpp"
 #include "ftk/ui/core/rect.hpp"
 #include "ftk/ui/core/storage.hpp"
@@ -38,9 +39,6 @@
 #include <vector>
 
 namespace ftk::ui::core {
-
-/// The program's name for one of its OS windows.
-using RootId = uint32_t;
 
 /// When the program should draw the next frame.
 struct NextFrame {
@@ -63,6 +61,8 @@ struct RootOutput {
     float scale{1.0f};
     /// What it drew, in order.
     const DrawData* draw{nullptr};
+    /// The shape the mouse pointer takes over it.
+    MouseCursor cursor{MouseCursor::Arrow};
 };
 
 /// What a frame leaves for the program.
@@ -77,6 +77,47 @@ struct PanelOptions {
     glm::vec2 padding{8.0f, 8.0f};
     /// What it holds scrolls when it doesn't fit.
     bool scroll{true};
+};
+
+/// The buttons a widget takes a press from; with none, it is only hovered.
+struct Sense {
+    bool left{true};
+    bool right{false};
+    bool middle{false};
+};
+
+/// What the pointers did with a widget this frame.
+struct Interaction {
+    /// A pointer that hovers is over it, nothing above it, and nothing else
+    /// is held by it.
+    bool hovered{false};
+    /// A pointer is over it, whatever else that pointer holds: a canvas a
+    /// drag from elsewhere passes over.
+    bool under{false};
+    /// A press began on it this frame, and it holds the pointer from now
+    /// until the pointer is let go.
+    bool pressed{false};
+    /// A pointer holds it: pressed now or earlier, not yet let go.
+    bool held{false};
+    /// The pointer holding it was let go this frame, wherever it was.
+    bool released{false};
+    /// Let go over it.
+    bool clicked{false};
+    /// Pressed a second time in quick succession at about the same place.
+    bool double_clicked{false};
+    /// The pointer holding it was taken back: what it started is dropped,
+    /// and nothing is clicked.
+    bool cancelled{false};
+    /// Held, and moved past the drag threshold since the press.
+    bool dragging{false};
+
+    /// The pointer it is about, when there is one, and its button.
+    PointerType pointer_type{PointerType::Mouse};
+    PointerId pointer{0};
+    MouseButton button{MouseButton::Left};
+    glm::vec2 position{0.0f};
+    glm::vec2 press_position{0.0f};
+    float pressure{1.0f};
 };
 
 class Context {
@@ -139,6 +180,39 @@ public:
     /// What is drawn now is in a container that isn't shown this frame.
     [[nodiscard]] bool hidden() const { return hidden_ > 0; }
 
+    /// Input for the next frame, in the order it happened.
+    void add_pointer_event(const PointerEvent& event) { events_.push_back(event); }
+    void set_pointer_style(const PointerStyle& style) { pointer_style_ = style; }
+    [[nodiscard]] const PointerStyle& pointer_style() const { return pointer_style_; }
+    /// The pointers known this frame: the mouse once it has moved, pens
+    /// near the window, fingers down.
+    [[nodiscard]] std::size_t pointer_count() const { return pointers_.size(); }
+    [[nodiscard]] const Pointer& pointer(std::size_t index) const { return pointers_[index].pointer; }
+    [[nodiscard]] const Pointer* find_pointer(PointerType type, PointerId id) const;
+    /// The kind of pointer last pressed, which the UI sizes itself for.
+    [[nodiscard]] PointerType input_mode() const { return input_mode_; }
+
+    /// The widget `id` at `rect` as the pointers find it this frame. What is
+    /// drawn later is on top of what came before it, and a press goes to
+    /// what was on top where it happened. Only the part of `rect` inside the
+    /// clip counts.
+    Interaction interact(Id id, Rect rect, Sense sense = {});
+    /// The widget last passed to interact(), and what it found.
+    [[nodiscard]] Id last_widget() const { return last_widget_; }
+    [[nodiscard]] const Interaction& last_interaction() const { return last_interaction_; }
+    /// Some widget holds a pointer; some pointer hovers over a widget.
+    [[nodiscard]] bool any_held() const;
+    [[nodiscard]] bool any_hovered() const { return any_hovered_; }
+
+    /// While pushed, widgets take no input. Nested, and once inside a
+    /// disabled scope everything stays disabled.
+    void push_disabled(bool disabled = true) { disabled_.push_back(disabled || this->disabled()); }
+    void pop_disabled();
+    [[nodiscard]] bool disabled() const { return !disabled_.empty() && disabled_.back(); }
+
+    /// The mouse pointer's shape over the root being drawn, for this frame.
+    void set_cursor_shape(MouseCursor cursor);
+
     /// Seconds on the program's clock at this frame's start, and since the
     /// last frame's (zero on the first).
     [[nodiscard]] double time() const { return time_; }
@@ -162,6 +236,21 @@ public:
     void request_frame_at(double time);
 
 private:
+    // Where a widget took the pointers this frame, for the next frame's
+    // hover: in the panel and the scrolling area it is in.
+    struct Hit {
+        Id id{0};
+        Rect rect{};
+        Id panel{0};
+        Id area{0};
+    };
+    // A scrolling area inside another, and how far it can scroll.
+    struct AreaLink {
+        Id id{0};
+        Id parent{0};
+        glm::vec2 room{0.0f};
+        glm::vec2 offset{0.0f};
+    };
     // A panel as it was last drawn.
     struct Panel {
         Id id{0};
@@ -170,6 +259,7 @@ private:
         uint32_t order{0};
         uint64_t frame{0};
         std::vector<Primitive> primitives;
+        std::vector<Hit> hits;
     };
     // What is kept for an OS window from frame to frame.
     struct Root {
@@ -180,13 +270,38 @@ private:
         DrawList list;
         std::vector<std::unique_ptr<Panel>> panels;
         uint32_t next_order{0};
+        // The widgets the pointers found last frame, bottom to top, and
+        // those taking them this frame outside any panel.
+        std::vector<Hit> hits;
+        std::vector<Hit> base_hits;
+        // Last frame's scrolling areas, and this frame's.
+        std::vector<AreaLink> areas;
+        std::vector<AreaLink> areas_next;
+        MouseCursor cursor{MouseCursor::Arrow};
     };
-    // How far a panel or region is scrolled, and what it held.
+    // How far a panel or region is scrolled, where it is going, and what it
+    // held.
     struct Scroll {
         glm::vec2 offset{0.0f};
+        glm::vec2 target{0.0f};
         glm::vec2 content{0.0f};
         glm::vec2 visible{0.0f};
         uint64_t frame{0};
+    };
+    // A pointer, and what the core keeps of it besides what it shows.
+    struct Tracked {
+        Pointer pointer;
+        // On top under it, and where its press was, by last frame's hits.
+        Id top{0};
+        Id press_top{0};
+        // The widget holding it, by which button, since which frame.
+        Id holder{0};
+        MouseButton hold_button{MouseButton::Left};
+        uint64_t held_since{0};
+        bool holder_seen{false};
+        bool dragging{false};
+        // A finger lifted or taken back: forgotten after this frame.
+        bool ended{false};
     };
     // A panel or region being drawn.
     struct Area {
@@ -211,8 +326,23 @@ private:
     // Ends the innermost panel's or region's area, keeping what it held for
     // scrolling.
     void end_area();
+    // Begins a scrolling area's frame: the wheel's turn if it is the one
+    // under the mouse, and a step towards where it is going.
+    void scroll_area(Id id, Scroll& scroll);
     // Forgets what hasn't been drawn for a long while.
     void sweep();
+
+    // Takes the queued input: lets go what the last frame let go, then
+    // applies the events and finds what is under each pointer.
+    void take_input();
+    void apply(const PointerEvent& event);
+    Tracked& track(PointerType type, PointerId id);
+    // The widget on top at `at` among `hits`, bottom to top; or zero.
+    [[nodiscard]] static const Hit* top_hit(const std::vector<Hit>& hits, glm::vec2 at);
+    // The innermost area of the panel or region being drawn; zero for the
+    // root.
+    [[nodiscard]] Id current_area() const { return areas_.empty() ? 0 : areas_.back().id; }
+    [[nodiscard]] Id current_panel() const;
 
     double time_{0.0};
     float delta_{0.0f};
@@ -232,6 +362,20 @@ private:
     std::unordered_map<Id, KeptContainer> containers_;
     std::vector<OpenContainer> open_containers_;
     int hidden_{0};
+
+    std::vector<PointerEvent> events_;
+    std::vector<Tracked> pointers_;
+    PointerStyle pointer_style_{};
+    PointerType input_mode_{PointerType::Mouse};
+    // Where this frame's hits go: the root's own, or a panel's.
+    std::vector<std::vector<Hit>*> hit_targets_;
+    std::vector<bool> disabled_;
+    Id last_widget_{0};
+    Interaction last_interaction_{};
+    bool any_hovered_{false};
+    // The scrolling area the wheel turns this frame, and by how much.
+    Id wheel_area_{0};
+    glm::vec2 wheel_{0.0f};
 
     bool next_now_{false};
     std::optional<double> next_at_{};
