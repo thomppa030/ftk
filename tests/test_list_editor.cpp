@@ -1,6 +1,9 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -9,7 +12,7 @@
 #include <string>
 #include <vector>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -17,18 +20,22 @@ namespace {
 // A list_editor of numbers in the harness. Each card marks its content; the
 // list's right edge is kept to aim at the trash icons.
 struct Fixture {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items{10, 20, 30};
     int commits{0};
     float right{0.0f};
+    float frame{0.0f};
+    float padding{0.0f};
 
     Fixture() {
         h.set_ui([this] {
-            right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+            right = ui::cursor().x + ui::space_left().x;
+            frame = ui::frame_height();
+            padding = ui::frame_padding().y;
             const ui::Edit edit = ui::list_editor(
                 "##numbers", items, "Add", "Nothing",
                 [this](int&, std::size_t i) {
-                    ImGui::TextUnformatted("item");
+                    ui::text("item");
                     h.mark("content" + std::to_string(i));
                     return ui::Edit{};
                 });
@@ -40,41 +47,28 @@ struct Fixture {
 
     // The centre of card `i`'s trash icon: the frame-height square at the
     // card's right edge, inset by the card's padding.
-    [[nodiscard]] ImVec2 trash(int i) const {
-        const float side = ImGui::GetFrameHeight();
+    [[nodiscard]] glm::vec2 trash(int i) const {
         const float top = line_top(i);
-        return {right - 4.0f - side * 0.5f, top + side * 0.5f};
+        return {right - 4.0f - frame * 0.5f, top + frame * 0.5f};
     }
     // A point on card `i`'s grip, left of its number and content.
-    [[nodiscard]] ImVec2 grip(int i) const {
-        const ImVec2 content = h.rect_min("content" + std::to_string(i));
+    [[nodiscard]] glm::vec2 grip(int i) const {
+        const glm::vec2 content = h.rect("content" + std::to_string(i)).min;
         return {content.x - 36.0f, content.y + 8.0f};
     }
     // The top of card `i`'s first line: its text sits a frame's padding
     // below it.
-    [[nodiscard]] float line_top(int i) const {
-        return h.rect_min("content" + std::to_string(i)).y - ImGui::GetStyle().FramePadding.y;
-    }
+    [[nodiscard]] float line_top(int i) const { return h.rect("content" + std::to_string(i)).min.y - padding; }
     // Card `i`'s top and bottom.
     [[nodiscard]] float top(int i) const { return line_top(i) - 4.0f; }
-    [[nodiscard]] float bottom(int i) const { return top(i) + 4.0f + ImGui::GetFrameHeight() + 4.0f; }
+    [[nodiscard]] float bottom(int i) const { return top(i) + 4.0f + frame + 4.0f; }
 };
-
-void click_at(ImGuiHarness& h, ImVec2 at) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(at.x, at.y);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step();
-}
 
 } // namespace
 
 TEST_CASE("A list's trash icon removes that item, as a finished edit", "[ui][kit]") {
     Fixture f;
-    click_at(f.h, f.trash(1));
+    f.h.click_at(f.trash(1));
     CHECK(f.items == std::vector{10, 30});
     CHECK(f.commits == 1);
 }
@@ -88,7 +82,7 @@ TEST_CASE("A list's Add button appends an item, as a finished edit", "[ui][kit]"
 
 TEST_CASE("Dragging a card onto the lower half of a later one moves it after that one", "[ui][kit]") {
     Fixture f;
-    const ImVec2 grip = f.grip(0);
+    const glm::vec2 grip = f.grip(0);
     f.h.drag(grip, {grip.x + 20.0f, f.bottom(2) - 3.0f});
     CHECK(f.items == std::vector{20, 30, 10});
     CHECK(f.commits == 1);
@@ -97,7 +91,7 @@ TEST_CASE("Dragging a card onto the lower half of a later one moves it after tha
 TEST_CASE("Dragging a card onto the upper half of an earlier one moves it before that one",
           "[ui][kit]") {
     Fixture f;
-    const ImVec2 grip = f.grip(2);
+    const glm::vec2 grip = f.grip(2);
     f.h.drag(grip, {grip.x + 20.0f, f.top(1) + 3.0f});
     CHECK(f.items == std::vector{10, 30, 20});
     CHECK(f.commits == 1);
@@ -105,7 +99,7 @@ TEST_CASE("Dragging a card onto the upper half of an earlier one moves it before
 
 TEST_CASE("Dropping a card where it already is changes nothing", "[ui][kit]") {
     Fixture f;
-    const ImVec2 grip = f.grip(1);
+    const glm::vec2 grip = f.grip(1);
     f.h.drag(grip, {grip.x + 20.0f, f.bottom(1) - 3.0f});
     CHECK(f.items == std::vector{10, 20, 30});
     CHECK(f.commits == 0);
@@ -116,24 +110,28 @@ namespace {
 // A selectable list of numbers: each card counts how often its summary and
 // its fields are drawn, and marks its summary line.
 struct SelectableFixture {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items{10, 20, 30};
     int selected{-1};
     int fields_drawn{0};
     int summaries_drawn{0};
+    float frame{0.0f};
+    float window_padding{0.0f};
 
     SelectableFixture() {
         h.set_ui([this] {
+            frame = ui::frame_height();
+            window_padding = ui::window_padding().x;
             (void)ui::selectable_list_editor(
                 "##select", items, selected, "Add", "Nothing", {},
                 [this](const int&, std::size_t i) {
                     ++summaries_drawn;
-                    ImGui::TextUnformatted("summary");
+                    ui::text("summary");
                     h.mark("summary" + std::to_string(i));
                 },
                 [this](int&, std::size_t i) {
                     ++fields_drawn;
-                    ImGui::TextUnformatted("fields");
+                    ui::text("fields");
                     h.mark("summary" + std::to_string(i));
                     return ui::Edit{};
                 },
@@ -168,22 +166,16 @@ TEST_CASE("Removing a card before the selected one keeps the selection on its it
     SelectableFixture f;
     f.h.click("summary2");
     // The trash icon of card 0: the frame-height square at the card's right.
-    const ImVec2 min = f.h.rect_min("summary0");
-    const float side = ImGui::GetFrameHeight();
-    const float right = ImGui::GetMainViewport()->Size.x - ImGui::GetStyle().WindowPadding.x;
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(right - 4.0f - side * 0.5f, min.y + side * 0.5f);
-    f.h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    f.h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    f.h.step();
+    const glm::vec2 min = f.h.rect("summary0").min;
+    const float side = f.frame;
+    const float right = f.h.size().x - f.window_padding;
+    f.h.click_at({right - 4.0f - side * 0.5f, min.y + side * 0.5f});
     CHECK(f.items == std::vector{20, 30});
     CHECK(f.selected == 1);
 }
 
 TEST_CASE("Cards out of sight are not drawn", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items(500, 0);
     int selected = -1;
     int drawn = 0;
@@ -212,13 +204,15 @@ TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
 }
 
 TEST_CASE("A card whose first line is text centres it on the number's line", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items{10};
     float list_top = 0.0f;
+    float frame = 0.0f;
     h.set_ui([&] {
-        list_top = ImGui::GetCursorScreenPos().y;
+        list_top = ui::cursor().y;
+        frame = ui::frame_height();
         (void)ui::list_editor("##numbers", items, "Add", "Nothing", [&](int&, std::size_t) {
-            ImGui::TextUnformatted("Sphere on Head");
+            ui::text("Sphere on Head");
             h.mark("text");
             return ui::Edit{};
         });
@@ -226,48 +220,49 @@ TEST_CASE("A card whose first line is text centres it on the number's line", "[u
     h.step(3);
     // The number, grip and trash icon sit on a field line under the card's
     // 4 px padding; the text's middle is that line's middle.
-    const float text_middle = (h.rect_min("text").y + h.rect_max("text").y) * 0.5f;
-    const float line_middle = list_top + 4.0f + ImGui::GetFrameHeight() * 0.5f;
+    const float text_middle = h.rect("text").centre().y;
+    const float line_middle = list_top + 4.0f + frame * 0.5f;
     CHECK(std::abs(text_middle - line_middle) <= 1.0f);
 }
 
 TEST_CASE("A closed card that opens reads dim, and in full text under the mouse", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items{10, 20};
     int selected = 0;
-    ImVec4 summary_colour{};
+    ui::Color summary_colour{};
     h.set_ui([&] {
         (void)ui::selectable_list_editor(
             "##points", items, selected, "Add", "Nothing", {},
             [&](int&, std::size_t) {
-                ImGui::TextUnformatted("Point");
-                summary_colour = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+                ui::text("Point");
+                summary_colour = ui::text_colour();
                 h.mark("summary");
             },
             [&](int&, std::size_t) { return ui::Edit{}; }, [] { return 0; });
     });
     h.step(3);
-    const auto same = [](ImVec4 a, ImVec4 b) { return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w; };
-    CHECK(same(summary_colour, ftk::theme::text_secondary()));
+    CHECK(summary_colour == ftk::theme::text_secondary());
 
-    const ImVec2 min = h.rect_min("summary");
-    ImGui::GetIO().AddMousePosEvent(min.x + 2.0f, min.y + 2.0f);
-    h.step(2);
-    CHECK(same(summary_colour, ftk::theme::text()));
+    const glm::vec2 min = h.rect("summary").min;
+    h.move_to({min.x + 2.0f, min.y + 2.0f});
+    h.step();
+    CHECK(summary_colour == ftk::theme::text());
 }
 
 namespace {
 
 // Selectable cards headed by card_heading(), each with a tag and a summary.
 struct HeadedFixture {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<int> items{10, 20};
     int selected{-1};
     float right{0.0f};
+    float frame{0.0f};
 
     HeadedFixture() {
         h.set_ui([this] {
-            right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+            right = ui::cursor().x + ui::space_left().x;
+            frame = ui::frame_height();
             (void)ui::selectable_list_editor(
                 "##headed", items, selected, "Add", "Nothing", {},
                 [this](const int&, std::size_t i) {
@@ -293,8 +288,8 @@ TEST_CASE("A card heading's tag ends where the card's fields end", "[ui][kit]") 
     HeadedFixture f;
     // The fields end a gap short of the trash icon, a frame square inset by
     // the card's padding.
-    const float fields_end = f.right - 4.0f - ImGui::GetFrameHeight() - ftk::theme::GAP_S;
-    CHECK(std::abs(f.h.rect_max("tag0").x - fields_end) < 1.0f);
+    const float fields_end = f.right - 4.0f - f.frame - ftk::theme::GAP_S;
+    CHECK(std::abs(f.h.rect("tag0").max.x - fields_end) < 1.0f);
 }
 
 TEST_CASE("Clicking a headed card's summary selects the card", "[ui][kit]") {

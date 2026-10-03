@@ -1,5 +1,6 @@
-#include "ftk/test/imgui_harness.hpp"
-#include "ftk/ui/imgui_theme.hpp"
+#include "kit_harness.hpp"
+
+#include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/component_block.hpp"
@@ -8,32 +9,28 @@
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
-#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/overlay.hpp"
-#include "ftk/ui/kit/pane.hpp"
+#include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <imgui_internal.h>
-#include <misc/cpp/imgui_stdlib.h>
 
-#include <algorithm>
-#include <cfloat>
 #include <cmath>
 #include <string>
-#include <utility>
-#include <vector>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 TEST_CASE("Every button kind reports its click", "[ui][kit]") {
@@ -41,7 +38,7 @@ TEST_CASE("Every button kind reports its click", "[ui][kit]") {
                                     ui::ButtonKind::Ghost, ui::ButtonKind::Danger,
                                     ui::ButtonKind::GhostDanger};
     for (auto kind : kinds) {
-        ImGuiHarness h;
+        KitHarness h;
         int clicks = 0;
         h.set_ui([&] {
             if (ui::button("Save", kind)) ++clicks;
@@ -54,43 +51,39 @@ TEST_CASE("Every button kind reports its click", "[ui][kit]") {
 }
 
 TEST_CASE("An action leads with its icon and is as tall as any button", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int clicks = 0;
+    float icon_room = 0.0f;
     h.set_ui([&] {
         ui::button("Create material");
         h.mark("button");
         if (ui::action("+", "Create material")) ++clicks;
         h.mark("action");
+        icon_room = ui::text_size("+  ").x;
     });
     h.step(2);
-    const float button_height = h.rect_max("button").y - h.rect_min("button").y;
-    const float action_height = h.rect_max("action").y - h.rect_min("action").y;
-    CHECK(action_height == button_height);
+    CHECK(h.rect("action").height() == h.rect("button").height());
     // Wider than the same verb on a plain button by the icon and its gap.
-    const float plain = h.rect_max("button").x - h.rect_min("button").x;
-    const float with_icon = h.rect_max("action").x - h.rect_min("action").x;
-    CHECK(with_icon >= plain + ImGui::CalcTextSize("+  ").x - 0.5f);
+    CHECK(h.rect("action").width() >= h.rect("button").width() + icon_room - 0.5f);
     h.click("action");
     CHECK(clicks == 1);
 }
 
 TEST_CASE("An icon button is a frame-height square", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int clicks = 0;
     h.set_ui([&] {
         if (ui::icon_button("clear", "x", "Clear")) ++clicks;
         h.mark("icon");
     });
     h.step(2);
-    const ImVec2 min = h.rect_min("icon");
-    const ImVec2 max = h.rect_max("icon");
-    CHECK(max.x - min.x == max.y - min.y);
+    CHECK(h.rect("icon").width() == h.rect("icon").height());
     h.click("icon");
     CHECK(clicks == 1);
 }
 
 TEST_CASE("A toggle reports clicks and leaves the state to the caller", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool on = false;
     h.set_ui([&] {
         if (ui::toggle_button("snap", "M", on, "Snap to grid")) on = !on;
@@ -104,7 +97,7 @@ TEST_CASE("A toggle reports clicks and leaves the state to the caller", "[ui][ki
 }
 
 TEST_CASE("A foldable section opens and closes and remembers", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool open = false;
     h.set_ui([&] {
         open = ui::section_foldable("Weather", nullptr, true);
@@ -121,7 +114,7 @@ TEST_CASE("A foldable section opens and closes and remembers", "[ui][kit]") {
 }
 
 TEST_CASE("A foldable sub-heading starts the way it is asked to", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool open = true;
     h.set_ui([&] {
         open = ui::subheading_foldable("Lightning", false);
@@ -134,7 +127,7 @@ TEST_CASE("A foldable sub-heading starts the way it is asked to", "[ui][kit]") {
 }
 
 TEST_CASE("A component block folds from its header and asks to be removed from its trash icon", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool open = false;
     bool remove = false;
     int removals = 0;
@@ -146,23 +139,13 @@ TEST_CASE("A component block folds from its header and asks to be removed from i
     });
     h.step(2);
     CHECK(open);
-    const ImVec2 trash_min = h.rect_min("trash");
-    const ImVec2 trash_max = h.rect_max("trash");
-    const float y = (trash_min.y + trash_max.y) * 0.5f;
+    const glm::vec2 trash_min = h.rect("trash").min;
+    const float y = h.rect("trash").centre().y;
 
     // The header left of the trash icon folds the block.
-    ImGuiIO& io = ImGui::GetIO();
-    const auto click_at = [&](float x) {
-        io.AddMousePosEvent(x, y);
-        h.step();
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-        h.step();
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-        h.step();
-    };
-    click_at(trash_min.x - 40.0f);
+    h.click_at({trash_min.x - 40.0f, y});
     CHECK_FALSE(open);
-    click_at(trash_min.x - 40.0f);
+    h.click_at({trash_min.x - 40.0f, y});
     CHECK(open);
 
     // The trash icon asks for removal and leaves the fold alone.
@@ -171,58 +154,22 @@ TEST_CASE("A component block folds from its header and asks to be removed from i
     CHECK(open);
 }
 
-TEST_CASE("An icon button centres an icon wider than its padding leaves room for", "[ui][kit]") {
-    ImGuiHarness h;
-    h.set_ui([&] {
-        // A wide label stands in for an icon glyph: wider than the square
-        // minus ImGui's frame padding on both sides.
-        ui::icon_button("wide", "WW", "Wide");
-        h.mark("icon");
-    });
-    h.step(2);
-    const ImVec2 min = h.rect_min("icon");
-    const ImVec2 max = h.rect_max("icon");
-    REQUIRE(ImGui::CalcTextSize("WW").x > (max.x - min.x) - ImGui::GetStyle().FramePadding.x * 2.0f);
-
-    // Around the button, the text is the only thing drawn from the font
-    // atlas rather than its white pixel, so its vertices give where the
-    // label landed.
-    const ImVec2 white = ImGui::GetIO().Fonts->TexUvWhitePixel;
-    float text_min = FLT_MAX;
-    float text_max = -FLT_MAX;
-    const ImDrawData* data = ImGui::GetDrawData();
-    for (const ImDrawList* list : data->CmdLists) {
-        for (const ImDrawVert& v : list->VtxBuffer) {
-            if (v.uv.x == white.x && v.uv.y == white.y) continue;
-            if (v.pos.y < min.y || v.pos.y > max.y) continue;
-            if (v.pos.x < min.x - 16.0f || v.pos.x > max.x + 16.0f) continue;
-            text_min = std::min(text_min, v.pos.x);
-            text_max = std::max(text_max, v.pos.x);
-        }
-    }
-    REQUIRE(text_min < text_max);
-    const float text_centre = (text_min + text_max) * 0.5f;
-    CHECK(std::abs(text_centre - (min.x + max.x) * 0.5f) <= 1.0f);
-}
-
 TEST_CASE("An empty state sits in the middle of the space and offers its action", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int clicks = 0;
-    ImVec2 area_min;
-    ImVec2 area_max;
+    glm::vec2 area_min{};
+    glm::vec2 area_max{};
     h.set_ui([&] {
-        area_min = ImGui::GetCursorScreenPos();
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        area_max = {area_min.x + avail.x, area_min.y + avail.y};
+        area_min = ui::cursor();
+        area_max = area_min + ui::space_left();
         if (ui::empty_state("?", "Nothing selected", "Pick an object to edit it here", "Select all")) {
             ++clicks;
         }
         h.mark("action");
     });
     h.step(2);
-    const ImVec2 min = h.rect_min("action");
-    const ImVec2 max = h.rect_max("action");
-    CHECK(std::abs((min.x + max.x) * 0.5f - (area_min.x + area_max.x) * 0.5f) <= 1.0f);
+    const glm::vec2 max = h.rect("action").max;
+    CHECK(std::abs(h.rect("action").centre().x - (area_min.x + area_max.x) * 0.5f) <= 1.0f);
     // The block is centred vertically, so its last line is below the middle
     // but nowhere near the bottom.
     CHECK(max.y > (area_min.y + area_max.y) * 0.5f);
@@ -248,57 +195,54 @@ TEST_CASE("A program's own file types show as it registered them", "[ui][kit]") 
 }
 
 TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
-        ImGui::BeginDisabled(true);
-        ui::icon_button("clear", "x", "Nothing to clear");
-        ImGui::EndDisabled();
+        {
+            ui::Disabled off;
+            ui::icon_button("clear", "x", "Nothing to clear");
+        }
         h.mark("button");
     });
     h.step(2);
-    const ImVec2 min = h.rect_min("button");
-    const ImVec2 max = h.rect_max("button");
-    ImGui::GetIO().AddMousePosEvent((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
     // Past the tooltip delay.
-    h.step(30);
-    const ImGuiWindow* tooltip = ImGui::FindWindowByName("##Tooltip_00");
-    REQUIRE(tooltip != nullptr);
-    CHECK(tooltip->WasActive);
+    h.hover("button");
+    CHECK(h.tooltip().has_value());
 }
 
 TEST_CASE("A callout wraps its text, reports its action, and the layout goes on below it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int clicks = 0;
+    float line = 0.0f;
+    float frame = 0.0f;
     h.set_ui([&] {
-        ImGui::BeginChild("##narrow", {220.0f, 400.0f});
-        if (ui::callout(ui::Severity::Error, "sea.fjsl failed to compile",
-                        "Line 42: 'foam_bias' : undeclared identifier. It draws with the last "
-                        "version that compiled.",
-                        "+", "Open sea.fjsl")) {
-            ++clicks;
+        line = ui::line_height() + ui::item_spacing().y;
+        frame = ui::frame_height();
+        if (auto narrow = ui::Region("##narrow", {220.0f, 400.0f})) {
+            if (ui::callout(ui::Severity::Error, "sea.fjsl failed to compile",
+                            "Line 42: 'foam_bias' : undeclared identifier. It draws with the last "
+                            "version that compiled.",
+                            "+", "Open sea.fjsl")) {
+                ++clicks;
+            }
+            h.mark("box");
+            ui::button("after");
+            h.mark("after");
         }
-        h.mark("box");
-        ImGui::Button("after");
-        h.mark("after");
-        ImGui::EndChild();
     });
     h.step(3);
     // The explanation wraps inside the 220 px window onto several lines:
     // the box is taller than a title, three lines and the button.
-    const float line = ImGui::GetTextLineHeightWithSpacing();
-    CHECK(h.rect_max("box").y - h.rect_min("box").y > line * 4.0f + ImGui::GetFrameHeight());
-    CHECK(h.rect_min("after").y >= h.rect_max("box").y);
+    CHECK(h.rect("box").height() > line * 4.0f + frame);
+    CHECK(h.rect("after").min.y >= h.rect("box").max.y);
     // The action is the last thing in the box, under the text: press and
     // let go on it.
-    const ImVec2 min = h.rect_min("box");
-    const ImVec2 max = h.rect_max("box");
-    const ImVec2 action{min.x + 60.0f, max.y - 8.0f - ImGui::GetFrameHeight() * 0.5f};
+    const glm::vec2 action{h.rect("box").min.x + 60.0f, h.rect("box").max.y - 8.0f - frame * 0.5f};
     h.drag(action, action);
     CHECK(clicks == 1);
 }
 
 TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int fits = 0;
     int creates = 0;
     h.set_ui([&] {
@@ -318,66 +262,61 @@ TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][ki
 }
 
 TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool on = false;
     h.set_ui([&] {
         if (ui::tool_button("raise", "R", on, "Raise")) on = !on;
         h.mark("tool");
     });
     h.step(2);
-    CHECK(h.rect_max("tool").x - h.rect_min("tool").x == ftk::theme::TOOL_BUTTON);
-    CHECK(h.rect_max("tool").y - h.rect_min("tool").y == ftk::theme::TOOL_BUTTON);
+    CHECK(h.rect("tool").width() == ftk::theme::TOOL_BUTTON);
+    CHECK(h.rect("tool").height() == ftk::theme::TOOL_BUTTON);
     h.click("tool");
     CHECK(on);
 }
 
 TEST_CASE("An inset group folds from its heading and keeps its contents inside it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool drawn = false;
     float window_right = 0.0f;
+    float frame = 0.0f;
     h.set_ui([&] {
-        window_right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        window_right = ui::cursor().x + ui::space_left().x;
+        frame = ui::frame_height();
         drawn = false;
-        const float heading_y = ImGui::GetCursorScreenPos().y;
         if (auto box = ui::InsetGroup("##box", "Material", nullptr, {1, 1, 1, 1})) {
             drawn = true;
-            ImGui::SetNextItemWidth(-FLT_MIN);
+            ui::next_width(ui::FILL);
             float v = 0.5f;
             (void)ui::drag("##v", v);
             h.mark("field");
         }
-        (void)heading_y;
     });
     h.step(2);
     REQUIRE(drawn);
     // The field stops at the box's padding, not at the window's edge.
-    CHECK(h.rect_max("field").x < window_right - 4.0f);
+    CHECK(h.rect("field").max.x < window_right - 4.0f);
     // The heading is the box's first line: clicking it folds the box.
-    const ImVec2 field_min = h.rect_min("field");
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(field_min.x + 40.0f, field_min.y - ImGui::GetFrameHeight() * 0.5f - 2.0f);
+    const glm::vec2 field_min = h.rect("field").min;
+    h.click_at({field_min.x + 40.0f, field_min.y - frame * 0.5f - 2.0f});
     h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step(2);
     CHECK_FALSE(drawn);
 }
 
 TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         (void)ui::mode_button("##view", ui::icon::search, "DDGI indirect", true);
         h.mark("view");
     });
     h.step(2);
-    const float drawn = h.rect_max("view").x - h.rect_min("view").x;
+    const float drawn = h.rect("view").width();
     CHECK(drawn == ui::mode_button_width(ui::icon::search, "DDGI indirect"));
     CHECK(drawn > ui::mode_button_width(ui::icon::search, "Lit"));
 }
 
 TEST_CASE("A marked row's label makes room for the dot, marked or not, and only that row", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float plain = 0.0f;
     float set_here = 0.0f;
     float not_set = 0.0f;
@@ -385,18 +324,18 @@ TEST_CASE("A marked row's label makes room for the dot, marked or not, and only 
     h.set_ui([&] {
         if (auto t = ui::PropertyTable("##rows")) {
             // In the value column the last item is still the row's label.
-            ui::row("Plain", [&] { plain = ImGui::GetItemRectMin().x; });
+            ui::row("Plain", [&] { plain = ui::item_min().x; });
             ui::mark_next_row(true);
-            ui::row("Set here", [&] { set_here = ImGui::GetItemRectMin().x; });
+            ui::row("Set here", [&] { set_here = ui::item_min().x; });
             ui::mark_next_row(false);
-            ui::row("Not set", [&] { not_set = ImGui::GetItemRectMin().x; });
+            ui::row("Not set", [&] { not_set = ui::item_min().x; });
             {
                 // A search that leaves the marked row out doesn't hand its
                 // mark to the next row.
                 ui::RowFilter filter("Next");
                 ui::mark_next_row(true);
                 ui::row("Skipped", [] {});
-                ui::row("Next", [&] { after_skipped = ImGui::GetItemRectMin().x; });
+                ui::row("Next", [&] { after_skipped = ui::item_min().x; });
             }
         }
     });
@@ -407,7 +346,7 @@ TEST_CASE("A marked row's label makes room for the dot, marked or not, and only 
 }
 
 TEST_CASE("An on/off switch flips its value, each flip a finished edit", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool on = true;
     int commits = 0;
     h.set_ui([&] {
@@ -423,33 +362,28 @@ TEST_CASE("An on/off switch flips its value, each flip a finished edit", "[ui][k
 }
 
 TEST_CASE("A block with a switch turns off without folding or removing", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool enabled = true;
     bool removed = false;
     bool open = false;
-    ImVec2 header_max{};
+    glm::vec2 header_max{};
+    float frame = 0.0f;
     h.set_ui([&] {
+        frame = ui::frame_height();
         open = ui::component_block("Gravity", ftk::theme::Hue::periwinkle, removed, enabled);
-        header_max = ImGui::GetItemRectMax();  // the trash icon, last in the header
+        header_max = ui::item_max();  // the trash icon, last in the header
     });
     h.step(2);
     // The switch sits just before the trash icon.
-    const float h_frame = ImGui::GetFrameHeight();
-    const ImVec2 at{header_max.x - h_frame - ftk::theme::GAP_S - 14.0f, header_max.y - h_frame * 0.5f};
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(at.x, at.y);
+    h.click_at({header_max.x - frame - ftk::theme::GAP_S - 14.0f, header_max.y - frame * 0.5f});
     h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step(2);
     CHECK_FALSE(enabled);
     CHECK(open);
     CHECK_FALSE(removed);
 }
 
 TEST_CASE("A tab strip reports only the user's picks, not a selection the caller moved", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     const std::string names[] = {"embers", "smoke", "sparks"};
     int selected = 0;
     int picks = 0;
@@ -469,83 +403,76 @@ TEST_CASE("A tab strip reports only the user's picks, not a selection the caller
 }
 
 TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int listens = 0;
     int lists = 0;
-    ImVec2 start{};
+    glm::vec2 start{};
+    float frame = 0.0f;
     float short_end = 0.0f;
     float long_end = 0.0f;
     float long_start = 0.0f;
     h.set_ui([&] {
-        start = ImGui::GetCursorScreenPos();
+        start = ui::cursor();
+        frame = ui::frame_height();
         const auto cap = ui::key_cap({.id = "##w", .device_icon = ui::icon::file, .label = "W"});
         h.mark("chevron");  // the last item: the chevron
-        short_end = ImGui::GetItemRectMax().x;
+        short_end = ui::item_max().x;
         if (cap.listen) ++listens;
         if (cap.list) ++lists;
-        long_start = ImGui::GetCursorScreenPos().x;
+        long_start = ui::cursor().x;
         (void)ui::key_cap({.id = "##shift", .device_icon = ui::icon::file, .label = "Left Shift"});
-        long_end = ImGui::GetItemRectMax().x;
+        long_end = ui::item_max().x;
     });
     h.step(2);
     h.click("chevron");
     CHECK(lists == 1);
     CHECK(listens == 0);
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(start.x + 6.0f, start.y + ImGui::GetFrameHeight() * 0.5f);
+    h.click_at({start.x + 6.0f, start.y + frame * 0.5f});
     h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step(2);
     CHECK(listens == 1);
     CHECK(long_end - long_start > short_end - start.x);
 }
 
 TEST_CASE("A named box's remove icon removes without folding it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool remove = false;
     bool open = false;
     float right = 0.0f;
     float top = 0.0f;
+    float side = 0.0f;
     h.set_ui([&] {
-        top = ImGui::GetCursorScreenPos().y;
-        right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        top = ui::cursor().y;
+        right = ui::cursor().x + ui::space_left().x;
+        side = ui::frame_height();
         auto box = ui::InsetGroup("##jump", {.text = "jump", .named = true, .remove = &remove});
         open = static_cast<bool>(box);
     });
     h.step(2);
     // The remove icon: a frame-height square at the heading's right end.
-    const float side = ImGui::GetFrameHeight();
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(right - side * 0.5f - 4.0f, top + 3.0f + side * 0.5f);
+    h.click_at({right - side * 0.5f - 4.0f, top + 3.0f + side * 0.5f});
     h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step(2);
     CHECK(remove);
     CHECK(open);
 }
 
 TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui][kit]") {
-    ImGuiHarness h;
-    const ImVec2 image_min{20.0f, 30.0f};
-    const ImVec2 image_max{420.0f, 330.0f};
-    ImVec2 left_min{};
+    KitHarness h;
+    const glm::vec2 image_min{20.0f, 30.0f};
+    const glm::vec2 image_max{420.0f, 330.0f};
+    glm::vec2 left_min{};
     float right_edge = 0.0f;
     h.set_ui([&] {
         {
             ui::ViewportPill pill("##left", image_min, image_max, ui::PillPlace::TopLeft);
             (void)ui::icon_button("##grid", ui::icon::folder, "Grid");
-            left_min = ImGui::GetItemRectMin();
+            left_min = ui::item_min();
         }
         {
             ui::ViewportPill pill("##right", image_min, image_max, ui::PillPlace::TopRight);
             (void)ui::icon_button("##a", ui::icon::folder, "A");
-            ImGui::SameLine();
+            ui::same_line();
             (void)ui::icon_button("##b", ui::icon::folder, "B");
-            right_edge = ImGui::GetItemRectMax().x;
+            right_edge = ui::item_max().x;
         }
     });
     // The right one learns its width in the first frame and is placed by it after.
@@ -556,41 +483,15 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     CHECK(right_edge > image_max.x - 16.0f);
 }
 
-TEST_CASE("A texture holds the ImGui id it is made from, and none is zero", "[ui][kit]") {
-    const ImTextureID imgui_id = 0x5EED;
-    const ui::Texture texture = imgui_id;
-    CHECK(texture.id == 0x5EED);
-    CHECK(static_cast<bool>(texture));
-    CHECK_FALSE(static_cast<bool>(ui::Texture{}));
-    CHECK(texture == ui::Texture{0x5EED});
-    CHECK(texture != ui::Texture{});
-}
-
-TEST_CASE("A window leaves out what its options say and nothing else", "[ui][kit]") {
-    using ui::detail::imgui_window_flags;
-    CHECK(imgui_window_flags({}) == ImGuiWindowFlags_None);
-    CHECK(imgui_window_flags({.title_bar = false}) == ImGuiWindowFlags_NoTitleBar);
-    CHECK(imgui_window_flags({.resize = false}) == ImGuiWindowFlags_NoResize);
-    CHECK(imgui_window_flags({.move = false}) == ImGuiWindowFlags_NoMove);
-    CHECK(imgui_window_flags({.collapse = false}) == ImGuiWindowFlags_NoCollapse);
-    CHECK(imgui_window_flags({.scrollbar = false}) == ImGuiWindowFlags_NoScrollbar);
-    CHECK(imgui_window_flags({.background = false}) == ImGuiWindowFlags_NoBackground);
-    CHECK(imgui_window_flags({.docking = false}) == ImGuiWindowFlags_NoDocking);
-    CHECK(imgui_window_flags({.to_front = false}) == ImGuiWindowFlags_NoBringToFrontOnFocus);
-    CHECK(imgui_window_flags({.nav_focus = false}) == ImGuiWindowFlags_NoNavFocus);
-    CHECK(imgui_window_flags({.remembered = false}) == ImGuiWindowFlags_NoSavedSettings);
-}
-
 TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") {
-    ImGuiHarness h;
-    ImVec2 window_pos{};
-    ImVec2 first{};
+    KitHarness h;
+    glm::vec2 window_pos{};
+    glm::vec2 first{};
     h.set_ui([&] {
-        ImGui::SetNextWindowPos({50.0f, 60.0f});
-        ImGui::SetNextWindowSize({200.0f, 150.0f});
+        ui::next_window_place({50.0f, 60.0f}, {200.0f, 150.0f});
         if (auto window = ui::ViewportWindow("##viewport", nullptr, {.title_bar = false})) {
-            window_pos = ImGui::GetWindowPos();
-            first = ImGui::GetCursorScreenPos();
+            window_pos = ui::window_pos();
+            first = ui::cursor();
         }
     });
     h.step(2);
@@ -598,137 +499,57 @@ TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") 
     CHECK(first.y == window_pos.y);
 }
 
-TEST_CASE("The context tab bar and a host window leave ImGui's stacks as they found them", "[ui][kit]") {
-    ImGuiHarness h;
-    int style_vars = -1;
-    int colours = -1;
-    h.set_ui([&] {
-        ImGuiContext& g = *ImGui::GetCurrentContext();
-        const int vars_before = g.StyleVarStack.Size;
-        const int colours_before = g.ColorStack.Size;
-        {
-            auto bar = ui::ContextTabBar("##context_bar");
-            if (bar && ImGui::BeginTabBar("##tabs")) {
-                if (ImGui::BeginTabItem("Scene")) ImGui::EndTabItem();
-                ImGui::EndTabBar();
-            }
-        }
-        (void)ui::begin_host_window("##host");
-        ImGui::End();
-        style_vars = g.StyleVarStack.Size - vars_before;
-        colours = g.ColorStack.Size - colours_before;
-    });
-    h.step(3);
-    CHECK(style_vars == 0);
-    CHECK(colours == 0);
-}
-
-TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
-    // Two windows, each with its own context and atlas: the second loading
-    // its faces must not hand them to the first.
-    ImGuiContext* editor = ImGui::CreateContext();
-    ImGuiContext* browser = ImGui::CreateContext();
-    ImFont editor_bold;
-    ImFont browser_bold;
-
-    ImGui::SetCurrentContext(editor);
-    ftk::theme::detail::current_faces().bold = &editor_bold;
-    ImGui::SetCurrentContext(browser);
-    ftk::theme::detail::current_faces().bold = &browser_bold;
-
-    ImGui::SetCurrentContext(editor);
-    CHECK(ftk::theme::imgui_font(ftk::theme::bold_font()) == &editor_bold);
-    ImGui::SetCurrentContext(browser);
-    CHECK(ftk::theme::imgui_font(ftk::theme::bold_font()) == &browser_bold);
-
-    ftk::theme::forget_fonts(browser);
-    ftk::theme::forget_fonts(editor);
-    ImGui::DestroyContext(browser);
-    ImGui::DestroyContext(editor);
-}
-
-TEST_CASE("A pane and the loading marks leave ImGui's stacks as they found them", "[ui][kit]") {
-    ImGuiHarness h;
-    int style_vars = -1;
-    int colours = -1;
-    int fonts = -1;
-    h.set_ui([&] {
-        ImGuiContext& g = *ImGui::GetCurrentContext();
-        const int vars_before = g.StyleVarStack.Size;
-        const int colours_before = g.ColorStack.Size;
-        const int fonts_before = g.FontStack.Size;
-        {
-            auto side = ui::Pane("##side", {220.0f, 300.0f}, ui::PaneSurface::Sunken);
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            ui::spinner(dl, {110.0f, 200.0f}, 14.0f, 1.0f);
-            ui::loading(dl, {110.0f, 230.0f}, "Opening harbour\xe2\x80\xa6", 1.0f);
-        }
-        style_vars = g.StyleVarStack.Size - vars_before;
-        colours = g.ColorStack.Size - colours_before;
-        fonts = g.FontStack.Size - fonts_before;
-    });
-    h.step(3);
-    CHECK(style_vars == 0);
-    CHECK(colours == 0);
-    CHECK(fonts == 0);
-}
-
 TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless something is typed", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     ui::DialogAnswer answer = ui::DialogAnswer::None;
     bool can_confirm = true;
     std::string typed;
     h.set_ui([&] {
-        ImGui::InputText("##field", &typed);
+        (void)ui::text_entry("##field", typed);
         h.mark("field");
         const auto a = ui::window_bar({.title = "Import model", .confirm = "Import"}, {.can_confirm = can_confirm});
         if (a != ui::DialogAnswer::None) answer = a;
     });
     h.step(2);
 
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(answer == ui::DialogAnswer::Confirm);
 
     answer = ui::DialogAnswer::None;
-    h.press(ImGuiKey_Escape);
+    h.press(ui::Key::Escape);
     CHECK(answer == ui::DialogAnswer::Cancel);
 
     // Greyed out, Enter does nothing.
     answer = ui::DialogAnswer::None;
     can_confirm = false;
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(answer == ui::DialogAnswer::None);
 
     // Typing in a field, Enter and Esc are the field's.
     can_confirm = true;
     h.click("field");
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(answer == ui::DialogAnswer::None);
 }
 
 TEST_CASE("A corner note hangs from its corner, and a key makes its line taller", "[ui][kit]") {
-    ImGuiHarness h;
-    ImVec2 words{};
-    ImVec2 with_key{};
-    ImVec2 longer{};
-    int vertices_before = 0;
-    int vertices_after = 0;
+    KitHarness h;
+    glm::vec2 words{};
+    glm::vec2 with_key{};
+    glm::vec2 longer{};
     h.set_ui([&] {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ui::DrawList dl = ui::DrawList::window();
         const ftk::ui::OverlayPiece plain[] = {{"releases input"}};
         const ftk::ui::OverlayPiece keyed[] = {{"Esc", true}, {"releases input"}};
         const ftk::ui::OverlayPiece more[] = {{"releases input, and more"}};
-        vertices_before = dl->VtxBuffer.Size;
         words = ui::corner_note(dl, {400.0f, 300.0f}, ui::Corner::BottomRight,
                                 {.line = plain, .ink = ftk::theme::text_secondary()});
-        vertices_after = dl->VtxBuffer.Size;
         with_key = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
                                    {.line = keyed, .ink = ftk::theme::text_secondary()});
         longer = ui::corner_note(dl, {0.0f, 0.0f}, ui::Corner::TopLeft,
                                  {.line = more, .ink = ftk::theme::text_secondary()});
     });
     h.step(2);
-    CHECK(vertices_after > vertices_before);
     CHECK(with_key.y > words.y);
     CHECK(with_key.x > words.x);
     CHECK(longer.x > words.x);
@@ -736,93 +557,99 @@ TEST_CASE("A corner note hangs from its corner, and a key makes its line taller"
 }
 
 TEST_CASE("A tag after a field is as wide as tag_width says and stays on the field's line", "[ui][kit]") {
-    ImGuiHarness h;
-    ImVec2 field_min{};
-    ImVec2 tag_min{};
-    ImVec2 tag_size{};
+    KitHarness h;
+    glm::vec2 field_min{};
+    glm::vec2 tag_min{};
+    glm::vec2 tag_size{};
+    float frame = 0.0f;
     h.set_ui([&] {
+        frame = ui::frame_height();
         bool on = true;
         (void)ui::checkbox("##switch", on);
-        field_min = ImGui::GetItemRectMin();
-        ImGui::SameLine();
+        field_min = ui::item_min();
+        ui::same_line();
         ui::tag("+1 shader", "Compiled in", "2 shaders");
-        tag_min = ImGui::GetItemRectMin();
-        tag_size = ImGui::GetItemRectSize();
+        tag_min = ui::item_min();
+        tag_size = ui::item_max() - ui::item_min();
     });
     h.step(2);
     CHECK(tag_size.x == ui::tag_width("+1 shader"));
     CHECK(tag_size.x > ui::tag_width("+1"));
-    CHECK(tag_size.y == ImGui::GetFrameHeight());
+    CHECK(tag_size.y == frame);
     CHECK(tag_min.y == field_min.y);
     CHECK(tag_min.x > field_min.x);
 }
 
 TEST_CASE("An inherited row lines its value up with the others and resets only what is set here", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float set_value = 0.5f;
     float inherited_value = 0.25f;
     float set_right = 0.0f;
     float inherited_right = 0.0f;
     float plain_right = 0.0f;
+    float frame = 0.0f;
     int resets = 0;
     h.set_ui([&] {
+        frame = ui::frame_height();
         if (auto t = ui::PropertyTable("##values")) {
             if (ui::inherited_row("Roughness", true, "Use the parent's value", [&] {
                     (void)ui::drag("##set", set_value);
-                    set_right = ImGui::GetItemRectMax().x;
+                    set_right = ui::item_max().x;
                 })) {
                 ++resets;
             }
             h.mark("reset");
             if (ui::inherited_row("Metallic", false, "Use the parent's value", [&] {
                     (void)ui::drag("##inherited", inherited_value);
-                    inherited_right = ImGui::GetItemRectMax().x;
+                    inherited_right = ui::item_max().x;
                 })) {
                 ++resets;
             }
             ui::row("Plain", [&] {
                 (void)ui::drag("##plain", inherited_value);
-                plain_right = ImGui::GetItemRectMax().x;
+                plain_right = ui::item_max().x;
             });
         }
     });
     h.step(2);
     CHECK(set_right == inherited_right);
     // The reset's room is left after the value, set here or not.
-    CHECK(set_right < plain_right - ImGui::GetFrameHeight());
+    CHECK(set_right < plain_right - frame);
     h.click("reset");
     CHECK(resets == 1);
 }
 
 TEST_CASE("A status line with an action keeps its text short of the button and reports its click", "[ui][kit]") {
-    ImGuiHarness h;
-    ImVec2 start{};
+    KitHarness h;
+    glm::vec2 start{};
     float right = 0.0f;
     float after = 0.0f;
+    float frame = 0.0f;
     int clicks = 0;
     h.set_ui([&] {
-        start = ImGui::GetCursorScreenPos();
-        right = start.x + ImGui::GetContentRegionAvail().x;
+        start = ui::cursor();
+        right = start.x + ui::space_left().x;
+        frame = ui::frame_height();
         if (ui::status(ui::Severity::Warning,
                        "leaf_colour is no longer in foliage.fjsl, and this line is long enough to wrap",
                        ui::icon::remove, "Remove")) {
             ++clicks;
         }
-        after = ImGui::GetCursorScreenPos().y;
+        after = ui::cursor().y;
     });
     h.step(2);
     // What follows starts below the line, button and wrapped text alike.
-    CHECK(after >= start.y + ImGui::GetFrameHeight());
+    CHECK(after >= start.y + frame);
     // The button sits at the end of the line's first row.
-    h.click_at({right - 4.0f, start.y + ImGui::GetFrameHeight() * 0.5f});
+    h.click_at({right - 4.0f, start.y + frame * 0.5f});
     CHECK(clicks == 1);
     // The text does not answer for it.
-    h.click_at({start.x + 30.0f, start.y + ImGui::GetFrameHeight() * 0.5f});
+    h.click_at({start.x + 30.0f, start.y + frame * 0.5f});
     CHECK(clicks == 1);
 }
 
 TEST_CASE("What is drawn in a disabled scope takes no clicks", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool disabled = true;
     int clicks = 0;
     h.set_ui([&] {
@@ -841,7 +668,7 @@ TEST_CASE("What is drawn in a disabled scope takes no clicks", "[ui][kit]") {
 }
 
 TEST_CASE("An id scope tells the same label apart", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int first = 0;
     int second = 0;
     h.set_ui([&] {
@@ -862,37 +689,8 @@ TEST_CASE("An id scope tells the same label apart", "[ui][kit]") {
     CHECK(second == 1);
 }
 
-TEST_CASE("An id scope gives the ids ImGui's own push gave", "[ui][kit]") {
-    // What ImGui keeps by id (a fold, a column's width) is found again once
-    // a panel moves from PushID to the kit's scope.
-    ImGuiHarness h;
-    std::vector<std::pair<ImGuiID, ImGuiID>> ids;
-    h.set_ui([&] {
-        ids.clear();
-        // The kit's scope over `scoped`, ImGui's push of `pushed`.
-        const auto pair = [&](auto scoped, auto pushed) {
-            ImGuiID in_scope = 0;
-            {
-                ui::IdScope id(scoped);
-                in_scope = ImGui::GetID("##row");
-            }
-            ImGui::PushID(pushed);
-            ids.emplace_back(in_scope, ImGui::GetID("##row"));
-            ImGui::PopID();
-        };
-        pair("Layer", "Layer");
-        pair(std::string_view("Layer"), "Layer");
-        pair(std::string("Layer"), "Layer");
-        pair(7, 7);
-        pair(static_cast<const void*>(&ids), static_cast<const void*>(&ids));
-    });
-    h.step();
-    REQUIRE(ids.size() == 5);
-    for (const auto& [scoped, pushed] : ids) CHECK(scoped == pushed);
-}
-
 TEST_CASE("The next item goes beside the last, or under a rule", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         ui::button("Apply");
         h.mark("apply");
@@ -907,14 +705,14 @@ TEST_CASE("The next item goes beside the last, or under a rule", "[ui][kit]") {
         h.mark("help");
     });
     h.step(2);
-    CHECK(h.rect_min("revert").y == h.rect_min("apply").y);
-    CHECK(h.rect_min("revert").x > h.rect_max("apply").x);
-    CHECK(h.rect_min("close").x == h.rect_max("revert").x + 20.0f);
-    CHECK(h.rect_min("help").y > h.rect_max("apply").y);
+    CHECK(h.rect("revert").min.y == h.rect("apply").min.y);
+    CHECK(h.rect("revert").min.x > h.rect("apply").max.x);
+    CHECK(h.rect("close").min.x == h.rect("revert").max.x + 20.0f);
+    CHECK(h.rect("help").min.y > h.rect("apply").max.y);
 }
 
 TEST_CASE("An item's tooltip shows once the mouse rests on it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         ui::button("Bake");
         ui::item_tooltip("Bakes every probe in the scene", "Ctrl B");
@@ -922,30 +720,32 @@ TEST_CASE("An item's tooltip shows once the mouse rests on it", "[ui][kit]") {
         ui::button("Clear");
         h.mark("clear");
     });
-    const auto shown = [] {
-        const ImGuiWindow* tip = ImGui::FindWindowByName("##Tooltip_00");
-        return tip != nullptr && tip->Active;
-    };
     h.step(2);
     h.hover("clear");
-    CHECK_FALSE(shown());
+    CHECK_FALSE(h.tooltip().has_value());
     h.hover("bake");
-    CHECK(shown());
+    CHECK(h.tooltip().has_value());
 }
 
 TEST_CASE("An item's tooltip can hold what is drawn in its scope", "[ui][kit]") {
-    ImGuiHarness h;
-    bool drawn_inside = false;
+    KitHarness h;
+    bool drawn = false;
+    glm::vec2 text_min{};
     h.set_ui([&] {
         ui::button("Crate");
         h.mark("crate");
+        drawn = false;
         if (auto tip = ui::ItemTooltip()) {
             ui::text("props/crate_wood.png");
-            drawn_inside = ImGui::GetCurrentWindow()->Name == std::string_view("##Tooltip_00");
+            text_min = ui::item_min();
+            drawn = true;
         }
     });
     h.step(2);
-    CHECK_FALSE(drawn_inside);
+    CHECK_FALSE(drawn);
     h.hover("crate");
-    CHECK(drawn_inside);
+    REQUIRE(drawn);
+    const auto tooltip = h.tooltip();
+    REQUIRE(tooltip.has_value());
+    CHECK(tooltip->contains(text_min));
 }

@@ -1,36 +1,38 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/canvas.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using Catch::Approx;
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
 
-constexpr ImVec2 ORIGIN{100.0f, 100.0f};
-constexpr ImVec2 SIZE{400.0f, 300.0f};
+constexpr glm::vec2 ORIGIN{100.0f, 100.0f};
+constexpr glm::vec2 SIZE{400.0f, 300.0f};
 
 // A canvas at ORIGIN taking the mouse over all of it.
-void draw_canvas(ui::CanvasView& view, ImVec2 size = SIZE) {
+void draw_canvas(ui::CanvasView& view, glm::vec2 size = SIZE) {
     view.place(ORIGIN, size);
-    ImGui::SetCursorScreenPos(ORIGIN);
-    ImGui::InvisibleButton("##canvas", size,
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
-    view.input(ImGui::IsItemHovered());
+    ui::set_cursor(ORIGIN);
+    (void)ui::hit_area("##canvas", size, {.left = true, .middle = true});
+    view.input(ui::item_hovered());
 }
 
 } // namespace
 
 TEST_CASE("The wheel zooms at the cursor", "[ui][canvas]") {
     ui::CanvasView view;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
 
-    const ImVec2 at{250.0f, 180.0f};
+    const glm::vec2 at{250.0f, 180.0f};
     const glm::vec2 under = view.to_world(at);
     h.wheel(at, 2.0f);
 
@@ -42,7 +44,7 @@ TEST_CASE("The wheel zooms at the cursor", "[ui][canvas]") {
 
 TEST_CASE("Zoom stays inside its limits", "[ui][canvas]") {
     ui::CanvasView view({.min_scale = 0.5f, .max_scale = 2.0f});
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
 
@@ -54,12 +56,12 @@ TEST_CASE("Zoom stays inside its limits", "[ui][canvas]") {
 
 TEST_CASE("A middle drag pans by the distance the mouse moved", "[ui][canvas]") {
     ui::CanvasView view;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
 
     const glm::vec2 before = view.to_world(ORIGIN);
-    h.drag({300.0f, 250.0f}, {340.0f, 230.0f}, ImGuiMouseButton_Middle);
+    h.drag({300.0f, 250.0f}, {340.0f, 230.0f}, ui::MouseButton::Middle);
 
     const glm::vec2 after = view.to_world(ORIGIN);
     CHECK(after.x == Approx(before.x - 40.0f));
@@ -70,18 +72,17 @@ TEST_CASE("A middle drag pans by the distance the mouse moved", "[ui][canvas]") 
 TEST_CASE("Alt and a left drag pan, and the click is not the canvas's", "[ui][canvas]") {
     ui::CanvasView view;
     bool clicked = false;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         draw_canvas(view);
-        if (ImGui::IsItemActivated() && !view.panning()) clicked = true;
+        if (ui::item_activated() && !view.panning()) clicked = true;
     });
     h.step(2);
 
     const glm::vec2 before = view.to_world(ORIGIN);
-    ImGui::GetIO().AddKeyEvent(ImGuiMod_Alt, true);
+    h.hold({.alt = true});
     h.drag({300.0f, 250.0f}, {260.0f, 250.0f});
-    ImGui::GetIO().AddKeyEvent(ImGuiMod_Alt, false);
-    h.step();
+    h.hold({});
 
     CHECK(view.to_world(ORIGIN).x == Approx(before.x + 40.0f));
     CHECK_FALSE(clicked);
@@ -89,7 +90,7 @@ TEST_CASE("Alt and a left drag pan, and the click is not the canvas's", "[ui][ca
 
 TEST_CASE("Framing fits the world without enlarging it", "[ui][canvas]") {
     ui::CanvasView view;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
 
@@ -107,8 +108,8 @@ TEST_CASE("Framing fits the world without enlarging it", "[ui][canvas]") {
 TEST_CASE("A graph keeps its scale when resized; a timeline keeps its span", "[ui][canvas]") {
     ui::CanvasView graph;
     ui::CanvasView timeline({.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f});
-    ImVec2 size = SIZE;
-    ImGuiHarness h;
+    glm::vec2 size = SIZE;
+    KitHarness h;
     h.set_ui([&] {
         graph.place(ORIGIN, size);
         timeline.place(ORIGIN, size);
@@ -125,7 +126,7 @@ TEST_CASE("A graph keeps its scale when resized; a timeline keeps its span", "[u
 TEST_CASE("A timeline zooms and pans only inside its bounds", "[ui][canvas]") {
     ui::CanvasView view({.zoom = ui::CanvasZoom::Horizontal, .bound_min = 0.0f, .bound_max = 1.0f,
                          .min_span = 0.1f});
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
     view.frame({0.0f, 0.0f}, {1.0f, 0.0f});
@@ -140,12 +141,12 @@ TEST_CASE("A timeline zooms and pans only inside its bounds", "[ui][canvas]") {
     CHECK(view.to_world_x(ORIGIN.x + SIZE.x) - view.to_world_x(ORIGIN.x) == Approx(0.1f));
 
     // Panning far right stops at the end.
-    h.drag({150.0f, 250.0f}, {-2000.0f, 250.0f}, ImGuiMouseButton_Middle);
+    h.drag({150.0f, 250.0f}, {-2000.0f, 250.0f}, ui::MouseButton::Middle);
     CHECK(view.to_world_x(ORIGIN.x + SIZE.x) == Approx(1.0f));
 }
 
 TEST_CASE("A canvas's view is kept per asset for the session", "[ui][canvas]") {
-    ImGuiHarness h;
+    KitHarness h;
     {
         ui::CanvasView view;
         h.set_ui([&] { draw_canvas(view); });
@@ -162,7 +163,7 @@ TEST_CASE("A canvas's view is kept per asset for the session", "[ui][canvas]") {
 
 TEST_CASE("A plot shows exactly what it frames, values growing upward", "[ui][canvas]") {
     ui::CanvasView view({.zoom = ui::CanvasZoom::Both, .y_up = true});
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
     view.frame({-1.0f, -2.0f}, {3.0f, 4.0f});
@@ -178,12 +179,12 @@ TEST_CASE("A plot shows exactly what it frames, values growing upward", "[ui][ca
 
 TEST_CASE("A plot zooms both axes at the cursor, and across only with Shift", "[ui][canvas]") {
     ui::CanvasView view({.zoom = ui::CanvasZoom::Both, .y_up = true});
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view); });
     h.step(2);
     view.frame({0.0f, 0.0f}, {4.0f, 3.0f});
 
-    const ImVec2 at{220.0f, 310.0f};
+    const glm::vec2 at{220.0f, 310.0f};
     const glm::vec2 under = view.to_world(at);
     h.wheel(at, 2.0f);
     CHECK(view.to_world(at).x == Approx(under.x).margin(1e-4));
@@ -191,18 +192,17 @@ TEST_CASE("A plot zooms both axes at the cursor, and across only with Shift", "[
     const float scale_y = view.scale_y();
     CHECK(scale_y > 100.0f * 1.2f);
 
-    ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+    h.hold({.shift = true});
     h.wheel(at, 2.0f);
-    ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
-    h.step();
+    h.hold({});
     CHECK(view.scale_y() == Approx(scale_y));
     CHECK(view.scale_x() > 100.0f * 1.5f);
 }
 
 TEST_CASE("A plot pans with the mouse and keeps its range when resized", "[ui][canvas]") {
     ui::CanvasView view({.zoom = ui::CanvasZoom::Both, .y_up = true});
-    ImVec2 size = SIZE;
-    ImGuiHarness h;
+    glm::vec2 size = SIZE;
+    KitHarness h;
     h.set_ui([&] { draw_canvas(view, size); });
     h.step(2);
     view.frame({0.0f, 0.0f}, {4.0f, 3.0f});
@@ -210,7 +210,7 @@ TEST_CASE("A plot pans with the mouse and keeps its range when resized", "[ui][c
     // Dragged up by a quarter of the height: what was at the centre is now
     // a quarter higher on screen, so the view shows lower values.
     const glm::vec2 before = view.to_world({300.0f, 250.0f});
-    h.drag({300.0f, 250.0f}, {300.0f, 175.0f}, ImGuiMouseButton_Middle);
+    h.drag({300.0f, 250.0f}, {300.0f, 175.0f}, ui::MouseButton::Middle);
     CHECK(view.to_world({300.0f, 250.0f}).y == Approx(before.y - 0.75f));
 
     size = {800.0f, 600.0f};

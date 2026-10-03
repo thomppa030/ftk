@@ -1,4 +1,5 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/pages.hpp"
@@ -8,7 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -36,7 +37,7 @@ struct SettingsPage {
 } // namespace
 
 TEST_CASE("A row filter keeps the rows whose label matches, inside folded groups", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     SettingsPage page;
     int matches = -1;
     std::string query = "bloo";
@@ -57,7 +58,7 @@ TEST_CASE("A row filter keeps the rows whose label matches, inside folded groups
 }
 
 TEST_CASE("A row filter drops hints, which belong to rows it may have left out", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     SettingsPage page;
     int matches = -1;
     h.set_ui([&] {
@@ -71,7 +72,7 @@ TEST_CASE("A row filter drops hints, which belong to rows it may have left out",
 }
 
 TEST_CASE("A page entry reports a click", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int picked = -1;
     h.set_ui([&] {
         if (auto list = ui::PageList("##pages")) {
@@ -86,7 +87,7 @@ TEST_CASE("A page entry reports a click", "[ui][kit]") {
 }
 
 TEST_CASE("The save bar offers Save and Revert only while there are unsaved changes", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool unsaved = false;
     ui::SaveAction last = ui::SaveAction::None;
     h.set_ui([&] {
@@ -96,21 +97,12 @@ TEST_CASE("The save bar offers Save and Revert only while there are unsaved chan
     });
     h.step(2);
     // Save sits against the bar's right edge.
-    const ImVec2 save{h.rect_max("bar").x - 30.0f, (h.rect_min("bar").y + h.rect_max("bar").y) * 0.5f};
-    ImGuiIO& io = ImGui::GetIO();
-    auto click_at = [&](ImVec2 p) {
-        io.AddMousePosEvent(p.x, p.y);
-        h.step();
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-        h.step();
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-        h.step();
-    };
-    click_at(save);
+    const glm::vec2 save{h.rect("bar").max.x - 30.0f, h.rect("bar").centre().y};
+    h.click_at(save);
     CHECK(last == ui::SaveAction::None);
 
     unsaved = true;
     h.step();
-    click_at(save);
+    h.click_at(save);
     CHECK(last == ui::SaveAction::Save);
 }

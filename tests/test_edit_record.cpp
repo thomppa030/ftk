@@ -1,4 +1,5 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/field.hpp"
@@ -13,23 +14,17 @@
 #include <string>
 #include <vector>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
 
 constexpr const char* SCOPE = "1/rigidbody";
 
-ImVec2 centre(const ImGuiHarness& h, const std::string& name) {
-    const ImVec2 min = h.rect_min(name);
-    const ImVec2 max = h.rect_max(name);
-    return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
-}
-
 } // namespace
 
 TEST_CASE("A finished edit is recorded under its row's label, as the field shows it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool gravity = true;
     h.set_ui([&] {
         ui::edit_scope(SCOPE);
@@ -50,7 +45,7 @@ TEST_CASE("A finished edit is recorded under its row's label, as the field shows
 }
 
 TEST_CASE("A drag is one record, from where it started to where it was let go", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float mass = 10.0f;
     h.set_ui([&] {
         ui::edit_scope(SCOPE);
@@ -63,7 +58,7 @@ TEST_CASE("A drag is one record, from where it started to where it was let go", 
         ui::edit_scope({});
     });
     h.step(2);
-    const ImVec2 from = centre(h, "mass");
+    const glm::vec2 from = h.rect("mass").centre();
     h.drag(from, {from.x + 60.0f, from.y});
     const auto record = ui::take_edit_record(SCOPE);
     REQUIRE(record.has_value());
@@ -75,7 +70,7 @@ TEST_CASE("A drag is one record, from where it started to where it was let go", 
 }
 
 TEST_CASE("A colour's typed code is recorded as the colour, not as text", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec3 tint{1.0f, 1.0f, 1.0f};
     h.set_ui([&] {
         ui::edit_scope(SCOPE);
@@ -86,9 +81,9 @@ TEST_CASE("A colour's typed code is recorded as the colour, not as text", "[ui][
     });
     h.step(2);
     h.click("hex");
-    for (int i = 0; i < 12; ++i) h.press(ImGuiKey_Backspace);
+    for (int i = 0; i < 12; ++i) h.press(ui::Key::Backspace);
     h.type("#FF8000");
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     const auto record = ui::take_edit_record(SCOPE);
     REQUIRE(record.has_value());
     CHECK(record->before == "#FFFFFF");
@@ -96,7 +91,7 @@ TEST_CASE("A colour's typed code is recorded as the colour, not as text", "[ui][
 }
 
 TEST_CASE("Two finished edits, or one outside a row or a scope, name no single field", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool a = false;
     bool b = false;
     std::vector<glm::vec3> points{{0.0f, 0.0f, 0.0f}};

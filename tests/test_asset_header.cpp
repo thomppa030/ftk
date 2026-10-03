@@ -1,28 +1,16 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/asset_header.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
-namespace {
-
-void click_at(ImGuiHarness& h, ImVec2 p) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(p.x, p.y);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step();
-}
-
-} // namespace
-
 TEST_CASE("The asset header's Save, after the name, answers only while there are unsaved changes", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     ui::AssetHeaderSpec spec{.icon = ui::icon::file, .name = "crate_wood.fjmat", .folder = "Props / Crates",
                              .unsaved = false, .saves = "crate_wood.fjmat"};
     ui::SaveAction last = ui::SaveAction::None;
@@ -36,21 +24,17 @@ TEST_CASE("The asset header's Save, after the name, answers only while there are
         }
     });
     h.step(3);
-    auto save = [&] {
-        return ImVec2{(h.rect_min("save").x + h.rect_max("save").x) * 0.5f,
-                      (h.rect_min("save").y + h.rect_max("save").y) * 0.5f};
-    };
-    click_at(h, save());
+    h.click("save");
     CHECK(last == ui::SaveAction::None);
 
     spec.unsaved = true;
     h.step(2);
-    click_at(h, save());
+    h.click("save");
     CHECK(last == ui::SaveAction::Save);
 }
 
 TEST_CASE("A failed save shows under the header, and Try again saves", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     ui::AssetHeaderSpec spec{.name = "hero.fjanimset", .unsaved = true, .saves = "hero.fjanimset",
                              .error = "the animset: cannot write"};
     ui::SaveAction last = ui::SaveAction::None;
@@ -60,7 +44,7 @@ TEST_CASE("A failed save shows under the header, and Try again saves", "[ui][kit
             header.begin_actions();
             const auto action = header.finish();
             if (action != ui::SaveAction::None) last = action;
-            bottom = ImGui::GetWindowPos().y + ImGui::GetWindowHeight();
+            bottom = ui::window_pos().y + ui::window_size().y;
             h.mark("callout_end");
         }
     });
@@ -68,6 +52,6 @@ TEST_CASE("A failed save shows under the header, and Try again saves", "[ui][kit
     // The strip grew to hold the callout.
     CHECK(bottom > 60.0f);
     // Try again is the callout's button, at its bottom left.
-    click_at(h, {h.rect_min("callout_end").x + 40.0f, h.rect_max("callout_end").y - 12.0f});
+    h.click_at({h.rect("callout_end").min.x + 40.0f, h.rect("callout_end").max.y - 12.0f});
     CHECK(last == ui::SaveAction::Save);
 }

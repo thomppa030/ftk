@@ -1,16 +1,20 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/asset_tile.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <optional>
 #include <string>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 TEST_CASE("An asset tile is 96 px wide, reports clicks, and renames in place", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     ui::RenameBox rename;
     int clicks = 0;
     int double_clicks = 0;
@@ -22,11 +26,11 @@ TEST_CASE("An asset tile is 96 px wide, reports clicks, and renames in place", "
         if (tile.clicked) ++clicks;
         if (tile.double_clicked) ++double_clicks;
         if (tile.renamed) renamed = tile.renamed;
-        ImGui::Button("elsewhere");
+        ui::button("elsewhere");
         h.mark("elsewhere");
     });
     h.step(2);
-    CHECK(h.rect_max("tile").x - h.rect_min("tile").x == ui::asset_tile_size().x);
+    CHECK(h.rect("tile").width() == ui::asset_tile_size().x);
     CHECK(ui::asset_tile_size().x == 96.0f);
 
     h.click("tile");
@@ -34,7 +38,7 @@ TEST_CASE("An asset tile is 96 px wide, reports clicks, and renames in place", "
 
     rename.start(1, "crate.fjmesh");
     h.step(2);
-    for (int i = 0; i < 16; ++i) h.press(ImGuiKey_Backspace);
+    for (int i = 0; i < 16; ++i) h.press(ui::Key::Backspace);
     h.type("barrel.fjmesh");
     // A click away keeps the new name.
     h.click("elsewhere");
@@ -45,15 +49,15 @@ TEST_CASE("An asset tile is 96 px wide, reports clicks, and renames in place", "
 TEST_CASE("A tile keeps its clicks from a background drawn behind the grid after it", "[ui][kit]") {
     // The content browser draws one button over the whole grid afterwards,
     // for right-clicks on empty space and drops onto the folder.
-    ImGuiHarness h;
+    KitHarness h;
     int tile_clicks = 0;
     int background_clicks = 0;
     h.set_ui([&] {
-        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const glm::vec2 origin = ui::cursor();
         if (ui::asset_tile({.id = "1", .name = "crate.fjmesh", .icon = "*"}).clicked) ++tile_clicks;
         h.mark("tile");
-        ImGui::SetCursorScreenPos(origin);
-        if (ImGui::InvisibleButton("##background", {300.0f, 300.0f})) ++background_clicks;
+        ui::set_cursor(origin);
+        if (ui::hit_area("##background", {300.0f, 300.0f})) ++background_clicks;
     });
     h.step(2);
     h.click("tile");

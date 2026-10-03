@@ -23,6 +23,10 @@ float font_size() {
     return ImGui::GetFontSize();
 }
 
+Color text_colour() {
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
 FontScope::FontScope(Font font, float size) {
     ImGui::PushFont(font, size);
 }

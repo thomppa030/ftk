@@ -1,13 +1,15 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/dialog.hpp"
+#include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <imgui_internal.h>
 
 #include <string>
 #include <vector>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -28,19 +30,19 @@ struct Prompt {
         const auto given = ui::prompt_dialog("##prompt", {.title = "Save layout as", .hint = "Layout name",
                                                           .confirm = "Save layout"}, name);
         if (given != ui::DialogAnswer::None) answer = given;
-        open = ImGui::IsPopupOpen("##prompt");
+        open = ui::popup_open("##prompt");
     }
 };
 
 } // namespace
 
 TEST_CASE("A name prompt takes typing at once and Enter confirms it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     Prompt prompt;
     h.set_ui([&] { prompt.draw(); });
     h.step(3);
     h.type("Wide");
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(prompt.name == "Wide");
     CHECK(prompt.answer == ui::DialogAnswer::Confirm);
     h.step();
@@ -48,20 +50,20 @@ TEST_CASE("A name prompt takes typing at once and Enter confirms it", "[ui][kit]
 }
 
 TEST_CASE("A name prompt won't confirm without a name, and Esc cancels it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     Prompt prompt;
     h.set_ui([&] { prompt.draw(); });
     h.step(3);
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(prompt.answer == ui::DialogAnswer::None);
     CHECK(prompt.open);
 
-    h.press(ImGuiKey_Escape);
+    h.press(ui::Key::Escape);
     CHECK(prompt.answer == ui::DialogAnswer::Cancel);
 }
 
 TEST_CASE("Closing with unsaved changes: Enter saves, Esc cancels", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool open_now = true;
     ui::UnsavedAnswer answer = ui::UnsavedAnswer::None;
     h.set_ui([&] {
@@ -74,18 +76,18 @@ TEST_CASE("Closing with unsaved changes: Enter saves, Esc cancels", "[ui][kit]")
         if (given != ui::UnsavedAnswer::None) answer = given;
     });
     h.step(3);
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(answer == ui::UnsavedAnswer::Save);
 
     open_now = true;
     answer = ui::UnsavedAnswer::None;
     h.step(3);
-    h.press(ImGuiKey_Escape);
+    h.press(ui::Key::Escape);
     CHECK(answer == ui::UnsavedAnswer::Cancel);
 }
 
 TEST_CASE("Quitting lists everything unsaved and saves only what stays ticked", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<ui::UnsavedItem> items{{.name = "crate_wood.fjmat"}, {.name = "hero.fjanimset"}};
     bool open_now = true;
     ui::UnsavedAnswer answer = ui::UnsavedAnswer::None;
@@ -100,16 +102,16 @@ TEST_CASE("Quitting lists everything unsaved and saves only what stays ticked", 
     h.step(3);
     items[1].save = false;
     h.step();
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     CHECK(answer == ui::UnsavedAnswer::Save);
     CHECK(items[0].save);
     CHECK_FALSE(items[1].save);
 }
 
 TEST_CASE("A dialog hangs from the point it is opened at", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool open_now = true;
-    ImVec2 top_left{-1.0f, -1.0f};
+    glm::vec2 top_left{-1.0f, -1.0f};
     float width = 0.0f;
     h.set_ui([&] {
         if (open_now) {
@@ -118,8 +120,8 @@ TEST_CASE("A dialog hangs from the point it is opened at", "[ui][kit]") {
             open_now = false;
         }
         (void)ui::confirm_dialog("##hang", {.title = "New script"}, [&] {
-            top_left = ImGui::GetWindowPos();
-            width = ImGui::GetWindowWidth();
+            top_left = ui::window_pos();
+            width = ui::window_size().x;
         });
     });
     h.step(3);
@@ -130,13 +132,13 @@ TEST_CASE("A dialog hangs from the point it is opened at", "[ui][kit]") {
     open_now = true;
     h.set_ui([&] {
         if (open_now) {
-            ImGui::CloseCurrentPopup();
+            ui::close_popup();
             ui::open_dialog("##centred", {{400.0f, 80.0f}, 0.5f});
             open_now = false;
         }
         (void)ui::confirm_dialog("##centred", {.title = "Save changes?"}, [&] {
-            top_left = ImGui::GetWindowPos();
-            width = ImGui::GetWindowWidth();
+            top_left = ui::window_pos();
+            width = ui::window_size().x;
         });
     });
     h.step(3);

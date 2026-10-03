@@ -42,6 +42,7 @@ add_executable(ftk-tests
     test_kit.cpp
     test_kit_basics.cpp
     test_kit_dock.cpp
+    test_kit_imgui.cpp
     test_bit_strip.cpp
     test_rail.cpp
     test_list_editor.cpp

@@ -1,6 +1,11 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/asset_kind.hpp"
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/slot.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -8,7 +13,7 @@
 
 #include <string>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 using namespace ftk;
 
 namespace {
@@ -18,24 +23,23 @@ constexpr const char* PAYLOAD = "TEST_ITEM";
 // A slot taking named items, beside a button that drags `dragged` the way a
 // list would. It refuses anything named "crate".
 struct SlotUnderTest {
-    ImGuiHarness h;
+    KitHarness h;
     std::string held;
     std::string dragged;
     int clicks{0};
     int clears{0};
-    ImVec2 field{};
+    glm::vec2 field{};
+    float frame{0.0f};
 
     SlotUnderTest() {
         h.set_ui([this] {
-            ImGui::Button("Item in a list");
+            ui::button("Item in a list");
             h.mark("source");
-            if (ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload(PAYLOAD, dragged.c_str(), dragged.size() + 1);
-                ImGui::EndDragDropSource();
-            }
-            field = ImGui::GetCursorScreenPos();
-            ImGui::SetNextItemWidth(240.0f);
-            ImGui::PushID("##item");
+            if (auto drag = ui::DragSource()) drag.carry(PAYLOAD, dragged);
+            field = ui::cursor();
+            frame = ui::frame_height();
+            ui::next_width(240.0f);
+            const ui::IdScope id("##item");
             ui::Slot slot(PAYLOAD, [](const ui::Payload& payload) -> std::string {
                 const std::string name = static_cast<const char*>(payload.data);
                 return name == "crate" ? "Crates do not fit." : std::string();
@@ -49,17 +53,12 @@ struct SlotUnderTest {
                 ++clears;
             }
             h.mark("clear");
-            ImGui::PopID();
         });
         h.step(2);
     }
 
-    [[nodiscard]] ImVec2 into_field() const { return {field.x + 20.0f, field.y + ImGui::GetFrameHeight() * 0.5f}; }
-    [[nodiscard]] ImVec2 source() const {
-        const ImVec2 a = h.rect_min("source");
-        const ImVec2 b = h.rect_max("source");
-        return {(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
-    }
+    [[nodiscard]] glm::vec2 into_field() const { return {field.x + 20.0f, field.y + frame * 0.5f}; }
+    [[nodiscard]] glm::vec2 source() const { return h.rect("source").centre(); }
 };
 
 } // namespace
@@ -102,7 +101,7 @@ TEST_CASE("A built-in reads as the kind its slot takes, by name, and is never mi
     CHECK(face.text == "White");
     CHECK(face.glyph == ui::asset_kind(".png").icon);
     CHECK(face.glyph != ui::icon::warning);
-    const ImVec4 colour = theme::text();
+    const ui::Color colour = theme::text();
     CHECK(face.text_colour.x == colour.x);
     CHECK(face.text_colour.y == colour.y);
     CHECK(face.text_colour.z == colour.z);

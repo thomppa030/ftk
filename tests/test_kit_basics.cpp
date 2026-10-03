@@ -1,8 +1,10 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
@@ -25,7 +27,6 @@
 #include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <imgui.h>
 
 #include <algorithm>
 #include <array>
@@ -33,31 +34,19 @@
 #include <utility>
 #include <vector>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
 
-// Presses and releases `button` at `at`, a frame for each, the way a click
-// arrives.
-void click_with(ImGuiHarness& h, glm::vec2 at, ImGuiMouseButton button) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(at.x, at.y);
-    h.step();
-    io.AddMouseButtonEvent(button, true);
-    h.step();
-    io.AddMouseButtonEvent(button, false);
-    h.step();
-}
-
-glm::vec2 centre(const ImGuiHarness& h, const std::string& name) {
-    return (glm::vec2(h.rect_min(name)) + glm::vec2(h.rect_max(name))) * 0.5f;
+glm::vec2 centre(const KitHarness& h, const std::string& name) {
+    return h.rect(name).centre();
 }
 
 } // namespace
 
 TEST_CASE("The cursor is where the next item goes, and reserve takes room there", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 cursor_after_set{};
     glm::vec2 reserved_min{};
     glm::vec2 reserved_max{};
@@ -79,7 +68,7 @@ TEST_CASE("The cursor is where the next item goes, and reserve takes room there"
 }
 
 TEST_CASE("next_width sets the next field's width, and a group is one item", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float field_width = 0.0f;
     glm::vec2 group_min{};
     glm::vec2 group_max{};
@@ -87,7 +76,7 @@ TEST_CASE("next_width sets the next field's width, and a group is one item", "[u
         static float value = 0.0f;
         ui::next_width(120.0f);
         CHECK(ui::next_item_width() == 120.0f);
-        ImGui::SliderFloat("##value", &value, 0.0f, 1.0f);
+        (void)ui::slider("##value", value, 0.0f, 1.0f);
         field_width = ui::item_max().x - ui::item_min().x;
         {
             ui::Group group;
@@ -102,12 +91,12 @@ TEST_CASE("next_width sets the next field's width, and a group is one item", "[u
     });
     h.step(2);
     CHECK(field_width == 120.0f);
-    CHECK(group_min == glm::vec2(h.rect_min("apply")));
-    CHECK(group_max == glm::vec2(h.rect_max("revert")));
+    CHECK(group_min == h.rect("apply").min);
+    CHECK(group_max == h.rect("revert").max);
 }
 
 TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 size{};
     glm::vec2 measured{};
     h.set_ui([&] {
@@ -124,7 +113,7 @@ TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
 }
 
 TEST_CASE("A hit area answers to the buttons it is given", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int left = 0;
     int either = 0;
     bool hovered = false;
@@ -138,18 +127,18 @@ TEST_CASE("A hit area answers to the buttons it is given", "[ui][kit]") {
         h.mark("either");
     });
     h.step(2);
-    click_with(h, centre(h, "left"), ImGuiMouseButton_Right);
+    h.click("left", ui::MouseButton::Right);
     CHECK(left == 0);
-    click_with(h, centre(h, "left"), ImGuiMouseButton_Left);
+    h.click("left");
     CHECK(left == 1);
-    click_with(h, centre(h, "either"), ImGuiMouseButton_Right);
+    h.click("either", ui::MouseButton::Right);
     CHECK(either == 1);
     CHECK(hovered);
     CHECK(right_clicked);
 }
 
 TEST_CASE("A key is pressed once and repeated while it is held", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int pressed = 0;
     int repeated = 0;
     bool ctrl = false;
@@ -159,21 +148,20 @@ TEST_CASE("A key is pressed once and repeated while it is held", "[ui][kit]") {
         ctrl = ui::modifiers().ctrl;
     });
     h.step();
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-    io.AddKeyEvent(ImGuiKey_Delete, true);
-    h.step(60);  // a second held
+    h.hold({.ctrl = true});
+    h.key_down(ui::Key::Delete);
+    h.step(58);  // a second held
     CHECK(pressed == 1);
     CHECK(repeated > 1);
     CHECK(ctrl);
-    io.AddKeyEvent(ImGuiKey_Delete, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-    h.step(3);
+    h.key_up(ui::Key::Delete);
+    h.hold({});
+    h.step();
     CHECK_FALSE(ctrl);
 }
 
 TEST_CASE("What is put on the clipboard is what it holds", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::string held;
     h.set_ui([&] {
         ui::set_clipboard("[info] Opened harbour");
@@ -184,7 +172,7 @@ TEST_CASE("What is put on the clipboard is what it holds", "[ui][kit]") {
 }
 
 TEST_CASE("A popup opens by name and closes when an entry is chosen", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int chosen = 0;
     bool open = false;
     h.set_ui([&] {
@@ -208,7 +196,7 @@ TEST_CASE("A popup opens by name and closes when an entry is chosen", "[ui][kit]
 }
 
 TEST_CASE("A context menu opens on a right click on its item", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool shown = false;
     h.set_ui([&] {
         ui::button("Track");
@@ -221,13 +209,13 @@ TEST_CASE("A context menu opens on a right click on its item", "[ui][kit]") {
     });
     h.step(2);
     CHECK_FALSE(shown);
-    click_with(h, centre(h, "track"), ImGuiMouseButton_Right);
+    h.click("track", ui::MouseButton::Right);
     h.step();
     CHECK(shown);
 }
 
 TEST_CASE("An image is an item the size it is given", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 size{};
     h.set_ui([&] {
         ui::image(ui::Texture{0x1234}, {64.0f, 32.0f});
@@ -238,13 +226,11 @@ TEST_CASE("An image is an item the size it is given", "[ui][kit]") {
 }
 
 TEST_CASE("What is stored under an id comes back the next frame", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int frame = 0;
     int seen = -2;
-    bool same_id = false;
     h.set_ui([&] {
         const ui::Id picked = ui::id("##picked");
-        same_id = picked == ImGui::GetID("##picked");
         seen = ui::stored_int(picked, -1);
         ui::store_int(picked, frame++);
         ui::store_bool(ui::id("##open"), true);
@@ -254,7 +240,6 @@ TEST_CASE("What is stored under an id comes back the next frame", "[ui][kit]") {
     CHECK(seen == -1);
     h.step();
     CHECK(seen == 0);
-    CHECK(same_id);
     h.set_ui([&] {
         CHECK(ui::stored_bool(ui::id("##open")));
         CHECK(ui::stored_float(ui::id("##width")) == 120.0f);
@@ -264,7 +249,7 @@ TEST_CASE("What is stored under an id comes back the next frame", "[ui][kit]") {
 }
 
 TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scope its colour", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float inside = 0.0f;
     float after = 0.0f;
     float before = 0.0f;
@@ -279,7 +264,7 @@ TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scop
                 CHECK(ui::font_size() == 9.0f);
             }
             ui::TextColour dim(ftk::theme::text_secondary());
-            text_inside = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+            text_inside = ui::text_colour();
         }
         after = ui::font_size();
     });
@@ -289,26 +274,18 @@ TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scop
     CHECK(text_inside == ftk::theme::text_secondary());
 }
 
-TEST_CASE("The style's spacing and padding are the kit's metrics", "[ui][kit]") {
-    ImGuiHarness h;
-    h.set_ui([&] {
-        CHECK(ui::item_spacing() == glm::vec2(ImGui::GetStyle().ItemSpacing));
-        CHECK(ui::item_inner_spacing() == glm::vec2(ImGui::GetStyle().ItemInnerSpacing));
-        CHECK(ui::frame_padding() == glm::vec2(ImGui::GetStyle().FramePadding));
-    });
-    h.step();
-}
-
 TEST_CASE("The window being drawn knows where it is and whether the mouse is on it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 pos{-1.0f};
     glm::vec2 size{};
     glm::vec2 content_min{};
+    glm::vec2 padding{};
     bool hovered = false;
     h.set_ui([&] {
         pos = ui::window_pos();
         size = ui::window_size();
         content_min = ui::window_content_min();
+        padding = ui::window_padding();
         hovered = ui::window_hovered();
         ui::button("Bake");
         h.mark("bake");
@@ -316,13 +293,13 @@ TEST_CASE("The window being drawn knows where it is and whether the mouse is on 
     h.step(2);
     CHECK(pos == glm::vec2{0.0f, 0.0f});
     CHECK(size == glm::vec2{800.0f, 600.0f});
-    CHECK(content_min == glm::vec2(ImGui::GetStyle().WindowPadding));
+    CHECK(content_min == padding);
     h.hover("bake");
     CHECK(hovered);
 }
 
 TEST_CASE("A window scrolls to the cursor's line", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float scrolled = -1.0f;
     float most = -1.0f;
     h.set_ui([&] {
@@ -337,7 +314,7 @@ TEST_CASE("A window scrolls to the cursor's line", "[ui][kit]") {
 }
 
 TEST_CASE("A host window goes where it is placed and ends with end_host_window()", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 pos{};
     glm::vec2 size{};
     h.set_ui([&] {
@@ -353,24 +330,8 @@ TEST_CASE("A host window goes where it is placed and ends with end_host_window()
     CHECK(size == glm::vec2{300.0f, 200.0f});
 }
 
-TEST_CASE("A window's first size is only its first", "[ui][kit]") {
-    ImGuiHarness h;
-    glm::vec2 size{};
-    h.set_ui([&] {
-        ui::next_window_size_once({320.0f, 240.0f});
-        ImGui::Begin("Preview");
-        size = ui::window_size();
-        ImGui::End();
-    });
-    h.step(2);
-    CHECK(size == glm::vec2{320.0f, 240.0f});
-    ImGui::SetWindowSize("Preview", {400.0f, 300.0f});
-    h.step(2);
-    CHECK(size == glm::vec2{400.0f, 300.0f});
-}
-
 TEST_CASE("An item that allows overlap lets one drawn over it take the mouse", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int under = 0;
     int over = 0;
     h.set_ui([&] {
@@ -388,7 +349,7 @@ TEST_CASE("An item that allows overlap lets one drawn over it take the mouse", "
 }
 
 TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int picked = -1;
     h.set_ui([&] {
         for (int i = 0; i < 3; ++i) {
@@ -407,7 +368,7 @@ TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
 }
 
 TEST_CASE("A region is its own size and scrolls with the wheel unless told not to", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 inside{};
     float log_scroll = -1.0f;
     float lanes_scroll = -1.0f;
@@ -435,7 +396,7 @@ TEST_CASE("A region is its own size and scrolls with the wheel unless told not t
 }
 
 TEST_CASE("A table's rows go under its headers, and a click on a header sorts by it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     static constexpr ui::Column COLUMNS[] = {
         {.name = "Name", .default_sort = true},
         {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
@@ -461,12 +422,12 @@ TEST_CASE("A table's rows go under its headers, and a click on a header sorts by
     REQUIRE(sorts.size() == 1);
     CHECK(sorts[0].column == 0);
     CHECK(sorts[0].ascending);
-    CHECK(h.rect_min("size0").x > h.rect_max("name0").x);
-    CHECK(h.rect_min("name1").y > h.rect_min("name0").y);
-    CHECK(h.rect_min("name1").x == h.rect_min("name0").x);
+    CHECK(h.rect("size0").min.x > h.rect("name0").max.x);
+    CHECK(h.rect("name1").min.y > h.rect("name0").min.y);
+    CHECK(h.rect("name1").min.x == h.rect("name0").min.x);
 
     // The headers are a row above the first; the size column's is clicked.
-    const ImVec2 size_header{h.rect_min("size0").x + 10.0f, h.rect_min("size0").y - 8.0f};
+    const glm::vec2 size_header{h.rect("size0").min.x + 10.0f, h.rect("size0").min.y - 8.0f};
     h.click_at(size_header);
     REQUIRE(sorts.size() == 2);
     CHECK(sorts[1].column == 1);
@@ -478,7 +439,7 @@ TEST_CASE("A table's rows go under its headers, and a click on a header sorts by
 }
 
 TEST_CASE("A plot is an item the size it is given", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     const std::array<float, 4> history{1.0f, 3.0f, 2.0f, 5.0f};
     glm::vec2 size{};
     h.set_ui([&] {
@@ -490,7 +451,7 @@ TEST_CASE("A plot is an item the size it is given", "[ui][kit]") {
 }
 
 TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int picked = -1;
     bool any_open = false;
     float width = 0.0f;
@@ -525,7 +486,7 @@ TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "
 }
 
 TEST_CASE("A menu on the bar opens on a click and runs its entries", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int saved = 0;
     h.set_ui([&] {
         if (auto bar = ui::MenuBar()) {
@@ -547,7 +508,7 @@ TEST_CASE("A menu on the bar opens on a click and runs its entries", "[ui][kit]"
 }
 
 TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int stops = 0;
     float height = 0.0f;
     h.set_ui([&] {
@@ -562,7 +523,7 @@ TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
 }
 
 TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::string name;
     std::string seen;
     int entered = 0;
@@ -584,7 +545,7 @@ TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it"
     h.step();
     CHECK(seen == "Fjord");
     CHECK(entered == 0);
-    h.press(ImGuiKey_Enter);
+    h.press(ui::Key::Enter);
     h.step();
     CHECK(entered == 1);
 
@@ -598,18 +559,14 @@ TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it"
 }
 
 TEST_CASE("The mouse pointer takes the shape asked for this frame", "[ui][kit]") {
-    ImGuiHarness h;
-    ImGuiMouseCursor shape = ImGuiMouseCursor_None;
-    h.set_ui([&] {
-        ui::set_mouse_cursor(ui::MouseCursor::Text);
-        shape = ImGui::GetMouseCursor();
-    });
+    KitHarness h;
+    h.set_ui([&] { ui::set_mouse_cursor(ui::MouseCursor::Text); });
     h.step();
-    CHECK(shape == ImGuiMouseCursor_TextInput);
+    CHECK(h.cursor() == ui::MouseCursor::Text);
 }
 
 TEST_CASE("A drag carries its payload to a target that takes its type", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::string dropped;
     std::string dropped_on_window;
     bool offered = false;
@@ -659,7 +616,7 @@ TEST_CASE("A drag carries its payload to a target that takes its type", "[ui][ki
     CHECK(quiet_deliveries == 1);
 
     // Low in the region, under its only line.
-    h.drag(centre(h, "source"), {centre(h, "panel").x, h.rect_max("panel").y - 10.0f});
+    h.drag(centre(h, "source"), {centre(h, "panel").x, h.rect("panel").max.y - 10.0f});
     h.step();
     CHECK(dropped_on_window == "textures/rock.png");
 }
@@ -672,7 +629,7 @@ TEST_CASE("A payload reads as text without the zero that ends it", "[ui][kit]") 
 }
 
 TEST_CASE("Under the mouse is hovered even while another item is held", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool hovered = false;
     bool under = false;
     bool window_hovered = false;
@@ -692,27 +649,24 @@ TEST_CASE("Under the mouse is hovered even while another item is held", "[ui][ki
         over = ui::mouse_over(ui::item_min(), ui::item_max());
     });
     h.step(2);
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(centre(h, "held").x, centre(h, "held").y);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-    h.step();
+    h.move_to(centre(h, "held"));
+    h.button_down();
     CHECK_FALSE(over);
-    io.AddMousePosEvent(centre(h, "canvas").x, centre(h, "canvas").y);
-    h.step(2);
+    h.move_to(centre(h, "canvas"));
+    h.step();
     CHECK(over);
     CHECK_FALSE(hovered);
     CHECK(under);
     CHECK_FALSE(window_hovered);
     CHECK(window_under);
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-    h.step(2);
+    h.button_up();
+    h.step();
     CHECK(hovered);
     CHECK(window_hovered);
 }
 
 TEST_CASE("A window placed each frame stays put and keeps within its size limits", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 pos{};
     glm::vec2 size{};
     ui::WorkArea area{};
@@ -727,13 +681,13 @@ TEST_CASE("A window placed each frame stays put and keeps within its size limits
         }
     });
     h.step(3);
-    CHECK(area.size == glm::vec2(ImGui::GetIO().DisplaySize));
+    CHECK(area.size == h.size());
     CHECK(pos == glm::vec2{40.0f, 60.0f});
     CHECK(size == glm::vec2{300.0f, 100.0f});
 }
 
 TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged to", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int picked = 0;
     glm::vec3 colour{0.2f, 0.4f, 0.6f};
     ui::Edit last{};
@@ -748,12 +702,12 @@ TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged t
         h.mark("picker");
     });
     h.step(2);
-    CHECK(h.rect_max("swatch").x - h.rect_min("swatch").x == 20.0f);
+    CHECK(h.rect("swatch").width() == 20.0f);
     h.click("swatch");
     CHECK(picked == 1);
     // A press near the square's top-left corner: white, the brightest and
     // least saturated.
-    const glm::vec2 corner = glm::vec2(h.rect_min("picker")) + glm::vec2{2.0f, 2.0f};
+    const glm::vec2 corner = h.rect("picker").min + glm::vec2{2.0f, 2.0f};
     h.click_at(corner);
     h.step();
     CHECK(colour.r > 0.9f);
@@ -763,7 +717,7 @@ TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged t
 }
 
 TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     static constexpr ui::Column COLUMNS[] = {{.name = "Property"}, {.name = "Value"}};
     std::array<bool, 2> hovered{};
     h.set_ui([&] {
@@ -787,7 +741,7 @@ TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
 }
 
 TEST_CASE("The windows shown are the top-level ones, found again by name", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::vector<ui::ShownWindow> shown;
     h.set_ui([&] {
         ui::next_window_place({100.0f, 120.0f}, {240.0f, 160.0f});
@@ -810,35 +764,8 @@ TEST_CASE("The windows shown are the top-level ones, found again by name", "[ui]
     CHECK_FALSE(ui::window_named("Nowhere").has_value());
 }
 
-TEST_CASE("A settings section is read back from the settings file and written to it", "[ui][kit]") {
-    ImGuiHarness h;
-    int text_size = 14;
-    std::vector<std::string> read;
-    ui::add_settings_section({
-        .name = "KitView",
-        .read = [&](std::string_view entry, std::string_view line) {
-            read.push_back(std::string(entry) + ":" + std::string(line));
-            if (entry == "Editor" && line.starts_with("TextSize=")) text_size = std::stoi(std::string(line.substr(9)));
-        },
-        .write = [&] {
-            return std::vector<ui::SettingsEntry>{{"Editor", {"TextSize=" + std::to_string(text_size)}}};
-        },
-    });
-    ImGui::LoadIniSettingsFromMemory("[KitView][Editor]\nTextSize=17\n\n[KitView][Other]\nTextSize=9\n");
-    CHECK(text_size == 17);
-    CHECK(read == std::vector<std::string>{"Editor:TextSize=17", "Other:TextSize=9"});
-
-    text_size = 12;
-    ui::settings_changed();
-    const std::string saved = ImGui::SaveIniSettingsToMemory();
-    CHECK(saved.find("[KitView][Editor]\nTextSize=12\n") != std::string::npos);
-
-    // The kit keeps a section for the program's life; these callbacks don't.
-    ui::add_settings_section({.name = "KitView"});
-}
-
 TEST_CASE("Drawing in a window again lands in it, and a window is given focus", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 panel_pos{};
     glm::vec2 again_pos{};
     glm::vec2 note_min{};
@@ -868,13 +795,13 @@ TEST_CASE("Drawing in a window again lands in it, and a window is given focus", 
 }
 
 TEST_CASE("A claimed key is still read by its shortcut", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool snapped = false;
     h.set_ui([&] {
         ui::claim_key(ui::Key::End, "##snap_to_floor");
         snapped = snapped || ui::key_pressed(ui::Key::End);
     });
     h.step(2);
-    h.press(ImGuiKey_End);
+    h.press(ui::Key::End);
     CHECK(snapped);
 }

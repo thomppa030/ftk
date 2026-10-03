@@ -1,4 +1,5 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/dock.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -9,7 +10,6 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <imgui.h>
 
 #include <array>
 #include <filesystem>
@@ -19,19 +19,18 @@
 #include <vector>
 
 using Catch::Approx;
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
 
 // A dockspace filling the harness, with a panel for each of `windows`.
 struct Docked {
-    ImGuiHarness h;
+    KitHarness h;
     ui::Id dock{0};
     std::vector<std::string> windows;
 
     Docked(std::vector<std::string> names, const std::function<void(ui::Id)>& build) : windows(std::move(names)) {
-        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         bool built = false;
         h.set_ui([this, build, built]() mutable {
             dock = ui::id("##dock");
@@ -100,7 +99,7 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
 }
 
 TEST_CASE("Document tabs say which is in front, come forward when asked and close", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     std::array<bool, 3> front{};
     std::array<bool, 3> closed{};
     int select = -1;
@@ -128,16 +127,15 @@ TEST_CASE("Document tabs say which is in front, come forward when asked and clos
     CHECK(front == std::array<bool, 3>{false, true, false});
 
     // The × sits at the right end of the tab in front.
-    const ImVec2 min = h.rect_min("Rock");
-    const ImVec2 max = h.rect_max("Rock");
-    h.click_at({max.x - (max.y - min.y) * 0.5f, (min.y + max.y) * 0.5f});
+    const auto rock = h.rect("Rock");
+    h.click_at({rock.max.x - rock.height() * 0.5f, rock.centre().y});
     CHECK(closed[1]);
     CHECK_FALSE(closed[0]);
     CHECK_FALSE(closed[2]);
 }
 
 TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool any_key = false;
     bool any_release = false;
     bool a = false;
@@ -148,21 +146,21 @@ TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui
     });
     h.step(2);
     CHECK_FALSE(any_key);
-    h.press(ImGuiKey_Escape);
+    h.press(ui::Key::Escape);
     CHECK(any_key);
     h.click_at({100.0f, 100.0f});
     CHECK(any_release);
 
     ui::set_keyboard_ignored(true);
-    h.press(ImGuiKey_A);
+    h.press(ui::Key::A);
     CHECK_FALSE(a);
     ui::set_keyboard_ignored(false);
-    h.press(ImGuiKey_A);
+    h.press(ui::Key::A);
     CHECK(a);
 }
 
 TEST_CASE("The settings file is written to a path and read back from it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int size = 15;
     ui::add_settings_section({
         .name = "KitLayout",

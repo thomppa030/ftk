@@ -455,6 +455,7 @@ ftk_library(app-ui-imgui
         ftk/ui/kit/viewport_toolbar.cpp
         ftk/ui/kit/window.cpp
     HEADERS
+        ftk/ui/imgui_input.hpp
         ftk/ui/imgui_theme.hpp
     LINKS
         PUBLIC ftk::base ftk::math ftk::ui-kit ftk::ui-core ftk::imgui-headless glm::glm
@@ -481,7 +482,7 @@ ftk_library(imgui-harness
     HEADERS
         ftk/test/imgui_harness.hpp
     LINKS
-        PUBLIC ftk::app-ui-imgui ftk::ui-kit ftk::imgui-headless
+        PUBLIC ftk::app-ui-imgui ftk::ui-kit ftk::ui-core ftk::imgui-headless
 )
 
 # ftk-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,

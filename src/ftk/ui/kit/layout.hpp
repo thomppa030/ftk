@@ -80,6 +80,9 @@ void align_text_to_frame();
 /// The space between a field's or a button's edge and its text.
 [[nodiscard]] glm::vec2 frame_padding();
 
+/// The space between a window's or a popup's edge and what it holds.
+[[nodiscard]] glm::vec2 window_padding();
+
 /// While it lives, what is drawn is one item to same_line() and the item_
 /// queries: a field with its unit, a pill of buttons.
 class Group {

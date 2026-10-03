@@ -76,6 +76,10 @@ glm::vec2 frame_padding() {
     return ImGui::GetStyle().FramePadding;
 }
 
+glm::vec2 window_padding() {
+    return ImGui::GetStyle().WindowPadding;
+}
+
 Group::Group() {
     ImGui::BeginGroup();
 }

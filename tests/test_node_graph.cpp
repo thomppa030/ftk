@@ -1,4 +1,5 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/node_graph.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -6,7 +7,7 @@
 #include <algorithm>
 #include <optional>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -111,7 +112,7 @@ struct EdgeGraph {
 TEST_CASE("A link dragged from an output onto an input is reported output first", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -124,7 +125,7 @@ TEST_CASE("A link dragged from an output onto an input is reported output first"
 TEST_CASE("A link dragged out of an input is still reported output first", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -137,7 +138,7 @@ TEST_CASE("A link dragged out of an input is still reported output first", "[ui]
 TEST_CASE("A link the caller's rule refuses is not made", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -148,7 +149,7 @@ TEST_CASE("A link the caller's rule refuses is not made", "[ui][node_graph]") {
 TEST_CASE("A node is never linked to itself, nor an input to an input", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -165,7 +166,7 @@ TEST_CASE("Ctrl and a click on a pin breaks every link on it", "[ui][node_graph]
     g.desc.links.push_back({.id = 9, .from = PinGraph::MIDDLE_OUT, .to = PinGraph::TARGET_AMOUNT});
     ui::NodeGraph graph;
     std::vector<uint64_t> unlinked;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         const auto events = graph.draw(g.desc);
         unlinked.insert(unlinked.end(), events.unlinked.begin(), events.unlinked.end());
@@ -173,18 +174,13 @@ TEST_CASE("Ctrl and a click on a pin breaks every link on it", "[ui][node_graph]
     h.step(2);
 
     // A plain click on the pin starts a link and breaks nothing.
-    const ImVec2 amount = graph.end_position(PinGraph::TARGET_AMOUNT);
+    const glm::vec2 amount = graph.end_position(PinGraph::TARGET_AMOUNT);
     h.drag(amount, amount);
     CHECK(unlinked.empty());
 
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-    io.AddKeyEvent(ImGuiKey_LeftCtrl, true);
-    h.step();
+    h.hold({.ctrl = true});
     h.drag(amount, amount);
-    io.AddKeyEvent(ImGuiKey_LeftCtrl, false);
-    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-    h.step();
+    h.hold({});
     std::sort(unlinked.begin(), unlinked.end());
     CHECK(unlinked == std::vector<uint64_t>{7, 9});
 }
@@ -192,7 +188,7 @@ TEST_CASE("Ctrl and a click on a pin breaks every link on it", "[ui][node_graph]
 TEST_CASE("A node dragged by its body is reported at its snapped place", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -207,12 +203,12 @@ TEST_CASE("A node dragged by its body is reported at its snapped place", "[ui][n
 TEST_CASE("A value dragged sideways in its node changes and reports the node", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(3);
 
     // The middle of the target's Amount field, at the right of its row.
-    const ImVec2 at = graph.screen_position({300.0f + 176.0f - 12.0f - 31.0f, 26.0f + 11.0f});
+    const glm::vec2 at = graph.screen_position({300.0f + 176.0f - 12.0f - 31.0f, 26.0f + 11.0f});
     h.drag(at, {at.x + 20.0f, at.y});
     CHECK(g.amount == 70.0f);   // 50, one a pixel
     CHECK(std::find(g.edited.begin(), g.edited.end(), uint64_t{2}) != g.edited.end());
@@ -222,28 +218,28 @@ TEST_CASE("A value dragged sideways in its node changes and reports the node", "
 TEST_CASE("Del asks to remove the selected node, and nothing without a selection", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
-    const ImVec2 source = graph.screen_position({40.0f, 13.0f});
+    const glm::vec2 source = graph.screen_position({40.0f, 13.0f});
     h.drag(source, source);
-    h.press(ImGuiKey_Delete);
+    h.press(ui::Key::Delete);
     CHECK(g.removes == 1);
 
     graph.clear_selection();
-    h.press(ImGuiKey_Delete);
+    h.press(ui::Key::Delete);
     CHECK(g.removes == 1);
 }
 
 TEST_CASE("A double-click on empty canvas is reported where it was, snapped", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
-    const ImVec2 empty = graph.screen_position({200.0f, 100.0f});
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
     h.drag(empty, empty);
     h.drag(empty, empty);
     REQUIRE(g.double_clicked.has_value());
@@ -253,7 +249,7 @@ TEST_CASE("A double-click on empty canvas is reported where it was, snapped", "[
 TEST_CASE("The selection is let go when its node goes", "[ui][node_graph]") {
     PinGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -270,7 +266,7 @@ TEST_CASE("Right-click opens the caller's menu on the node under the mouse", "[u
     ui::NodeGraph graph;
     std::optional<ui::NodeGraphMenu> opened;
     bool removes = false;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] {
         const auto events = graph.draw(g.desc, [&](const ui::NodeGraphMenu& menu) {
             opened = menu;
@@ -280,8 +276,8 @@ TEST_CASE("Right-click opens the caller's menu on the node under the mouse", "[u
     });
     h.step(2);
 
-    const ImVec2 target = graph.screen_position({340.0f, 13.0f});
-    h.drag(target, target, ImGuiMouseButton_Right);
+    const glm::vec2 target = graph.screen_position({340.0f, 13.0f});
+    h.drag(target, target, ui::MouseButton::Right);
     h.step();
     REQUIRE(opened.has_value());
     CHECK(opened->node == 2);
@@ -293,7 +289,7 @@ TEST_CASE("Right-click opens the caller's menu on the node under the mouse", "[u
 TEST_CASE("A drag from an edge node's outline onto another links the two", "[ui][node_graph]") {
     EdgeGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -307,7 +303,7 @@ TEST_CASE("A drag from an edge node's outline onto another links the two", "[ui]
 TEST_CASE("A drag from an edge node's middle moves it instead", "[ui][node_graph]") {
     EdgeGraph g;
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
@@ -320,12 +316,12 @@ TEST_CASE("An edge link is selected by its badge", "[ui][node_graph]") {
     EdgeGraph g;
     g.desc.links.push_back({.id = 9, .from = {5, 0}, .to = {6, 0}});
     ui::NodeGraph graph;
-    ImGuiHarness h;
+    KitHarness h;
     h.set_ui([&] { g.draw(graph); });
     h.step(2);
 
     // Halfway between Idle's right edge (80) and Walk's left (220).
-    const ImVec2 badge = graph.screen_position({150.0f, 0.0f});
+    const glm::vec2 badge = graph.screen_position({150.0f, 0.0f});
     h.drag(badge, badge);
     CHECK(graph.selected_link() == 9);
     CHECK(graph.selected_node() == 0);

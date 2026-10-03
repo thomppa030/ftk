@@ -1,16 +1,16 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tree.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <imgui_internal.h>
 
-#include <algorithm>
-#include <cfloat>
 #include <optional>
 #include <string>
-#include <utility>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 namespace theme = ftk::theme;
 
@@ -18,7 +18,7 @@ namespace {
 
 // A folder with one child, as the hierarchy draws it.
 struct SmallTree {
-    ImGuiHarness h;
+    KitHarness h;
     ui::RenameBox rename;
     bool force_open = false;
     int folder_clicks = 0;
@@ -40,13 +40,13 @@ struct SmallTree {
                     child_drawn = true;
                 }
             }
-            ImGui::Button("elsewhere");
+            ui::button("elsewhere");
             h.mark("elsewhere");
         });
         h.step(2);
     }
 
-    void click_at(ImVec2 p) { h.drag(p, p); }
+    void click_at(glm::vec2 p) { h.drag(p, p); }
 };
 
 } // namespace
@@ -54,11 +54,11 @@ struct SmallTree {
 TEST_CASE("A tree row is 24 px, selects on a click and folds from its chevron", "[ui][kit]") {
     SmallTree t;
     REQUIRE(t.child_drawn);
-    CHECK(t.h.rect_max("folder").y - t.h.rect_min("folder").y == theme::TREE_ROW);
+    CHECK(t.h.rect("folder").height() == theme::TREE_ROW);
     // The child row starts where the folder row ends: rows sit edge to edge.
-    CHECK(t.h.rect_min("child").y == t.h.rect_max("folder").y);
+    CHECK(t.h.rect("child").min.y == t.h.rect("folder").max.y);
 
-    const ImVec2 min = t.h.rect_min("folder");
+    const glm::vec2 min = t.h.rect("folder").min;
     const float mid_y = min.y + theme::TREE_ROW * 0.5f;
     t.click_at({min.x + 60.0f, mid_y});
     CHECK(t.folder_clicks == 1);
@@ -72,7 +72,7 @@ TEST_CASE("A tree row is 24 px, selects on a click and folds from its chevron", 
 
 TEST_CASE("A search opens a folded row without unfolding it for good", "[ui][kit]") {
     SmallTree t;
-    const ImVec2 min = t.h.rect_min("folder");
+    const glm::vec2 min = t.h.rect("folder").min;
     t.click_at({min.x + 11.0f, min.y + theme::TREE_ROW * 0.5f});
     REQUIRE_FALSE(t.child_drawn);
     t.force_open = true;
@@ -87,9 +87,9 @@ TEST_CASE("A rename commits on Enter or a click away, and Esc keeps the old name
     SmallTree t;
     t.rename.start(1, "Docks");
     t.h.step(2);
-    t.h.press(ImGuiKey_Backspace);
+    t.h.press(ui::Key::Backspace);
     t.h.type("Harbour");
-    t.h.press(ImGuiKey_Enter);
+    t.h.press(ui::Key::Enter);
     REQUIRE(t.renamed.has_value());
     CHECK(*t.renamed == "Harbour");
     CHECK_FALSE(t.rename.editing());
@@ -97,7 +97,7 @@ TEST_CASE("A rename commits on Enter or a click away, and Esc keeps the old name
     t.renamed.reset();
     t.rename.start(1, "Docks");
     t.h.step(2);
-    t.h.press(ImGuiKey_Backspace);
+    t.h.press(ui::Key::Backspace);
     t.h.type("Pier");
     t.h.click("elsewhere");
     REQUIRE(t.renamed.has_value());
@@ -106,15 +106,15 @@ TEST_CASE("A rename commits on Enter or a click away, and Esc keeps the old name
     t.renamed.reset();
     t.rename.start(1, "Docks");
     t.h.step(2);
-    t.h.press(ImGuiKey_Backspace);
+    t.h.press(ui::Key::Backspace);
     t.h.type("Nope");
-    t.h.press(ImGuiKey_Escape);
+    t.h.press(ui::Key::Escape);
     CHECK_FALSE(t.renamed.has_value());
     CHECK_FALSE(t.rename.editing());
 }
 
 TEST_CASE("A drop over a row lands in front of it, into it, or after it, by height", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     ui::DropPlace place = ui::DropPlace::Into;
     h.set_ui([&] {
         if (auto tree = ui::Tree("##tree")) {
@@ -124,10 +124,9 @@ TEST_CASE("A drop over a row lands in front of it, into it, or after it, by heig
         }
     });
     h.step(2);
-    const ImVec2 min = h.rect_min("row");
+    const glm::vec2 min = h.rect("row").min;
     auto hover = [&](float fraction) {
-        ImGui::GetIO().AddMousePosEvent(min.x + 40.0f, min.y + theme::TREE_ROW * fraction);
-        h.step(1);
+        h.move_to({min.x + 40.0f, min.y + theme::TREE_ROW * fraction});
         return place;
     };
     CHECK(hover(0.1f) == ui::DropPlace::Before);
@@ -135,28 +134,8 @@ TEST_CASE("A drop over a row lands in front of it, into it, or after it, by heig
     CHECK(hover(0.9f) == ui::DropPlace::After);
 }
 
-TEST_CASE("A rename started from the keyboard draws no navigation ring", "[ui][kit]") {
-    // The editor navigates with the keyboard, which is what turns the ring on.
-    ImGuiHarness h;
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    ui::RenameBox rename;
-    h.set_ui([&] {
-        if (auto tree = ui::Tree("##tree")) {
-            (void)ui::tree_row({.id = "1", .name = "Crate", .rename = &rename, .key = 1});
-            h.mark("row");
-        }
-    });
-    h.step(2);
-    h.click("row");
-    h.press(ImGuiKey_F2);
-    rename.start(1, "Crate");
-    h.step(3);
-    REQUIRE(ImGui::GetCurrentContext()->ActiveId != 0);
-    CHECK_FALSE(ImGui::GetCurrentContext()->NavCursorVisible);
-}
-
 TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
-    ImGuiHarness h;
+    KitHarness h;
     float plain = 0.0f;
     float sized = 0.0f;
     float after = 0.0f;
@@ -164,19 +143,19 @@ TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
         {
             ui::Tree tree("##plain");
             (void)ui::tree_row({.id = "a", .name = "Plain"});
-            plain = ImGui::GetItemRectSize().y;
+            plain = ui::item_max().y - ui::item_min().y;
         }
         {
             // Twice the text size around it: twice the row.
-            ui::Tree tree("##sized", ImGui::GetFontSize() * 2.0f);
+            ui::Tree tree("##sized", ui::font_size() * 2.0f);
             (void)ui::tree_row({.id = "b", .name = "Sized"});
-            sized = ImGui::GetItemRectSize().y;
+            sized = ui::item_max().y - ui::item_min().y;
         }
         {
             // The size goes with the tree that asked for it.
             ui::Tree tree("##after");
             (void)ui::tree_row({.id = "c", .name = "After"});
-            after = ImGui::GetItemRectSize().y;
+            after = ui::item_max().y - ui::item_min().y;
         }
     });
     h.step(2);
@@ -186,7 +165,7 @@ TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
 }
 
 TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool folded_open = true;
     bool default_open = false;
     h.set_ui([&] {
@@ -198,57 +177,4 @@ TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     h.step(2);
     CHECK_FALSE(folded_open);
     CHECK(default_open);
-}
-
-namespace {
-
-// Where the glyphs drawn in `colour` lie across the band of `min`..`max`:
-// the font atlas's vertices, not the white pixel's.
-std::pair<float, float> glyphs_across(ImVec2 min, ImVec2 max, ImU32 colour) {
-    const ImVec2 white = ImGui::GetIO().Fonts->TexUvWhitePixel;
-    float lo = FLT_MAX;
-    float hi = -FLT_MAX;
-    for (const ImDrawList* list : ImGui::GetDrawData()->CmdLists) {
-        for (const ImDrawVert& v : list->VtxBuffer) {
-            if ((v.uv.x == white.x && v.uv.y == white.y) || v.col != colour) continue;
-            if (v.pos.y < min.y || v.pos.y > max.y) continue;
-            lo = std::min(lo, v.pos.x);
-            hi = std::max(hi, v.pos.x);
-        }
-    }
-    return {lo, hi};
-}
-
-} // namespace
-
-TEST_CASE("A row's tag sits at its end in the quiet colour, and a long name stops before it", "[ui][kit]") {
-    ImGuiHarness h;
-    h.set_ui([&] {
-        // As narrow as a docked hierarchy gets.
-        ImGui::BeginChild("##panel", {240.0f, 120.0f});
-        if (auto tree = ui::Tree("##tree")) {
-            (void)ui::tree_row({.id = "1", .name = "managers", .tag = "persistent"});
-            h.mark("short");
-            (void)ui::tree_row({.id = "2", .name = "the far side of the northern harbour", .tag = "persistent"});
-            h.mark("long");
-        }
-        ImGui::EndChild();
-    });
-    h.step(2);
-
-    const ImU32 quiet = ImGui::GetColorU32(theme::text_disabled());
-    const ImU32 name = ImGui::GetColorU32(theme::text());
-    for (const char* row : {"short", "long"}) {
-        INFO(row);
-        const ImVec2 min = h.rect_min(row);
-        const ImVec2 max = h.rect_max(row);
-        const auto [tag_lo, tag_hi] = glyphs_across(min, max, quiet);
-        const auto [name_lo, name_hi] = glyphs_across(min, max, name);
-        REQUIRE(tag_lo < tag_hi);
-        REQUIRE(name_lo < name_hi);
-        // At the row's right end, inside it.
-        CHECK(tag_hi <= max.x);
-        CHECK(tag_hi > max.x - 16.0f);
-        CHECK(name_hi < tag_lo);
-    }
 }

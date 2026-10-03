@@ -1,10 +1,11 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/curve_editor.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 using ftk::Curve;
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -25,10 +26,10 @@ struct Editor {
     Curve curve = three_keys();
     ui::Edit last{};
     bool committed = false;
-    ImVec2 at_middle_key{};
-    ImVec2 high{};   // the middle key's time at value 0.9
-    ImVec2 low{};    // and at 0.1
-    ImVec2 empty{};  // a quarter in, well off the curve
+    glm::vec2 at_middle_key{};
+    glm::vec2 high{};   // the middle key's time at value 0.9
+    glm::vec2 low{};    // and at 0.1
+    glm::vec2 empty{};  // a quarter in, well off the curve
 
     void draw() {
         last = ui::curve_editor(id, curve, OPTIONS);
@@ -43,7 +44,7 @@ struct Editor {
 } // namespace
 
 TEST_CASE("The curve editor drags a key and commits once let go", "[ui][curve_editor]") {
-    ImGuiHarness h;
+    KitHarness h;
     Editor e("##a");
     h.set_ui([&] { e.draw(); });
     h.step(2);
@@ -54,7 +55,7 @@ TEST_CASE("The curve editor drags a key and commits once let go", "[ui][curve_ed
 }
 
 TEST_CASE("Two curve editors on screen drag independently", "[ui][curve_editor]") {
-    ImGuiHarness h;
+    KitHarness h;
     Editor first("##first");
     Editor second("##second");
     h.set_ui([&] {
@@ -73,12 +74,12 @@ TEST_CASE("Two curve editors on screen drag independently", "[ui][curve_editor]"
 }
 
 TEST_CASE("The curve's ends stay at 0 and 1", "[ui][curve_editor]") {
-    ImGuiHarness h;
+    KitHarness h;
     Editor e("##ends");
     h.set_ui([&] { e.draw(); });
     h.step(2);
 
-    ImVec2 first{};
+    glm::vec2 first{};
     h.set_ui([&] {
         e.draw();
         first = ui::curve_editor_point("##ends", {0.0f, 0.2f});
@@ -90,35 +91,26 @@ TEST_CASE("The curve's ends stay at 0 and 1", "[ui][curve_editor]") {
 }
 
 TEST_CASE("Double-click adds a key; right-click never removes one", "[ui][curve_editor]") {
-    ImGuiHarness h;
+    KitHarness h;
     Editor e("##add");
     h.set_ui([&] { e.draw(); });
     h.step(2);
 
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(e.empty.x, e.empty.y);
-    h.step();
+    h.move_to(e.empty);
     for (int i = 0; i < 2; ++i) {
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-        h.step();
-        io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-        h.step();
+        h.button_down();
+        h.button_up();
     }
     REQUIRE(e.curve.keyframes.size() == 4);
     CHECK(e.curve.keyframes[1].time > 0.2f);
     CHECK(e.curve.keyframes[1].time < 0.3f);
 
-    io.AddMousePosEvent(e.at_middle_key.x, e.at_middle_key.y);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Right, true);
-    h.step();
-    io.AddMouseButtonEvent(ImGuiMouseButton_Right, false);
-    h.step();
+    h.click_at(e.at_middle_key, ui::MouseButton::Right);
     CHECK(e.curve.keyframes.size() == 4);
 }
 
 TEST_CASE("Del removes the selected key of the editor last clicked", "[ui][curve_editor]") {
-    ImGuiHarness h;
+    KitHarness h;
     Editor first("##del_first");
     Editor second("##del_second");
     h.set_ui([&] {
@@ -129,7 +121,7 @@ TEST_CASE("Del removes the selected key of the editor last clicked", "[ui][curve
 
     h.drag(first.at_middle_key, first.at_middle_key);
     h.drag(second.at_middle_key, second.at_middle_key);
-    h.press(ImGuiKey_Delete);
+    h.press(ui::Key::Delete);
 
     CHECK(second.curve.keyframes.size() == 2);
     CHECK(first.curve.keyframes.size() == 3);

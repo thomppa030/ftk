@@ -31,6 +31,9 @@ void bullet_text(std::string_view text);
 /// The size of the text drawn now, in pixels.
 [[nodiscard]] float font_size();
 
+/// The colour text is drawn in now: the text token, or a TextColour's.
+[[nodiscard]] Color text_colour();
+
 /// While it lives, text is drawn in `font` (the current face when none) at
 /// `size` pixels, or at the current size when `size` is 0.
 class FontScope {

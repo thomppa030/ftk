@@ -20,6 +20,7 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -44,6 +45,8 @@ public:
 
     /// Runs `count` frames.
     void step(int count = 1);
+    /// The window's size in layout units.
+    [[nodiscard]] glm::vec2 size() const { return size_; }
     /// What the last frame drew and asked for.
     [[nodiscard]] const ui::core::FrameOutput& output() const { return *output_; }
     /// Seconds on the harness's clock.
@@ -62,6 +65,12 @@ public:
                                                      ui::core::Role role = ui::core::Role::None) const {
         return ui_.find(label, role);
     }
+    /// The open popup on top, a menu, a list or a picker, as the last frame
+    /// recorded it (Role::Popup); none while no popup is open.
+    [[nodiscard]] std::optional<ui::core::Rect> popup() const;
+    /// The tooltip the last frame showed (Role::Tooltip); none when it
+    /// showed none.
+    [[nodiscard]] std::optional<ui::core::Rect> tooltip() const;
 
     /// Moves the mouse to `at` and runs the frame that takes it.
     void move_to(glm::vec2 at);
@@ -79,6 +88,11 @@ public:
     void drag(glm::vec2 from, glm::vec2 to, ui::MouseButton button = ui::MouseButton::Left);
     /// Turns the wheel by `notches` (up is positive) with the mouse at `at`.
     void wheel(glm::vec2 at, float notches);
+    /// Presses `button` where the mouse is, and runs the frame that takes
+    /// it: for a press held while something else happens.
+    void button_down(ui::MouseButton button = ui::MouseButton::Left);
+    /// Lets `button` go where the mouse is, and runs the frame.
+    void button_up(ui::MouseButton button = ui::MouseButton::Left);
 
     /// A finger down at the centre of a marked item and lifted the next
     /// frame.
@@ -100,6 +114,17 @@ public:
     void type(std::string_view text);
     /// Presses and releases `key` with `modifiers` held, a frame each.
     void press(ui::Key key, ui::Modifiers modifiers = {});
+    /// Holds `modifiers` down from the next frame, over the clicks, drags and
+    /// keys that follow, until the next hold(); hold({}) lets them go.
+    void hold(ui::Modifiers modifiers);
+    /// Puts `key` down, and runs the frame: for a key held while frames go
+    /// by.
+    void key_down(ui::Key key);
+    /// Lets `key` go, and runs the frame.
+    void key_up(ui::Key key);
+
+    /// The pointer's shape the last frame asked for.
+    [[nodiscard]] ui::MouseCursor cursor() const;
     /// An input method composing `text`, its cursor at the end, not yet
     /// committed.
     void compose(std::string_view text);
@@ -123,6 +148,9 @@ private:
     glm::vec2 size_;
     float scale_;
     double time_{0.0};
+    // Where the mouse was last sent, and the modifiers hold() keeps down.
+    glm::vec2 mouse_at_{0.0f};
+    ui::Modifiers held_{};
     std::map<std::string, ui::core::Rect> marks_;
     const ui::core::FrameOutput* output_{nullptr};
     ui::core::PointerId fingers_{999};

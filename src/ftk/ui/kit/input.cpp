@@ -1,5 +1,7 @@
 #include "ftk/ui/kit/input.hpp"
 
+#include "ftk/ui/imgui_input.hpp"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -29,6 +31,8 @@ constexpr ImGuiKey IMGUI_KEYS[] = {
 };
 static_assert(static_cast<std::size_t>(Key::GraveAccent) + 1 == std::size(IMGUI_KEYS));
 
+} // namespace
+
 ImGuiKey imgui(Key key) {
     return IMGUI_KEYS[static_cast<std::size_t>(key)];
 }
@@ -53,8 +57,6 @@ ImGuiMouseCursor imgui(MouseCursor cursor) {
     }
     return ImGuiMouseCursor_Arrow;
 }
-
-} // namespace
 
 bool key_pressed(Key key) {
     return ImGui::IsKeyPressed(imgui(key), false);

@@ -1,11 +1,13 @@
-#include "ftk/test/imgui_harness.hpp"
+#include "kit_harness.hpp"
+
 #include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
-using ftk::test::ImGuiHarness;
+using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
 namespace {
@@ -21,25 +23,19 @@ struct Tally {
     }
 };
 
-ImVec2 centre(const ImGuiHarness& h, const std::string& name) {
-    const ImVec2 min = h.rect_min(name);
-    const ImVec2 max = h.rect_max(name);
-    return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
-}
-
 } // namespace
 
 TEST_CASE("A dragged number changes live and commits once, on release", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float mass = 10.0f;
     Tally tally;
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(200.0f);
+        ui::next_width(200.0f);
         tally.add(ui::drag("##mass", mass, {.speed = 0.1f, .unit = ui::Unit::Kilograms}));
         h.mark("mass");
     });
     h.step(2);
-    const ImVec2 from = centre(h, "mass");
+    const glm::vec2 from = h.rect("mass").centre();
     h.drag(from, {from.x + 80.0f, from.y});
     CHECK(mass > 10.0f);
     CHECK(tally.changed > 1);
@@ -47,31 +43,31 @@ TEST_CASE("A dragged number changes live and commits once, on release", "[ui][ki
 }
 
 TEST_CASE("A dragged number stays inside its range", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float strength = 0.9f;
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(200.0f);
+        ui::next_width(200.0f);
         (void)ui::drag("##strength", strength, {.speed = 0.1f, .min = 0.0f, .max = 1.0f});
         h.mark("strength");
     });
     h.step(2);
-    const ImVec2 from = centre(h, "strength");
+    const glm::vec2 from = h.rect("strength").centre();
     h.drag(from, {from.x + 300.0f, from.y});
     CHECK(strength == 1.0f);
 }
 
 TEST_CASE("Dragging one axis of a vector moves only that axis, as one commit", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec3 position{1.0f, 2.0f, 3.0f};
     Tally tally;
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(300.0f);
+        ui::next_width(300.0f);
         tally.add(ui::vec3("##position", position));
         h.mark("vector");
     });
     h.step(2);
     // The middle third of the group is the Y field.
-    const ImVec2 at = centre(h, "vector");
+    const glm::vec2 at = h.rect("vector").centre();
     h.drag(at, {at.x + 60.0f, at.y});
     CHECK(position.x == 1.0f);
     CHECK(position.y > 2.0f);
@@ -80,28 +76,28 @@ TEST_CASE("Dragging one axis of a vector moves only that axis, as one commit", "
 }
 
 TEST_CASE("A vector fills the width it is given", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     glm::vec2 tiling{1.0f, 1.0f};
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(240.0f);
+        ui::next_width(240.0f);
         (void)ui::vec2("##tiling", tiling);
         h.mark("vector");
     });
     h.step(2);
-    CHECK(h.rect_max("vector").x - h.rect_min("vector").x == 240.0f);
+    CHECK(h.rect("vector").width() == 240.0f);
 }
 
 TEST_CASE("A slider commits once and keeps to its ends", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float slope = 45.0f;
     Tally tally;
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(200.0f);
+        ui::next_width(200.0f);
         tally.add(ui::slider("##slope", slope, 0.0f, 90.0f, ui::Unit::Degrees));
         h.mark("slope");
     });
     h.step(2);
-    const ImVec2 from = centre(h, "slope");
+    const glm::vec2 from = h.rect("slope").centre();
     h.drag(from, {from.x + 40.0f, from.y});
     CHECK(slope > 45.0f);
     CHECK(slope < 90.0f);
@@ -113,23 +109,23 @@ TEST_CASE("A slider commits once and keeps to its ends", "[ui][kit]") {
 }
 
 TEST_CASE("A whole number drags in whole steps and commits once", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int count = 4;
     Tally tally;
     h.set_ui([&] {
-        ImGui::SetNextItemWidth(200.0f);
+        ui::next_width(200.0f);
         tally.add(ui::drag_int("##count", count, 0.5f, 0, 100));
         h.mark("count");
     });
     h.step(2);
-    const ImVec2 from = centre(h, "count");
+    const glm::vec2 from = h.rect("count").centre();
     h.drag(from, {from.x + 40.0f, from.y});
     CHECK(count > 4);
     CHECK(tally.committed == 1);
 }
 
 TEST_CASE("A checkbox commits on the click that changes it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     bool shadows = false;
     Tally tally;
     h.set_ui([&] {
@@ -156,11 +152,11 @@ TEST_CASE("Every unit but none has a symbol", "[ui][kit]") {
 }
 
 TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     float mass = 1.0f;
     float window_width = 0.0f;
     h.set_ui([&] {
-        window_width = ImGui::GetContentRegionAvail().x;
+        window_width = ui::space_left().x;
         if (auto t = ui::PropertyTable("##rows")) {
             ui::row("Mass", [&] {
                 (void)ui::drag("##mass", mass);
@@ -171,13 +167,13 @@ TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") 
     });
     h.step(2);
     const float label = ftk::theme::label_column(window_width);
-    const float field_width = h.rect_max("field").x - h.rect_min("field").x;
-    CHECK(h.rect_min("field").x >= label);
+    const float field_width = h.rect("field").width();
+    CHECK(h.rect("field").min.x >= label);
     CHECK(field_width > window_width - label - 40.0f);
 }
 
 TEST_CASE("A stepper steps one at a time and stops at its end", "[ui][kit]") {
-    ImGuiHarness h;
+    KitHarness h;
     int size = 19;
     int commits = 0;
     h.set_ui([&] {

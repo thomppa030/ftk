@@ -12,6 +12,11 @@ namespace {
 constexpr double FRAME = 1.0 / 60.0;
 constexpr core::RootId WINDOW = 1;
 
+// Each modifier held in either.
+ui::Modifiers either(ui::Modifiers a, ui::Modifiers b) {
+    return {.ctrl = a.ctrl || b.ctrl, .shift = a.shift || b.shift, .alt = a.alt || b.alt, .super = a.super || b.super};
+}
+
 } // namespace
 
 UiHarness::UiHarness(glm::vec2 size, float scale) : size_{size}, scale_{scale} {
@@ -42,6 +47,22 @@ core::Rect UiHarness::rect(const std::string& name) const {
     throw std::runtime_error("UiHarness: nothing marked or named '" + name + "'");
 }
 
+std::optional<core::Rect> UiHarness::popup() const {
+    // Popups are recorded as they are drawn, one opened from another after it.
+    std::optional<core::Rect> top;
+    for (const core::SemanticNode& node : ui_.semantics()) {
+        if (node.role == core::Role::Popup) top = node.rect;
+    }
+    return top;
+}
+
+std::optional<core::Rect> UiHarness::tooltip() const {
+    for (const core::SemanticNode& node : ui_.semantics()) {
+        if (node.role == core::Role::Tooltip) return node.rect;
+    }
+    return std::nullopt;
+}
+
 void UiHarness::send(core::PointerEvent event) {
     event.root = WINDOW;
     event.sample.time = time_;
@@ -59,10 +80,32 @@ void UiHarness::type(std::string_view text) {
 }
 
 void UiHarness::press(ui::Key key, ui::Modifiers modifiers) {
-    send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = modifiers});
+    const ui::Modifiers held = either(modifiers, held_);
+    send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = held});
     step();
-    send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = modifiers});
+    send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = held});
     step();
+}
+
+void UiHarness::hold(ui::Modifiers modifiers) {
+    held_ = modifiers;
+    send({.kind = core::KeyEvent::Kind::Modifiers, .modifiers = modifiers});
+    step();
+}
+
+void UiHarness::key_down(ui::Key key) {
+    send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = held_});
+    step();
+}
+
+void UiHarness::key_up(ui::Key key) {
+    send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = held_});
+    step();
+}
+
+ui::MouseCursor UiHarness::cursor() const {
+    if (output_ == nullptr || output_->roots.empty()) return ui::MouseCursor::Arrow;
+    return output_->roots.front().cursor;
 }
 
 void UiHarness::compose(std::string_view text) {
@@ -71,7 +114,18 @@ void UiHarness::compose(std::string_view text) {
 }
 
 void UiHarness::mouse(core::PointerEvent::Kind kind, glm::vec2 at, ui::MouseButton button) {
+    mouse_at_ = at;
     send({.kind = kind, .type = core::PointerType::Mouse, .button = button, .sample = {.position = at}});
+}
+
+void UiHarness::button_down(ui::MouseButton button) {
+    mouse(core::PointerEvent::Kind::Down, mouse_at_, button);
+    step();
+}
+
+void UiHarness::button_up(ui::MouseButton button) {
+    mouse(core::PointerEvent::Kind::Up, mouse_at_, button);
+    step();
 }
 
 void UiHarness::move_to(glm::vec2 at) {
