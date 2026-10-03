@@ -36,5 +36,13 @@ function(ftk_target_defaults target)
             -Wall -Wextra -Wpedantic
             -Wshadow -Wmismatched-tags -Wfloat-conversion
             -Werror)
+        # GCC's guess that a value may be read before it is set, which its
+        # manual says misfires once optimisation inlines enough: GCC 16 at
+        # -O3 takes the empty vertex attributes of a pipeline description
+        # for unset in std::vector's destructor, however the description is
+        # written. -Wuninitialized, for what is surely unset, stays on.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized)
+        endif()
     endif()
 endfunction()
