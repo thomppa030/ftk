@@ -36,6 +36,8 @@ void Context::begin_frame(double time) {
     next_at_.reset();
     output_.roots.clear();
     output_.next = {};
+    output_.open.clear();
+    output_.close.clear();
     last_widget_ = 0;
     last_interaction_ = {};
     hit_sequence_ = 0;
@@ -82,11 +84,16 @@ void Context::begin_root(RootId root, glm::vec2 size, float scale) {
     root_->id = root;
     root_->size = size;
     root_->scale = scale;
-    root_->cursor = MouseCursor::Arrow;
-    root_->text_input = false;
-    root_->list.reset(root_->draw, size, scale, &text_);
-    root_->base_hits.clear();
-    root_->areas_next.clear();
+    // Drawn into already this frame, as another window was drawn: what it
+    // holds goes on.
+    if (root_->begun != frame_) {
+        root_->begun = frame_;
+        root_->cursor = MouseCursor::Arrow;
+        root_->text_input = false;
+        root_->list.reset(root_->draw, size, scale, &text_);
+        root_->base_hits.clear();
+        root_->areas_next.clear();
+    }
     hit_targets_.assign(1, &root_->base_hits);
     panel_stack_.clear();
     layout_.reset();
@@ -166,12 +173,93 @@ glm::vec2 Context::root_size() const {
     return root_ != nullptr ? root_->size : glm::vec2{0.0f};
 }
 
+RootId Context::root() const {
+    return root_ != nullptr ? root_->id : 0;
+}
+
 void Context::forget_root(RootId root) {
     if (root_ != nullptr && root_->id == root) {
         FTK_CORE_ERROR("UI: window {} forgotten while it is drawn", root);
         return;
     }
     roots_.erase(root);
+}
+
+bool Context::begin_other_root(RootId root) {
+    assert(root_ != nullptr && "UI: another window drawn into outside a window; call begin_root() first");
+    const auto found = roots_.find(root);
+    // A window not drawn yet has no size to lay out in.
+    if (found == roots_.end() || found->second.get() == root_) return false;
+    Root& other = *found->second;
+    const LayoutStyle style = layout_.style();
+    suspended_.push_back({.root = root_,
+                          .layout = std::move(layout_),
+                          .areas = std::move(areas_),
+                          .panel_stack = std::move(panel_stack_),
+                          .open_containers = std::move(open_containers_),
+                          .hit_targets = std::move(hit_targets_),
+                          .hidden = hidden_});
+    // Begun as begin_root() begins it, at the size it was last drawn at; its
+    // own begin_root() goes on from what is drawn into it now.
+    root_ = &other;
+    if (other.begun != frame_) {
+        other.begun = frame_;
+        other.cursor = MouseCursor::Arrow;
+        other.text_input = false;
+        other.list.reset(other.draw, other.size, other.scale, &text_);
+        other.base_hits.clear();
+        other.areas_next.clear();
+    }
+    hit_targets_.assign(1, &other.base_hits);
+    panel_stack_.clear();
+    layout_ = Layout{};
+    layout_.set_style(style);
+    layout_.begin_area({.min = {0.0f, 0.0f}, .max = other.size});
+    areas_.clear();
+    open_containers_.clear();
+    hidden_ = 0;
+    return true;
+}
+
+void Context::end_other_root() {
+    if (suspended_.empty()) {
+        FTK_CORE_ERROR("UI: another window ended that was never drawn into");
+        return;
+    }
+    if (!open_containers_.empty() || !areas_.empty()) {
+        FTK_CORE_ERROR("UI: window {} drawn into with {} container(s) and {} panel(s) or region(s) left open",
+                       root_->id, open_containers_.size(), areas_.size());
+        while (!open_containers_.empty()) end_container();
+        while (!areas_.empty()) areas_.back().panel ? end_panel() : end_region();
+    }
+    (void)layout_.end_area();
+    Suspended back = std::move(suspended_.back());
+    suspended_.pop_back();
+    root_ = back.root;
+    layout_ = std::move(back.layout);
+    areas_ = std::move(back.areas);
+    panel_stack_ = std::move(back.panel_stack);
+    open_containers_ = std::move(back.open_containers);
+    hit_targets_ = std::move(back.hit_targets);
+    hidden_ = back.hidden;
+}
+
+void Context::open_root(const RootRequest& request) {
+    std::erase(closed_roots_, request.root);
+    output_.open.push_back(request);
+}
+
+void Context::close_root(RootId root) {
+    output_.close.push_back(root);
+}
+
+void Context::closed_root(RootId root) {
+    forget_root(root);
+    if (!std::ranges::contains(closed_roots_, root)) closed_roots_.push_back(root);
+}
+
+bool Context::root_closed(RootId root) const {
+    return std::ranges::contains(closed_roots_, root);
 }
 
 DrawList& Context::draw_list() {
@@ -486,6 +574,10 @@ void Context::end_container() {
 }
 
 const FrameOutput& Context::end_frame() {
+    if (!suspended_.empty()) {
+        FTK_CORE_ERROR("UI: the frame ended drawing into window {}", root_->id);
+        while (!suspended_.empty()) end_other_root();
+    }
     if (root_ != nullptr) {
         FTK_CORE_ERROR("UI: the frame ended inside window {}", root_->id);
         end_root();

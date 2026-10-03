@@ -23,6 +23,9 @@ inline constexpr const char* follow  = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep 
 inline constexpr const char* console = ICON_LC_TERMINAL;
 inline constexpr const char* history = ICON_LC_HISTORY;
 
+// Docking
+inline constexpr const char* dock_back = ICON_LC_MINIMIZE_2;  // a window torn out, back into its dock
+
 // The file browser's places
 inline constexpr const char* folder    = ICON_LC_FOLDER;
 inline constexpr const char* file      = ICON_LC_FILE;

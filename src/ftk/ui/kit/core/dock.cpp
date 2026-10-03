@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/dock.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/layout.hpp"
 
@@ -100,16 +101,32 @@ void tear_out(Kit& k, Id id, glm::vec2 grab) {
     const Id leaf_id = window.dock;
     DockPart& leaf = k.docks.at(leaf_id);
     const glm::vec2 size = leaf.rect.size();
+    const Id parent = leaf.parent;
     std::erase(leaf.windows, id);
     if (leaf.front == id) leaf.front = 0;
     window.dock = 0;
     const glm::vec2 at = mouse_pos() - grab;
     window.rect = {.min = at, .max = at + size};
     window.sized = true;
-    k.carried = {.window = id, .grab = grab};
     ui().bring_to_front(id);
     ui().request_frame();
     fold_if_empty(k, leaf_id);
+    // Its home is the leaf it left, or the parent that leaf folded into.
+    k.carried = {.window = id, .grab = grab, .home = k.docks.contains(leaf_id) ? leaf_id : parent};
+}
+
+// The window `id`, let go past the edge of the OS window it was carried in
+// at `pointer`, asks for an OS window of its own, as big as it is, near
+// where it was let go; drawn there once the program opens it.
+void tear_into_window(Kit& k, Window& window, Id id, glm::vec2 pointer) {
+    core::Context& context = ui();
+    window.root = core::hash_label("#ROOT", id);
+    window.home = k.carried.home;
+    context.open_root({.root = window.root,
+                       .size = window.rect.size(),
+                       .near = context.root(),
+                       .at = pointer - k.carried.grab,
+                       .title = std::string(shown(window.name))});
 }
 
 // The leaf, shown this frame, whose tabs are under `at`; 0 for none.
@@ -312,12 +329,62 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
         context.request_frame();
         return false;
     }
-    // Let go: docked over a leaf's tabs, else left floating where it is.
+    // Let go: docked over a leaf's tabs; past the edge of its OS window, torn
+    // out into one of its own; else left floating where it is.
     const Id target = k.carried.target;
+    const glm::vec2 room = context.root_size();
+    const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
+    if (target == 0 && outside && options.docking) tear_into_window(k, window, id, pointer);
     k.carried = {};
     if (target == 0) return false;
     dock_into(k, id, target);
     return true;
+}
+
+void dock_home(Window& window, Id id) {
+    Kit& k = kit();
+    if (window.root != 0) ui().close_root(window.root);
+    window.root = 0;
+    Id leaf = std::exchange(window.home, 0);
+    const auto is_leaf = [&](Id at) { return k.docks.contains(at) && k.docks.at(at).split == DockAxis::None; };
+    if (!is_leaf(leaf)) {
+        // The leaf it came from is gone: the middle of a dockspace.
+        leaf = 0;
+        for (const auto& [at, part] : k.docks) {
+            if (part.middle && part.split == DockAxis::None) leaf = at;
+        }
+    }
+    if (leaf != 0) {
+        dock_into(k, id, leaf);
+    } else {
+        // Nowhere to dock: floating in the program's window.
+        window.rect = {.min = {60.0f, 60.0f}, .max = glm::vec2{60.0f} + window.rect.size()};
+    }
+    ui().request_frame();
+}
+
+bool torn_tab(Id id, core::Rect strip) {
+    core::Context& context = ui();
+    Kit& k = kit();
+    const Window& window = k.windows.at(id);
+    core::DrawList& dl = context.draw_list();
+    dl.rect_filled(strip.min, strip.max, faded(theme::surface_sunken()));
+    draw_bar_line(strip, k.focused_window == id);
+    const std::string_view label = shown(window.name);
+    const float width = tab_width(label, false);
+    (void)draw_tab(core::hash_label("#TAB", id), {.min = strip.min, .max = {strip.min.x + width, strip.max.y}},
+                   {.label = label, .ink = text_colour(), .front = true, .focused = k.focused_window == id});
+
+    // The button at the row's right end, its icon lit under the mouse.
+    const float side = strip.height();
+    const core::Rect button{.min = {strip.max.x - side, strip.min.y}, .max = strip.max};
+    const core::Interaction in = context.interact(core::hash_label("#DOCK_BACK", id), button, {.beneath = true});
+    if (in.hovered || in.held) dl.rect_filled(button.min, button.max, faded(theme::surface_hover()), k.style.frame_rounding);
+    const glm::vec2 icon = measure(icon::dock_back);
+    draw_text(button.min + (button.size() - icon) * 0.5f, in.hovered ? theme::text() : theme::text_secondary(),
+              icon::dock_back);
+    if (in.hovered) context.set_cursor_shape(MouseCursor::Hand);
+    return in.clicked;
 }
 
 } // namespace corekit

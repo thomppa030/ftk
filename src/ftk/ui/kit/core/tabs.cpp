@@ -117,7 +117,8 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     }
     // A middle click on it closes it too.
     if (face.closable && drawn.hovered && mouse_clicked(MouseButton::Middle)) drawn.closed = true;
-    context.semantics(id, core::Role::Tab, face.label, {}, {.selected = face.front});
+    // At its own rectangle: a tab is placed by hand, not by the layout.
+    context.semantics(id, core::Role::Tab, face.label, {}, {.selected = face.front}, rect);
     return drawn;
 }
 

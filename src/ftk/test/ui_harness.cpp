@@ -1,5 +1,6 @@
 #include "ftk/test/ui_harness.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <vector>
 
@@ -10,7 +11,6 @@ namespace core = ui::core;
 namespace {
 
 constexpr double FRAME = 1.0 / 60.0;
-constexpr core::RootId WINDOW = 1;
 // A held key repeats after this long, and then this often, as a keyboard
 // does by default.
 constexpr double REPEAT_DELAY = 0.275;
@@ -43,7 +43,22 @@ void UiHarness::step(int count) {
         if (draw_) draw_();
         if (panel_) ui_.end_panel();
         ui_.end_root();
+        // The windows opened for the UI, drawn after, as a program draws
+        // each of its windows' roots.
+        for (const core::RootRequest& window : windows_) {
+            ui_.begin_root(window.root, window.size, scale_);
+            ui_.end_root();
+        }
         output_ = &ui_.end_frame();
+        for (const core::RootRequest& opened : output_->open) {
+            if (std::ranges::none_of(windows_, [&](const auto& window) { return window.root == opened.root; })) {
+                windows_.push_back(opened);
+            }
+        }
+        for (const core::RootId closed : output_->close) {
+            std::erase_if(windows_, [&](const core::RootRequest& window) { return window.root == closed; });
+            ui_.forget_root(closed);
+        }
     }
 }
 
@@ -78,9 +93,24 @@ std::optional<core::Rect> UiHarness::tooltip() const {
 }
 
 void UiHarness::send(core::PointerEvent event) {
-    event.root = WINDOW;
+    // In the harness's own window unless it says another.
+    if (event.root == 0) event.root = WINDOW;
     event.sample.time = time_;
     ui_.add_pointer_event(event);
+}
+
+void UiHarness::close_window(core::RootId root) {
+    std::erase_if(windows_, [&](const core::RootRequest& window) { return window.root == root; });
+    ui_.closed_root(root);
+}
+
+void UiHarness::click_in(core::RootId root, glm::vec2 at) {
+    send({.kind = core::PointerEvent::Kind::Move, .root = root, .sample = {.position = at}});
+    step();
+    send({.kind = core::PointerEvent::Kind::Down, .root = root, .button = ui::MouseButton::Left, .sample = {.position = at}});
+    step();
+    send({.kind = core::PointerEvent::Kind::Up, .root = root, .button = ui::MouseButton::Left, .sample = {.position = at}});
+    step();
 }
 
 void UiHarness::send(core::KeyEvent event) {

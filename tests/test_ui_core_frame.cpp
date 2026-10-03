@@ -3,6 +3,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <vector>
+
 namespace core = ftk::ui::core;
 
 namespace {
@@ -123,4 +126,77 @@ TEST_CASE("Ids are one space across windows, and a window can't leak pushed ids"
     ui.end_root();
     (void)ui.end_frame();
     core::set_current(nullptr);
+}
+
+TEST_CASE("A panel drawn into another window among one's own lands there and takes its pointers", "[ui-core]") {
+    core::Context ui;
+    core::set_current(&ui);
+    constexpr ftk::ui::Color MARK{0.9f, 0.1f, 0.1f, 1.0f};
+    bool drew = false;
+    bool hovered = false;
+    glm::vec2 after{0.0f};
+    const auto frame = [&](double time) -> const core::FrameOutput& {
+        ui.begin_frame(time);
+        ui.begin_root(1, {400.0f, 300.0f}, 1.0f);
+        (void)ui.layout().next({10.0f, 10.0f});
+        drew = ui.begin_other_root(2);
+        if (drew) {
+            ui.begin_panel("torn", {.min = {0.0f, 0.0f}, .max = {200.0f, 100.0f}});
+            ui.draw_list().rect_filled({0.0f, 0.0f}, {200.0f, 100.0f}, MARK);
+            hovered = ui.interact(ui.id("button"), ui.layout().next({100.0f, 24.0f})).hovered;
+            ui.end_panel();
+            ui.end_other_root();
+        }
+        // The first window goes on where it was.
+        CHECK(ui.root() == 1);
+        after = ui.layout().next({10.0f, 10.0f}).min;
+        ui.end_root();
+        ui.begin_root(2, {200.0f, 100.0f}, 2.0f);
+        ui.end_root();
+        return ui.end_frame();
+    };
+    const auto marked = [&](const core::RootOutput& root) {
+        return std::ranges::any_of(root.draw->primitives,
+                                   [&](const core::Primitive& p) { return p.colour == core::pack_colour(MARK); });
+    };
+
+    // Never drawn yet, it has nothing to draw into.
+    (void)frame(0.0);
+    CHECK_FALSE(drew);
+    const core::FrameOutput& out = frame(0.1);
+    CHECK(drew);
+    CHECK(after.y > 10.0f);
+    REQUIRE(out.roots.size() == 2);
+    CHECK_FALSE(marked(out.roots[0]));
+    CHECK(marked(out.roots[1]));
+
+    ui.add_pointer_event({.kind = core::PointerEvent::Kind::Move, .root = 2, .sample = {.position = {20.0f, 20.0f}}});
+    (void)frame(0.2);
+    (void)frame(0.3);
+    CHECK(hovered);
+    core::set_current(nullptr);
+}
+
+TEST_CASE("A frame asks for windows to open and close, and hears of those the program closed", "[ui-core]") {
+    core::Context ui;
+    ui.begin_frame(0.0);
+    ui.open_root({.root = 3, .size = {300.0f, 200.0f}, .near = 1, .at = {50.0f, 60.0f}, .title = "Inspector"});
+    ui.close_root(2);
+    const core::FrameOutput& out = ui.end_frame();
+    REQUIRE(out.open.size() == 1);
+    CHECK(out.open[0].root == 3);
+    CHECK(out.open[0].size == glm::vec2{300.0f, 200.0f});
+    CHECK(out.open[0].title == "Inspector");
+    CHECK(out.close == std::vector<core::RootId>{2});
+
+    ui.begin_frame(0.1);
+    CHECK(ui.end_frame().open.empty());
+    CHECK_FALSE(ui.root_closed(3));
+    ui.closed_root(3);
+    CHECK(ui.root_closed(3));
+    // Asked for again, it is no longer closed.
+    ui.begin_frame(0.2);
+    ui.open_root({.root = 3});
+    (void)ui.end_frame();
+    CHECK_FALSE(ui.root_closed(3));
 }

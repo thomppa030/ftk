@@ -138,6 +138,18 @@ public:
     void send(ui::core::PointerEvent event);
     void send(ui::core::KeyEvent event);
 
+    /// The OS windows the UI asked to open, as a program opens them: each
+    /// drawn after the harness's own window, at the size asked for, until
+    /// the UI asks to close it or close_window() closes it.
+    [[nodiscard]] std::span<const ui::core::RootRequest> windows() const { return windows_; }
+    /// Its user closes the window `root`, as the window's close button does.
+    void close_window(ui::core::RootId root);
+    /// Clicks at `at` in the window `root`, and runs the frames that takes.
+    void click_in(ui::core::RootId root, glm::vec2 at);
+
+    /// The harness's own window.
+    static constexpr ui::core::RootId WINDOW = 1;
+
 private:
     // The mouse's event of `kind` at `at`.
     void mouse(ui::core::PointerEvent::Kind kind, glm::vec2 at, ui::MouseButton button = ui::MouseButton::Left);
@@ -149,6 +161,7 @@ private:
 
     ui::core::Context ui_;
     std::function<void()> draw_;
+    std::vector<ui::core::RootRequest> windows_;
     glm::vec2 size_;
     float scale_;
     bool panel_;

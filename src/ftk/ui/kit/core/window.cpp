@@ -81,6 +81,35 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     return true;
 }
 
+// A window torn out into an OS window of its own: drawn into that window,
+// among what the program's window holds, filling it below its tab and a
+// button that docks it back. Not shown until the program has opened it.
+bool begin_torn(Window& window, Id id, const WindowOptions& options, glm::vec2 padding, bool again) {
+    core::Context& context = ui();
+    Kit& k = kit();
+    k.window_stack.push_back(id);
+    window.frame = context.frame();
+    window.options = options;
+    window.in_root = context.begin_other_root(window.root);
+    window.shown = window.in_root;
+    if (!window.shown) return false;
+
+    window.rect = {.min = {0.0f, 0.0f}, .max = context.root_size()};
+    window.padding = padding;
+    window.bar = frame_height();
+    context.begin_panel(id, window.rect, {.padding = padding, .bar = window.bar, .raise = false});
+    core::DrawList& dl = context.draw_list();
+    const core::Rect& rect = window.rect;
+    if (!again) {
+        if (any_button_pressed() && context.area_or_inner_under_pointer()) k.focused_window = id;
+        if (options.background) dl.rect_filled(rect.min, rect.max, faded(theme::surface_base()));
+        window.tabs = 1;
+        if (torn_tab(id, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}})) dock_home(window, id);
+    }
+    dl.push_clip(rect.min + glm::vec2{0.0f, window.bar}, rect.max);
+    return true;
+}
+
 } // namespace
 
 bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding, bool* open) {
@@ -95,6 +124,13 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
         if (carried == k.windows.end() || carried->second.frame + 1 < context.frame()) k.carried = {};
     }
     const bool again = window.frame == context.frame();
+    // Torn out into an OS window of its own, it is drawn there; that window
+    // closed by its user, it docks back where it came from.
+    if (window.root != 0 && context.root_closed(window.root)) dock_home(window, id);
+    if (window.root != 0) {
+        if (window.frame == 0) window.name = name;
+        return begin_torn(window, id, options, padding, again);
+    }
     if (again && !window.shown) {
         k.window_stack.push_back(id);
         return false;
@@ -194,6 +230,8 @@ void end_window() {
         context.draw_list().pop_clip();
         if (window.options.scrollbar) scrollbar(window, id);
         context.end_panel();
+        // Back to the window it was drawn among.
+        if (std::exchange(window.in_root, false)) context.end_other_root();
     }
     restore_item();
 }

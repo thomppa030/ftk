@@ -77,11 +77,28 @@ struct RootOutput {
     Rect text_area{};
 };
 
+/// An OS window the frame asks the program to open: a panel torn out into
+/// a window of its own.
+struct RootRequest {
+    RootId root{0};
+    /// Its size in layout units.
+    glm::vec2 size{0.0f};
+    /// Where it opens: at `at` in the window `near`'s layout units, as near
+    /// as the platform lets a program place a window, and that window its
+    /// parent, so a tiling window manager floats it.
+    RootId near{0};
+    glm::vec2 at{0.0f};
+    std::string title{};
+};
+
 /// What a frame leaves for the program.
 struct FrameOutput {
     /// Each root drawn this frame, in the order drawn.
     std::vector<RootOutput> roots{};
     NextFrame next{};
+    /// OS windows the frame asks the program to open and to close.
+    std::vector<RootRequest> open{};
+    std::vector<RootId> close{};
 };
 
 /// The layers of a window, bottom to top (decision 22 of the UI core plan).
@@ -259,8 +276,28 @@ public:
     void end_root();
     /// The size of the OS window being drawn, in layout units.
     [[nodiscard]] glm::vec2 root_size() const;
+    /// The OS window being drawn.
+    [[nodiscard]] RootId root() const;
     /// Lets go of what was kept for a window that is gone.
     void forget_root(RootId root);
+
+    /// Draws into the OS window `root`, among what the window being drawn
+    /// holds, until end_other_root(): a panel torn out into a window of its
+    /// own, drawn in the program's one pass. Its frame goes on when its own
+    /// begin_root() comes. False, with nothing to end, when the window
+    /// hasn't been drawn yet: one asked for this frame or last.
+    [[nodiscard]] bool begin_other_root(RootId root);
+    void end_other_root();
+
+    /// Asks the program to open the OS window `request.root` for the next
+    /// frame, or to close the window `root`: a panel torn out, and docked
+    /// back. The program reads them in the frame's output.
+    void open_root(const RootRequest& request);
+    void close_root(RootId root);
+    /// The program closed the OS window `root`, its user asking: it is
+    /// forgotten, and root_closed() says so until it is asked for again.
+    void closed_root(RootId root);
+    [[nodiscard]] bool root_closed(RootId root) const;
 
     /// Where the root being drawn records its shapes.
     [[nodiscard]] DrawList& draw_list();
@@ -605,6 +642,9 @@ private:
         bool pen_near{false};
         bool text_input{false};
         Rect text_area{};
+        // The frame it was first drawn into: begun again in that frame,
+        // what was drawn into it before goes on.
+        uint64_t begun{0};
     };
     // The keys as this frame sees them, by Key.
     struct Keyboard {
@@ -689,6 +729,17 @@ private:
         bool hidden{false};
         std::size_t mark{0};
     };
+    // The window being drawn as another is drawn into, for
+    // end_other_root() to go back to.
+    struct Suspended {
+        Root* root{nullptr};
+        Layout layout;
+        std::vector<Area> areas;
+        std::vector<Panel*> panel_stack;
+        std::vector<OpenContainer> open_containers;
+        std::vector<std::vector<Hit>*> hit_targets;
+        int hidden{0};
+    };
 
     Panel& panel(Id id);
     // begin_panel() for a panel whose id is made; `modal` blocks what is
@@ -743,6 +794,11 @@ private:
     // Each OS window's, by its id; the one being drawn.
     std::unordered_map<RootId, std::unique_ptr<Root>> roots_;
     Root* root_{nullptr};
+    // The windows being drawn as others are drawn into, innermost last.
+    std::vector<Suspended> suspended_;
+    // The windows the program closed, its user asking, until asked for
+    // again.
+    std::vector<RootId> closed_roots_;
 
     IdStack ids_;
     Storage storage_;
