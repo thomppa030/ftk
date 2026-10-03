@@ -14,9 +14,13 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     const std::string_view text = shown(label);
     const glm::vec2 measured = measure(text);
     // Across the room, or as wide as asked; a line of text tall, or as tall.
+    // Unless asked for a width it is laid out as wide as its label, as
+    // ImGui lays one out, so what follows on its line starts after the
+    // label: a row of a list drawn after a selectable with none.
     const float width = options.size.x > 0.0f ? options.size.x : std::max(layout.space_left().x, measured.x);
     const float height = options.size.y > 0.0f ? options.size.y : measured.y;
-    const core::Rect rect = layout.next({width, height});
+    const core::Rect laid = layout.next({options.size.x > 0.0f ? width : measured.x, height});
+    const core::Rect rect{.min = laid.min, .max = {laid.min.x + width, laid.max.y}};
 
     // It takes the mouse, and lights, across the spacing around it, so a
     // list of them has no gaps, as ImGui's do; across the whole of a
@@ -33,7 +37,7 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     if (options.overlap) kit().next.allow_overlap = true;
     const Id id = context.id(label);
     const core::Interaction in = place(id, bb, {});
-    context.semantics(id, core::Role::ListItem, text, {}, {.selected = selected});
+    context.semantics(id, core::Role::ListItem, text, {}, {.selected = selected}, rect);
 
     if (in.held || in.hovered || selected) {
         const Color fill = in.held ? theme::accent_dim() : (in.hovered ? theme::surface_hover() : theme::surface_raised());

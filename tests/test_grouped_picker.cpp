@@ -50,6 +50,30 @@ struct OpenPicker {
 
 } // namespace
 
+TEST_CASE("Each row of the picker shows its label inside the row", "[ui][picker]") {
+    // A row is a selectable across the list with what it shows after it on
+    // its line, from the row's start: the label is drawn inside the row,
+    // not past its end.
+    OpenPicker p;
+    std::vector<ui::core::Rect> rows;
+    for (const ui::core::SemanticNode& node : p.h.ui().semantics()) {
+        if (node.role == ui::core::Role::ListItem) rows.push_back(node.rect);
+    }
+    REQUIRE(rows.size() == 3);
+    std::vector<int> glyphs(rows.size(), 0);
+    for (const ui::core::RootOutput& root : p.h.output().roots) {
+        if (root.draw == nullptr) continue;
+        for (const ui::core::Primitive& primitive : root.draw->primitives) {
+            if (primitive.kind != ui::core::PrimitiveKind::Glyph) continue;
+            const glm::vec2 centre = (primitive.min + primitive.max) * 0.5f;
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                if (rows[i].contains(centre)) ++glyphs[i];
+            }
+        }
+    }
+    for (const int count : glyphs) CHECK(count > 0);
+}
+
 TEST_CASE("Enter in the picker takes the first item that can be picked", "[ui][picker]") {
     OpenPicker p;
     p.h.press(ui::Key::Enter);
