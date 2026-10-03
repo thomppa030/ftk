@@ -1,0 +1,195 @@
+#include "ftk/ui/kit/row.hpp"
+
+#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/edit_record.hpp"
+#include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/search.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
+namespace ftk::ui {
+
+using namespace corekit;
+
+namespace {
+
+// Inside a row, above and below its tallest cell; and at the table's sides.
+// ImGui's table cell padding.
+constexpr glm::vec2 CELL_PADDING{4.0f, 2.0f};
+
+// The help icon after a label: dim until the mouse is on it, the
+// explanation in a tooltip.
+void help_icon(const char* help) {
+    const glm::vec2 at = cursor();
+    const glm::vec2 size{measure(icon::help).x, frame_height()};
+    const bool hovered = mouse_over(at, at + size) && ui().area_or_inner_under_pointer();
+    align_text_to_frame();
+    ui::text(icon::help, hovered ? theme::text() : theme::text_disabled());
+    item_tooltip(help);
+}
+
+// The dot, or the room it takes, before a label.
+void draw_mark(RowMark mark) {
+    constexpr float DOT = 6.0f;
+    const glm::vec2 at = cursor();
+    if (mark == RowMark::Dot) {
+        const float cy = at.y + frame_height() * 0.5f;
+        ui().draw_list().circle_filled({at.x + DOT * 0.5f, cy}, DOT * 0.5f, faded(theme::accent()));
+    }
+    reserve({DOT, frame_height()});
+    same_line(theme::GAP_S + theme::GAP_XS);
+}
+
+// The row being drawn ends: the next goes under its tallest cell.
+void end_row() {
+    PropertyRows& rows = kit().rows;
+    if (!rows.in_row) return;
+    const float value_bottom = cursor().y - kit().style.item_spacing.y;
+    rows.bottom = std::max(rows.label_bottom, value_bottom) + CELL_PADDING.y;
+    rows.in_row = false;
+}
+
+} // namespace
+
+RowFilter::RowFilter(std::string_view query) {
+    kit().row_search = {.active = !query.empty(), .query = std::string(query), .matches = 0};
+}
+
+RowFilter::~RowFilter() {
+    kit().row_search = {};
+}
+
+int RowFilter::matches() const {
+    return kit().row_search.matches;
+}
+
+bool detail::filtering() {
+    return kit().row_search.active;
+}
+
+PropertyTable::PropertyTable(const char* id) {
+    core::Context& context = ui();
+    const glm::vec2 at = cursor();
+    const float room = space_left().x;
+    // A label column of the theme's share, the value filling the rest, both
+    // inside the table's padding at its sides.
+    kit().rows = {.open = true,
+                  .left = at.x + CELL_PADDING.x,
+                  .value_x = at.x + theme::label_column(room) + CELL_PADDING.x,
+                  .right = at.x + room - CELL_PADDING.x,
+                  .bottom = at.y};
+    context.ids().push(id);
+    open_ = true;
+}
+
+PropertyTable::~PropertyTable() {
+    end_row();
+    PropertyRows& rows = kit().rows;
+    if (open_) {
+        ui().ids().pop();
+        // What follows goes under the table.
+        set_cursor({rows.left - CELL_PADDING.x, rows.bottom});
+        rows = {};
+    }
+    detail::set_edit_label(nullptr);
+}
+
+bool detail::begin_row(const char* label, const char* help, bool bold) {
+    Kit& k = kit();
+    // Taken here so a row a search leaves out doesn't hand its mark on.
+    const RowMark mark = std::exchange(k.row_mark, RowMark::None);
+    RowSearch& search = k.row_search;
+    if (search.active && !matches(label, search.query)) return false;
+    set_edit_label(label);
+    end_row();
+    PropertyRows& rows = k.rows;
+    rows.in_row = true;
+    rows.row_top = rows.bottom;
+    const float top = rows.row_top + CELL_PADDING.y;
+    set_cursor({rows.left, top});
+    if (mark != RowMark::None) draw_mark(mark);
+    {
+        FontScope face(bold ? Font::Bold : Font::Current, 0.0f);
+        align_text_to_frame();
+        if (search.active) {
+            ++search.matches;
+            highlighted_text(label, search.query);
+        } else {
+            text(label);
+        }
+    }
+    if (help != nullptr) {
+        same_line(theme::GAP_S);
+        help_icon(help);
+    }
+    rows.label_bottom = top + frame_height();
+    // The value goes in its column, as wide as the column is.
+    const Item label_item = k.item;
+    set_cursor({rows.value_x, top});
+    k.next.width = rows.right - rows.value_x;
+    // In the value column the last item is still the row's label.
+    k.item = label_item;
+    return true;
+}
+
+detail::InheritedValue detail::begin_inherited_value() {
+    Kit& k = kit();
+    const float room = frame_height() + theme::GAP_S;
+    const glm::vec2 start = cursor();
+    const InheritedValue value{.top = start.y, .right = start.x + space_left().x};
+    // Every item of the value, not only its first, stops short of the reset.
+    k.next.width = -room;
+    k.item_widths.push_back(-room);
+    return value;
+}
+
+bool detail::end_inherited_value(const InheritedValue& value, bool set_here, const char* reset_tip) {
+    kit().item_widths.pop_back();
+    const float size = frame_height();
+    same_line();
+    set_cursor({value.right - size, value.top});
+    if (!set_here) {
+        reserve({size, size});
+        return false;
+    }
+    return icon_button("##reset", icon::revert, reset_tip);
+}
+
+void mark_next_row(bool set_here) {
+    kit().row_mark = set_here ? RowMark::Dot : RowMark::Room;
+}
+
+void hint(const char* text) {
+    // A hint belongs to the row above, which a search may have left out.
+    if (detail::filtering()) return;
+    Kit& k = kit();
+    FontScope small(Font::Current, theme::SMALL_TEXT);
+    PropertyRows& rows = k.rows;
+    if (rows.open) {
+        // A row of its own that runs under both columns, from the label's
+        // edge to the value's.
+        end_row();
+        rows.in_row = true;
+        rows.row_top = rows.bottom;
+        const float top = rows.row_top + CELL_PADDING.y;
+        const float width = rows.right - rows.left;
+        set_cursor({rows.left, top});
+        const core::Rect placed = ui().layout().next({width, measure(text, width).y});
+        draw_text(placed.min, theme::text_secondary(), text, width);
+        place_still(placed);
+        rows.label_bottom = placed.max.y;
+    } else {
+        const float width = space_left().x;
+        const core::Rect placed = ui().layout().next({width, measure(text, width).y});
+        draw_text(placed.min, theme::text_secondary(), text, width);
+        place_still(placed);
+    }
+}
+
+} // namespace ftk::ui

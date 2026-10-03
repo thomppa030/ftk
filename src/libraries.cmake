@@ -324,6 +324,8 @@ ftk_library(ui-kit
         ftk/ui/theme.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/edit_record.cpp
+        ftk/ui/kit/search_match.cpp
+        ftk/ui/kit/unit.cpp
     HEADERS
         ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
@@ -471,6 +473,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/button.cpp
         ftk/ui/kit/core/drag_drop.cpp
         ftk/ui/kit/core/draw_list.cpp
+        ftk/ui/kit/core/field.cpp
         ftk/ui/kit/core/image.cpp
         ftk/ui/kit/core/input.cpp
         ftk/ui/kit/core/item.cpp
@@ -479,7 +482,9 @@ ftk_library(app-ui
         ftk/ui/kit/core/panel.cpp
         ftk/ui/kit/core/popup.cpp
         ftk/ui/kit/core/region.cpp
+        ftk/ui/kit/core/row.cpp
         ftk/ui/kit/core/scope.cpp
+        ftk/ui/kit/core/search.cpp
         ftk/ui/kit/core/selectable.cpp
         ftk/ui/kit/core/state.cpp
         ftk/ui/kit/core/text.cpp

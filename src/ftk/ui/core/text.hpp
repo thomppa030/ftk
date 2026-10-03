@@ -73,6 +73,9 @@ public:
     [[nodiscard]] glm::vec2 measure(std::string_view text) { return measure(text, style()); }
     /// The height of one line in `style`.
     [[nodiscard]] float line_height(TextStyle style) const;
+    /// How far below the top of a line in `style` its baseline is: for
+    /// text of two sizes to sit on one line.
+    [[nodiscard]] float baseline(TextStyle style) const;
 
     /// Along `text` as one line in `style`: where a caret before byte `at`
     /// goes, from the start of the text, spaces counted; and the byte the

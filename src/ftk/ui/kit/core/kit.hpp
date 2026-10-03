@@ -96,6 +96,45 @@ struct FrameColours {
     Color active{};
 };
 
+/// A number field being dragged: what it read when the press began, and
+/// whether it has changed since.
+struct DraggedNumber {
+    Id id{0};
+    double start{0.0};
+    bool edited{false};
+};
+
+/// A number field being typed into, and its text meanwhile.
+struct TypedNumber {
+    Id id{0};
+    std::string text{};
+};
+
+/// The property table being drawn: where its two columns are, and where its
+/// rows have reached.
+struct PropertyRows {
+    bool open{false};
+    float left{0.0f};
+    float value_x{0.0f};
+    float right{0.0f};
+    /// The top of the row being drawn, and the bottom of its label; the
+    /// bottom of the rows before it.
+    float row_top{0.0f};
+    float label_bottom{0.0f};
+    float bottom{0.0f};
+    bool in_row{false};
+};
+
+/// The search a RowFilter puts over the rows drawn while it lives.
+struct RowSearch {
+    bool active{false};
+    std::string query{};
+    int matches{0};
+};
+
+/// What mark_next_row() asked of the next row.
+enum class RowMark : uint8_t { None, Room, Dot };
+
 /// What the next item is to be.
 struct NextItem {
     std::optional<float> width{};
@@ -160,6 +199,15 @@ public:
     /// The frame colours fields are drawn in, the innermost last; the
     /// theme's sunken field beneath them.
     std::vector<FrameColours> frames{};
+    /// The widths items take while pushed, the innermost last, as next_width()
+    /// takes them: every item of an inherited row's value stops short of its
+    /// reset.
+    std::vector<float> item_widths{};
+    DraggedNumber dragged{};
+    TypedNumber typed{};
+    PropertyRows rows{};
+    RowSearch row_search{};
+    RowMark row_mark{RowMark::None};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps

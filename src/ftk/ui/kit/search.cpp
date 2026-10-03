@@ -6,9 +6,6 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
-#include <algorithm>
-#include <cctype>
-
 namespace ftk::ui {
 
 namespace {
@@ -18,14 +15,6 @@ constexpr const char* SHORTCUT = "Ctrl F";
 } // namespace
 
 namespace detail {
-
-std::size_t find_match(std::string_view text, std::string_view query) {
-    if (query.empty()) return 0;
-    auto lower = [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
-    const auto found = std::ranges::search(text, query, [&](char a, char b) { return lower(a) == lower(b); });
-    return found.empty() ? std::string_view::npos
-                         : static_cast<std::size_t>(found.begin() - text.begin());
-}
 
 void draw_highlighted(DrawList list, glm::vec2 pos, std::string_view text,
                       std::string_view query, Color colour) {
@@ -48,10 +37,6 @@ void draw_highlighted(DrawList list, glm::vec2 pos, std::string_view text,
 }
 
 } // namespace detail
-
-bool matches(std::string_view text, std::string_view query) {
-    return query.empty() || detail::find_match(text, query) != std::string_view::npos;
-}
 
 void highlighted_text(std::string_view text, std::string_view query, bool dimmed) {
     const ImVec2 size = ImGui::CalcTextSize(text.data(), text.data() + text.size());

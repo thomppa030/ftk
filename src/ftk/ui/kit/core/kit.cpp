@@ -86,6 +86,7 @@ float item_width() {
     const Kit& k = kit();
     core::Layout& layout = ui().layout();
     if (k.next.width) return std::max(layout.resolve_width(*k.next.width), 1.0f);
+    if (!k.item_widths.empty()) return std::max(layout.resolve_width(k.item_widths.back()), 1.0f);
     return std::max(std::floor(layout.area().width() * k.style.item_width_share), 1.0f);
 }
 

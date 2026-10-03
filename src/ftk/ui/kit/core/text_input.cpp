@@ -113,9 +113,9 @@ private:
     TextEditing& s_;
 };
 
-// The keys the field takes while it has the keyboard. Returns whether
-// Enter or Escape let the keyboard go.
-void take_keys(Editor& editor, TextEditing& state, TextInput& out) {
+// The keys the field takes while it has the keyboard; Enter and Escape let
+// it go.
+void take_keys(Editor& editor, TextEditing& state, TextInput& out, const TextInputOptions& options) {
     core::Context& context = ui();
     const Modifiers mods = context.modifiers();
     const bool shortcut = mods.ctrl || mods.super;
@@ -173,8 +173,12 @@ void take_keys(Editor& editor, TextEditing& state, TextInput& out) {
         out.entered = true;
         context.clear_focus();
     } else if (context.key_pressed(Key::Escape)) {
-        state.text = state.initial;
-        state.cancelled = true;
+        if (options.escape_clears) {
+            if (!state.text.empty()) editor.erase(0, state.text.size());
+        } else {
+            state.text = state.initial;
+            state.cancelled = true;
+        }
         context.clear_focus();
     }
 }
@@ -186,7 +190,7 @@ TextInput text_input(Id id, core::Rect rect, std::string& value, const TextInput
     Kit& k = kit();
     const Style& style = k.style;
     const core::TextStyle text = text_style();
-    const float origin_x = rect.min.x + style.frame_padding.x;
+    const float origin_x = rect.min.x + style.frame_padding.x + options.lead;
     const float text_y = rect.min.y + std::floor((rect.height() - text.size) * 0.5f);
 
     const core::Interaction in = place(id, rect, {});
@@ -241,7 +245,7 @@ TextInput text_input(Id id, core::Rect rect, std::string& value, const TextInput
         } else if (in.held && in.dragging) {
             editor.move(context.text().caret_at(state.text, text, in.position.x - origin_x + state.scroll), true);
         }
-        take_keys(editor, state, out);
+        take_keys(editor, state, out, options);
         if (state.text != text_before || state.caret != caret_before) state.moved = context.time();
         if (state.text != value) {
             value = state.text;

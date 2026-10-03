@@ -120,7 +120,9 @@ catch_discover_tests(ftk-tests)
 # (FTK_KIT_ON_CORE), so they pass on both. A file joins as the pieces it
 # draws come onto the core (Phase 6 of the UI core plan).
 add_executable(ftk-kit-core-tests
+    test_fields.cpp
     test_kit_basics.cpp
+    test_search.cpp
     test_text_field.cpp
 )
 target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::ui-harness Catch2::Catch2WithMain)

@@ -19,6 +19,10 @@ struct TextInputOptions {
     const char* hint{nullptr};
     /// Taking the keyboard selects the whole text, as a click does too.
     bool select_all{false};
+    /// Room left of the text, past the frame's padding: an icon's.
+    float lead{0.0f};
+    /// Escape empties it rather than putting the text back: a search.
+    bool escape_clears{false};
 };
 
 /// What a text box did this frame.

@@ -79,6 +79,15 @@ float TextSystem::line_height(TextStyle style) const {
     return fonts_[style.font].primary().metrics(style.size).line_height();
 }
 
+float TextSystem::baseline(TextStyle style) const {
+    if (style.font >= fonts_.size()) return style.size;
+    const text::Metrics metrics = fonts_[style.font].primary().metrics(style.size);
+    // As draw() places it: the face from the line's top, or centred in the
+    // line asked for.
+    const float top = style.line_height > 0.0f ? (style.line_height - metrics.ascent - metrics.descent) * 0.5f : 0.0f;
+    return top + metrics.ascent;
+}
+
 glm::vec2 TextSystem::measure(std::string_view text, TextStyle style, float wrap_width) {
     if (style.font >= fonts_.size()) return {0.0f, 0.0f};
     if (text.empty()) return {0.0f, line_height(style)};

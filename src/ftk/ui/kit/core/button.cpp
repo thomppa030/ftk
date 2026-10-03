@@ -1,9 +1,14 @@
 #include "ftk/ui/kit/button.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 
 #include <algorithm>
+#include <string>
 
 namespace ftk::ui {
 
@@ -36,6 +41,17 @@ Look look_of(ButtonKind kind) {
     case ButtonKind::Secondary: break;
     }
     return {theme::surface_raised(), theme::surface_highest(), theme::surface_active(), theme::text(), theme::text()};
+}
+
+Look toggle_look(bool on) {
+    Look look = look_of(ButtonKind::Ghost);
+    if (on) {
+        look.fill = theme::toggle_on();
+        look.hover = theme::toggle_on();
+        look.active = theme::toggle_on();
+        look.text = theme::text();
+    }
+    return look;
 }
 
 // One size of `asked`: itself above zero, `fallback` at zero, and the room
@@ -72,6 +88,19 @@ bool draw(const char* label, const Look& look, glm::vec2 size, glm::vec2 padding
     return in.clicked;
 }
 
+// A square button the height of a field holding an icon, centred.
+bool draw_icon(const char* id, const char* icon, const char* tip, const Look& look) {
+    const float side = frame_height();
+    const float side_padding = std::max((side - measure(icon).x) * 0.5f, 0.0f);
+    IdScope scope(id);
+    const bool clicked = draw(icon, look, {side, side}, {side_padding, kit().style.frame_padding.y});
+    if (tip != nullptr) item_tooltip(tip);
+    return clicked;
+}
+
+// The space between a mode button's icon, label and chevron.
+constexpr float MODE_GAP = theme::GAP_S + 2.0f;
+
 } // namespace
 
 bool button(const char* label, ButtonKind kind, glm::vec2 size) {
@@ -81,6 +110,67 @@ bool button(const char* label, ButtonKind kind, glm::vec2 size) {
 bool small_button(const char* label) {
     // A line of text tall: no padding above or below.
     return draw(label, look_of(ButtonKind::Secondary), {0.0f, 0.0f}, {kit().style.frame_padding.x, 0.0f});
+}
+
+bool action(const char* icon, const char* label, ButtonKind kind, glm::vec2 size) {
+    const std::string text = std::string(icon) + "  " + label;
+    return draw(text.c_str(), look_of(kind), size, kit().style.frame_padding);
+}
+
+bool icon_button(const char* id, const char* icon, const char* tooltip, ButtonKind kind) {
+    return draw_icon(id, icon, tooltip, look_of(kind));
+}
+
+bool toggle_button(const char* id, const char* icon, bool on, const char* tooltip) {
+    return draw_icon(id, icon, tooltip, toggle_look(on));
+}
+
+bool tool_button(const char* id, const char* icon, bool on, const char* tooltip) {
+    IdScope scope(id);
+    FontScope size(Font::Current, theme::TOOL_ICON);
+    // The icon centred in the square.
+    const float side = theme::TOOL_BUTTON;
+    const glm::vec2 measured = measure(icon);
+    const bool clicked = draw(icon, toggle_look(on), {side, side},
+                              {std::max((side - measured.x) * 0.5f, 0.0f), std::max((side - measured.y) * 0.5f, 0.0f)});
+    if (tooltip != nullptr) item_tooltip(tooltip);
+    return clicked;
+}
+
+bool toggle(const char* label, bool on, const char* tooltip) {
+    const bool clicked = draw(label, toggle_look(on), {0.0f, 0.0f}, kit().style.frame_padding);
+    if (tooltip != nullptr) item_tooltip(tooltip);
+    return clicked;
+}
+
+float mode_button_width(const char* icon, const char* label) {
+    const glm::vec2 padding = kit().style.frame_padding;
+    return padding.x + measure(icon).x + MODE_GAP + measure(label).x + MODE_GAP + measure(icon::dropdown).x +
+           padding.x * 0.75f;
+}
+
+bool mode_button(const char* id, const char* icon, const char* label, bool alert) {
+    core::Context& context = ui();
+    const Style& style = kit().style;
+    const core::Rect rect = context.layout().next({mode_button_width(icon, label), frame_height()});
+    const Id button_id = context.id(id);
+    const core::Interaction in = place(button_id, rect);
+    context.semantics(button_id, core::Role::Button, label);
+    const Look look = look_of(ButtonKind::Secondary);
+
+    core::DrawList& dl = context.draw_list();
+    dl.rect_filled(rect.min, rect.max, faded(in.held ? look.active : (in.hovered ? look.hover : look.fill)),
+                   style.frame_rounding);
+    if (alert) dl.rect(rect.min, rect.max, faded(theme::warning()), style.frame_rounding);
+    const Color ink = alert ? theme::warning() : theme::text();
+    const float y = rect.min.y + style.frame_padding.y;
+    float x = rect.min.x + style.frame_padding.x;
+    draw_text({x, y}, ink, icon);
+    x += measure(icon).x + MODE_GAP;
+    draw_text({x, y}, ink, label);
+    x += measure(label).x + MODE_GAP;
+    draw_text({x, y}, alert ? theme::warning() : theme::text_secondary(), icon::dropdown);
+    return in.clicked;
 }
 
 } // namespace ftk::ui
