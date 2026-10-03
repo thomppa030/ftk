@@ -1,8 +1,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 
-#include <imgui.h>
-
 #include <cstring>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -13,7 +12,7 @@ namespace {
 struct Pending {
     std::string scope{};
     EditRecord record{};
-    int frame{-1};
+    std::optional<uint64_t> frame{};
     // Finished edits in the scope since the last take. More than one is an
     // edit of several values and gets no record.
     int count{0};
@@ -23,7 +22,7 @@ std::string g_scope;
 std::string g_label;
 Pending g_pending;
 // The text each field read when its edit under way started.
-std::unordered_map<ImGuiID, std::string> g_started;
+std::unordered_map<Id, std::string> g_started;
 
 } // namespace
 
@@ -51,7 +50,7 @@ void set_edit_label(const char* label) {
 }
 
 void track_field(Id id, const std::string& before, const std::string& after, bool started,
-                 const Edit& edit) {
+                 const Edit& edit, uint64_t frame) {
     if (started) g_started[id] = before;
     if (!edit.committed) return;
     auto it = g_started.find(id);
@@ -59,7 +58,6 @@ void track_field(Id id, const std::string& before, const std::string& after, boo
     if (it != g_started.end()) g_started.erase(it);
     if (g_scope.empty() || from == after) return;
 
-    const int frame = ImGui::GetFrameCount();
     if (g_pending.scope != g_scope) g_pending = {.scope = g_scope};
     // An outer field replaces the inner one it drew on the same frame.
     if (g_pending.frame != frame || g_pending.count == 0) ++g_pending.count;

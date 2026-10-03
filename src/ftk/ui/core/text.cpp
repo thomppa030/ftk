@@ -90,6 +90,32 @@ glm::vec2 TextSystem::measure(std::string_view text, TextStyle style, float wrap
     return {width, count * line_height(style)};
 }
 
+float TextSystem::caret_x(std::string_view text, TextStyle style, std::size_t at) {
+    if (style.font >= fonts_.size() || text.empty()) return 0.0f;
+    const text::ShapedText& shaped_text = shaped(text, style).shaped;
+    // Before the first glyph drawn from that byte on; past the last, after
+    // it.
+    for (const text::Glyph& glyph : shaped_text.glyphs) {
+        if (glyph.cluster >= at) return glyph.x;
+    }
+    return shaped_text.width;
+}
+
+std::size_t TextSystem::caret_at(std::string_view text, TextStyle style, float x) {
+    if (style.font >= fonts_.size() || text.empty()) return 0;
+    const text::ShapedText& shaped_text = shaped(text, style).shaped;
+    std::size_t best = text.size();
+    float best_distance = std::abs(x - shaped_text.width);
+    for (const text::Glyph& glyph : shaped_text.glyphs) {
+        const float distance = std::abs(x - glyph.x);
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = glyph.cluster;
+        }
+    }
+    return best;
+}
+
 void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_view text, TextStyle style,
                       float wrap_width) {
     if (text.empty() || style.font >= fonts_.size()) return;

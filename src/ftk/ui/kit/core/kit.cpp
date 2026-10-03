@@ -70,6 +70,18 @@ Color text_colour() {
     return k.text_colours.empty() ? theme::text() : k.text_colours.back();
 }
 
+FrameColours frame_colours() {
+    const Kit& k = kit();
+    if (!k.frames.empty()) return k.frames.back();
+    return {.rest = theme::surface_sunken(), .hover = theme::surface_base(), .active = theme::surface_raised()};
+}
+
+void draw_frame(core::Rect rect, const core::Interaction& in, bool active) {
+    const FrameColours colours = frame_colours();
+    const Color fill = active || in.held ? colours.active : (in.hovered ? colours.hover : colours.rest);
+    ui().draw_list().rect_filled(rect.min, rect.max, faded(fill), kit().style.frame_rounding);
+}
+
 float item_width() {
     const Kit& k = kit();
     core::Layout& layout = ui().layout();

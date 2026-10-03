@@ -63,6 +63,37 @@ struct Item {
     /// Its value changed while it was active: an edit finished when it
     /// stops.
     bool edited{false};
+    /// An item the keyboard edits, a text field: active while it has the
+    /// keyboard, not while the mouse holds it.
+    bool keyboard{false};
+};
+
+/// The text of the field that has the keyboard, as it is being edited.
+struct TextEditing {
+    Id id{0};
+    std::string text{};
+    /// What it held when the edit began, for Escape.
+    std::string initial{};
+    /// The caret and the other end of the selection, as bytes into `text`.
+    std::size_t caret{0};
+    std::size_t anchor{0};
+    /// How far the text is scrolled left to keep the caret in sight.
+    float scroll{0.0f};
+    /// When the caret last moved, from which it blinks.
+    double moved{0.0};
+    /// Earlier texts and carets, for undo, and those undone, for redo.
+    std::vector<std::pair<std::string, std::size_t>> undo{};
+    std::vector<std::pair<std::string, std::size_t>> redo{};
+    bool edited{false};
+    bool cancelled{false};
+};
+
+/// The colours a field's frame is drawn in: resting, under the mouse, and
+/// while it is edited.
+struct FrameColours {
+    Color rest{};
+    Color hover{};
+    Color active{};
 };
 
 /// What the next item is to be.
@@ -122,6 +153,13 @@ public:
     /// The drop target being drawn takes drops over this rather than over
     /// the item just drawn: a window that takes them anywhere on it.
     std::optional<core::Rect> drop_rect{};
+    /// The text being edited, and that of a field that lost the keyboard
+    /// to another before it was drawn again to be told.
+    TextEditing editing{};
+    TextEditing left{};
+    /// The frame colours fields are drawn in, the innermost last; the
+    /// theme's sunken field beneath them.
+    std::vector<FrameColours> frames{};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -144,6 +182,10 @@ void draw_text(glm::vec2 at, Color colour, std::string_view text, float wrap = c
 [[nodiscard]] Color faded(Color colour);
 /// The colour text is drawn in now.
 [[nodiscard]] Color text_colour();
+/// The colours fields' frames are drawn in now.
+[[nodiscard]] FrameColours frame_colours();
+/// A field's frame at `rect` as `in` finds it, `active` while it is edited.
+void draw_frame(core::Rect rect, const core::Interaction& in, bool active);
 
 /// The width the next item takes: what next_width() asked, or the share
 /// of the room a field takes.

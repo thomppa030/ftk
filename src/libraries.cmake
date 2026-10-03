@@ -323,6 +323,7 @@ ftk_library(ui-kit
     SOURCES
         ftk/ui/theme.cpp
         ftk/ui/kit/asset_kind.cpp
+        ftk/ui/kit/edit_record.cpp
     HEADERS
         ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
@@ -414,7 +415,6 @@ ftk_library(app-ui-imgui
         ftk/ui/kit/dialog.cpp
         ftk/ui/kit/dock.cpp
         ftk/ui/kit/drag_drop.cpp
-        ftk/ui/kit/edit_record.cpp
         ftk/ui/kit/feedback.cpp
         ftk/ui/kit/field.cpp
         ftk/ui/kit/gallery.cpp
@@ -483,11 +483,14 @@ ftk_library(app-ui
         ftk/ui/kit/core/selectable.cpp
         ftk/ui/kit/core/state.cpp
         ftk/ui/kit/core/text.cpp
+        ftk/ui/kit/core/text_field.cpp
+        ftk/ui/kit/core/text_input.cpp
         ftk/ui/kit/core/tooltip.cpp
         ftk/ui/kit/core/window.cpp
     HEADERS
         ftk/ui/core_kit.hpp
         ftk/ui/kit/core/kit.hpp
+        ftk/ui/kit/core/text_input.hpp
     LINKS
         PUBLIC ftk::base ftk::ui-kit ftk::ui-core ftk::text glm::glm
 )

@@ -82,4 +82,8 @@ void set_mouse_cursor(MouseCursor cursor);
 /// Seconds since the last frame.
 [[nodiscard]] float frame_seconds();
 
+/// The frames drawn so far, this one counted: tells what happened in one
+/// frame from what happened in the next.
+[[nodiscard]] uint64_t frame_count();
+
 } // namespace ftk::ui

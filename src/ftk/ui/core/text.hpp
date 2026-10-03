@@ -74,6 +74,12 @@ public:
     /// The height of one line in `style`.
     [[nodiscard]] float line_height(TextStyle style) const;
 
+    /// Along `text` as one line in `style`: where a caret before byte `at`
+    /// goes, from the start of the text, spaces counted; and the byte the
+    /// caret nearest `x` goes before.
+    [[nodiscard]] float caret_x(std::string_view text, TextStyle style, std::size_t at);
+    [[nodiscard]] std::size_t caret_at(std::string_view text, TextStyle style, float x);
+
     /// Lays `text`'s glyphs into `list`, its top-left at `at`.
     void draw(DrawList& list, glm::vec2 at, Color colour, std::string_view text, TextStyle style,
               float wrap_width = NO_WRAP);

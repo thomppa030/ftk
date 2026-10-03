@@ -155,4 +155,8 @@ float frame_seconds() {
     return ImGui::GetIO().DeltaTime;
 }
 
+uint64_t frame_count() {
+    return static_cast<uint64_t>(ImGui::GetFrameCount());
+}
+
 } // namespace ftk::ui

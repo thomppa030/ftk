@@ -145,3 +145,37 @@ TEST_CASE("Pushed styles set the font and size text is drawn in", "[ui-core][tex
     f.ui.text().pop_style();
     CHECK(f.ui.text().style().size == 13.0f);
 }
+
+TEST_CASE("A caret goes between characters, a space counted, and is found from where it is", "[ui-core][text]") {
+    Fixture f;
+    core::TextSystem& text = f.ui.text();
+    const core::TextStyle style = text.style();
+    const std::string_view line = "ab cd ";
+    CHECK(text.caret_x(line, style, 0) == 0.0f);
+    // Each character moves the caret on, the trailing space too.
+    float last = 0.0f;
+    for (std::size_t at = 1; at <= line.size(); ++at) {
+        const float x = text.caret_x(line, style, at);
+        CHECK(x > last);
+        last = x;
+    }
+    // Found again from its place, and from a little either side of it.
+    for (std::size_t at = 0; at <= line.size(); ++at) {
+        const float x = text.caret_x(line, style, at);
+        CHECK(text.caret_at(line, style, x) == at);
+        CHECK(text.caret_at(line, style, x + 1.0f) == at);
+    }
+    CHECK(text.caret_at(line, style, -50.0f) == 0);
+    CHECK(text.caret_at(line, style, 500.0f) == line.size());
+}
+
+TEST_CASE("A style's line height sets how far apart lines are, the face centred in each", "[ui-core][text]") {
+    Fixture f;
+    core::TextSystem& text = f.ui.text();
+    core::TextStyle style = text.style();
+    const float natural = text.line_height(style);
+    style.line_height = 13.0f;
+    CHECK(text.line_height(style) == 13.0f);
+    CHECK(text.measure("one\ntwo", style).y == 26.0f);
+    CHECK(natural > 13.0f);
+}

@@ -118,4 +118,8 @@ float frame_seconds() {
     return ui().delta();
 }
 
+uint64_t frame_count() {
+    return ui().frame();
+}
+
 } // namespace ftk::ui

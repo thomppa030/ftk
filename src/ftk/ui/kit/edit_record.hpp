@@ -1,8 +1,10 @@
 #pragma once
 
 #include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/types.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -48,9 +50,10 @@ void set_edit_label(const char* label);
 /// its edit started this frame. The text at the start of the edit is kept
 /// under `id` until the edit is finished. A field drawn inside another (the
 /// hex code in a colour field) records first and is replaced by the outer
-/// field on the same frame.
+/// field on the same frame. The frame is counted where the field is drawn,
+/// by the implementation drawing the kit.
 void track_field(Id id, const std::string& before, const std::string& after, bool started,
-                 const Edit& edit);
+                 const Edit& edit, uint64_t frame = frame_count());
 
 /// A number with its unit, the way the field shows it ("2.50 kg", "90°").
 [[nodiscard]] std::string with_unit(const char* number, const char* unit_symbol);

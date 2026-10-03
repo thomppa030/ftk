@@ -18,18 +18,24 @@ bool item_under_mouse() {
     return ui().pointer_over(item.rect);
 }
 
+// An item the keyboard edits is active while it has the keyboard; another
+// while a pointer holds it.
+
 bool item_active() {
     const Item& item = kit().item;
+    if (item.keyboard) return item.focused;
     return item.takes && (item.in.held || item.focused);
 }
 
 bool item_activated() {
     const Item& item = kit().item;
+    if (item.keyboard) return item.focus_gained;
     return item.takes && (item.in.pressed || item.focus_gained);
 }
 
 bool item_deactivated() {
     const Item& item = kit().item;
+    if (item.keyboard) return item.focus_lost;
     return item.takes && (item.in.released || item.focus_lost);
 }
 
