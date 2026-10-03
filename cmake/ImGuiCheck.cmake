@@ -21,10 +21,11 @@
 # name: the kit and the theme (src/ftk/ui/), the ImGui layer and its renderer,
 # the test harness that drives ImGui headless, and ImGui's configuration.
 # The UI core (src/ftk/ui/core/) is not: it replaces ImGui, so it is held
-# to the check like code outside the kit. ftk's own ImGuiLayer and
-# ImGuiLayerFiles, and their header, are not hits: they name the layer a
-# program runs its UI with, which takes the UI core's name when the core
-# takes over the frame loop, not ImGui's API.
+# to the check like code outside the kit. ftk's own ImGuiLayer,
+# ImGuiLayerFiles, ImGuiAppWindow and the rest of their family, and their
+# headers, are not hits: they name the window and the layer a program runs
+# its UI with on the kit's ImGui implementation, until it moves onto the
+# core, not ImGui's API.
 
 # Scans `roots` under `base`, skipping what `allowlist` names, and fails with
 # every offender. Also run on its own by the build step (script mode below).
@@ -41,7 +42,7 @@ function(_ftk_scan_imgui base allowlist)
     )
     list(JOIN patterns "|" pattern)
     set(imgui_path
-        "^ftk/(ui/|imgui_config\\.hpp$|app/imgui_layer\\.|gpu/imgui_renderer\\.|gpu/vulkan/imgui_renderer\\.|test/imgui_harness\\.)")
+        "^ftk/(ui/|imgui_config\\.hpp$|app/imgui_layer\\.|app/imgui_app_window\\.|gpu/imgui_renderer\\.|gpu/vulkan/imgui_renderer\\.|test/imgui_harness\\.)")
 
     set(allowed "")
     if(allowlist AND EXISTS "${allowlist}")
@@ -77,7 +78,8 @@ function(_ftk_scan_imgui base allowlist)
                 string(STRIP "${hit}" hit)
                 # A comment, or ImGui named only in a comment after the code.
                 string(REGEX REPLACE "//.*$" "" code "${hit}")
-                string(REGEX REPLACE "ImGuiLayer(Files)?|ftk/app/imgui_layer\\.hpp" "" code "${code}")
+                string(REGEX REPLACE "ImGuiLayer(Files)?|ImGuiApp(Window(Desc)?|Frame)|ftk/app/imgui_(layer|app_window)\\.hpp"
+                       "" code "${code}")
                 if(hit MATCHES "^(\\*|/\\*)" OR NOT code MATCHES "${pattern}")
                     continue()
                 endif()

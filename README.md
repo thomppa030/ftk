@@ -22,8 +22,10 @@ library it does not link; the build checks that.
 | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
 | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, with glslc's errors read back |
 | `ftk::image` | Image loading, saving and resizing (stb) |
-| `ftk::app-ui` | The editor theme, its icons and the kit of widgets |
-| `ftk::app` | The ImGui layer, standalone windows, undo and its history panel, the console, the file browser, the icon cache and editor contexts |
+| `ftk::ui-kit` | The kit's headers, the editor theme and its icons, for a program to link with one implementation of the kit |
+| `ftk::app-ui-imgui` | The kit of widgets drawn by Dear ImGui |
+| `ftk::app` | The main window on the UI core, its input and undo |
+| `ftk::app-imgui` | The window on the kit's ImGui implementation, the ImGui layer, standalone windows, undo's history panel, the console, the file browser, the icon cache and editor contexts |
 | `ftk::imgui-harness` | Dear ImGui with no window, for a program's tests to drive its UI |
 
 ## Building

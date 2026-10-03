@@ -1,46 +1,32 @@
 // Links ftk-app alone and whole (tests/CMakeLists.txt), so it builds only if
 // everything in the library finds what it needs in the library and its own
-// dependencies. Running it opens a standalone window on a GPU and draws the
-// kit in it for a few frames, which takes a GPU and a display: it is run by
-// hand, not as a test, with the ImGui layer's files:
-//
-//     ftk-link-app <fonts directory> <imgui.frag.spv>
+// dependencies: no ImGui. Running it opens a window on a GPU and takes a shot
+// of a frame of the UI core, which takes a GPU and a display: it is run by
+// hand, not as a test.
 
-#include "ftk/app/imgui_layer.hpp"
-#include "ftk/app/standalone_window.hpp"
+#include "ftk/app/app_window.hpp"
 #include "ftk/base/log.hpp"
-#include "ftk/gpu/device.hpp"
-#include "ftk/gpu/window.hpp"
-#include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/core/context.hpp"
 
 #include <cstdio>
 
-int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::fprintf(stderr, "usage: %s <fonts directory> <imgui.frag.spv>\n", argv[0]);
-        return 2;
-    }
+int main() {
     ftk::log::init({.level = spdlog::level::warn});
-    int drawn = 0;
+    int code = 1;
     {
-        // The device is made for a window of its own, as the editor's is.
-        ftk::Window main_window("ftk-link-app", 320, 240);
-        auto made = ftk::gpu::Device::create(main_window);
+        auto made = ftk::AppWindow::create({.title = "ftk-link-app", .width = 320, .height = 240});
         if (!made) {
             std::fprintf(stderr, "%s\n", made.error().c_str());
             return 1;
         }
-        ftk::gpu::Device& device = **made;
-        ftk::StandaloneWindow window(device, "ftk-link-app", 480, 320,
-                                       {.fonts = argv[1], .srgb_fragment = argv[2]});
-        for (int frame = 0; frame < 10; ++frame) {
-            window.frame([&](float, float) {
-                (void)ftk::ui::button("OK");
-                ++drawn;
-            });
-        }
-        device.wait_idle();
+        auto shot = (*made)->shot(
+            [](ftk::ui::core::Context& ui, glm::vec2 size) {
+                ui.draw_list().rect_filled({8.0f, 8.0f}, size - 8.0f, {1.0f, 1.0f, 1.0f, 1.0f}, 4.0f);
+            },
+            {64, 48});
+        // The middle of the frame is the white rectangle.
+        if (shot && shot->pixels[(24 * 64 + 32) * 4] == 255) code = 0;
     }
     ftk::log::shutdown();
-    return drawn > 0 ? 0 : 1;
+    return code;
 }

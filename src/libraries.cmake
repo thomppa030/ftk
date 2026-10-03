@@ -315,73 +315,17 @@ ftk_library(ui-core
         PUBLIC ftk::base ftk::text glm::glm
 )
 
-# ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
-# the icons and every widget of the kit, on ImGui's core alone, so it draws
-# headless in the unit tests and in any window a program brings.
-ftk_library(app-ui
+# ftk-ui-kit is how a creative app or an editor looks, as its programs see
+# it: the kit's headers, the theme's tokens and palette, and the icons. Each
+# implementation of the kit links it and defines what its headers declare;
+# a program links one of them, never both.
+ftk_library(ui-kit
     SOURCES
-        ftk/ui/draw_list.cpp
-        ftk/ui/imgui_theme.cpp
         ftk/ui/theme.cpp
-        ftk/ui/kit/asset_header.cpp
         ftk/ui/kit/asset_kind.cpp
-        ftk/ui/kit/asset_tile.cpp
-        ftk/ui/kit/button.cpp
-        ftk/ui/kit/bit_strip.cpp
-        ftk/ui/kit/rail.cpp
-        ftk/ui/kit/region.cpp
-        ftk/ui/kit/canvas.cpp
-        ftk/ui/kit/choice.cpp
-        ftk/ui/kit/color_field.cpp
-        ftk/ui/kit/component_block.cpp
-        ftk/ui/kit/curve_editor.cpp
-        ftk/ui/kit/dialog.cpp
-        ftk/ui/kit/dock.cpp
-        ftk/ui/kit/drag_drop.cpp
-        ftk/ui/kit/edit_record.cpp
-        ftk/ui/kit/feedback.cpp
-        ftk/ui/kit/field.cpp
-        ftk/ui/kit/gallery.cpp
-        ftk/ui/kit/grouped_picker.cpp
-        ftk/ui/kit/image.cpp
-        ftk/ui/kit/input.cpp
-        ftk/ui/kit/inset_group.cpp
-        ftk/ui/kit/item.cpp
-        ftk/ui/kit/key_cap.cpp
-        ftk/ui/kit/layout.cpp
-        ftk/ui/kit/list_editor.cpp
-        ftk/ui/kit/loading.cpp
-        ftk/ui/kit/menu.cpp
-        ftk/ui/kit/node_graph.cpp
-        ftk/ui/kit/overlay.cpp
-        ftk/ui/kit/pages.cpp
-        ftk/ui/kit/pane.cpp
-        ftk/ui/kit/panel.cpp
-        ftk/ui/kit/plot.cpp
-        ftk/ui/kit/popup.cpp
-        ftk/ui/kit/row.cpp
-        ftk/ui/kit/save_bar.cpp
-        ftk/ui/kit/scope.cpp
-        ftk/ui/kit/search.cpp
-        ftk/ui/kit/section.cpp
-        ftk/ui/kit/selectable.cpp
-        ftk/ui/kit/settings_file.cpp
-        ftk/ui/kit/slot.cpp
-        ftk/ui/kit/state.cpp
-        ftk/ui/kit/status_bar.cpp
-        ftk/ui/kit/strip.cpp
-        ftk/ui/kit/table.cpp
-        ftk/ui/kit/tabs.cpp
-        ftk/ui/kit/text.cpp
-        ftk/ui/kit/text_field.cpp
-        ftk/ui/kit/tooltip.cpp
-        ftk/ui/kit/tree.cpp
-        ftk/ui/kit/viewport_toolbar.cpp
-        ftk/ui/kit/window.cpp
     HEADERS
         ftk/ui/draw_list.hpp
         ftk/ui/icons_lc.hpp
-        ftk/ui/imgui_theme.hpp
         ftk/ui/kit/asset_header.hpp
         ftk/ui/kit/asset_kind.hpp
         ftk/ui/kit/asset_tile.hpp
@@ -442,11 +386,80 @@ ftk_library(app-ui
         ftk/ui/theme.hpp
         ftk/ui/types.hpp
     LINKS
-        PUBLIC ftk::base ftk::math ftk::ui-core ftk::imgui-headless glm::glm
+        PUBLIC ftk::base ftk::math ftk::ui-core glm::glm
         PRIVATE nlohmann_json::nlohmann_json
 )
 # The approved dark palette, the theme's until a program uses another.
-ftk_embed_file(ftk-app-ui "${FTK_SOURCE_ROOT}/ftk/ui/palettes/dark.json")
+ftk_embed_file(ftk-ui-kit "${FTK_SOURCE_ROOT}/ftk/ui/palettes/dark.json")
+
+# ftk-app-ui-imgui is the kit drawn by ImGui's core alone, so it draws
+# headless in the unit tests and in any window a program brings: the
+# editor's and the hub's until they move onto the UI core (Phase 9 of the
+# UI core plan), when it goes.
+ftk_library(app-ui-imgui
+    SOURCES
+        ftk/ui/draw_list.cpp
+        ftk/ui/imgui_theme.cpp
+        ftk/ui/kit/asset_header.cpp
+        ftk/ui/kit/asset_tile.cpp
+        ftk/ui/kit/button.cpp
+        ftk/ui/kit/bit_strip.cpp
+        ftk/ui/kit/rail.cpp
+        ftk/ui/kit/region.cpp
+        ftk/ui/kit/canvas.cpp
+        ftk/ui/kit/choice.cpp
+        ftk/ui/kit/color_field.cpp
+        ftk/ui/kit/component_block.cpp
+        ftk/ui/kit/curve_editor.cpp
+        ftk/ui/kit/dialog.cpp
+        ftk/ui/kit/dock.cpp
+        ftk/ui/kit/drag_drop.cpp
+        ftk/ui/kit/edit_record.cpp
+        ftk/ui/kit/feedback.cpp
+        ftk/ui/kit/field.cpp
+        ftk/ui/kit/gallery.cpp
+        ftk/ui/kit/grouped_picker.cpp
+        ftk/ui/kit/image.cpp
+        ftk/ui/kit/input.cpp
+        ftk/ui/kit/inset_group.cpp
+        ftk/ui/kit/item.cpp
+        ftk/ui/kit/key_cap.cpp
+        ftk/ui/kit/layout.cpp
+        ftk/ui/kit/list_editor.cpp
+        ftk/ui/kit/loading.cpp
+        ftk/ui/kit/menu.cpp
+        ftk/ui/kit/node_graph.cpp
+        ftk/ui/kit/overlay.cpp
+        ftk/ui/kit/pages.cpp
+        ftk/ui/kit/pane.cpp
+        ftk/ui/kit/panel.cpp
+        ftk/ui/kit/plot.cpp
+        ftk/ui/kit/popup.cpp
+        ftk/ui/kit/row.cpp
+        ftk/ui/kit/save_bar.cpp
+        ftk/ui/kit/scope.cpp
+        ftk/ui/kit/search.cpp
+        ftk/ui/kit/section.cpp
+        ftk/ui/kit/selectable.cpp
+        ftk/ui/kit/settings_file.cpp
+        ftk/ui/kit/slot.cpp
+        ftk/ui/kit/state.cpp
+        ftk/ui/kit/status_bar.cpp
+        ftk/ui/kit/strip.cpp
+        ftk/ui/kit/table.cpp
+        ftk/ui/kit/tabs.cpp
+        ftk/ui/kit/text.cpp
+        ftk/ui/kit/text_field.cpp
+        ftk/ui/kit/tooltip.cpp
+        ftk/ui/kit/tree.cpp
+        ftk/ui/kit/viewport_toolbar.cpp
+        ftk/ui/kit/window.cpp
+    HEADERS
+        ftk/ui/imgui_theme.hpp
+    LINKS
+        PUBLIC ftk::base ftk::math ftk::ui-kit ftk::ui-core ftk::imgui-headless glm::glm
+        PRIVATE nlohmann_json::nlohmann_json
+)
 
 # ftk-ui-harness runs the UI core with no window and no renderer, as
 # ftk-imgui-harness runs ImGui: set the UI, feed it pointers, step frames.
@@ -468,7 +481,7 @@ ftk_library(imgui-harness
     HEADERS
         ftk/test/imgui_harness.hpp
     LINKS
-        PUBLIC ftk::app-ui ftk::imgui-headless
+        PUBLIC ftk::app-ui-imgui ftk::ui-kit ftk::imgui-headless
 )
 
 # ftk-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
@@ -500,40 +513,54 @@ foreach(shader ui.vert ui.frag ui_copy.vert ui_copy.frag)
     ftk_embed_shader(ftk-gpu-ui "${FTK_SOURCE_ROOT}/ftk/gpu/shaders/${shader}")
 endforeach()
 
-# ftk-app is what a creative app's or an editor's window needs around the
-# kit: the main window and its frame loop, the ImGui layer on a window of its
-# own, the platform's input for the UI core, the console, undo and the
-# history panel, the icon cache, the file browser, and the EditorContext a
-# tool's documents build on. Where a host keeps its files is passed in.
+# ftk-app is what a creative app's window needs around the UI core: the main
+# window and its frame loop, the platform's input for the core, and undo's
+# command and document histories. It holds no ImGui.
 ftk_library(app
     SOURCES
         ftk/app/app_window.cpp
         ftk/app/command_history.cpp
-        ftk/app/console.cpp
         ftk/app/document_history.cpp
-        ftk/app/editor_context.cpp
-        ftk/app/file_browser.cpp
-        ftk/app/history_panel.cpp
-        ftk/app/icon_cache.cpp
-        ftk/app/imgui_layer.cpp
-        ftk/app/standalone_window.cpp
         ftk/app/ui_input.cpp
     HEADERS
         ftk/app/app_window.hpp
         ftk/app/command.hpp
         ftk/app/command_history.hpp
+        ftk/app/document_history.hpp
+        ftk/app/ui_input.hpp
+    LINKS
+        PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::text ftk::ui-core
+        PRIVATE SDL3::SDL3
+)
+
+# ftk-app-imgui is what an editor's window needs around the kit's ImGui
+# implementation: ImGuiAppWindow and its loop, the ImGui layer on a window
+# of its own, the console and the history panel, the icon cache, the file
+# browser, and the EditorContext a tool's documents build on. Where a host
+# keeps its files is passed in. The editor and the hub use it until they
+# move onto the UI core (Phase 9 of the UI core plan).
+ftk_library(app-imgui
+    SOURCES
+        ftk/app/console.cpp
+        ftk/app/editor_context.cpp
+        ftk/app/file_browser.cpp
+        ftk/app/history_panel.cpp
+        ftk/app/icon_cache.cpp
+        ftk/app/imgui_app_window.cpp
+        ftk/app/imgui_layer.cpp
+        ftk/app/standalone_window.cpp
+    HEADERS
         ftk/app/console.hpp
         ftk/app/context_registry.hpp
-        ftk/app/document_history.hpp
         ftk/app/editor_context.hpp
         ftk/app/file_browser.hpp
         ftk/app/history_panel.hpp
         ftk/app/icon_cache.hpp
+        ftk/app/imgui_app_window.hpp
         ftk/app/imgui_layer.hpp
         ftk/app/standalone_window.hpp
-        ftk/app/ui_input.hpp
     LINKS
-        PUBLIC ftk::base ftk::gpu ftk::gpu-imgui ftk::gpu-ui ftk::imgui ftk::app-ui ftk::ui-core
+        PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-imgui ftk::imgui ftk::app-ui-imgui ftk::ui-kit ftk::ui-core
         PRIVATE ftk::image SDL3::SDL3
 )
 

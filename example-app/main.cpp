@@ -1,21 +1,29 @@
 // ftk-example-app, ftk's own test program. Each page shows one thing ftk's UI
-// has to get right; the gallery of the kit is the first. The gallery is drawn
-// with ImGui; the pages of the UI core with the core.
+// has to get right. It builds twice from this source: ftk-example-app on the
+// UI core, with the core's pages, and ftk-example-app-imgui on the kit's
+// ImGui implementation (FTK_EXAMPLE_APP_IMGUI), with the gallery of the kit.
+// The gallery comes to the core's build with the kit (Phase 6 of the UI core
+// plan).
 //
-//     ftk-example-app [--page <name>]              a page, the gallery by default
+//     ftk-example-app [--page <name>]              a page, the first by default
 //     ftk-example-app --shot <name> <file.png>     a page drawn off screen at a
 //                                                  fixed size, written as a PNG
 //     ... --scale <pixels per unit>                a core page at that scale
 
+#ifdef FTK_EXAMPLE_APP_IMGUI
+#include "ftk/app/imgui_app_window.hpp"
+#include "ftk/ui/kit/gallery.hpp"
+#else
 #include "painter.hpp"
 #include "primitives_page.hpp"
 #include "text_page.hpp"
 
 #include "ftk/app/app_window.hpp"
+#include "ftk/ui/theme.hpp"
+#endif
+
 #include "ftk/base/log.hpp"
 #include "ftk/platform/platform.hpp"
-#include "ftk/ui/kit/gallery.hpp"
-#include "ftk/ui/theme.hpp"
 
 #include <stb_image_write.h>
 
@@ -39,10 +47,22 @@ struct PageName {
 constexpr std::array<PageName, 3> PAGES{
     {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}}};
 
-/// Whether the page is drawn with the UI core, rather than ImGui.
-constexpr bool on_core(Page page) {
+/// Whether this build has the page: the gallery is ImGui's, the rest the
+/// core's.
+constexpr bool built_with(Page page) {
+#ifdef FTK_EXAMPLE_APP_IMGUI
+    return page == Page::gallery;
+#else
     return page != Page::gallery;
+#endif
 }
+
+/// The page a run starts on when none is named.
+#ifdef FTK_EXAMPLE_APP_IMGUI
+constexpr Page FIRST = Page::gallery;
+#else
+constexpr Page FIRST = Page::primitives;
+#endif
 
 /// The size a page's shot is drawn at, in layout units: tall enough to show
 /// the whole page without scrolling, so a shot covers everything on it.
@@ -57,7 +77,10 @@ constexpr glm::uvec2 shot_size(Page page) {
 
 std::optional<Page> page_named(std::string_view name) {
     for (const PageName& entry : PAGES) {
-        if (entry.name == name) return entry.page;
+        if (entry.name != name) continue;
+        if (built_with(entry.page)) return entry.page;
+        FTK_CORE_ERROR("ftk example app: the page {} is the other build's", name);
+        return std::nullopt;
     }
     FTK_CORE_ERROR("ftk example app has no page called {}", name);
     return std::nullopt;
@@ -65,7 +88,7 @@ std::optional<Page> page_named(std::string_view name) {
 
 /// What the app was asked to do.
 struct Request {
-    Page page{Page::gallery};
+    Page page{FIRST};
     /// Where a shot goes; none to run in a window.
     std::optional<std::filesystem::path> shot{};
     /// Pixels to the layout unit, for a page of the core.
@@ -102,23 +125,64 @@ std::optional<Request> parse(int argc, char** argv) {
     return request;
 }
 
-/// Draws the pages of ImGui: the gallery, filling the frame.
-class Pages {
-public:
-    explicit Pages(Page page) : page_(page) {}
-
-    void draw(float width, float height) {
-        if (page_ == Page::gallery) gallery_.draw_page(width, height);
+bool write_png(const std::filesystem::path& path, const ftk::Shot& shot) {
+    std::error_code ec;
+    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
+    const int written = stbi_write_png(path.string().c_str(), static_cast<int>(shot.width),
+                                       static_cast<int>(shot.height), 4, shot.pixels.data(),
+                                       static_cast<int>(shot.width) * 4);
+    if (written == 0) {
+        FTK_CORE_ERROR("ftk example app could not write {}", path.string());
+        return false;
     }
+    FTK_CORE_INFO("ftk example app wrote {}", path.string());
+    return true;
+}
 
-private:
-    Page page_;
-    ftk::ui::KitGallery gallery_;
-};
+// ftk_stage_editor_data() put the fonts and the ImGui layer's fragment stage
+// in ftk/ beside the binary.
+std::filesystem::path staged() {
+    return ftk::platform::executable_path().parent_path() / "ftk";
+}
+
+#ifdef FTK_EXAMPLE_APP_IMGUI
+
+int run(const Request& request) {
+    auto made = ftk::ImGuiAppWindow::create({
+        .title = "ftk example app (imgui kit)",
+        .width = 1280,
+        .height = 800,
+        .device = {.name = "ftk example app"},
+        .files = {.fonts = staged() / "fonts", .srgb_fragment = staged() / "imgui.frag.spv"},
+    });
+    if (!made) {
+        FTK_CORE_CRITICAL("ftk example app could not start: {}", made.error());
+        return EXIT_FAILURE;
+    }
+    ftk::ImGuiAppWindow& app = **made;
+    ftk::ui::KitGallery gallery;
+    const auto draw = [&](float width, float height) { gallery.draw_page(width, height); };
+
+    if (request.shot) {
+        auto shot = app.shot(draw, shot_size(request.page));
+        if (!shot) {
+            FTK_CORE_CRITICAL("ftk example app could not take the shot: {}", shot.error());
+            return EXIT_FAILURE;
+        }
+        return write_png(*request.shot, *shot) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    auto ran = app.run({.draw = draw});
+    if (!ran) {
+        FTK_CORE_CRITICAL("ftk example app stopped: {}", ran.error());
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}
+
+#else
 
 /// Draws the pages of the UI core, one at a time, with tabs at the top right
-/// that switch between them in the window. The gallery isn't among them
-/// until the kit runs on the core (Phase 6).
+/// that switch between them in the window.
 class CorePages {
 public:
     CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page)
@@ -167,63 +231,39 @@ private:
     Page page_;
 };
 
-bool write_png(const std::filesystem::path& path, const ftk::Shot& shot) {
-    std::error_code ec;
-    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
-    const int written = stbi_write_png(path.string().c_str(), static_cast<int>(shot.width),
-                                       static_cast<int>(shot.height), 4, shot.pixels.data(),
-                                       static_cast<int>(shot.width) * 4);
-    if (written == 0) {
-        FTK_CORE_ERROR("ftk example app could not write {}", path.string());
-        return false;
-    }
-    FTK_CORE_INFO("ftk example app wrote {}", path.string());
-    return true;
-}
-
 int run(const Request& request) {
-    // ftk_stage_editor_data() put the fonts and the ImGui layer's fragment
-    // stage in ftk/ beside the binary.
-    const auto staged = ftk::platform::executable_path().parent_path() / "ftk";
     auto made = ftk::AppWindow::create({
         .title = "ftk example app",
         .width = 1280,
         .height = 800,
         .device = {.name = "ftk example app"},
-        .files = {.fonts = staged / "fonts", .srgb_fragment = staged / "imgui.frag.spv"},
     });
     if (!made) {
         FTK_CORE_CRITICAL("ftk example app could not start: {}", made.error());
         return EXIT_FAILURE;
     }
     ftk::AppWindow& app = **made;
-    Pages pages(request.page);
-    const auto draw = [&](float width, float height) { pages.draw(width, height); };
-    std::optional<CorePages> core_pages;
-    if (on_core(request.page)) core_pages.emplace(app, staged / "fonts", request.page);
-    const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) {
-        if (core_pages) core_pages->draw(context, size);
-    };
+    CorePages pages(app, staged() / "fonts", request.page);
+    const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) { pages.draw(context, size); };
 
     if (request.shot) {
         const glm::uvec2 size = shot_size(request.page);
-        auto shot = on_core(request.page)
-                        ? app.shot_ui(ui, glm::uvec2(glm::vec2(size) * request.scale), request.scale)
-                        : app.shot(draw, size);
+        auto shot = app.shot(ui, glm::uvec2(glm::vec2(size) * request.scale), request.scale);
         if (!shot) {
             FTK_CORE_CRITICAL("ftk example app could not take the shot: {}", shot.error());
             return EXIT_FAILURE;
         }
         return write_png(*request.shot, *shot) ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-
-    auto ran = on_core(request.page) ? app.run({.ui = ui}) : app.run({.draw = draw});
+    auto ran = app.run({.ui = ui});
     if (!ran) {
         FTK_CORE_CRITICAL("ftk example app stopped: {}", ran.error());
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
 }
+
+#endif
 
 } // namespace
 

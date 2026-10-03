@@ -80,6 +80,7 @@ add_executable(ftk-tests
 )
 target_link_libraries(ftk-tests PRIVATE
     ftk::app
+    ftk::app-imgui
     ftk::framegraph
     ftk::imgui-harness
     ftk::image
@@ -139,13 +140,15 @@ ftk_library_link_check(image)
 ftk_library_link_check(text)
 ftk_library_link_check(ui-core)
 ftk_library_link_check(ui-harness)
-ftk_library_link_check(app-ui)
+ftk_library_link_check(ui-kit)
+ftk_library_link_check(app-ui-imgui)
 ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
 # The GPU link test builds pipelines from the test shaders.
 add_dependencies(ftk-link-gpu ftk-tests_shaders)
 target_compile_definitions(ftk-link-gpu PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 ftk_library_link_check(app NEEDS_GPU)
+ftk_library_link_check(app-imgui NEEDS_GPU)
 ftk_library_link_check(gpu-ui NEEDS_GPU)
 
 # --- Text sample ---

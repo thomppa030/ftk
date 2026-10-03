@@ -1,7 +1,7 @@
-// Links ftk-app-ui alone and whole (tests/CMakeLists.txt), so it builds only
-// if everything in the library finds what it needs in the library and its own
-// dependencies. Running it draws a frame of the kit on ImGui with no window
-// and no renderer, the way the unit tests drive editor UI.
+// Links ftk-app-ui-imgui alone and whole (tests/CMakeLists.txt), so it builds
+// only if everything in the library finds what it needs in the library and
+// its own dependencies. Running it draws a frame of the kit on ImGui with no
+// window and no renderer, the way the unit tests drive editor UI.
 
 #include "ftk/ui/kit/button.hpp"
 
