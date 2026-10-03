@@ -12,6 +12,11 @@
 //     ui::build_dock_tree(dock_id, ui::work_area().size, layout);
 //
 //     if (auto tree = ui::dock_tree(dock_id, window_names)) save(*tree);
+//
+// A named layout is the trees of a program's dockspaces, saved as JSON:
+//
+//     write(path, ui::dock_layout_json({{"scene", *tree}}));
+//     if (auto layout = ui::dock_layout_from_json(read(path))) ui::build_dock_tree(dock_id, size, layout->at("scene"));
 
 #include "ftk/ui/types.hpp"
 
@@ -19,9 +24,11 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ftk::ui {
@@ -48,7 +55,22 @@ struct DockNode {
     static DockNode left_right(float ratio, DockNode left, DockNode right);
     static DockNode top_bottom(float ratio, DockNode top, DockNode bottom);
     static DockNode tabs(std::initializer_list<std::string> windows);
+
+    bool operator==(const DockNode&) const = default;
 };
+
+/// A named layout: the dock trees of a program's dockspaces, each by the
+/// name the program gives it, such as an editor's kind of document.
+using DockLayout = std::map<std::string, DockNode>;
+
+/// `layout` as JSON: each tree a node with its split ("x" for left and
+/// right, "y" for top and bottom), its ratio and its two children, or its
+/// windows in tab order.
+[[nodiscard]] std::string dock_layout_json(const DockLayout& layout);
+
+/// The layout `json` holds, its nodes' other keys passed over; none when
+/// it isn't one.
+[[nodiscard]] std::optional<DockLayout> dock_layout_from_json(std::string_view json);
 
 struct DockspaceOptions {
     /// The middle shows what is under the dockspace while nothing is docked

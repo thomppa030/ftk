@@ -115,6 +115,29 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
     CHECK(tree->children[1].windows == std::vector<std::string>{"Inspector"});
 }
 
+TEST_CASE("A named layout is written as JSON and read back the same", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    const ui::DockLayout layout{
+        {"scene", N::left_right(0.25f, N::tabs({"Hierarchy"}),
+                                N::top_bottom(0.7f, N::tabs({"Viewport"}), N::tabs({"Console", "History"})))},
+        {"material", N::tabs({"Graph"})},
+    };
+    const auto read = ui::dock_layout_from_json(ui::dock_layout_json(layout));
+    REQUIRE(read.has_value());
+    CHECK(*read == layout);
+
+    // As the editor wrote its layouts before, its nodes numbered.
+    const auto older = ui::dock_layout_from_json(
+        R"({"scene": {"id": 0, "split": "y", "ratio": 0.5,
+                      "children": [{"id": 1, "windows": ["A"]}, {"id": 2, "windows": ["B", "C"]}]}})");
+    REQUIRE(older.has_value());
+    CHECK(older->at("scene") == N::top_bottom(0.5f, N::tabs({"A"}), N::tabs({"B", "C"})));
+
+    CHECK_FALSE(ui::dock_layout_from_json("not a layout").has_value());
+    CHECK_FALSE(ui::dock_layout_from_json(R"({"scene": {"split": "z"}})").has_value());
+    CHECK_FALSE(ui::dock_layout_from_json(R"({"scene": {"split": "x", "children": [{}]}})").has_value());
+}
+
 TEST_CASE("A split's splitter dragged moves its share, from the gap or just inside a window", "[ui][kit][dock]") {
     using N = ui::DockNode;
     Docked d({"Hierarchy", "Viewport"}, [](ui::Id dock) {

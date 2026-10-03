@@ -324,6 +324,7 @@ ftk_library(ui-kit
         ftk/ui/theme.cpp
         ftk/ui/kit/asset_kind.cpp
         ftk/ui/kit/color_code.cpp
+        ftk/ui/kit/dock_layout.cpp
         ftk/ui/kit/edit_record.cpp
         ftk/ui/kit/search_match.cpp
         ftk/ui/kit/unit.cpp

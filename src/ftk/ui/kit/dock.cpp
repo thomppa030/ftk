@@ -10,24 +10,6 @@
 
 namespace ftk::ui {
 
-DockNode DockNode::left_right(float ratio, DockNode left, DockNode right) {
-    DockNode node{.split = DockAxis::LeftRight, .ratio = ratio};
-    node.children.push_back(std::move(left));
-    node.children.push_back(std::move(right));
-    return node;
-}
-
-DockNode DockNode::top_bottom(float ratio, DockNode top, DockNode bottom) {
-    DockNode node{.split = DockAxis::TopBottom, .ratio = ratio};
-    node.children.push_back(std::move(top));
-    node.children.push_back(std::move(bottom));
-    return node;
-}
-
-DockNode DockNode::tabs(std::initializer_list<std::string> windows) {
-    return {.windows = windows};
-}
-
 void dockspace(Id id, DockspaceOptions options) {
     ImGuiDockNodeFlags flags = ImGuiDockNodeFlags_None;
     if (options.see_through) flags |= ImGuiDockNodeFlags_PassthruCentralNode;
