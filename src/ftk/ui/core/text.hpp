@@ -100,6 +100,9 @@ public:
     [[nodiscard]] std::size_t cached() const { return cache_.size(); }
 
 private:
+    // The em `style`'s size comes to in its font.
+    [[nodiscard]] float em(TextStyle style) const;
+
     struct Shaped {
         text::ShapedText shaped;
         /// Its lines when unwrapped: more than one only with a newline.

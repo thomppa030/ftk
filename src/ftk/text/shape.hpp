@@ -35,6 +35,9 @@ struct Glyph {
     glm::vec2 offset{0.0f, 0.0f};
     /// How far it moves the pen.
     float advance{0.0f};
+    /// The em it is drawn at, in pixels: the text's, or its face's own in
+    /// the chain (FontChain::face_em).
+    float size{0.0f};
 };
 
 struct ShapedText {

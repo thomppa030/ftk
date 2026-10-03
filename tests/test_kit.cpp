@@ -18,11 +18,13 @@
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
 #include <string>
 
+using Catch::Approx;
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
@@ -223,8 +225,9 @@ TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by i
         h.mark("view");
     });
     h.step(2);
+    // To a float's rounding: the width is read back off the item's edges.
     const float drawn = h.rect("view").width();
-    CHECK(drawn == ui::mode_button_width(ui::icon::search, "DDGI indirect"));
+    CHECK(drawn == Approx(ui::mode_button_width(ui::icon::search, "DDGI indirect")).margin(1e-3));
     CHECK(drawn > ui::mode_button_width(ui::icon::search, "Lit"));
 }
 
@@ -390,7 +393,7 @@ TEST_CASE("A tag after a field is as wide as tag_width says and stays on the fie
         tag_size = ui::item_max() - ui::item_min();
     });
     h.step(2);
-    CHECK(tag_size.x == ui::tag_width("+1 shader"));
+    CHECK(tag_size.x == Approx(ui::tag_width("+1 shader")).margin(1e-3));
     CHECK(tag_size.x > ui::tag_width("+1"));
     CHECK(tag_size.y == frame);
     CHECK(tag_min.y == field_min.y);

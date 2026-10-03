@@ -26,6 +26,16 @@ enum class ClaimSeat : uint8_t {
     Centred,
 };
 
+/// What a size asked of a chain measures.
+enum class SizeBasis : uint8_t {
+    /// The em, as fonts are sized.
+    Em,
+    /// The primary face from its ascent to its descent, as ImGui sizes a
+    /// font: the same size draws its glyphs smaller, a line of them as tall
+    /// as the size.
+    Height,
+};
+
 class FontChain {
 public:
     FontChain() = default;
@@ -42,6 +52,18 @@ public:
     /// `seat` says.
     FontChain& claim(std::shared_ptr<const Face> face, char32_t first, char32_t last,
                      ClaimSeat seat = ClaimSeat::Baseline);
+
+    /// Sizes asked of the chain measure what `basis` says; the em until
+    /// then.
+    FontChain& size_by(SizeBasis basis);
+    /// The em, in pixels, that a size asked of the chain comes to.
+    [[nodiscard]] float em(float size) const;
+    /// The em `face` is drawn at in text whose em is `em`. Sized by height,
+    /// a claimed face is as tall as the primary from its ascent to its
+    /// descent, as ImGui sizes a font merged into another: the icons keep
+    /// their size whatever the text face's proportions. Any other face draws
+    /// at `em`.
+    [[nodiscard]] float face_em(const Face& face, float em) const;
 
     [[nodiscard]] const std::vector<std::shared_ptr<const Face>>& faces() const { return faces_; }
     [[nodiscard]] bool empty() const { return faces_.empty(); }
@@ -75,6 +97,7 @@ private:
 
     std::vector<std::shared_ptr<const Face>> faces_;
     std::vector<Claim> claims_;
+    SizeBasis basis_{SizeBasis::Em};
     std::shared_ptr<SystemFallback> system_;
     std::shared_ptr<const Face> last_resort_;
 };

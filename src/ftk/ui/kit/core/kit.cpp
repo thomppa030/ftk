@@ -302,9 +302,13 @@ bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory) {
     // the text faces have glyphs of their own where lucide puts its icons.
     // Centred on the text's middle, where ImGui nudges them down by hand.
     const auto icons = face(directory, {"lucide.ttf"});
+    // A size is the face's height from ascent to descent, as ImGui sizes
+    // its fonts: the editor's text as it was drawn on ImGui (Kay,
+    // 2026-10-03), Geist's em 10.8 pixels at the body's 14.
     const auto chain = [&](std::shared_ptr<const text::Face> primary) {
         text::FontChain made({primary != nullptr ? std::move(primary) : body}, lib.system, resort);
         if (icons) made.claim(icons, 0xE042, 0xE685, text::ClaimSeat::Centred);
+        made.size_by(text::SizeBasis::Height);
         return made;
     };
 

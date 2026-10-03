@@ -1,5 +1,7 @@
 #include "ftk/text/font_chain.hpp"
 
+#include <algorithm>
+
 namespace ftk::text {
 
 FontChain::FontChain(std::vector<std::shared_ptr<const Face>> faces, std::shared_ptr<SystemFallback> system,
@@ -11,16 +13,45 @@ FontChain& FontChain::claim(std::shared_ptr<const Face> face, char32_t first, ch
     return *this;
 }
 
+FontChain& FontChain::size_by(SizeBasis basis) {
+    basis_ = basis;
+    return *this;
+}
+
+namespace {
+
+// A face's ascent to descent, as a share of its em.
+float height_of(const Face& face) {
+    const Metrics m = face.metrics(1.0f);
+    return m.ascent + m.descent;
+}
+
+} // namespace
+
+float FontChain::em(float size) const {
+    if (basis_ == SizeBasis::Em || faces_.empty()) return size;
+    const float height = height_of(primary());
+    return height > 0.0f ? size / height : size;
+}
+
+float FontChain::face_em(const Face& face, float em) const {
+    if (basis_ == SizeBasis::Em || faces_.empty() || &face == &primary()) return em;
+    const bool claimed = std::ranges::any_of(claims_, [&](const Claim& claim) { return claim.face.get() == &face; });
+    if (!claimed) return em;
+    const float own = height_of(face);
+    return own > 0.0f ? em * height_of(primary()) / own : em;
+}
+
 float FontChain::drop(const Face& face, float size) const {
     for (const Claim& claim : claims_) {
         if (claim.face.get() != &face || claim.seat != ClaimSeat::Centred) continue;
         // A face's middle, above its baseline: halfway between its ascent
-        // and its descent.
-        const auto middle = [size](const Face& of) {
-            const Metrics m = of.metrics(size);
+        // and its descent, at the size it is drawn at.
+        const auto middle = [](const Face& of, float at) {
+            const Metrics m = of.metrics(at);
             return (m.ascent - m.descent) * 0.5f;
         };
-        return middle(face) - middle(primary());
+        return middle(face, face_em(face, size)) - middle(primary(), size);
     }
     return 0.0f;
 }

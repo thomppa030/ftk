@@ -51,12 +51,17 @@ void TextSystem::begin_frame() {
     std::erase_if(cache_, [&](const auto& entry) { return entry.second.last_used + 1 < frame_; });
 }
 
+float TextSystem::em(TextStyle style) const {
+    return style.font < fonts_.size() ? fonts_[style.font].em(style.size) : style.size;
+}
+
 const TextSystem::Shaped& TextSystem::shaped(std::string_view text, TextStyle style) {
-    const KeyView key{.font = style.font, .size = size_key(style.size), .text = text};
+    const float em_size = em(style);
+    const KeyView key{.font = style.font, .size = size_key(em_size), .text = text};
     auto found = cache_.find(key);
     if (found == cache_.end()) {
         Shaped entry;
-        entry.shaped = text::shape(text, fonts_[style.font], style.size);
+        entry.shaped = text::shape(text, fonts_[style.font], em_size);
         if (text.find('\n') == std::string_view::npos) {
             entry.lines.push_back(one_line(text, entry.shaped));
         } else {
@@ -76,12 +81,12 @@ const std::vector<text::Line>& TextSystem::lines(std::string_view text, const Sh
 
 float TextSystem::line_height(TextStyle style) const {
     if (style.line_height > 0.0f) return style.line_height;
-    return fonts_[style.font].primary().metrics(style.size).line_height();
+    return fonts_[style.font].primary().metrics(em(style)).line_height();
 }
 
 float TextSystem::baseline(TextStyle style) const {
     if (style.font >= fonts_.size()) return style.size;
-    const text::Metrics metrics = fonts_[style.font].primary().metrics(style.size);
+    const text::Metrics metrics = fonts_[style.font].primary().metrics(em(style));
     // As draw() places it: the face from the line's top, or centred in the
     // line asked for.
     const float top = style.line_height > 0.0f ? (style.line_height - metrics.ascent - metrics.descent) * 0.5f : 0.0f;
@@ -134,9 +139,8 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
                       float wrap_width) {
     if (text.empty() || style.font >= fonts_.size()) return;
     const Shaped& entry = shaped(text, style);
-    const text::Metrics metrics = fonts_[style.font].primary().metrics(style.size);
+    const text::Metrics metrics = fonts_[style.font].primary().metrics(em(style));
     const float scale = list.scale();
-    const float pixel_size = style.size * scale;
     const float page_size = atlas_.page_size();
 
     // The face's line from the top, or its ascent and descent centred in
@@ -153,7 +157,7 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
             // Across, drawn where in its pixel the pen falls, to a quarter;
             // down, on the whole pixel the baseline is hinted to.
             const text::PenPixel pen = text::pen_pixel((at.x + glyph.x - origin + glyph.offset.x) * scale);
-            const auto placed = atlas_.glyph(*glyph.face, glyph.index, pixel_size, pen.step);
+            const auto placed = atlas_.glyph(*glyph.face, glyph.index, glyph.size * scale, pen.step);
             if (!placed || placed->rect.empty()) continue;
             const float x = pen.pixel + placed->bearing.x;
             const float y = std::round((baseline + glyph.offset.y) * scale) + placed->bearing.y;

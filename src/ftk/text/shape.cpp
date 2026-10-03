@@ -100,8 +100,10 @@ ShapedText shape(std::string_view text, const FontChain& chain, float size, cons
         unsigned int count = 0;
         const hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(buffer, &count);
         const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(buffer, &count);
-        // Shaped in font units; HarfBuzz's y grows up, the screen's down.
-        const float scale = size / run.face->units_per_em();
+        // Shaped in font units, at the face's own em in the chain;
+        // HarfBuzz's y grows up, the screen's down.
+        const float run_size = chain.face_em(*run.face, size);
+        const float scale = run_size / run.face->units_per_em();
         // An icon face claimed centred sits lower than its baseline puts it.
         const float drop = chain.drop(*run.face, size);
         for (unsigned int k = 0; k < count; ++k) {
@@ -112,7 +114,8 @@ ShapedText shape(std::string_view text, const FontChain& chain, float size, cons
                                      .x = pen,
                                      .offset = {static_cast<float>(positions[k].x_offset) * scale,
                                                 drop - static_cast<float>(positions[k].y_offset) * scale},
-                                     .advance = advance});
+                                     .advance = advance,
+                                     .size = run_size});
             pen += advance;
         }
     }
