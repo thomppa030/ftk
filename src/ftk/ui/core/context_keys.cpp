@@ -82,6 +82,18 @@ std::string_view Context::typed() const {
     return keyboard_.ignored ? std::string_view{} : std::string_view{keyboard_.typed};
 }
 
+void Context::set_clipboard(std::string_view text) {
+    if (clipboard_.set) {
+        clipboard_.set(text);
+    } else {
+        own_clipboard_ = text;
+    }
+}
+
+std::string Context::clipboard() const {
+    return clipboard_.get ? clipboard_.get() : own_clipboard_;
+}
+
 void Context::claim_key(Key key, Id owner) {
     keyboard_.claims[slot(key)] = owner;
 }

@@ -96,6 +96,21 @@ TEST_CASE("Text typed is the frame's, and an input method's composing comes apar
     CHECK(typed.back() == "\xe6\x97\xa5\xe6\x9c\xac");
 }
 
+TEST_CASE("The clipboard is the program's when it gives one, else the context's own", "[ui-core][keys]") {
+    core::Context ui;
+    ui.set_clipboard("rock.mesh");
+    CHECK(ui.clipboard() == "rock.mesh");
+
+    std::string system = "from the system";
+    ui.set_clipboard_access({.set = [&](std::string_view text) { system = text; }, .get = [&] { return system; }});
+    CHECK(ui.clipboard() == "from the system");
+    ui.set_clipboard("copied");
+    CHECK(system == "copied");
+
+    ui.set_clipboard_access({});
+    CHECK(ui.clipboard() == "rock.mesh");
+}
+
 TEST_CASE("A press gives a widget the keyboard, and a press elsewhere takes it away", "[ui-core][keys]") {
     UiHarness h;
     core::Focus a;

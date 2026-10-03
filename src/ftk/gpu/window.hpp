@@ -40,6 +40,9 @@ public:
     /// waiting, as poll_events() does. For a loop with nothing to do until
     /// something happens, such as while a window is minimised.
     void wait_events();
+    /// The same, giving up after `seconds`: for a loop that has something to
+    /// do by then even without an event, such as a tooltip coming due.
+    void wait_events_for(double seconds);
     void set_title(std::string_view title);
 
     /// Hide the cursor and let it move without bound, so only its motion is
@@ -56,6 +59,13 @@ public:
     /// The drawable size in pixels, asked of the platform now, which the
     /// swapchain is sized from. Zero in either axis while minimised.
     [[nodiscard]] glm::uvec2 framebuffer_size() const;
+
+    /// Pixels to one of the window's points, in which the platform reports
+    /// positions: 2 on a display drawn at twice the density.
+    [[nodiscard]] float pixel_density() const;
+    /// Pixels to one unit of the UI on the display the window is on: its
+    /// density times the scale the user chose for content there.
+    [[nodiscard]] float display_scale() const;
 
     [[nodiscard]] bool was_resized() const { return framebuffer_resized_; }
     void reset_resized() { framebuffer_resized_ = false; }

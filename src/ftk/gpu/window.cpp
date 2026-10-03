@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -114,6 +115,26 @@ void Window::wait_events() {
         dispatch(event);
     }
     poll_events();
+}
+
+void Window::wait_events_for(double seconds) {
+    // A whole millisecond at least, so a deadline a hair away doesn't spin.
+    const auto milliseconds = static_cast<Sint32>(std::clamp(std::ceil(seconds * 1000.0), 1.0, 2147483647.0));
+    SDL_Event event;
+    if (SDL_WaitEventTimeout(&event, milliseconds)) {
+        dispatch(event);
+    }
+    poll_events();
+}
+
+float Window::pixel_density() const {
+    const float density = SDL_GetWindowPixelDensity(window_);
+    return density > 0.0f ? density : 1.0f;
+}
+
+float Window::display_scale() const {
+    const float scale = SDL_GetWindowDisplayScale(window_);
+    return scale > 0.0f ? scale : 1.0f;
 }
 
 void Window::dispatch(const SDL_Event& event) {

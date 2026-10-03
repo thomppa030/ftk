@@ -1,5 +1,6 @@
 #include "ftk/app/app_window.hpp"
 
+#include "ftk/app/ui_input.hpp"
 #include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/frame.hpp"
 #include "ftk/gpu/owned.hpp"
@@ -58,6 +59,8 @@ AppWindow::~AppWindow() {
 }
 
 Result<> AppWindow::run(const AppFrame& frame) {
+    std::optional<UiInput> input;
+    if (frame.ui) input.emplace(*window_, ui_, ROOT);
     while (!window_->should_close()) {
         const glm::uvec2 size = window_->framebuffer_size();
         if (size.x == 0 || size.y == 0) {
@@ -71,6 +74,16 @@ Result<> AppWindow::run(const AppFrame& frame) {
             device_->wait_idle();
             return shown;
         }
+        if (!input || last_ui_ == nullptr) continue;
+        input->apply(last_ui_->roots.front());
+        // Asleep until there is input, or until what the frame waits on.
+        const ui::core::NextFrame& next = last_ui_->next;
+        if (next.now) continue;
+        if (next.at) {
+            window_->wait_events_for(*next.at - UiInput::now());
+        } else {
+            window_->wait_events();
+        }
     }
     device_->wait_idle();
     return {};
@@ -83,7 +96,8 @@ ui::Color AppWindow::background() const {
 const ui::core::FrameOutput& AppWindow::draw_ui(const UiDraw& ui, glm::uvec2 pixels, float scale) {
     const glm::vec2 size = glm::vec2(pixels) / scale;
     ui::core::set_current(&ui_);
-    ui_.begin_frame(std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count());
+    // On the clock the platform stamps its events with.
+    ui_.begin_frame(UiInput::now());
     ui_.begin_root(ROOT, size, scale);
     ui(ui_, size);
     ui_.end_root();
@@ -91,6 +105,7 @@ const ui::core::FrameOutput& AppWindow::draw_ui(const UiDraw& ui, glm::uvec2 pix
 }
 
 Result<> AppWindow::draw_frame(const AppFrame& frame) {
+    last_ui_ = nullptr;
     gpu::Frame& gpu_frame = device_->begin_frame();
     const auto image = swapchain_->acquire(gpu_frame);
     if (!image) {
@@ -103,8 +118,10 @@ Result<> AppWindow::draw_frame(const AppFrame& frame) {
     cmd.transition({&to_draw, 1});
     const glm::uvec2 pixels{swapchain_->width(), swapchain_->height()};
     if (frame.ui) {
-        const ui::core::FrameOutput& out = draw_ui(frame.ui, pixels, 1.0f);
+        // At the display's scale: the window's pixels to a layout unit.
+        const ui::core::FrameOutput& out = draw_ui(frame.ui, pixels, window_->display_scale());
         ui_renderer_->render(cmd, image->texture, pixels, out.roots.front(), ui_.text().atlas(), background());
+        last_ui_ = &out;
     } else {
         auto target = cmd.render(
             {.color = {{.view = image->texture, .load = gpu::Load::clear, .clear = clear_}}});

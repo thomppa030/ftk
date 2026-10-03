@@ -9,7 +9,6 @@
 
 #include <glm/vec2.hpp>
 
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -86,7 +85,10 @@ public:
     AppWindow& operator=(AppWindow&&) = delete;
 
     /// Runs frames until the window is asked to close, then waits for the GPU
-    /// to finish with them.
+    /// to finish with them. ImGui draws every frame. The UI core draws only
+    /// when there is a reason: the loop sleeps until input arrives or the
+    /// last frame's deadline comes (decision 9 of the UI core plan), and the
+    /// platform's pens, fingers, keys and text reach the core as themselves.
     /// @return nothing, or why a frame could not be shown
     [[nodiscard]] Result<> run(const AppFrame& frame);
 
@@ -135,7 +137,9 @@ private:
     std::unique_ptr<gpu::UiRenderer> ui_renderer_;
     gpu::Clear clear_;
     ui::core::Context ui_;
-    std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
+    // What the last frame of the core drew and asked for; none when the
+    // frame was skipped or drawn with ImGui.
+    const ui::core::FrameOutput* last_ui_{nullptr};
 };
 
 } // namespace ftk

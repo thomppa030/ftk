@@ -35,6 +35,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -396,6 +397,18 @@ public:
     /// them.
     void set_keyboard_ignored(bool ignored) { keyboard_.ignored = ignored; }
 
+    /// The system's clipboard, as the program reaches it; without one, a
+    /// clipboard of the context's own, as in a test.
+    struct Clipboard {
+        std::function<void(std::string_view text)> set{};
+        std::function<std::string()> get{};
+    };
+    void set_clipboard_access(Clipboard clipboard) { clipboard_ = std::move(clipboard); }
+    /// Puts `text` on the clipboard, as a copy does.
+    void set_clipboard(std::string_view text);
+    /// What the clipboard holds, as text; empty when it holds none.
+    [[nodiscard]] std::string clipboard() const;
+
     /// `id` can have the keyboard: it joins the order Tab moves through,
     /// in the order drawn, and a press on it (interact() just before)
     /// gives it the keyboard. A press anywhere else takes the keyboard
@@ -679,6 +692,8 @@ private:
     glm::vec2 last_pointer_position_{0.0f};
 
     Keyboard keyboard_;
+    Clipboard clipboard_;
+    std::string own_clipboard_;
     std::vector<KeyEvent> key_events_;
     std::string typed_next_;
     std::optional<std::pair<std::string, int>> composition_next_;

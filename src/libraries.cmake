@@ -502,9 +502,9 @@ endforeach()
 
 # ftk-app is what a creative app's or an editor's window needs around the
 # kit: the main window and its frame loop, the ImGui layer on a window of its
-# own, the console, undo and the history panel, the icon cache, the file
-# browser, and the EditorContext a tool's documents build on. Where a host
-# keeps its files is passed in.
+# own, the platform's input for the UI core, the console, undo and the
+# history panel, the icon cache, the file browser, and the EditorContext a
+# tool's documents build on. Where a host keeps its files is passed in.
 ftk_library(app
     SOURCES
         ftk/app/app_window.cpp
@@ -517,6 +517,7 @@ ftk_library(app
         ftk/app/icon_cache.cpp
         ftk/app/imgui_layer.cpp
         ftk/app/standalone_window.cpp
+        ftk/app/ui_input.cpp
     HEADERS
         ftk/app/app_window.hpp
         ftk/app/command.hpp
@@ -530,6 +531,7 @@ ftk_library(app
         ftk/app/icon_cache.hpp
         ftk/app/imgui_layer.hpp
         ftk/app/standalone_window.hpp
+        ftk/app/ui_input.hpp
     LINKS
         PUBLIC ftk::base ftk::gpu ftk::gpu-imgui ftk::gpu-ui ftk::imgui ftk::app-ui ftk::ui-core
         PRIVATE ftk::image SDL3::SDL3
