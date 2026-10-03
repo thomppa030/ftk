@@ -72,6 +72,12 @@ using DockLayout = std::map<std::string, DockNode>;
 /// it isn't one.
 [[nodiscard]] std::optional<DockLayout> dock_layout_from_json(std::string_view json);
 
+/// The dock trees in a settings file ImGui wrote, `ini`: one for each
+/// dockspace its [Docking][Data] holds, each split as ImGui sized it and its
+/// windows named as their [Window] entries are, in tab order. A layout saved
+/// while a program drew its kit with ImGui converts through it.
+[[nodiscard]] std::vector<DockNode> dock_trees_from_imgui_ini(std::string_view ini);
+
 struct DockspaceOptions {
     /// The middle shows what is under the dockspace while nothing is docked
     /// there, such as a scene drawn behind the panels.

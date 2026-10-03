@@ -138,6 +138,45 @@ TEST_CASE("A named layout is written as JSON and read back the same", "[ui][kit]
     CHECK_FALSE(ui::dock_layout_from_json(R"({"scene": {"split": "x", "children": [{}]}})").has_value());
 }
 
+TEST_CASE("The dock trees ImGui kept in its settings file read back as trees", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    // As ImGui writes them: its windows before its nodes, a window's place
+    // among its node's tabs after its node, a split's parts sized as saved.
+    constexpr std::string_view INI = "[Window][Viewport]\r\n"
+                                     "Pos=360,58\r\n"
+                                     "Size=1200,700\r\n"
+                                     "DockId=0x00000004,0\r\n"
+                                     "\r\n"
+                                     "[Window][History##ctx0]\r\n"
+                                     "DockId=0x00000003,1\r\n"
+                                     "\r\n"
+                                     "[Window][Hierarchy]\r\n"
+                                     "DockId=0x00000003,0\r\n"
+                                     "\r\n"
+                                     "[Window][Floating]\r\n"
+                                     "Pos=10,10\r\n"
+                                     "\r\n"
+                                     "[Docking][Data]\r\n"
+                                     "DockSpace     ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,19 Size=1600,800 Split=X\r\n"
+                                     "  DockNode    ID=0x00000003 Parent=0x8B93E3BD SizeRef=400,800 Selected=0x1\r\n"
+                                     "  DockNode    ID=0x00000002 Parent=0x8B93E3BD SizeRef=1200,800 Split=Y\r\n"
+                                     "    DockNode  ID=0x00000004 Parent=0x00000002 SizeRef=1200,600 CentralNode=1\r\n"
+                                     "    DockNode  ID=0x00000005 Parent=0x00000002 SizeRef=1200,200\r\n"
+                                     "DockSpace     ID=0x00000010 Pos=0,0 Size=800,600\r\n"
+                                     "\r\n"
+                                     "[FjellView][Editor]\r\n"
+                                     "HierarchyTextSize=15\r\n";
+    const std::vector<N> trees = ui::dock_trees_from_imgui_ini(INI);
+    REQUIRE(trees.size() == 2);
+    CHECK(trees[0] == N::left_right(0.25f, N::tabs({"Hierarchy", "History##ctx0"}),
+                                    N::top_bottom(0.75f, N::tabs({"Viewport"}), N{})));
+    // A dockspace nothing was docked in is one empty node.
+    CHECK(trees[1] == N{});
+
+    CHECK(ui::dock_trees_from_imgui_ini("").empty());
+    CHECK(ui::dock_trees_from_imgui_ini("[Window][A]\nDockId=0x00000001,0\n").empty());
+}
+
 TEST_CASE("A split's splitter dragged moves its share, from the gap or just inside a window", "[ui][kit][dock]") {
     using N = ui::DockNode;
     Docked d({"Hierarchy", "Viewport"}, [](ui::Id dock) {

@@ -18,6 +18,9 @@ void spinner(DrawList list, glm::vec2 centre, float radius, float seconds) {
     constexpr float TURN = 4.0f;  // radians a second
     const float start = seconds * TURN;
     list.arc(centre, radius, start, start + std::numbers::pi_v<float> * 1.4f, theme::accent(), 2.5f);
+    // It turns for as long as it is drawn, so a loop that sleeps between
+    // frames keeps drawing them.
+    ui().request_frame();
 }
 
 void loading(DrawList list, glm::vec2 top_centre, std::string_view what, float seconds) {
