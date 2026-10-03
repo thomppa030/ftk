@@ -323,6 +323,7 @@ ftk_library(ui-kit
     SOURCES
         ftk/ui/theme.cpp
         ftk/ui/kit/asset_kind.cpp
+        ftk/ui/kit/color_code.cpp
         ftk/ui/kit/edit_record.cpp
         ftk/ui/kit/search_match.cpp
         ftk/ui/kit/unit.cpp
@@ -338,6 +339,7 @@ ftk_library(ui-kit
         ftk/ui/kit/region.hpp
         ftk/ui/kit/canvas.hpp
         ftk/ui/kit/choice.hpp
+        ftk/ui/kit/color_code.hpp
         ftk/ui/kit/color_field.hpp
         ftk/ui/kit/component_block.hpp
         ftk/ui/kit/curve_editor.hpp
@@ -471,6 +473,8 @@ ftk_library(app-ui-imgui
 ftk_library(app-ui
     SOURCES
         ftk/ui/kit/core/button.cpp
+        ftk/ui/kit/core/choice.cpp
+        ftk/ui/kit/core/color_field.cpp
         ftk/ui/kit/core/drag_drop.cpp
         ftk/ui/kit/core/draw_list.cpp
         ftk/ui/kit/core/field.cpp
@@ -497,7 +501,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/kit.hpp
         ftk/ui/kit/core/text_input.hpp
     LINKS
-        PUBLIC ftk::base ftk::ui-kit ftk::ui-core ftk::text glm::glm
+        PUBLIC ftk::base ftk::math ftk::ui-kit ftk::ui-core ftk::text glm::glm
 )
 
 # ftk-ui-harness runs the UI core with no window and no renderer, as

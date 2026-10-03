@@ -210,7 +210,8 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
     }
     if (options.fit && !shown.again) {
         if (shown.measured) {
-            rect.max = rect.min + shown.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
+            const glm::vec2 fits = shown.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
+            rect.max = rect.min + glm::clamp(fits, options.min_size, options.max_size);
         } else {
             shown.hidden = true;
             request_frame();

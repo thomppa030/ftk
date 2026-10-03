@@ -13,14 +13,23 @@ std::vector<Id>& drawing() {
     return kit().popup_stack;
 }
 
-// Begins the popup `id` when it is open: its plate drawn, and recorded as
-// a popup, as the harness finds it.
+// The popup `id` as the kit's popups are: as far in from its edges as a
+// window's contents.
 bool begin(Id id) {
+    return corekit::begin_popup(id, {.padding = kit().style.window_padding});
+}
+
+} // namespace
+
+namespace corekit {
+
+bool begin_popup(Id id, core::PanelOptions options) {
     core::Context& context = ui();
     const Style& style = kit().style;
-    if (!context.begin_popup(id, {.padding = style.window_padding, .layer = core::Layer::Popup, .fit = true})) {
-        return false;
-    }
+    options.layer = core::Layer::Popup;
+    options.fit = true;
+    if (!context.begin_popup(id, options)) return false;
+    // Its plate drawn, and recorded as a popup, as the harness finds it.
     const core::Rect rect = context.panel_rect();
     Color plate = theme::surface_sunken();
     plate.a *= 0.98f;
@@ -32,13 +41,13 @@ bool begin(Id id) {
     return true;
 }
 
-void end() {
+void end_popup() {
     drawing().pop_back();
     ui().end_popup();
     restore_item();
 }
 
-} // namespace
+} // namespace corekit
 
 void open_popup(const char* id) {
     ui().open_popup(ui().id(id));
@@ -59,7 +68,7 @@ void close_popup() {
 Popup::Popup(const char* id) : open_{begin(ui().id(id))} {}
 
 Popup::~Popup() {
-    if (open_) end();
+    if (open_) end_popup();
 }
 
 ContextMenu::ContextMenu(const char* id) {
@@ -70,7 +79,7 @@ ContextMenu::ContextMenu(const char* id) {
 }
 
 ContextMenu::~ContextMenu() {
-    if (open_) end();
+    if (open_) end_popup();
 }
 
 } // namespace ftk::ui

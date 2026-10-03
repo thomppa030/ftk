@@ -36,6 +36,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -111,6 +112,11 @@ struct PanelOptions {
     /// the first time it has no size yet, so it is hidden for that frame
     /// and asks for the next.
     bool fit{false};
+    /// A fitting panel is no smaller than this and no bigger, what it holds
+    /// scrolling beyond: a drop-down's list, as wide as its field and some
+    /// lines tall.
+    glm::vec2 min_size{0.0f, 0.0f};
+    glm::vec2 max_size{std::numeric_limits<float>::infinity()};
     /// A press on it brings it in front of the others of its layer; off
     /// for a panel that stays behind them, as a host does.
     bool raise{true};

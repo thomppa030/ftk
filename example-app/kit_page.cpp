@@ -2,6 +2,8 @@
 
 #include "ftk/ui/core_kit.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -28,6 +30,25 @@ void heading(const char* label) {
     ui::FontScope bold(ui::Font::Bold, 0.0f);
     ui::text(label);
 }
+
+constexpr ui::Choice<KitPage::Body> BODIES[] = {
+    {KitPage::Body::Static, "Static"}, {KitPage::Body::Dynamic, "Dynamic"}, {KitPage::Body::Kinematic, "Kinematic"},
+};
+constexpr ui::Choice<KitPage::Shape> SHAPES[] = {
+    {KitPage::Shape::Box, "Box"},
+    {KitPage::Shape::Sphere, "Sphere"},
+    {KitPage::Shape::Capsule, "Capsule"},
+    {KitPage::Shape::Mesh, "Mesh"},
+};
+constexpr std::array<const char*, 3> EVENTS{"Storm rolls in", "Fog at dusk", "Harbour bells"};
+constexpr std::array<glm::vec3, 6> PALETTE{{
+    {0.83f, 0.63f, 0.31f},
+    {0.78f, 0.33f, 0.29f},
+    {0.36f, 0.62f, 0.42f},
+    {0.30f, 0.52f, 0.78f},
+    {0.58f, 0.44f, 0.76f},
+    {0.86f, 0.86f, 0.84f},
+}};
 
 } // namespace
 
@@ -76,11 +97,23 @@ void KitPage::draw(glm::vec2 size, float top) {
                 if (ui::selectable(FILES[static_cast<std::size_t>(i) % FILES.size()], picked_ == i)) picked_ = i;
             }
         }
+        ui::same_line(32.0f);
+        {
+            // A colour picked in place, and swatches beneath it to pick.
+            ui::Group column;
+            ui::next_width(240.0f);
+            (void)ui::color_picker("##paint", paint_);
+            for (std::size_t i = 0; i < PALETTE.size(); ++i) {
+                ui::IdScope id(static_cast<int>(i));
+                if (i > 0) ui::same_line(4.0f);
+                if (ui::swatch("##swatch", {PALETTE[i], 1.0f}, {24.0f, 24.0f})) paint_ = PALETTE[i];
+            }
+        }
     }
     ui::end_plain_window();
 
     // A panel of the kit's own, over the page: an inspector's rows.
-    ui::next_window_size_once({420.0f, 400.0f});
+    ui::next_window_size_once({420.0f, 560.0f});
     ui::next_window_pos({size.x - 460.0f, top + 40.0f});
     if (auto panel = ui::Panel(ui::icon::folder, "Inspector")) {
         ui::next_width(ui::FILL);
@@ -102,6 +135,18 @@ void KitPage::draw(glm::vec2 size, float top) {
             });
             ui::row("Detail", [&] { (void)ui::stepper("##lod", lod_, 0, 4); });
             ui::hint("The level of detail the crate is drawn at, from the closest.");
+            ui::row("Body", [&] { (void)ui::choice("##body", body_, BODIES); });
+            ui::row("Collider", [&] { (void)ui::choice("##shape", shape_, SHAPES); });
+            ui::row("Light", [&] { (void)ui::color("##light", light_, ui::ColorSpace::Linear); });
+            ui::row("Tint", [&] { (void)ui::color("##tint", tint_, ui::ColorSpace::Srgb); });
+            ui::row("On hit", [&] {
+                const char* preview = event_ >= 0 ? EVENTS[static_cast<std::size_t>(event_)] : "Pick an event...";
+                if (auto list = ui::Dropdown("##event", preview)) {
+                    for (std::size_t i = 0; i < EVENTS.size(); ++i) {
+                        if (ui::selectable(EVENTS[i], event_ == static_cast<int>(i))) event_ = static_cast<int>(i);
+                    }
+                }
+            });
         }
         ui::button("Open");
         ui::same_line();

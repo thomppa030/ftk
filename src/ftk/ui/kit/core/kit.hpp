@@ -8,12 +8,15 @@
 // are to be. Inside ftk-app-ui only.
 
 #include "ftk/ui/core/context.hpp"
+#include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
 
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 
 #include <optional>
 #include <string>
@@ -135,6 +138,15 @@ struct RowSearch {
 /// What mark_next_row() asked of the next row.
 enum class RowMark : uint8_t { None, Room, Dot };
 
+/// The colour a picker shows, as hue, saturation and value, kept while the
+/// colour is the one it left: grey has no hue to read back, black no
+/// saturation.
+struct PickedColour {
+    Id id{0};
+    glm::vec3 rgb{0.0f};
+    glm::vec3 hsv{0.0f};
+};
+
 /// What the next item is to be.
 struct NextItem {
     std::optional<float> width{};
@@ -208,6 +220,7 @@ public:
     PropertyRows rows{};
     RowSearch row_search{};
     RowMark row_mark{RowMark::None};
+    PickedColour picked{};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -257,5 +270,16 @@ void restore_item();
 /// whatever it returns; false when it shows nothing.
 bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding);
 void end_window();
+
+/// A whole number dragged from `min` to `max`, as wide as the next item,
+/// `letter` pinned to its left in `colour` as a vector's axes are: a
+/// colour's R, G and B.
+Edit lettered_int(const char* id, int& value, int min, int max, const char* letter, Color colour,
+                  Unit unit = Unit::None);
+
+/// Begins the popup `id` when it is open, on the kit's plate and fitting
+/// what it holds as `options` say, recorded as a popup; then end_popup().
+bool begin_popup(Id id, core::PanelOptions options);
+void end_popup();
 
 } // namespace ftk::ui::corekit

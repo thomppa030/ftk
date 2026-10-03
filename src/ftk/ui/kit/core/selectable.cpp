@@ -29,7 +29,10 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
         context.draw_list().rect_filled(min, max, faded(fill));
     }
     draw_text(rect.min, corekit::text_colour(), text);
-    return in.clicked || (options.double_click && in.double_clicked);
+    const bool picked = in.clicked || (options.double_click && in.double_clicked);
+    // Picked in a popup, a drop-down's list or a menu, it closes it.
+    if (picked && !kit().popup_stack.empty()) context.close_popup(kit().popup_stack.back());
+    return picked;
 }
 
 } // namespace ftk::ui

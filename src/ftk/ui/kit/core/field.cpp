@@ -295,6 +295,11 @@ Edit vec_n(const char* id, float* values, int count, const DragSpec& spec) {
 
 } // namespace
 
+Edit corekit::lettered_int(const char* id, int& value, int min, int max, const char* letter, Color colour, Unit unit) {
+    const Axis axis{letter, colour};
+    return drag_int_axis(id, value, 1.0f, min, max, unit, &axis);
+}
+
 Edit drag(const char* id, float& value, const DragSpec& spec) {
     return drag_one(id, value, spec, nullptr);
 }
