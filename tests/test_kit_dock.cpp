@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/dock.hpp"
 #include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/settings_file.hpp"
@@ -30,11 +31,14 @@ struct Docked {
     KitHarness h;
     ui::Id dock{0};
     std::vector<std::string> windows;
+    /// Where the dockspace begins.
+    glm::vec2 at{0.0f};
 
     Docked(std::vector<std::string> names, const std::function<void(ui::Id)>& build) : windows(std::move(names)) {
         bool built = false;
         h.set_ui([this, build, built]() mutable {
             dock = ui::id("##dock");
+            at = ui::cursor();
             ui::dockspace(dock);
             if (!built) {
                 build(dock);
@@ -47,6 +51,18 @@ struct Docked {
             }
         });
         h.step(4);
+    }
+
+    /// The middle of the tabs across the top of a leaf at `top_left`, `x`
+    /// in from its left: in the first tab, for an `x` of a few dozen.
+    [[nodiscard]] static glm::vec2 tabs_at(glm::vec2 top_left, float x) {
+        return {top_left.x + x, top_left.y + ui::frame_height() * 0.5f};
+    }
+
+    [[nodiscard]] ui::DockNode tree() const {
+        const auto read = ui::dock_tree(dock, windows);
+        REQUIRE(read.has_value());
+        return *read;
     }
 };
 
@@ -97,6 +113,69 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
     REQUIRE(tree->children.size() == 2);
     CHECK(tree->children[0].windows == std::vector<std::string>{"Preview"});
     CHECK(tree->children[1].windows == std::vector<std::string>{"Inspector"});
+}
+
+TEST_CASE("A split's splitter dragged moves its share, from the gap or just inside a window", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    Docked d({"Hierarchy", "Viewport"}, [](ui::Id dock) {
+        ui::build_dock_tree(dock, {800.0f, 600.0f}, N::left_right(0.25f, N::tabs({"Hierarchy"}), N::tabs({"Viewport"})));
+    });
+    const auto left = ui::window_named("Hierarchy");
+    const auto right = ui::window_named("Viewport");
+    REQUIRE(left.has_value());
+    REQUIRE(right.has_value());
+    const float gap = (left->pos.x + left->size.x + right->pos.x) * 0.5f;
+    const float y = left->pos.y + left->size.y * 0.5f;
+    const float across = right->pos.x + right->size.x - left->pos.x;
+
+    d.h.drag({gap, y}, {left->pos.x + across * 0.5f, y});
+    d.h.step(2);
+    CHECK(d.tree().ratio == Approx(0.5f).margin(0.02f));
+
+    // Just inside the window on its right, the splitter still takes it.
+    const auto moved = ui::window_named("Viewport");
+    d.h.drag({moved->pos.x + 3.0f, y}, {left->pos.x + across * 0.25f, y});
+    d.h.step(2);
+    CHECK(d.tree().ratio == Approx(0.25f).margin(0.02f));
+}
+
+TEST_CASE("A tab dragged along its row takes the place of the one it passes", "[ui][kit][dock]") {
+    Docked d({"Console", "History"}, [](ui::Id dock) {
+        ui::build_dock_tree(dock, {800.0f, 600.0f}, ui::DockNode::tabs({"Console", "History"}));
+    });
+    REQUIRE(d.tree().windows == std::vector<std::string>{"Console", "History"});
+    d.h.drag(Docked::tabs_at(d.at, 45.0f), Docked::tabs_at(d.at, 300.0f));
+    d.h.step(2);
+    CHECK(d.tree().windows == std::vector<std::string>{"History", "Console"});
+    CHECK(ui::window_dock("Console") == ui::window_dock("History"));
+}
+
+TEST_CASE("A tab dragged off its row floats, and docks again let go over another's tabs", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    Docked d({"Hierarchy", "Viewport"}, [](ui::Id dock) {
+        ui::build_dock_tree(dock, {800.0f, 600.0f}, N::left_right(0.5f, N::tabs({"Hierarchy"}), N::tabs({"Viewport"})));
+    });
+    const auto left = ui::window_named("Hierarchy");
+    REQUIRE(left.has_value());
+    // Down off its tabs, to a corner, away from the middle of any leaf.
+    d.h.drag(Docked::tabs_at(left->pos, 45.0f), {left->pos.x + 60.0f, left->pos.y + left->size.y - 60.0f});
+    d.h.step(2);
+    CHECK(ui::window_dock("Hierarchy") == 0);
+    // The leaf it left folds away; the other takes the dockspace.
+    const ui::DockNode alone = d.tree();
+    CHECK(alone.split == ui::DockAxis::None);
+    CHECK(alone.windows == std::vector<std::string>{"Viewport"});
+
+    // Carried by its title bar onto the Viewport's tabs, past its own tab.
+    const auto floating = ui::window_named("Hierarchy");
+    const auto viewport = ui::window_named("Viewport");
+    REQUIRE(floating.has_value());
+    REQUIRE(viewport.has_value());
+    d.h.drag(Docked::tabs_at(floating->pos, 40.0f), Docked::tabs_at(viewport->pos, viewport->size.x - 80.0f));
+    d.h.step(2);
+    CHECK(ui::window_dock("Hierarchy") != 0);
+    CHECK(ui::window_dock("Hierarchy") == ui::window_dock("Viewport"));
+    CHECK(d.tree().windows == std::vector<std::string>{"Viewport", "Hierarchy"});
 }
 
 TEST_CASE("Windows docked together are tabs, the one brought forward shown", "[ui][kit][dock]") {

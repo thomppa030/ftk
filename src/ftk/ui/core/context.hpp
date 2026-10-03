@@ -281,6 +281,10 @@ public:
     /// kit's windows are.
     void begin_panel(Id id, Rect rect, const PanelOptions& options = {}) { begin_panel_id(id, rect, options); }
     void end_panel();
+    /// The panel `id` of the window being drawn goes in front of the others
+    /// of its layer, as a press on it would bring it: a window torn out of
+    /// a dock, carried over the rest.
+    void bring_to_front(Id id);
     /// The panel being drawn, where it is this frame (a fitting one sized
     /// by what it held last frame): to draw its background. The root's
     /// rectangle outside any panel.

@@ -1,17 +1,22 @@
 #include "ftk/ui/kit/dock.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/layout.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
 // Docking as the kit keeps it on the core: a tree of splits whose leaves
-// hold windows as tabs, laid out over the dockspace each frame. The splits
-// keep the shares they were given: dragging their edges, moving tabs and
-// tearing them off are the shell's (Phase 8 of the UI core plan).
+// hold windows as tabs, laid out over the dockspace each frame. A split's
+// splitter drags its share; a tab drags along its leaf's tabs to another
+// place among them, or off them to tear its window out and carry it; a
+// window carried by its title bar or its tab docks into the leaf whose
+// tabs it is let go over. A leaf left empty folds into its parent, as
+// ImGui's do, unless it is the dockspace's middle.
 
 namespace ftk::ui {
 
@@ -19,16 +24,101 @@ using namespace corekit;
 
 namespace {
 
-// The room between the two parts of a split, as ImGui leaves it.
+// The room between the two parts of a split, as ImGui leaves it, and how
+// far either side of it the splitter takes the pointer.
 constexpr float SPLIT_GAP = 2.0f;
+constexpr float SPLIT_REACH = 4.0f;
+// The least a split's part keeps across, as ImGui's least window size.
+constexpr float PART_LEAST = 32.0f;
+// How far off its tabs, in lines of text, a tab is dragged to tear it
+// out: down or up, and past either end, as ImGui's.
+constexpr float TEAR_DOWN = 1.5f;
+constexpr float TEAR_ALONG = 2.2f;
 
 Id window_id(const std::string& name) {
     return core::hash_label(name, 0);
 }
 
+Id splitter_id(Id split) {
+    return core::hash_label("#SPLIT", split);
+}
+
 // Drawn last frame or this one: a window that has a tab.
 bool drawn_lately(const Window& window) {
     return window.frame != 0 && window.frame + 1 >= ui().frame();
+}
+
+// The pointer's shape over the splitter of `split`.
+void splitter_cursor(const DockPart& split) {
+    ui().set_cursor_shape(split.split == DockAxis::LeftRight ? MouseCursor::ResizeEW : MouseCursor::ResizeNS);
+}
+
+// The tabs across the top of a leaf at `rect`.
+core::Rect tab_strip(core::Rect rect) {
+    return {.min = rect.min, .max = {rect.max.x, rect.min.y + frame_height()}};
+}
+
+// The leaf `id`, left with no windows, folds into its parent: the other
+// part takes the parent's place, keeping the parent's id, as ImGui merges
+// them. The dockspace's middle stays, empty.
+void fold_if_empty(Kit& k, Id id) {
+    const DockPart& leaf = k.docks.at(id);
+    if (!leaf.windows.empty() || leaf.middle || leaf.parent == 0) return;
+    const Id parent_id = leaf.parent;
+    DockPart& parent = k.docks.at(parent_id);
+    const Id other_id = parent.children[0] == id ? parent.children[1] : parent.children[0];
+    DockPart other = std::move(k.docks.at(other_id));
+    k.docks.erase(id);
+    k.docks.erase(other_id);
+    parent.split = other.split;
+    parent.ratio = other.ratio;
+    parent.children = other.children;
+    parent.windows = std::move(other.windows);
+    parent.front = other.front;
+    parent.middle = other.middle;
+    for (const Id child : parent.children) {
+        if (child != 0) k.docks.at(child).parent = parent_id;
+    }
+    for (const Id window : parent.windows) k.windows.at(window).dock = parent_id;
+}
+
+// The window `id` docked into the leaf `leaf`, as its tab in front.
+void dock_into(Kit& k, Id id, Id leaf_id) {
+    DockPart& leaf = k.docks.at(leaf_id);
+    Window& window = k.windows.at(id);
+    window.dock = leaf_id;
+    if (!std::ranges::contains(leaf.windows, id)) leaf.windows.push_back(id);
+    leaf.front = id;
+    k.focused_window = id;
+}
+
+// The window `id` torn out of its leaf by its tab, `grab` from its tab's
+// corner to the pointer: floating where the tab was, as big as the leaf,
+// carried on by the pointer and in front of the rest.
+void tear_out(Kit& k, Id id, glm::vec2 grab) {
+    Window& window = k.windows.at(id);
+    const Id leaf_id = window.dock;
+    DockPart& leaf = k.docks.at(leaf_id);
+    const glm::vec2 size = leaf.rect.size();
+    std::erase(leaf.windows, id);
+    if (leaf.front == id) leaf.front = 0;
+    window.dock = 0;
+    const glm::vec2 at = mouse_pos() - grab;
+    window.rect = {.min = at, .max = at + size};
+    window.sized = true;
+    k.carried = {.window = id, .grab = grab};
+    ui().bring_to_front(id);
+    ui().request_frame();
+    fold_if_empty(k, leaf_id);
+}
+
+// The leaf, shown this frame, whose tabs are under `at`; 0 for none.
+Id leaf_under(const Kit& k, glm::vec2 at) {
+    for (const auto& [id, part] : k.docks) {
+        if (part.split != DockAxis::None || shown_leaf(id) == nullptr) continue;
+        if (tab_strip(part.rect).contains(at)) return id;
+    }
+    return 0;
 }
 
 // The node `id` and every node under it gone, their windows floating.
@@ -60,7 +150,32 @@ void lay_out(Kit& k, Id id, core::Rect rect, bool see_through) {
     }
     const int axis = part.split == DockAxis::LeftRight ? 0 : 1;
     const float room = std::max(rect.max[axis] - rect.min[axis] - SPLIT_GAP, 0.0f);
-    const float cut = rect.min[axis] + std::round(room * part.ratio);
+    float cut = rect.min[axis] + std::round(room * part.ratio);
+    const auto strip_at = [&](float at) {
+        core::Rect strip = rect;
+        strip.min[axis] = at - SPLIT_REACH;
+        strip.max[axis] = at + SPLIT_GAP + SPLIT_REACH;
+        return strip;
+    };
+
+    // Its splitter, dragged, moves the cut, each part keeping its least.
+    const core::Interaction in = ui().interact(splitter_id(id), strip_at(cut), {.beneath = true});
+    if (in.pressed) k.split_grab = in.position[axis] - cut;
+    if (in.held && room > 0.0f) {
+        const float least = std::min(PART_LEAST, room * 0.5f);
+        cut = std::round(std::clamp(in.position[axis] - k.split_grab, rect.min[axis] + least,
+                                    rect.min[axis] + room - least));
+        part.ratio = (cut - rect.min[axis]) / room;
+    }
+    part.strip = strip_at(cut);
+    core::Rect gap = rect;
+    gap.min[axis] = cut;
+    gap.max[axis] = cut + SPLIT_GAP;
+    if (in.hovered || in.held) {
+        splitter_cursor(part);
+        ui().draw_list().rect_filled(gap.min, gap.max, faded(in.held ? theme::accent() : theme::accent_dim()));
+    }
+
     core::Rect first = rect;
     core::Rect second = rect;
     first.max[axis] = cut;
@@ -104,29 +219,105 @@ std::size_t dock_tabs(Id node, core::Rect strip) {
     const bool focused = std::ranges::contains(leaf.windows, k.focused_window);
     draw_bar_line(strip, focused);
 
-    std::size_t count = 0;
+    // The windows drawn lately, in order, each as wide as its label.
+    struct Tab {
+        Id id{0};
+        float x{0.0f};
+        float width{0.0f};
+    };
+    std::vector<Tab> tabs;
     float x = strip.min.x;
-    dl.push_clip(strip.min, strip.max);
     for (const Id id : leaf.windows) {
         const Window& window = k.windows.at(id);
         if (!drawn_lately(window)) continue;
-        const std::string_view label = shown(window.name);
-        const float width = tab_width(label, false);
-        const bool front = leaf.front == id;
-        const DrawnTab drawn =
-            draw_tab(core::hash_label("#TAB", id), {.min = {x, strip.min.y}, .max = {x + width, strip.max.y}},
-                     {.label = label, .ink = text_colour(), .front = front, .focused = focused});
+        const float width = tab_width(shown(window.name), false);
+        tabs.push_back({.id = id, .x = x, .width = width});
+        x += width + k.style.item_inner_spacing.x;
+    }
+
+    std::optional<std::pair<Id, Id>> swap;
+    std::optional<std::pair<Id, glm::vec2>> torn;
+    const float line = text_style().size;
+    dl.push_clip(strip.min, strip.max);
+    for (std::size_t i = 0; i < tabs.size(); ++i) {
+        const Tab& tab = tabs[i];
+        const bool front = leaf.front == tab.id;
+        const core::Rect rect{.min = {tab.x, strip.min.y}, .max = {tab.x + tab.width, strip.max.y}};
+        const DrawnTab drawn = draw_tab(core::hash_label("#TAB", tab.id), rect,
+                                        {.label = shown(k.windows.at(tab.id).name),
+                                         .ink = text_colour(),
+                                         .front = front,
+                                         .focused = focused});
         // A press brings its window forward, with the keyboard.
         if (drawn.in.pressed && !front) {
-            leaf.front = id;
-            k.focused_window = id;
+            leaf.front = tab.id;
+            k.focused_window = tab.id;
             context.request_frame();
         }
-        x += width + k.style.item_inner_spacing.x;
-        ++count;
+        if (!drawn.in.held || !drawn.in.dragging) continue;
+        // Dragged off the tabs, it is torn out; along them, past the middle
+        // of the tab beside it, it takes that one's place.
+        const glm::vec2 p = drawn.in.position;
+        const bool off = p.y < strip.min.y - line * TEAR_DOWN || p.y > strip.max.y + line * TEAR_DOWN ||
+                         p.x < strip.min.x - line * TEAR_ALONG || p.x > strip.max.x + line * TEAR_ALONG;
+        if (off) {
+            torn = std::pair{tab.id, drawn.in.press_position - rect.min};
+        } else if (i > 0 && p.x < tabs[i - 1].x + tabs[i - 1].width * 0.5f) {
+            swap = std::pair{tab.id, tabs[i - 1].id};
+        } else if (i + 1 < tabs.size() && p.x > tabs[i + 1].x + tabs[i + 1].width * 0.5f) {
+            swap = std::pair{tab.id, tabs[i + 1].id};
+        }
     }
     dl.pop_clip();
-    return count;
+
+    if (swap) {
+        const auto a = std::ranges::find(leaf.windows, swap->first);
+        const auto b = std::ranges::find(leaf.windows, swap->second);
+        std::iter_swap(a, b);
+        context.request_frame();
+    }
+    // Last: the leaf may fold away with it.
+    if (torn) tear_out(k, torn->first, torn->second);
+    return tabs.size();
+}
+
+void dock_edges(Id node, core::Rect rect) {
+    Kit& k = kit();
+    for (Id at = k.docks.at(node).parent; at != 0; at = k.docks.at(at).parent) {
+        const DockPart& split = k.docks.at(at);
+        const core::Rect edge = split.strip.intersect(rect);
+        if (edge.empty()) continue;
+        const core::Interaction in = ui().interact(splitter_id(at), edge, {.beneath = true});
+        if (in.hovered || in.held) splitter_cursor(split);
+    }
+}
+
+bool carry(Window& window, Id id, const WindowOptions& options) {
+    Kit& k = kit();
+    if (k.carried.window != id) return false;
+    core::Context& context = ui();
+    const glm::vec2 pointer = mouse_pos();
+    const glm::vec2 at = pointer - k.carried.grab;
+    window.rect = {.min = at, .max = at + window.rect.size()};
+    k.carried.target = options.docking ? leaf_under(k, pointer) : 0;
+    if (mouse_down(MouseButton::Left)) {
+        // Over a leaf's tabs, the leaf lights where it would dock.
+        if (k.carried.target != 0) {
+            const core::Rect target = k.docks.at(k.carried.target).rect;
+            context.begin_panel(core::hash_label("#DOCK_PREVIEW", id), target,
+                                {.padding = {0.0f, 0.0f}, .scroll = false, .layer = core::Layer::Tooltip});
+            context.draw_list().rect_filled(target.min, target.max, theme::accent_dim() * glm::vec4{1.0f, 1.0f, 1.0f, 0.4f});
+            context.end_panel();
+        }
+        context.request_frame();
+        return false;
+    }
+    // Let go: docked over a leaf's tabs, else left floating where it is.
+    const Id target = k.carried.target;
+    k.carried = {};
+    if (target == 0) return false;
+    dock_into(k, id, target);
+    return true;
 }
 
 } // namespace corekit
@@ -238,12 +429,9 @@ std::optional<DockNode> dock_tree(Id id, std::span<const std::string> windows) {
     const Kit& k = kit();
     if (!k.docks.contains(id)) return std::nullopt;
 
-    // Each window's node, whether it has been drawn yet or not.
-    std::unordered_map<Id, std::vector<std::string>> docked;
-    for (const std::string& name : windows) {
-        const auto found = k.windows.find(window_id(name));
-        if (found != k.windows.end() && found->second.dock != 0) docked[found->second.dock].push_back(name);
-    }
+    // The windows asked about, whether they have been drawn yet or not.
+    std::unordered_map<Id, const std::string*> asked;
+    for (const std::string& name : windows) asked.emplace(window_id(name), &name);
 
     const auto read = [&](const auto& self, Id at) -> DockNode {
         const DockPart& part = k.docks.at(at);
@@ -252,7 +440,10 @@ std::optional<DockNode> dock_tree(Id id, std::span<const std::string> windows) {
             out.children.push_back(self(self, part.children[0]));
             out.children.push_back(self(self, part.children[1]));
         }
-        if (auto it = docked.find(at); it != docked.end()) out.windows = it->second;
+        // In tab order.
+        for (const Id window : part.windows) {
+            if (const auto name = asked.find(window); name != asked.end()) out.windows.push_back(*name->second);
+        }
         return out;
     };
     return read(read, id);

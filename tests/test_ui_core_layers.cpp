@@ -43,6 +43,34 @@ bool drawn(const UiHarness& h, ftk::ui::Color colour) {
 
 } // namespace
 
+TEST_CASE("A panel brought to the front takes the pointer where it overlaps the others", "[ui-core][layers]") {
+    UiHarness h;
+    bool raise = false;
+    bool in_first = false;
+    bool in_second = false;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.begin_panel("first", {.min = {0.0f, 0.0f}, .max = {200.0f, 200.0f}}, {.raise = false});
+        in_first = widget(h, "a", {150.0f, 150.0f}).hovered;
+        ui.end_panel();
+        ui.begin_panel("second", {.min = {50.0f, 50.0f}, .max = {250.0f, 250.0f}}, {.raise = false});
+        in_second = widget(h, "b", {150.0f, 150.0f}).hovered;
+        ui.end_panel();
+        if (raise) ui.bring_to_front(ui.id("first"));
+        raise = false;
+    });
+    h.step();
+    h.move_to({100.0f, 100.0f});
+    h.step();
+    CHECK(in_second);
+    CHECK_FALSE(in_first);
+
+    raise = true;
+    h.step(2);
+    CHECK(in_first);
+    CHECK_FALSE(in_second);
+}
+
 TEST_CASE("A dialog opened as a popup blocks what is beneath and stays through a press outside", "[ui-core][layers]") {
     UiHarness h;
     const Id dialog = 0xD1A1;

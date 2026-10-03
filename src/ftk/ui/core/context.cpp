@@ -189,6 +189,11 @@ Context::Panel& Context::panel(Id id) {
     return *added;
 }
 
+void Context::bring_to_front(Id id) {
+    assert(root_ != nullptr && "UI: a panel brought forward outside a window; call begin_root() first");
+    panel(id).order = root_->next_order++;
+}
+
 Id Context::current_panel() const {
     for (auto area = areas_.rbegin(); area != areas_.rend(); ++area) {
         if (area->panel) return area->id;

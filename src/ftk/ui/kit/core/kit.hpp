@@ -255,8 +255,6 @@ struct Window {
     /// Its padding and title bar, as it began this frame.
     glm::vec2 padding{0.0f};
     float bar{0.0f};
-    /// Where it was when its title bar was pressed, to move it from.
-    glm::vec2 move_from{0.0f};
     /// Where its scrollbar's grab was pressed, as a share of what scrolls.
     float grab_from{0.0f};
     /// The dock node it is docked in, or 0 while it floats.
@@ -288,6 +286,19 @@ struct DockPart {
     core::Rect rect{};
     uint64_t frame{0};
     uint64_t seen{0};
+    /// A split's splitter: the room between its parts and a little either
+    /// side, which takes the pointer over the windows docked there too.
+    core::Rect strip{};
+};
+
+/// A window the pointer carries: moved by its title bar, or torn out of a
+/// dock by its tab. Let go over a leaf's tabs, it docks there.
+struct Carried {
+    Id window{0};
+    /// From the window's top-left to the pointer.
+    glm::vec2 grab{0.0f};
+    /// The leaf whose tabs it is over, to dock into when let go.
+    Id target{0};
 };
 
 class Kit : public core::Context::Extension {
@@ -361,6 +372,10 @@ public:
     float tree_base_size{0.0f};
     /// Every dockspace's nodes, by id.
     std::unordered_map<Id, DockPart> docks{};
+    /// The window being carried, and the splitter being dragged: where its
+    /// cut was from the pointer when it was pressed.
+    Carried carried{};
+    float split_grab{0.0f};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -502,8 +517,16 @@ void draw_bar_line(core::Rect rect, bool focused);
 /// already, or the one that was isn't drawn any more and it takes its place.
 [[nodiscard]] bool take_front(DockPart& leaf, Id id);
 /// The tabs of the leaf `node` across `strip`, one for each window docked
-/// there drawn last frame or this one: a press brings its window forward.
-/// Returns how many there are.
+/// there drawn last frame or this one: a press brings its window forward,
+/// a drag along them moves it among them, and a drag off them tears it out
+/// to be carried. Returns how many there are.
 std::size_t dock_tabs(Id node, core::Rect strip);
+/// The splitters along the edges of the leaf `node`, at `rect`, in the
+/// window docked there: they take the pointer over its edges.
+void dock_edges(Id node, core::Rect rect);
+/// Carries the floating window `id` while the pointer holds it: it follows
+/// the pointer, and let go over a leaf's tabs it docks there. True when it
+/// docked this frame.
+bool carry(Window& window, Id id, const WindowOptions& options);
 
 } // namespace ftk::ui::corekit

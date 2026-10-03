@@ -3,6 +3,8 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -85,16 +87,16 @@ std::optional<DockNode> dock_tree(Id id, std::span<const std::string> windows) {
     const ImGuiDockNode* root = ImGui::DockBuilderGetNode(id);
     if (root == nullptr) return std::nullopt;
 
-    // Each window's node: where it is shown, or where the settings file had
-    // it when it has not been shown this run.
+    // Each window's node: where it is, or where the settings file had it
+    // when it has not been shown this run. A window shown and then torn out
+    // floats, whatever its settings still say.
     std::unordered_map<ImGuiID, std::vector<std::string>> docked;
     for (const std::string& name : windows) {
         ImGuiID node = 0;
-        if (const ImGuiWindow* window = ImGui::FindWindowByName(name.c_str())) node = window->DockId;
-        if (node == 0) {
-            if (const ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(name.c_str()))) {
-                node = settings->DockId;
-            }
+        if (const ImGuiWindow* window = ImGui::FindWindowByName(name.c_str())) {
+            node = window->DockId;
+        } else if (const ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(name.c_str()))) {
+            node = settings->DockId;
         }
         if (node != 0) docked[node].push_back(name);
     }
@@ -110,7 +112,19 @@ std::optional<DockNode> dock_tree(Id id, std::span<const std::string> windows) {
             out.children.push_back(self(self, node->ChildNodes[0]));
             out.children.push_back(self(self, node->ChildNodes[1]));
         }
-        if (auto it = docked.find(node->ID); it != docked.end()) out.windows = it->second;
+        if (auto it = docked.find(node->ID); it != docked.end()) {
+            // In tab order: the tabs shown first, then those not shown yet.
+            if (node->TabBar != nullptr) {
+                for (const ImGuiTabItem& tab : node->TabBar->Tabs) {
+                    if (tab.Window == nullptr) continue;
+                    const auto name = std::ranges::find(it->second, std::string_view(tab.Window->Name));
+                    if (name != it->second.end()) out.windows.push_back(*name);
+                }
+            }
+            for (const std::string& name : it->second) {
+                if (!std::ranges::contains(out.windows, name)) out.windows.push_back(name);
+            }
+        }
         return out;
     };
     return read(read, root);

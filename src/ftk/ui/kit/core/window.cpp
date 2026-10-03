@@ -2,6 +2,7 @@
 
 #include "ftk/ui/core_kit.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 
@@ -71,6 +72,8 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     context.begin_panel(id, window.rect, {.padding = padding, .bar = window.bar, .raise = false});
     if (any_button_pressed() && context.area_or_inner_under_pointer()) k.focused_window = id;
     const core::Rect& rect = window.rect;
+    // The splitters along its edges first, over what it holds.
+    dock_edges(window.dock, rect);
     core::DrawList& dl = context.draw_list();
     if (options.background) dl.rect_filled(rect.min, rect.max, faded(theme::surface_base()));
     window.tabs = dock_tabs(window.dock, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}});
@@ -86,6 +89,11 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     keep_item();
     const Id id = window_id(name);
     Window& window = k.windows[id];
+    // A window carried but no longer drawn is let go of.
+    if (k.carried.window != 0 && k.carried.window != id && !mouse_down(MouseButton::Left)) {
+        const auto carried = k.windows.find(k.carried.window);
+        if (carried == k.windows.end() || carried->second.frame + 1 < context.frame()) k.carried = {};
+    }
     const bool again = window.frame == context.frame();
     if (again && !window.shown) {
         k.window_stack.push_back(id);
@@ -131,6 +139,8 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     window.options = options;
     window.padding = padding;
     window.bar = options.title_bar ? frame_height() : 0.0f;
+    // Carried, it follows the pointer; let go over a leaf's tabs, it docks.
+    if (carry(window, id, options)) return begin_docked(window, id, options, padding);
 
     context.begin_panel(id, window.rect,
                         {.padding = padding, .bar = window.bar, .fit = !window.sized, .raise = options.to_front});
@@ -158,13 +168,11 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
         dl.push_clip(bar.min, {title_right, bar.max.y});
         draw_text(bar.min + k.style.frame_padding, theme::text(), shown(name));
         dl.pop_clip();
-        // Dragged by its title bar, it follows from the next frame.
+        // Dragged by its title bar, it is carried from the next frame.
         if (options.move) {
             const core::Interaction in = context.interact(core::hash_label("#MOVE", id), bar, {.beneath = true});
-            if (in.pressed) window.move_from = rect.min;
-            if (in.held && in.dragging) {
-                const glm::vec2 to = window.move_from + (in.position - in.press_position);
-                window.rect = {.min = to, .max = to + rect.size()};
+            if (in.held && in.dragging && k.carried.window != id) {
+                k.carried = {.window = id, .grab = in.press_position - rect.min};
                 context.request_frame();
             }
         }
