@@ -21,6 +21,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace ftk::test {
 
@@ -85,9 +86,18 @@ public:
     /// `to` apart over four frames, and lifted.
     void pinch(glm::vec2 centre, float from, float to);
 
+    /// Types UTF-8 text into whatever has the keyboard.
+    void type(std::string_view text);
+    /// Presses and releases `key` with `modifiers` held, a frame each.
+    void press(ui::Key key, ui::Modifiers modifiers = {});
+    /// An input method composing `text`, its cursor at the end, not yet
+    /// committed.
+    void compose(std::string_view text);
+
     /// Queues `event` as it is, stamped with the harness's clock, for the
     /// next frame: for what the calls above don't cover.
     void send(ui::core::PointerEvent event);
+    void send(ui::core::KeyEvent event);
 
 private:
     // The mouse's event of `kind` at `at`.

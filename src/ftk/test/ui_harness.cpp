@@ -48,6 +48,28 @@ void UiHarness::send(core::PointerEvent event) {
     ui_.add_pointer_event(event);
 }
 
+void UiHarness::send(core::KeyEvent event) {
+    event.root = WINDOW;
+    ui_.add_key_event(event);
+}
+
+void UiHarness::type(std::string_view text) {
+    ui_.add_text(text);
+    step();
+}
+
+void UiHarness::press(ui::Key key, ui::Modifiers modifiers) {
+    send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = modifiers});
+    step();
+    send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = modifiers});
+    step();
+}
+
+void UiHarness::compose(std::string_view text) {
+    ui_.set_composition(text, static_cast<int>(text.size()));
+    step();
+}
+
 void UiHarness::mouse(core::PointerEvent::Kind kind, glm::vec2 at, ui::MouseButton button) {
     send({.kind = kind, .type = core::PointerType::Mouse, .button = button, .sample = {.position = at}});
 }

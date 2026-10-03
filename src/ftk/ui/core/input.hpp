@@ -15,6 +15,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -30,12 +31,17 @@ enum class Key : uint8_t {
     Slash, GraveAccent,
 };
 
+/// How many keys there are.
+inline constexpr std::size_t KEY_COUNT = static_cast<std::size_t>(Key::GraveAccent) + 1;
+
 /// The modifier keys held.
 struct Modifiers {
     bool ctrl{false};
     bool shift{false};
     bool alt{false};
     bool super{false};
+
+    bool operator==(const Modifiers&) const = default;
 };
 
 /// A mouse's buttons. A pen's tip is Left and its barrel button Right; a
@@ -97,6 +103,23 @@ struct PointerEvent {
     bool eraser{false};
     /// Notches across and down; up and right are positive.
     glm::vec2 wheel{0.0f};
+};
+
+/// A key, or the modifiers alone.
+struct KeyEvent {
+    enum class Kind : uint8_t {
+        Down,
+        Up,
+        /// Only the modifier keys changed.
+        Modifiers,
+    };
+    Kind kind{Kind::Down};
+    Key key{Key::A};
+    /// Down again while held, at the keyboard's repeat rate.
+    bool repeat{false};
+    /// The modifiers held as it happened.
+    Modifiers modifiers{};
+    RootId root{0};
 };
 
 /// The distances and times pointers are judged by.

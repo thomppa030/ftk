@@ -32,10 +32,13 @@
 
 #include <glm/vec2.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ftk::ui::core {
@@ -63,6 +66,11 @@ struct RootOutput {
     const DrawData* draw{nullptr};
     /// The shape the mouse pointer takes over it.
     MouseCursor cursor{MouseCursor::Arrow};
+    /// A text widget has the keyboard here: the program turns the system's
+    /// text input on, and places the input method's window by `text_area`,
+    /// where the text and its caret are.
+    bool text_input{false};
+    Rect text_area{};
 };
 
 /// What a frame leaves for the program.
@@ -91,6 +99,24 @@ struct Sense {
     /// Only a pen or a mouse draws on it; fingers only make gestures
     /// (ArmorPaint's "pen painting only").
     bool pen_only{false};
+};
+
+struct FocusOptions {
+    /// It takes text: while it has the keyboard, keys are its rather than
+    /// shortcuts, and the system's text input and input method are on.
+    bool text{false};
+};
+
+/// Whether a widget has the keyboard.
+struct Focus {
+    bool focused{false};
+    /// It got the keyboard since it was last drawn.
+    bool gained{false};
+    /// It had the keyboard when it was last drawn, and hasn't now.
+    bool lost{false};
+    /// Enter or Space while it has the keyboard, and doesn't take text: as
+    /// a click.
+    bool activated{false};
 };
 
 /// Fingers on one widget together.
@@ -248,6 +274,56 @@ public:
     /// The mouse pointer's shape over the root being drawn, for this frame.
     void set_cursor_shape(MouseCursor cursor);
 
+    /// Keys and text for the next frame, in the order they happened.
+    void add_key_event(const KeyEvent& event) { key_events_.push_back(event); }
+    /// Text the system committed, UTF-8.
+    void add_text(std::string_view text) { typed_next_ += text; }
+    /// What an input method is composing, not yet committed, and its cursor
+    /// in bytes; empty when it is done. Seen from the next frame.
+    void set_composition(std::string_view text, int cursor);
+
+    /// `key` went down this frame; or went down or repeated; is held; came
+    /// up. Nothing while the keyboard is ignored.
+    [[nodiscard]] bool key_pressed(Key key) const;
+    [[nodiscard]] bool key_repeated(Key key) const;
+    [[nodiscard]] bool key_down(Key key) const;
+    [[nodiscard]] bool key_released(Key key) const;
+    [[nodiscard]] bool any_key_pressed() const;
+    [[nodiscard]] Modifiers modifiers() const { return keyboard_.modifiers; }
+    /// The text committed this frame.
+    [[nodiscard]] std::string_view typed() const;
+    /// What the input method is composing, and its cursor.
+    [[nodiscard]] std::string_view composition() const { return keyboard_.composition; }
+    [[nodiscard]] int composition_cursor() const { return keyboard_.composition_cursor; }
+    /// Keeps `key` for the shortcut `owner`, so moving between widgets leaves
+    /// it alone (Tab, the arrows, Home and End move otherwise). The claim
+    /// holds while the key is down, so it is made every frame the shortcut
+    /// is live.
+    void claim_key(Key key, Id owner);
+    [[nodiscard]] bool key_claimed(Key key) const;
+    /// While true the UI takes no keys and no text: a game being played has
+    /// them.
+    void set_keyboard_ignored(bool ignored) { keyboard_.ignored = ignored; }
+
+    /// `id` can have the keyboard: it joins the order Tab moves through,
+    /// in the order drawn, and a press on it (interact() just before)
+    /// gives it the keyboard. A press anywhere else takes the keyboard
+    /// away. Called every frame the widget is drawn.
+    Focus focusable(Id id, const FocusOptions& options = {});
+    void set_focus(Id id);
+    void clear_focus() { set_focus(0); }
+    [[nodiscard]] Id focused() const { return focused_; }
+    /// A text widget has the keyboard: keys are its, not shortcuts.
+    [[nodiscard]] bool typing() const { return focused_ != 0 && focused_text_; }
+    /// Within it, the arrows along `axis` move the keyboard from one
+    /// widget to the next, and Home and End to the first and the last: a
+    /// list, a tree, a menu. Until pop_focus_scope().
+    void push_focus_scope(Id id, Axis axis = Axis::Column);
+    void pop_focus_scope();
+    /// The text widget that has the keyboard says where its text and caret
+    /// are, for the input method's window.
+    void set_text_input_area(Rect area);
+
     /// Seconds on the program's clock at this frame's start, and since the
     /// last frame's (zero on the first).
     [[nodiscard]] double time() const { return time_; }
@@ -315,6 +391,30 @@ private:
         MouseCursor cursor{MouseCursor::Arrow};
         // A pen is near it this frame.
         bool pen_near{false};
+        bool text_input{false};
+        Rect text_area{};
+    };
+    // The keys as this frame sees them, by Key.
+    struct Keyboard {
+        std::array<bool, KEY_COUNT> down{};
+        std::array<bool, KEY_COUNT> pressed{};
+        std::array<bool, KEY_COUNT> repeated{};
+        std::array<bool, KEY_COUNT> released{};
+        std::array<Id, KEY_COUNT> claims{};
+        Modifiers modifiers{};
+        std::string typed;
+        std::string composition;
+        int composition_cursor{0};
+        // The window the keys went to last.
+        RootId root{0};
+        bool ignored{false};
+    };
+    // A widget that can have the keyboard, in the order drawn.
+    struct Focusable {
+        Id id{0};
+        Id scope{0};
+        Axis axis{Axis::Column};
+        RootId root{0};
     };
     // How far a panel or region is scrolled, where it is going, and what it
     // held.
@@ -389,6 +489,11 @@ private:
     Tracked& track(PointerType type, PointerId id);
     // The widget on top at `at` among `hits`, bottom to top; or zero.
     [[nodiscard]] static const Hit* top_hit(const std::vector<Hit>& hits, glm::vec2 at);
+    // Takes the queued keys and text.
+    void take_keys();
+    // Moves the keyboard as the frame's keys and presses ask: Tab, the
+    // arrows in a scope, a press elsewhere, a widget gone.
+    void navigate();
     // The innermost area of the panel or region being drawn; zero for the
     // root.
     [[nodiscard]] Id current_area() const { return areas_.empty() ? 0 : areas_.back().id; }
@@ -427,6 +532,26 @@ private:
     // The scrolling area the wheel turns this frame, and by how much.
     Id wheel_area_{0};
     glm::vec2 wheel_{0.0f};
+    // Some pointer went down this frame.
+    bool any_press_{false};
+
+    Keyboard keyboard_;
+    std::vector<KeyEvent> key_events_;
+    std::string typed_next_;
+    std::optional<std::pair<std::string, int>> composition_next_;
+    // The widget with the keyboard, and whether it takes text.
+    Id focused_{0};
+    bool focused_text_{false};
+    // The widgets told they have the keyboard and not yet told they lost
+    // it: one, or two in the frame it moves from one drawn earlier to one
+    // drawn later.
+    std::vector<Id> told_focused_;
+    // Its widget was drawn this frame; it was given this frame, by a press
+    // or by set_focus().
+    bool focus_seen_{false};
+    bool focus_given_{false};
+    std::vector<Focusable> focus_order_;
+    std::vector<std::pair<Id, Axis>> focus_scopes_;
 
     bool next_now_{false};
     std::optional<double> next_at_{};

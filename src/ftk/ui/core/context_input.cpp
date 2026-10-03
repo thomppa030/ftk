@@ -147,9 +147,11 @@ void Context::take_input() {
     // last frame's hits.
     wheel_area_ = 0;
     wheel_ = {0.0f, 0.0f};
+    any_press_ = false;
     for (auto& [id, root] : roots_) root->pen_near = false;
     for (Tracked& tracked : pointers_) {
         const Pointer& p = tracked.pointer;
+        any_press_ = any_press_ || p.pressed != 0;
         const auto root = roots_.find(p.root);
         if (root == roots_.end()) {
             tracked.top = 0;

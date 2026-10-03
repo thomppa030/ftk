@@ -41,6 +41,13 @@ void Context::begin_frame(double time) {
     disabled_.clear();
     text_.begin_frame();
     take_input();
+    take_keys();
+    // Told it had the keyboard, then never drawn again: nothing to tell.
+    if (told_focused_.size() > 4) told_focused_.erase(told_focused_.begin(), told_focused_.end() - 2);
+    focus_seen_ = false;
+    focus_given_ = false;
+    focus_order_.clear();
+    focus_scopes_.clear();
     if (frame_ % KEEP_FRAMES == 0) sweep();
 }
 
@@ -67,6 +74,7 @@ void Context::begin_root(RootId root, glm::vec2 size, float scale) {
     root_->size = size;
     root_->scale = scale;
     root_->cursor = MouseCursor::Arrow;
+    root_->text_input = false;
     root_->list.reset(root_->draw, size, scale, &text_);
     root_->base_hits.clear();
     root_->areas_next.clear();
@@ -124,7 +132,9 @@ void Context::end_root() {
                              .size = root_->size,
                              .scale = root_->scale,
                              .draw = &root_->draw,
-                             .cursor = root_->cursor});
+                             .cursor = root_->cursor,
+                             .text_input = root_->text_input,
+                             .text_area = root_->text_area});
     root_ = nullptr;
     hit_targets_.clear();
 }
@@ -329,6 +339,7 @@ const FrameOutput& Context::end_frame() {
         FTK_CORE_ERROR("UI: the frame ended inside window {}", root_->id);
         end_root();
     }
+    navigate();
     in_frame_ = false;
     // A deadline already reached is no reason to sleep.
     if (next_now_ || (next_at_ && *next_at_ <= time_)) {
