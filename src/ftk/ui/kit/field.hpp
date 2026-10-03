@@ -37,6 +37,7 @@ enum class Unit {
     Percent,
     ExposureValue,  ///< stops of exposure, "EV"
     Times,  ///< a multiplier, "1.25 ×"
+    Megabytes,
 };
 
 /// The symbol drawn for a unit, empty for Unit::None.
