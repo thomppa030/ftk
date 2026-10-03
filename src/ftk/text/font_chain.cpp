@@ -13,11 +13,6 @@ FontChain& FontChain::claim(std::shared_ptr<const Face> face, char32_t first, ch
     return *this;
 }
 
-FontChain& FontChain::size_by(SizeBasis basis) {
-    basis_ = basis;
-    return *this;
-}
-
 namespace {
 
 // A face's ascent to descent, as a share of its em.
@@ -28,10 +23,16 @@ float height_of(const Face& face) {
 
 } // namespace
 
+FontChain& FontChain::size_by(SizeBasis basis) {
+    basis_ = basis;
+    // Asked of the face once: em() is asked for every string drawn.
+    primary_height_ = faces_.empty() ? 0.0f : height_of(primary());
+    return *this;
+}
+
 float FontChain::em(float size) const {
     if (basis_ == SizeBasis::Em || faces_.empty()) return size;
-    const float height = height_of(primary());
-    return height > 0.0f ? size / height : size;
+    return primary_height_ > 0.0f ? size / primary_height_ : size;
 }
 
 float FontChain::face_em(const Face& face, float em) const {
@@ -39,7 +40,7 @@ float FontChain::face_em(const Face& face, float em) const {
     const bool claimed = std::ranges::any_of(claims_, [&](const Claim& claim) { return claim.face.get() == &face; });
     if (!claimed) return em;
     const float own = height_of(face);
-    return own > 0.0f ? em * height_of(primary()) / own : em;
+    return own > 0.0f ? em * primary_height_ / own : em;
 }
 
 float FontChain::drop(const Face& face, float size) const {

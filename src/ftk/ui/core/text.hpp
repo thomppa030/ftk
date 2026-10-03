@@ -102,6 +102,17 @@ public:
 private:
     // The em `style`'s size comes to in its font.
     [[nodiscard]] float em(TextStyle style) const;
+    // Its font's primary face's metrics at that em, kept by font and size:
+    // asked of HarfBuzz each time a string was drawn, they were a long
+    // list's largest cost after the glyphs.
+    [[nodiscard]] text::Metrics metrics(TextStyle style) const;
+
+    struct KeptMetrics {
+        FontId font{0};
+        /// The em in 64ths, as the shaped strings are kept.
+        int32_t size{0};
+        text::Metrics metrics{};
+    };
 
     struct Shaped {
         text::ShapedText shaped;
@@ -147,6 +158,8 @@ private:
     TextStyle default_{};
     text::GlyphAtlas atlas_;
     std::unordered_map<Key, Shaped, KeyHash, KeyEqual> cache_;
+    // A few: one per font and size the program draws in.
+    mutable std::vector<KeptMetrics> metrics_;
     std::vector<text::Line> scratch_;
     uint64_t frame_{0};
 };

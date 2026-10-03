@@ -55,6 +55,17 @@ float TextSystem::em(TextStyle style) const {
     return style.font < fonts_.size() ? fonts_[style.font].em(style.size) : style.size;
 }
 
+text::Metrics TextSystem::metrics(TextStyle style) const {
+    const float em_size = em(style);
+    const int32_t size = size_key(em_size);
+    for (const KeptMetrics& kept : metrics_) {
+        if (kept.font == style.font && kept.size == size) return kept.metrics;
+    }
+    const text::Metrics found = fonts_[style.font].primary().metrics(em_size);
+    metrics_.push_back({.font = style.font, .size = size, .metrics = found});
+    return found;
+}
+
 const TextSystem::Shaped& TextSystem::shaped(std::string_view text, TextStyle style) {
     const float em_size = em(style);
     const KeyView key{.font = style.font, .size = size_key(em_size), .text = text};
@@ -81,16 +92,16 @@ const std::vector<text::Line>& TextSystem::lines(std::string_view text, const Sh
 
 float TextSystem::line_height(TextStyle style) const {
     if (style.line_height > 0.0f) return style.line_height;
-    return fonts_[style.font].primary().metrics(em(style)).line_height();
+    return metrics(style).line_height();
 }
 
 float TextSystem::baseline(TextStyle style) const {
     if (style.font >= fonts_.size()) return style.size;
-    const text::Metrics metrics = fonts_[style.font].primary().metrics(em(style));
+    const text::Metrics face = metrics(style);
     // As draw() places it: the face from the line's top, or centred in the
     // line asked for.
-    const float top = style.line_height > 0.0f ? (style.line_height - metrics.ascent - metrics.descent) * 0.5f : 0.0f;
-    return top + metrics.ascent;
+    const float top = style.line_height > 0.0f ? (style.line_height - face.ascent - face.descent) * 0.5f : 0.0f;
+    return top + face.ascent;
 }
 
 glm::vec2 TextSystem::measure(std::string_view text, TextStyle style, float wrap_width) {
@@ -139,16 +150,26 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
                       float wrap_width) {
     if (text.empty() || style.font >= fonts_.size()) return;
     const Shaped& entry = shaped(text, style);
-    const text::Metrics metrics = fonts_[style.font].primary().metrics(em(style));
+    const text::Metrics face = metrics(style);
     const float scale = list.scale();
     const float page_size = atlas_.page_size();
 
     // The face's line from the top, or its ascent and descent centred in
     // the line asked for.
-    const float pitch = style.line_height > 0.0f ? style.line_height : metrics.line_height();
-    const float top = style.line_height > 0.0f ? (pitch - metrics.ascent - metrics.descent) * 0.5f : 0.0f;
-    float baseline = at.y + top + metrics.ascent;
+    const float pitch = style.line_height > 0.0f ? style.line_height : face.line_height();
+    const float top = style.line_height > 0.0f ? (pitch - face.ascent - face.descent) * 0.5f : 0.0f;
+    float baseline = at.y + top + face.ascent;
+    // A line wholly outside the clip places no glyphs, a pitch to spare for
+    // glyphs past the face's ascent and descent: the rows of a long list
+    // scrolled out of sight cost their shaping, which is kept, and no more.
+    const float clip_top = list.clip_min().y - pitch;
+    const float clip_bottom = list.clip_max().y + pitch;
     for (const text::Line& line : lines(text, entry, wrap_width)) {
+        if (baseline - face.ascent > clip_bottom) break;
+        if (baseline + face.descent < clip_top) {
+            baseline += pitch;
+            continue;
+        }
         const float origin = line.first_glyph < entry.shaped.glyphs.size() ? entry.shaped.glyphs[line.first_glyph].x : 0.0f;
         for (std::size_t g = line.first_glyph; g < line.end_glyph; ++g) {
             const text::Glyph& glyph = entry.shaped.glyphs[g];

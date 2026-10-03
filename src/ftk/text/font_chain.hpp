@@ -98,6 +98,8 @@ private:
     std::vector<std::shared_ptr<const Face>> faces_;
     std::vector<Claim> claims_;
     SizeBasis basis_{SizeBasis::Em};
+    // The primary face's ascent to descent per em, when sized by height.
+    float primary_height_{0.0f};
     std::shared_ptr<SystemFallback> system_;
     std::shared_ptr<const Face> last_resort_;
 };
