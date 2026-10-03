@@ -135,6 +135,7 @@ add_executable(ftk-kit-core-tests
     test_kit.cpp
     test_kit_basics.cpp
     test_kit_dock.cpp
+    test_kit_dock_drop.cpp
     test_kit_tear_off.cpp
     test_list_editor.cpp
     test_menu.cpp

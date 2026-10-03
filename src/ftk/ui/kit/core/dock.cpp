@@ -130,12 +130,191 @@ void tear_into_window(Kit& k, Window& window, Id id, glm::vec2 pointer) {
 }
 
 // The leaf, shown this frame, whose tabs are under `at`; 0 for none.
-Id leaf_under(const Kit& k, glm::vec2 at) {
-    for (const auto& [id, part] : k.docks) {
-        if (part.split != DockAxis::None || shown_leaf(id) == nullptr) continue;
-        if (tab_strip(part.rect).contains(at)) return id;
+// A dock target's side, and the room between a leaf's five.
+constexpr float TARGET = 32.0f;
+constexpr float TARGET_GAP = 6.0f;
+// A side drop's share of what it splits: the window's own size, within
+// these, as ImGui sizes the new part by the window docked.
+constexpr float SIDE_LEAST = 0.2f;
+constexpr float SIDE_MOST = 0.5f;
+
+DockSide side_of(DockDrop drop) {
+    switch (drop) {
+    case DockDrop::Left: return DockSide::Left;
+    case DockDrop::Right: return DockSide::Right;
+    case DockDrop::Top: return DockSide::Top;
+    default: return DockSide::Bottom;
     }
-    return 0;
+}
+
+struct Target {
+    DockDrop drop{DockDrop::None};
+    core::Rect rect{};
+};
+
+core::Rect square(glm::vec2 centre) {
+    return {.min = centre - glm::vec2{TARGET * 0.5f}, .max = centre + glm::vec2{TARGET * 0.5f}};
+}
+
+// A leaf's five targets about its middle, as ImGui lays them out: its tabs
+// in the middle, its sides around them. None for a leaf too small to hold
+// them.
+std::vector<Target> leaf_targets(core::Rect rect) {
+    const float step = TARGET + TARGET_GAP;
+    if (rect.width() < step * 3.0f || rect.height() < step * 3.0f) return {};
+    const glm::vec2 c = rect.centre();
+    return {{DockDrop::Tabs, square(c)},
+            {DockDrop::Left, square(c - glm::vec2{step, 0.0f})},
+            {DockDrop::Right, square(c + glm::vec2{step, 0.0f})},
+            {DockDrop::Top, square(c - glm::vec2{0.0f, step})},
+            {DockDrop::Bottom, square(c + glm::vec2{0.0f, step})}};
+}
+
+// A dockspace's four targets, at the middle of each of its edges, which
+// split the whole of it.
+std::vector<Target> root_targets(core::Rect rect) {
+    const glm::vec2 c = rect.centre();
+    const float in = TARGET * 0.5f + TARGET_GAP;
+    return {{DockDrop::Left, square({rect.min.x + in, c.y})},
+            {DockDrop::Right, square({rect.max.x - in, c.y})},
+            {DockDrop::Top, square({c.x, rect.min.y + in})},
+            {DockDrop::Bottom, square({c.x, rect.max.y - in})}};
+}
+
+// The share of `rect` a window `size` big takes, dropped at its side `drop`.
+float drop_share(core::Rect rect, DockDrop drop, glm::vec2 size) {
+    const int axis = drop == DockDrop::Left || drop == DockDrop::Right ? 0 : 1;
+    const float across = rect.max[axis] - rect.min[axis];
+    return std::clamp(size[axis] / std::max(across, 1.0f), SIDE_LEAST, SIDE_MOST);
+}
+
+// The part of `rect` a window `size` big takes, dropped at `drop`.
+core::Rect drop_rect(core::Rect rect, DockDrop drop, glm::vec2 size) {
+    if (drop == DockDrop::Tabs || drop == DockDrop::None) return rect;
+    const int axis = drop == DockDrop::Left || drop == DockDrop::Right ? 0 : 1;
+    const float across = rect.max[axis] - rect.min[axis];
+    const float share = drop_share(rect, drop, size);
+    core::Rect part = rect;
+    if (drop == DockDrop::Left || drop == DockDrop::Top) {
+        part.max[axis] = rect.min[axis] + std::round(across * share);
+    } else {
+        part.min[axis] = rect.max[axis] - std::round(across * share);
+    }
+    return part;
+}
+
+// What a window carried to `at` drops on: a dockspace's edge target, a
+// target of the leaf under it, or that leaf's tabs; and the dockspace and
+// leaf it is over, to show their targets.
+struct Over {
+    Id root{0};
+    Id leaf{0};
+    Id target{0};
+    DockDrop drop{DockDrop::None};
+};
+
+Over over_dock(const Kit& k, glm::vec2 at) {
+    Over over;
+    for (const auto& [id, part] : k.docks) {
+        if (part.parent != 0 || !part.rect.contains(at)) continue;
+        // A dockspace shown this frame: its leaves are.
+        Id leaf = id;
+        while (k.docks.at(leaf).split != DockAxis::None) {
+            const DockPart& split = k.docks.at(leaf);
+            leaf = k.docks.at(split.children[0]).rect.contains(at) ? split.children[0] : split.children[1];
+        }
+        if (shown_leaf(leaf) == nullptr) continue;
+        over.root = id;
+        over.leaf = leaf;
+        for (const Target& target : root_targets(part.rect)) {
+            if (target.rect.contains(at)) return {.root = id, .leaf = leaf, .target = id, .drop = target.drop};
+        }
+        const DockPart& under = k.docks.at(leaf);
+        for (const Target& target : leaf_targets(under.rect)) {
+            if (target.rect.contains(at)) return {.root = id, .leaf = leaf, .target = leaf, .drop = target.drop};
+        }
+        if (tab_strip(under.rect).contains(at)) return {.root = id, .leaf = leaf, .target = leaf, .drop = DockDrop::Tabs};
+        return over;
+    }
+    return over;
+}
+
+// A target drawn as ImGui draws one: a plate, and in it the shape of what
+// it does, the part a drop there takes lit; `lit` while the pointer is on it.
+void draw_target(core::DrawList& dl, const Target& target, bool lit) {
+    const core::Rect& r = target.rect;
+    dl.rect_filled(r.min, r.max, theme::surface_raised(), 4.0f);
+    dl.rect(r.min, r.max, theme::border(), 4.0f);
+    const core::Rect inner{.min = r.min + glm::vec2{6.0f}, .max = r.max - glm::vec2{6.0f}};
+    dl.rect(inner.min, inner.max, theme::text_secondary(), 2.0f);
+    const core::Rect part = drop_rect(inner, target.drop, inner.size() * 0.5f);
+    dl.rect_filled(part.min, part.max, lit ? theme::accent() : theme::accent_dim(), 2.0f);
+}
+
+// While a window `size` big is carried over a dockspace: its edge targets,
+// the targets of the leaf under the pointer, and the part the window would
+// take lit, over everything else.
+void draw_drop_targets(const Kit& k, const Over& over, Id window, glm::vec2 size) {
+    if (over.root == 0) return;
+    core::Context& context = ui();
+    const core::Rect area = k.docks.at(over.root).rect;
+    context.begin_panel(core::hash_label("#DOCK_TARGETS", window), area,
+                        {.padding = {0.0f, 0.0f}, .scroll = false, .layer = core::Layer::Tooltip});
+    core::DrawList& dl = context.draw_list();
+    if (over.drop != DockDrop::None) {
+        const core::Rect taken = drop_rect(k.docks.at(over.target).rect, over.drop, size);
+        dl.rect_filled(taken.min, taken.max, theme::accent_dim() * glm::vec4{1.0f, 1.0f, 1.0f, 0.35f});
+        dl.rect(taken.min, taken.max, theme::accent(), 0.0f, RoundCorners::All, 2.0f);
+    }
+    for (const Target& target : leaf_targets(k.docks.at(over.leaf).rect)) {
+        draw_target(dl, target, over.target == over.leaf && over.drop == target.drop);
+    }
+    for (const Target& target : root_targets(area)) {
+        draw_target(dl, target, over.target == over.root && over.drop == target.drop);
+    }
+    context.end_panel();
+}
+
+// The node `id` split for a window dropped at its side `side`, the window's
+// part `share` of it: what it held moves into the other part, keeping the
+// middle, and the node keeps its place and id. Returns the new leaf.
+Id split_for_drop(Kit& k, Id id, DockSide side, float share) {
+    // Ids of their own, apart from those split_dock() gives a tree it builds.
+    const auto fresh = [&] {
+        Id made = 0;
+        do {
+            made = core::hash_int(++k.dock_serial, core::hash_label("#DROP", id));
+        } while (made == 0 || k.docks.contains(made));
+        return made;
+    };
+    const Id rest = fresh();
+    const Id at_side = fresh();
+    DockPart& part = k.docks.at(id);
+    DockPart moved{.parent = id,
+                   .split = part.split,
+                   .ratio = part.ratio,
+                   .children = part.children,
+                   .windows = std::move(part.windows),
+                   .front = part.front,
+                   .middle = part.middle,
+                   .rect = part.rect,
+                   .frame = part.frame};
+    for (const Id child : moved.children) {
+        if (child != 0) k.docks.at(child).parent = rest;
+    }
+    for (const Id window : moved.windows) k.windows.at(window).dock = rest;
+    k.docks[rest] = std::move(moved);
+    k.docks[at_side] = {.parent = id, .rect = part.rect, .frame = part.frame};
+
+    DockPart& split = k.docks.at(id);
+    const bool first = side == DockSide::Left || side == DockSide::Top;
+    split.split = side == DockSide::Left || side == DockSide::Right ? DockAxis::LeftRight : DockAxis::TopBottom;
+    split.ratio = first ? share : 1.0f - share;
+    split.children = first ? std::array<Id, 2>{at_side, rest} : std::array<Id, 2>{rest, at_side};
+    split.windows.clear();
+    split.front = 0;
+    split.middle = false;
+    return at_side;
 }
 
 // The node `id` and every node under it gone, their windows floating.
@@ -315,29 +494,32 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     core::Context& context = ui();
     const glm::vec2 pointer = mouse_pos();
     const glm::vec2 at = pointer - k.carried.grab;
-    window.rect = {.min = at, .max = at + window.rect.size()};
-    k.carried.target = options.docking ? leaf_under(k, pointer) : 0;
+    const glm::vec2 size = window.rect.size();
+    window.rect = {.min = at, .max = at + size};
+    const Over over = options.docking ? over_dock(k, pointer) : Over{};
+    k.carried.target = over.target;
+    k.carried.drop = over.drop;
     if (mouse_down(MouseButton::Left)) {
-        // Over a leaf's tabs, the leaf lights where it would dock.
-        if (k.carried.target != 0) {
-            const core::Rect target = k.docks.at(k.carried.target).rect;
-            context.begin_panel(core::hash_label("#DOCK_PREVIEW", id), target,
-                                {.padding = {0.0f, 0.0f}, .scroll = false, .layer = core::Layer::Tooltip});
-            context.draw_list().rect_filled(target.min, target.max, theme::accent_dim() * glm::vec4{1.0f, 1.0f, 1.0f, 0.4f});
-            context.end_panel();
-        }
+        // Over a dockspace, its targets show, and the part it would take.
+        draw_drop_targets(k, over, id, size);
         context.request_frame();
         return false;
     }
-    // Let go: docked over a leaf's tabs; past the edge of its OS window, torn
-    // out into one of its own; else left floating where it is.
+    // Let go: docked at the target it is over; past the edge of its OS
+    // window, torn out into one of its own; else left floating where it is.
     const Id target = k.carried.target;
+    const DockDrop drop = k.carried.drop;
     const glm::vec2 room = context.root_size();
     const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
     if (target == 0 && outside && options.docking) tear_into_window(k, window, id, pointer);
     k.carried = {};
     if (target == 0) return false;
-    dock_into(k, id, target);
+    if (drop == DockDrop::Tabs) {
+        dock_into(k, id, target);
+    } else {
+        const float share = drop_share(k.docks.at(target).rect, drop, size);
+        dock_into(k, id, split_for_drop(k, target, side_of(drop), share));
+    }
     return true;
 }
 

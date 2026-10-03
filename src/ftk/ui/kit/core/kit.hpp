@@ -298,14 +298,20 @@ struct DockPart {
     core::Rect strip{};
 };
 
+/// Where a window carried over a dockspace docks when let go: among a
+/// leaf's tabs, or on one side of a leaf or of the whole dockspace,
+/// splitting it.
+enum class DockDrop : uint8_t { None, Tabs, Left, Right, Top, Bottom };
+
 /// A window the pointer carries: moved by its title bar, or torn out of a
-/// dock by its tab. Let go over a leaf's tabs, it docks there.
+/// dock by its tab. Let go over a dock target, it docks there.
 struct Carried {
     Id window{0};
     /// From the window's top-left to the pointer.
     glm::vec2 grab{0.0f};
-    /// The leaf whose tabs it is over, to dock into when let go.
+    /// The node it docks into or beside when let go, and how.
     Id target{0};
+    DockDrop drop{DockDrop::None};
     /// The leaf it was torn out of, if it was.
     Id home{0};
 };
@@ -385,6 +391,8 @@ public:
     /// cut was from the pointer when it was pressed.
     Carried carried{};
     float split_grab{0.0f};
+    /// Counts the nodes a drop splits off, for ids of their own.
+    int dock_serial{0};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
