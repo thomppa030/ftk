@@ -21,6 +21,7 @@ add_executable(ftk-tests
     test_choices.cpp
     test_color_space.cpp
     test_command_group.cpp
+    test_component_block.cpp
     test_curve_editor.cpp
     test_delegate.cpp
     test_dialog.cpp
@@ -124,10 +125,13 @@ add_executable(ftk-kit-core-tests
     test_bit_strip.cpp
     test_choices.cpp
     test_fields.cpp
+    test_kit.cpp
     test_kit_basics.cpp
+    test_pages.cpp
     test_rail.cpp
     test_search.cpp
     test_sections.cpp
+    test_status_bar.cpp
     test_text_field.cpp
 )
 target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::ui-harness Catch2::Catch2WithMain)

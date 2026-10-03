@@ -3,8 +3,6 @@
 #include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
-#include "ftk/ui/kit/component_block.hpp"
-#include "ftk/ui/kit/dialog.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
@@ -12,13 +10,11 @@
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
-#include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
-#include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
@@ -119,34 +115,6 @@ TEST_CASE("A toggle reports clicks and leaves the state to the caller", "[ui][ki
     CHECK_FALSE(on);
 }
 
-TEST_CASE("A component block folds from its header and asks to be removed from its trash icon", "[ui][kit]") {
-    KitHarness h;
-    bool open = false;
-    bool remove = false;
-    int removals = 0;
-    h.set_ui([&] {
-        remove = false;
-        open = ui::component_block("Collider", ftk::theme::Hue::coral, remove);
-        h.mark("trash");  // the last item is the trash icon
-        if (remove) ++removals;
-    });
-    h.step(2);
-    CHECK(open);
-    const glm::vec2 trash_min = h.rect("trash").min;
-    const float y = h.rect("trash").centre().y;
-
-    // The header left of the trash icon folds the block.
-    h.click_at({trash_min.x - 40.0f, y});
-    CHECK_FALSE(open);
-    h.click_at({trash_min.x - 40.0f, y});
-    CHECK(open);
-
-    // The trash icon asks for removal and leaves the fold alone.
-    h.click("trash");
-    CHECK(removals == 1);
-    CHECK(open);
-}
-
 TEST_CASE("An empty state sits in the middle of the space and offers its action", "[ui][kit]") {
     KitHarness h;
     int clicks = 0;
@@ -234,26 +202,6 @@ TEST_CASE("A callout wraps its text, reports its action, and the layout goes on 
     CHECK(clicks == 1);
 }
 
-TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
-    KitHarness h;
-    int fits = 0;
-    int creates = 0;
-    h.set_ui([&] {
-        if (ui::menu_item({.label = "Fit to mesh"})) ++fits;
-        h.mark("fit");
-        if (ui::menu_item({.label = "Create material", .enabled = false,
-                           .disabled_reason = "Needs a terrain asset first"})) {
-            ++creates;
-        }
-        h.mark("create");
-    });
-    h.step(2);
-    h.click("fit");
-    h.click("create");
-    CHECK(fits == 1);
-    CHECK(creates == 0);
-}
-
 TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][kit]") {
     KitHarness h;
     bool on = false;
@@ -324,27 +272,6 @@ TEST_CASE("An on/off switch flips its value, each flip a finished edit", "[ui][k
     h.click("switch");
     CHECK(on);
     CHECK(commits == 2);
-}
-
-TEST_CASE("A block with a switch turns off without folding or removing", "[ui][kit]") {
-    KitHarness h;
-    bool enabled = true;
-    bool removed = false;
-    bool open = false;
-    glm::vec2 header_max{};
-    float frame = 0.0f;
-    h.set_ui([&] {
-        frame = ui::frame_height();
-        open = ui::component_block("Gravity", ftk::theme::Hue::periwinkle, removed, enabled);
-        header_max = ui::item_max();  // the trash icon, last in the header
-    });
-    h.step(2);
-    // The switch sits just before the trash icon.
-    h.click_at({header_max.x - frame - ftk::theme::GAP_S - 14.0f, header_max.y - frame * 0.5f});
-    h.step();
-    CHECK_FALSE(enabled);
-    CHECK(open);
-    CHECK_FALSE(removed);
 }
 
 TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][kit]") {
@@ -420,39 +347,6 @@ TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") 
     h.step(2);
     CHECK(first.x == window_pos.x);
     CHECK(first.y == window_pos.y);
-}
-
-TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless something is typed", "[ui][kit]") {
-    KitHarness h;
-    ui::DialogAnswer answer = ui::DialogAnswer::None;
-    bool can_confirm = true;
-    std::string typed;
-    h.set_ui([&] {
-        (void)ui::text_entry("##field", typed);
-        h.mark("field");
-        const auto a = ui::window_bar({.title = "Import model", .confirm = "Import"}, {.can_confirm = can_confirm});
-        if (a != ui::DialogAnswer::None) answer = a;
-    });
-    h.step(2);
-
-    h.press(ui::Key::Enter);
-    CHECK(answer == ui::DialogAnswer::Confirm);
-
-    answer = ui::DialogAnswer::None;
-    h.press(ui::Key::Escape);
-    CHECK(answer == ui::DialogAnswer::Cancel);
-
-    // Greyed out, Enter does nothing.
-    answer = ui::DialogAnswer::None;
-    can_confirm = false;
-    h.press(ui::Key::Enter);
-    CHECK(answer == ui::DialogAnswer::None);
-
-    // Typing in a field, Enter and Esc are the field's.
-    can_confirm = true;
-    h.click("field");
-    h.press(ui::Key::Enter);
-    CHECK(answer == ui::DialogAnswer::None);
 }
 
 TEST_CASE("A corner note hangs from its corner, and a key makes its line taller", "[ui][kit]") {

@@ -7,9 +7,10 @@
 // place and swatches to pick from. And panels of the kit's own over them:
 // an inspector, with a search and rows of numbers dragged and slid, a
 // vector, a tick box, a switch, a stepper, a tag, a text field, choices
-// segmented and dropped down, and colour fields; and an effect's emitters,
-// with a tab strip, a section, a box set apart, a rail of steps and a strip
-// of bits. The gallery takes its place once every piece is on the core.
+// segmented and dropped down, and colour fields; an effect's emitters, with
+// a tab strip, a section, a box set apart, a rail of steps and a strip of
+// bits; and what the kit tells, over a status bar along the window's foot.
+// The gallery takes its place once every piece is on the core.
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -32,6 +33,10 @@ public:
 private:
     /// The panel of an effect's emitters, at `at`.
     void draw_emitters(glm::vec2 at);
+    /// The panel of what the kit tells: status lines, a callout, an empty
+    /// state, progress, key caps, notes over a picture and a save bar, at
+    /// `at`; and the status bar along the window's foot.
+    void draw_feedback(glm::vec2 at);
 
     int picked_{1};
     int clicks_{0};
@@ -58,6 +63,10 @@ private:
     float lifetime_{1.5f};
     std::size_t stage_{1};
     uint32_t layers_{0b0101};
+
+    bool unsaved_{true};
+    bool content_open_{false};
+    bool listening_{false};
 };
 
 } // namespace ftk::example

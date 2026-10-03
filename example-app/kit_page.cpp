@@ -1,26 +1,34 @@
 #include "kit_page.hpp"
 
 #include "ftk/ui/core_kit.hpp"
+#include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/bit_strip.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
+#include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/loading.hpp"
+#include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/rail.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/save_bar.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/status_bar.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -161,6 +169,64 @@ void KitPage::draw(glm::vec2 size, float top) {
     }
 
     draw_emitters({10.0f, top + 570.0f});
+    draw_feedback({size.x - 460.0f, top + 620.0f});
+}
+
+void KitPage::draw_feedback(glm::vec2 at) {
+    ui::next_window_size_once({420.0f, 600.0f});
+    ui::next_window_pos(at);
+    if (auto panel = ui::Panel(ui::icon::warning, "Feedback")) {
+        ui::status(ui::Severity::Success, "Baked 4 probes in 1.2 s");
+        if (ui::status(ui::Severity::Warning, "leaf_colour is no longer in foliage.fjsl", ui::icon::remove, "Remove")) {
+            ++clicks_;
+        }
+        (void)ui::callout(ui::Severity::Error, "sea.fjsl failed to compile",
+                          "Line 42: 'foam_bias' is not declared. The sea draws with the last version that compiled.",
+                          ui::icon::file, "Open sea.fjsl");
+        ui::progress_bar(0.62f, -1.0f, "Baking lightmaps");
+        const auto cap = ui::key_cap({.id = "##jump", .device_icon = ui::icon::file, .label = "Space",
+                                      .listening = listening_});
+        if (cap.listen) listening_ = !listening_;
+        ui::same_line();
+        (void)ui::key_cap({.id = "##crouch", .device_icon = ui::icon::file, .label = "Left Ctrl"});
+
+        // A picture with notes over it and a pill of view buttons.
+        const glm::vec2 min = ui::cursor();
+        const glm::vec2 max = min + glm::vec2{ui::space_left().x, 110.0f};
+        ui::DrawList dl = ui::DrawList::window();
+        dl.rect_gradient(min, max, {0.20f, 0.33f, 0.45f, 1.0f}, {0.55f, 0.48f, 0.38f, 1.0f});
+        {
+            ui::ViewportPill pill("##view", min, max, ui::PillPlace::TopRight);
+            (void)ui::icon_button("##grid", ui::icon::search, "Grid");
+            ui::same_line();
+            (void)ui::toggle_button("##wire", ui::icon::project, true, "Wireframe");
+        }
+        const ftk::ui::OverlayPiece showing[] = {{"Showing Wireframe"}};
+        (void)ui::corner_note(dl, min + glm::vec2{ui::OVERLAY_INSET}, ui::Corner::TopLeft,
+                              {.icon = ui::icon::warning, .line = showing, .ink = theme::warning()});
+        const ftk::ui::OverlayPiece hint[] = {{"Shift", true}, {"Esc", true}, {"releases input"}};
+        (void)ui::corner_note(dl, {min.x + ui::OVERLAY_INSET, max.y - ui::OVERLAY_INSET}, ui::Corner::BottomLeft,
+                              {.line = hint, .ink = theme::text_secondary()});
+        ui::loading(dl, {max.x - 60.0f, max.y - 70.0f}, "Opening", 0.4f);
+        ui::set_cursor({min.x, max.y});
+        ui::reserve({max.x - min.x, 0.0f});
+
+        if (auto empty = ui::Region("##empty", {0.0f, 120.0f}, {.border = true})) {
+            (void)ui::empty_state(ui::icon::folder, "Nothing selected", "Pick an object to edit it here",
+                                  "Select all");
+        }
+        const ui::SaveAction saved = ui::save_bar(unsaved_, "settings.json");
+        if (saved != ui::SaveAction::None) unsaved_ = false;
+    }
+
+    if (auto bar = ui::StatusBar()) {
+        if (ui::status_button(ui::icon::folder, "Content", "Ctrl Space", content_open_)) content_open_ = !content_open_;
+        ui::status_rule();
+        ui::status_item(ui::icon::file, "harbour", unsaved_);
+        ui::status_pill(ui::icon::success, "Playing", ui::StatusTone::Success);
+        bar.right();
+        ui::status_item(nullptr, "6.94 ms");
+    }
 }
 
 void KitPage::draw_emitters(glm::vec2 at) {

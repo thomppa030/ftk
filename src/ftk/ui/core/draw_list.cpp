@@ -75,6 +75,14 @@ void DrawList::truncate(std::size_t mark) {
     if (mark < target_->size()) target_->resize(mark);
 }
 
+void DrawList::put_under(std::size_t mark, std::size_t split) {
+    const std::size_t end = target_->size();
+    mark = std::min(mark, end);
+    split = std::clamp(split, mark, end);
+    const auto begin = target_->begin();
+    std::rotate(begin + static_cast<std::ptrdiff_t>(mark), begin + static_cast<std::ptrdiff_t>(split), target_->end());
+}
+
 void DrawList::add(Primitive p) {
     const ClipRect& clip = data_->clips[clip_stack_.back()];
     // Wholly outside the clip, it would draw nothing.

@@ -232,11 +232,22 @@ void Context::take_input() {
 Interaction Context::interact(Id id, Rect rect, Sense sense) {
     last_widget_ = id;
     last_interaction_ = {};
+    last_rests_disabled_ = false;
     if (root_ == nullptr) return {};
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
     if (hidden() || visible.empty()) return {};
     add_hit(id, visible, !sense.beneath ? Place::Over : (sense.overlap ? Place::Overlapped : Place::Beneath));
-    if (disabled()) return {};
+    if (disabled()) {
+        // It takes nothing, but a hovering pointer resting on it is told to
+        // its tooltip.
+        last_rests_disabled_ = std::ranges::any_of(pointers_, [&](const Tracked& tracked) {
+            const Pointer& p = tracked.pointer;
+            return p.root == root_->id && p.present && p.can_hover && tracked.holder == 0 && tracked.top == id &&
+                   visible.contains(p.now.position);
+        });
+        if (last_rests_disabled_) hover_next_ = id;
+        return {};
+    }
 
     const uint8_t takes = static_cast<uint8_t>((sense.left ? button_bit(MouseButton::Left) : 0) |
                                                (sense.right ? button_bit(MouseButton::Right) : 0) |

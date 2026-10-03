@@ -63,7 +63,7 @@ bool Context::tooltip_due() {
     const Interaction& in = last_interaction_;
     // A finger long-pressed it: shown while the finger stays.
     if (in.held_long) return true;
-    if (!in.hovered || in.held) return false;
+    if (!(in.hovered || last_rests_disabled_) || in.held) return false;
     // Rested on since the frame that found it, or from this one.
     const double since = hover_id_ == last_widget_ ? hover_since_ : time_;
     const double due = since + pointer_style_.tooltip_delay;

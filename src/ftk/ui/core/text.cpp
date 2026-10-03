@@ -99,6 +99,11 @@ glm::vec2 TextSystem::measure(std::string_view text, TextStyle style, float wrap
     return {width, count * line_height(style)};
 }
 
+std::vector<text::Line> TextSystem::break_lines(std::string_view text, TextStyle style, float wrap_width) {
+    if (style.font >= fonts_.size() || text.empty()) return {};
+    return lines(text, shaped(text, style), wrap_width);
+}
+
 float TextSystem::caret_x(std::string_view text, TextStyle style, std::size_t at) {
     if (style.font >= fonts_.size() || text.empty()) return 0.0f;
     const text::ShapedText& shaped_text = shaped(text, style).shaped;

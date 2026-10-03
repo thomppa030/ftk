@@ -1,7 +1,9 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/dialog.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -35,6 +37,39 @@ struct Prompt {
 };
 
 } // namespace
+
+TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless something is typed", "[ui][kit]") {
+    KitHarness h;
+    ui::DialogAnswer answer = ui::DialogAnswer::None;
+    bool can_confirm = true;
+    std::string typed;
+    h.set_ui([&] {
+        (void)ui::text_entry("##field", typed);
+        h.mark("field");
+        const auto a = ui::window_bar({.title = "Import model", .confirm = "Import"}, {.can_confirm = can_confirm});
+        if (a != ui::DialogAnswer::None) answer = a;
+    });
+    h.step(2);
+
+    h.press(ui::Key::Enter);
+    CHECK(answer == ui::DialogAnswer::Confirm);
+
+    answer = ui::DialogAnswer::None;
+    h.press(ui::Key::Escape);
+    CHECK(answer == ui::DialogAnswer::Cancel);
+
+    // Greyed out, Enter does nothing.
+    answer = ui::DialogAnswer::None;
+    can_confirm = false;
+    h.press(ui::Key::Enter);
+    CHECK(answer == ui::DialogAnswer::None);
+
+    // Typing in a field, Enter and Esc are the field's.
+    can_confirm = true;
+    h.click("field");
+    h.press(ui::Key::Enter);
+    CHECK(answer == ui::DialogAnswer::None);
+}
 
 TEST_CASE("A name prompt takes typing at once and Enter confirms it", "[ui][kit]") {
     KitHarness h;

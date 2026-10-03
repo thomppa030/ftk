@@ -223,6 +223,29 @@ TEST_CASE("A tooltip shows once the mouse rests for the delay, at a deadline, an
     CHECK_FALSE(drawn(h, tip));
 }
 
+TEST_CASE("A disabled widget takes nothing, but resting on it still shows its tooltip", "[ui-core][layers]") {
+    UiHarness h;
+    int due = 0;
+    int clicked = 0;
+    int hovered = 0;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.push_disabled(true);
+        const core::Interaction in = widget(h, "Upload");
+        clicked += in.clicked ? 1 : 0;
+        hovered += in.hovered ? 1 : 0;
+        if (ui.tooltip_due()) ++due;
+        ui.pop_disabled();
+    });
+    h.step();
+    h.move_to(h.rect("Upload").centre());
+    h.step(12);
+    CHECK(due > 0);
+    CHECK(hovered == 0);
+    h.click("Upload");
+    CHECK(clicked == 0);
+}
+
 TEST_CASE("A long press shows the tooltip where there is no hover", "[ui-core][layers]") {
     UiHarness h;
     int due = 0;

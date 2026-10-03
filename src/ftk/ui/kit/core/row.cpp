@@ -142,10 +142,14 @@ detail::InheritedValue detail::begin_inherited_value() {
     Kit& k = kit();
     const float room = frame_height() + theme::GAP_S;
     const glm::vec2 start = cursor();
-    const InheritedValue value{.top = start.y, .right = start.x + space_left().x};
+    // In a table the value's column ends a cell's padding short of the edge.
+    const float edge = start.x + space_left().x;
+    const float right = k.rows.in_row ? std::min(k.rows.right, edge) : edge;
+    const InheritedValue value{.top = start.y, .right = right};
     // Every item of the value, not only its first, stops short of the reset.
-    k.next.width = -room;
-    k.item_widths.push_back(-room);
+    const float short_of_edge = room + edge - right;
+    k.next.width = -short_of_edge;
+    k.item_widths.push_back(-short_of_edge);
     return value;
 }
 

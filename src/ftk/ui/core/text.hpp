@@ -71,6 +71,10 @@ public:
     /// tall as its lines, wrapped at `wrap_width`.
     [[nodiscard]] glm::vec2 measure(std::string_view text, TextStyle style, float wrap_width = NO_WRAP);
     [[nodiscard]] glm::vec2 measure(std::string_view text) { return measure(text, style()); }
+    /// `text` in `style` broken into lines at `wrap_width`, as it is drawn:
+    /// each line's bytes and its width, for lines placed one by one (each
+    /// centred, say).
+    [[nodiscard]] std::vector<text::Line> break_lines(std::string_view text, TextStyle style, float wrap_width);
     /// The height of one line in `style`.
     [[nodiscard]] float line_height(TextStyle style) const;
     /// How far below the top of a line in `style` its baseline is: for

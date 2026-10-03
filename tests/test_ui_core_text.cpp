@@ -66,6 +66,28 @@ TEST_CASE("Text measures as its shaping and its line", "[ui-core][text]") {
     CHECK(wrapped.x <= 60.0f);
 }
 
+TEST_CASE("Text breaks into lines as it is wrapped, each with its bytes and width", "[ui-core][text]") {
+    Fixture f;
+    const core::TextStyle style{.font = f.body, .size = 13.0f};
+    const std::string_view words = "Pick an object to edit it here";
+    const auto lines = f.ui.text().break_lines(words, style, 80.0f);
+    REQUIRE(lines.size() > 1);
+    CHECK(lines.size() == static_cast<std::size_t>(std::lround(f.ui.text().measure(words, style, 80.0f).y /
+                                                               f.ui.text().line_height(style))));
+    // The lines run on from each other through the whole text.
+    CHECK(lines.front().begin == 0);
+    CHECK(lines.back().end == words.size());
+    for (std::size_t i = 1; i < lines.size(); ++i) CHECK(lines[i].begin == lines[i - 1].end);
+    for (const auto& line : lines) {
+        CHECK(line.width <= 80.0f);
+        // A line's width is its words', the space it ends with left out.
+        std::string_view drawn = words.substr(line.begin, line.end - line.begin);
+        while (!drawn.empty() && drawn.back() == ' ') drawn.remove_suffix(1);
+        CHECK(line.width == Catch::Approx(f.ui.text().measure(drawn, style).x));
+    }
+    CHECK(f.ui.text().break_lines("", style, 80.0f).empty());
+}
+
 TEST_CASE("Text is drawn as glyphs on whole pixels, spaces and newlines drawing nothing", "[ui-core][text]") {
     Fixture f;
     const auto glyphs = f.glyphs("Save scene");

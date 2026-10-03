@@ -306,7 +306,9 @@ public:
 
     /// The widget last passed to interact() should show its tooltip now:
     /// the mouse has rested on it for the delay, or a finger long-pressed
-    /// it. Until then the frame asks to be woken when it would be.
+    /// it. Until then the frame asks to be woken when it would be. A
+    /// disabled widget takes nothing, but the mouse resting on it still
+    /// shows its tooltip, to say why.
     [[nodiscard]] bool tooltip_due();
     /// A tooltip at the pointer, fitting what it holds, until end_tooltip().
     /// The last begun in a frame is the one shown.
@@ -762,6 +764,9 @@ private:
     std::vector<bool> disabled_;
     Id last_widget_{0};
     Interaction last_interaction_{};
+    // The mouse rests on the widget last passed to interact(), which is
+    // disabled: for its tooltip alone.
+    bool last_rests_disabled_{false};
     bool any_hovered_{false};
     // The scrolling area the wheel turns this frame, and by how much.
     Id wheel_area_{0};

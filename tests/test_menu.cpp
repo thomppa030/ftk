@@ -9,6 +9,26 @@
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
+TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
+    KitHarness h;
+    int fits = 0;
+    int creates = 0;
+    h.set_ui([&] {
+        if (ui::menu_item({.label = "Fit to mesh"})) ++fits;
+        h.mark("fit");
+        if (ui::menu_item({.label = "Create material", .enabled = false,
+                           .disabled_reason = "Needs a terrain asset first"})) {
+            ++creates;
+        }
+        h.mark("create");
+    });
+    h.step(2);
+    h.click("fit");
+    h.click("create");
+    CHECK(fits == 1);
+    CHECK(creates == 0);
+}
+
 TEST_CASE("A popup opens by name and closes when an entry is chosen", "[ui][kit]") {
     KitHarness h;
     int chosen = 0;

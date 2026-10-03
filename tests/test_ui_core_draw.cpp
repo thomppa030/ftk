@@ -135,6 +135,28 @@ TEST_CASE("Clips nest, and what falls outside one is dropped", "[ui-core]") {
     CHECK(data.primitives[2].clip == 0);
 }
 
+TEST_CASE("A box drawn after what it holds is put beneath it, keeping its clip", "[ui-core]") {
+    core::Context ui;
+    const core::DrawData& data = drawn(ui, [](core::DrawList& dl) {
+        dl.rect_filled({0.0f, 0.0f}, {10.0f, 10.0f}, BLUE);  // before the box's contents
+        const std::size_t mark = dl.mark();
+        dl.push_clip({0.0f, 0.0f}, {100.0f, 100.0f});
+        dl.rect_filled({20.0f, 20.0f}, {30.0f, 30.0f}, RED);  // contents
+        dl.circle_filled({40.0f, 40.0f}, 5.0f, RED);
+        dl.pop_clip();
+        const std::size_t split = dl.mark();
+        dl.rect_filled({15.0f, 15.0f}, {60.0f, 60.0f}, BLUE, 4.0f);  // the box
+        dl.put_under(mark, split);
+    });
+    REQUIRE(data.primitives.size() == 4);
+    CHECK(data.primitives[0].max == glm::vec2{10.0f, 10.0f});
+    CHECK(data.primitives[1].max == glm::vec2{60.0f, 60.0f});
+    CHECK(data.primitives[1].clip == 0);
+    CHECK(data.primitives[2].max == glm::vec2{30.0f, 30.0f});
+    CHECK(data.primitives[2].clip == 1);
+    CHECK(data.primitives[3].min == glm::vec2{35.0f, 35.0f});
+}
+
 TEST_CASE("Pictures are listed once a frame and drawn through their index", "[ui-core]") {
     core::Context ui;
     const ftk::ui::Texture thumbnail{42};

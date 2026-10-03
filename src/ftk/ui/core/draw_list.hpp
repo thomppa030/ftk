@@ -159,6 +159,9 @@ public:
     /// was drawn for a container that isn't to be seen yet.
     [[nodiscard]] std::size_t mark() const { return target_->size(); }
     void truncate(std::size_t mark);
+    /// Puts what was drawn since `split` beneath what was drawn from `mark`
+    /// to `split`: a box drawn once what it holds is, and its size known.
+    void put_under(std::size_t mark, std::size_t split);
 
     /// Pixels to the unit.
     [[nodiscard]] float scale() const { return scale_; }
