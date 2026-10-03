@@ -111,6 +111,11 @@ struct PointerStyle {
     float double_click_distance{6.0f};
     /// How far one notch of the wheel scrolls.
     float wheel_step{48.0f};
+    /// How long a still press lasts before it is a long press, which shows
+    /// what something is where there is no hover.
+    double long_press_time{0.5};
+    /// The longest fingers may be down for their lifting to be a tap.
+    double tap_time{0.3};
 };
 
 /// A pointer as the frame sees it.

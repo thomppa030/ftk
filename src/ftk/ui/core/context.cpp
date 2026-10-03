@@ -48,6 +48,7 @@ void Context::sweep() {
     const auto stale = [&](uint64_t frame) { return frame + KEEP_FRAMES < frame_; };
     std::erase_if(containers_, [&](const auto& kept) { return stale(kept.second.frame); });
     std::erase_if(scrolls_, [&](const auto& kept) { return stale(kept.second.frame); });
+    std::erase_if(gestures_, [&](const auto& kept) { return stale(kept.second.frame); });
     for (auto& [id, root] : roots_) {
         std::erase_if(root->panels, [&](const auto& panel) { return stale(panel->frame); });
     }

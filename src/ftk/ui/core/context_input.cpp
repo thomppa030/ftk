@@ -117,18 +117,22 @@ void Context::apply(const PointerEvent& event) {
 
 void Context::take_input() {
     // What the last frame let go of is free again, and so is what was held
-    // by a widget that wasn't drawn; lifted fingers are forgotten.
+    // by a widget that wasn't drawn, or by a palm; lifted fingers are
+    // forgotten.
     for (Tracked& tracked : pointers_) {
         Pointer& p = tracked.pointer;
         if (tracked.holder != 0) {
-            const bool let_go = (p.released & button_bit(tracked.hold_button)) != 0 || p.cancelled || !tracked.holder_seen;
+            const bool let_go = (p.released & button_bit(tracked.hold_button)) != 0 || p.cancelled ||
+                                !tracked.holder_seen || tracked.rejected;
             if (let_go) {
                 tracked.holder = 0;
                 tracked.dragging = false;
+                tracked.long_pressed = false;
             }
         }
         tracked.holder_seen = false;
         tracked.press_top = 0;
+        tracked.frame_start = p.now.position;
         p.pressed = 0;
         p.released = 0;
         p.cancelled = false;
@@ -143,6 +147,7 @@ void Context::take_input() {
     // last frame's hits.
     wheel_area_ = 0;
     wheel_ = {0.0f, 0.0f};
+    for (auto& [id, root] : roots_) root->pen_near = false;
     for (Tracked& tracked : pointers_) {
         const Pointer& p = tracked.pointer;
         const auto root = roots_.find(p.root);
@@ -151,10 +156,14 @@ void Context::take_input() {
             continue;
         }
         Root& kept = *root->second;
+        if (p.type == PointerType::Pen && p.present) kept.pen_near = true;
         const Hit* top = p.present ? top_hit(kept.hits, p.now.position) : nullptr;
         tracked.top = top != nullptr ? top->id : 0;
         if (p.pressed != 0) {
-            const Hit* pressed = top_hit(kept.hits, p.press_position[index(first_button(p.pressed))]);
+            const glm::vec2 at = p.press_position[index(first_button(p.pressed))];
+            // Gestures measure a finger that came down this frame from there.
+            if (tracked.holder == 0) tracked.frame_start = at;
+            const Hit* pressed = top_hit(kept.hits, at);
             tracked.press_top = pressed != nullptr ? pressed->id : 0;
             // A press brings the panel it lands in to the front.
             if (pressed != nullptr && pressed->panel != 0) {
@@ -196,6 +205,8 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
     const uint8_t takes = static_cast<uint8_t>((sense.left ? button_bit(MouseButton::Left) : 0) |
                                                (sense.right ? button_bit(MouseButton::Right) : 0) |
                                                (sense.middle ? button_bit(MouseButton::Middle) : 0));
+    // A finger on a canvas while a pen is near is a palm.
+    const bool palms = sense.canvas && root_->pen_near;
     Interaction in;
     const auto describe = [&](const Tracked& tracked, MouseButton button) {
         const Pointer& p = tracked.pointer;
@@ -211,36 +222,58 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
         if (p.root != root_->id) continue;
         const bool over = p.present && tracked.top == id && visible.contains(p.now.position);
         in.under = in.under || over;
+        const bool touch = p.type == PointerType::Touch;
 
         // A press where this was on top: it holds the pointer from now on.
         const uint8_t pressed = p.pressed & takes;
-        if (tracked.holder == 0 && pressed != 0 && tracked.press_top == id &&
+        if (tracked.holder == 0 && !tracked.rejected && pressed != 0 && tracked.press_top == id &&
             visible.contains(p.press_position[index(first_button(pressed))])) {
+            if (touch && palms) {
+                tracked.rejected = true;
+                continue;
+            }
             tracked.holder = id;
             tracked.hold_button = first_button(pressed);
             tracked.held_since = frame_;
             tracked.dragging = false;
+            tracked.long_pressed = false;
         }
         if (tracked.holder == id) {
             tracked.holder_seen = true;
             const MouseButton button = tracked.hold_button;
             describe(tracked, button);
             in.held = true;
+            // A palm found out while it holds the canvas: dropped.
+            if (touch && palms) tracked.rejected = true;
             in.pressed = in.pressed || tracked.held_since == frame_;
             in.double_clicked = in.double_clicked || (tracked.held_since == frame_ && p.click_count[index(button)] == 2);
-            if (p.cancelled) {
-                in.cancelled = true;
-                in.released = true;
-            } else if ((p.released & button_bit(button)) != 0) {
-                in.released = true;
-                in.clicked = in.clicked || visible.contains(p.release_position);
-            }
-            const float threshold = p.type == PointerType::Touch ? pointer_style_.touch_drag_threshold
-                                                                 : pointer_style_.drag_threshold;
+            const float threshold =
+                touch ? pointer_style_.touch_drag_threshold : pointer_style_.drag_threshold;
             if (!tracked.dragging) {
                 tracked.dragging = glm::distance(p.now.position, p.press_position[index(button)]) > threshold;
             }
             in.dragging = in.dragging || tracked.dragging;
+            // A finger still for long enough, where a mouse or a pen would
+            // hover: once, at a deadline rather than by drawing every frame
+            // until then.
+            const bool down = (p.buttons & button_bit(button)) != 0;
+            if (touch && down && !tracked.dragging && !tracked.long_pressed && !tracked.rejected) {
+                const double at = p.last_press_time[index(button)] + pointer_style_.long_press_time;
+                if (time_ >= at) {
+                    tracked.long_pressed = true;
+                    in.long_pressed = true;
+                } else {
+                    request_frame_at(at);
+                }
+            }
+            in.held_long = in.held_long || tracked.long_pressed;
+            if (p.cancelled || tracked.rejected) {
+                in.cancelled = true;
+                in.released = true;
+            } else if ((p.released & button_bit(button)) != 0) {
+                in.released = true;
+                in.clicked = in.clicked || (visible.contains(p.release_position) && !tracked.long_pressed);
+            }
             in.hovered = in.hovered || (p.can_hover && over);
             continue;
         }
@@ -250,6 +283,48 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
             if (!in.held) describe(tracked, MouseButton::Left);
         }
     }
+
+    // The fingers holding it, as one gesture.
+    int touches = 0;
+    const Tracked* fingers[2]{};
+    bool all_lifted = true;
+    bool moved = false;
+    for (const Tracked& tracked : pointers_) {
+        if (tracked.holder != id || tracked.pointer.type != PointerType::Touch || tracked.rejected) continue;
+        if (touches < 2) fingers[touches] = &tracked;
+        ++touches;
+        all_lifted = all_lifted && (tracked.pointer.released != 0 || tracked.pointer.cancelled);
+        moved = moved || tracked.dragging;
+    }
+    int most_touches = touches;
+    if (touches > 0) {
+        GestureState& gesture = gestures_[id];
+        if (gesture.most_touches == 0) gesture.began = time_;
+        in.gesture.touches = touches;
+        in.gesture.began = touches >= 2 && gesture.touches < 2;
+        gesture.touches = touches;
+        gesture.most_touches = std::max(gesture.most_touches, touches);
+        gesture.moved = gesture.moved || moved;
+        gesture.frame = frame_;
+        most_touches = gesture.most_touches;
+        if (touches >= 2) {
+            const glm::vec2 a = fingers[0]->pointer.now.position;
+            const glm::vec2 b = fingers[1]->pointer.now.position;
+            const glm::vec2 a0 = fingers[0]->frame_start;
+            const glm::vec2 b0 = fingers[1]->frame_start;
+            in.gesture.centre = 0.5f * (a + b);
+            in.gesture.scale = glm::distance(a, b) / std::max(glm::distance(a0, b0), 1e-3f);
+            in.gesture.pan = in.gesture.centre - 0.5f * (a0 + b0);
+        }
+        if (all_lifted) {
+            const bool tap = gesture.most_touches >= 2 && !gesture.moved && time_ - gesture.began <= pointer_style_.tap_time;
+            if (tap) in.gesture.taps = gesture.most_touches;
+            gestures_.erase(id);
+        }
+    }
+    const bool finger = in.pointer_type == PointerType::Touch;
+    in.stroke = in.held && !in.cancelled && (!finger || (!sense.pen_only && most_touches < 2));
+
     any_hovered_ = any_hovered_ || in.hovered;
     last_interaction_ = in;
     return in;

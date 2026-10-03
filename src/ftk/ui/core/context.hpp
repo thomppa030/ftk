@@ -79,11 +79,37 @@ struct PanelOptions {
     bool scroll{true};
 };
 
-/// The buttons a widget takes a press from; with none, it is only hovered.
+/// What a widget takes from the pointers.
 struct Sense {
+    /// The buttons it takes a press from; with none, it is only hovered.
     bool left{true};
     bool right{false};
     bool middle{false};
+    /// A canvas drawn on: while a pen is near the window, touches on it
+    /// are a palm resting, and are refused or dropped.
+    bool canvas{false};
+    /// Only a pen or a mouse draws on it; fingers only make gestures
+    /// (ArmorPaint's "pen painting only").
+    bool pen_only{false};
+};
+
+/// Fingers on one widget together.
+struct Gesture {
+    /// How many hold it.
+    int touches{0};
+    /// With two or more: the middle of the first two, how far apart they
+    /// spread since the last frame (2 is twice as far), and how far their
+    /// middle moved.
+    glm::vec2 centre{0.0f};
+    float scale{1.0f};
+    glm::vec2 pan{0.0f};
+    /// A second finger came down this frame: what one finger started is
+    /// dropped, and it is a gesture from here.
+    bool began{false};
+    /// Lifted together this frame, quickly and without moving: a tap of
+    /// this many fingers, two or more. A two-finger tap undoes and a
+    /// three-finger tap redoes (sheet 40).
+    int taps{0};
 };
 
 /// What the pointers did with a widget this frame.
@@ -110,6 +136,15 @@ struct Interaction {
     bool cancelled{false};
     /// Held, and moved past the drag threshold since the press.
     bool dragging{false};
+    /// Held still by a finger for the long press time, this frame; and held
+    /// on since. Touch has no hover, so a long press shows what something
+    /// is, and isn't a click when it is let go.
+    bool long_pressed{false};
+    bool held_long{false};
+    /// What holds it draws a stroke: a pen or the mouse, or one finger
+    /// where fingers may draw and no gesture has begun.
+    bool stroke{false};
+    Gesture gesture{};
 
     /// The pointer it is about, when there is one, and its button.
     PointerType pointer_type{PointerType::Mouse};
@@ -278,6 +313,8 @@ private:
         std::vector<AreaLink> areas;
         std::vector<AreaLink> areas_next;
         MouseCursor cursor{MouseCursor::Arrow};
+        // A pen is near it this frame.
+        bool pen_near{false};
     };
     // How far a panel or region is scrolled, where it is going, and what it
     // held.
@@ -300,8 +337,21 @@ private:
         uint64_t held_since{0};
         bool holder_seen{false};
         bool dragging{false};
+        bool long_pressed{false};
+        // Where it was as the frame began, or where it went down this frame.
+        glm::vec2 frame_start{0.0f};
+        // A palm: it takes nothing until it is lifted.
+        bool rejected{false};
         // A finger lifted or taken back: forgotten after this frame.
         bool ended{false};
+    };
+    // Fingers on one widget, from the first down to the last lifted.
+    struct GestureState {
+        int touches{0};
+        int most_touches{0};
+        double began{0.0};
+        bool moved{false};
+        uint64_t frame{0};
     };
     // A panel or region being drawn.
     struct Area {
@@ -365,6 +415,7 @@ private:
 
     std::vector<PointerEvent> events_;
     std::vector<Tracked> pointers_;
+    std::unordered_map<Id, GestureState> gestures_;
     PointerStyle pointer_style_{};
     PointerType input_mode_{PointerType::Mouse};
     // Where this frame's hits go: the root's own, or a panel's.

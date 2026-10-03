@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <map>
+#include <span>
 #include <string>
 
 namespace ftk::test {
@@ -68,6 +69,22 @@ public:
     /// Turns the wheel by `notches` (up is positive) with the mouse at `at`.
     void wheel(glm::vec2 at, float notches);
 
+    /// A finger down at the centre of a marked item and lifted the next
+    /// frame.
+    void tap(const std::string& name);
+    /// `fingers` fingers side by side about `at`, 20 apart, down together
+    /// and lifted together the next frame: a two-finger tap undoes.
+    void tap_at(glm::vec2 at, int fingers = 1);
+    /// A finger held still at the centre of a marked item for `seconds`,
+    /// then lifted.
+    void long_press(const std::string& name, double seconds = 0.6);
+    /// A pen brought near, put down at the first of `points`, drawn through
+    /// the rest a frame each at `pressure`, lifted and taken away.
+    void pen_stroke(std::span<const glm::vec2> points, float pressure = 0.5f);
+    /// Two fingers about `centre`, `from` apart across, spread or closed to
+    /// `to` apart over four frames, and lifted.
+    void pinch(glm::vec2 centre, float from, float to);
+
     /// Queues `event` as it is, stamped with the harness's clock, for the
     /// next frame: for what the calls above don't cover.
     void send(ui::core::PointerEvent event);
@@ -75,6 +92,11 @@ public:
 private:
     // The mouse's event of `kind` at `at`.
     void mouse(ui::core::PointerEvent::Kind kind, glm::vec2 at, ui::MouseButton button = ui::MouseButton::Left);
+    // Finger `finger`'s event of `kind` at `at`.
+    void finger(ui::core::PointerEvent::Kind kind, ui::core::PointerId finger, glm::vec2 at);
+    // A finger id not used before, from 1000 on, clear of those a test
+    // sends by hand.
+    ui::core::PointerId next_finger() { return ++fingers_; }
 
     ui::core::Context ui_;
     std::function<void()> draw_;
@@ -83,6 +105,7 @@ private:
     double time_{0.0};
     std::map<std::string, ui::core::Rect> marks_;
     const ui::core::FrameOutput* output_{nullptr};
+    ui::core::PointerId fingers_{999};
 };
 
 } // namespace ftk::test

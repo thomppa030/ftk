@@ -66,6 +66,7 @@ add_executable(ftk-tests
     test_tree.cpp
     test_ui_core_draw.cpp
     test_ui_core_frame.cpp
+    test_ui_core_gestures.cpp
     test_ui_core_ids.cpp
     test_ui_core_layout.cpp
     test_ui_core_pointers.cpp
