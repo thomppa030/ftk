@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/theme.hpp"
@@ -73,6 +74,19 @@ TEST_CASE("Dragging one axis of a vector moves only that axis, as one commit", "
     CHECK(position.y > 2.0f);
     CHECK(position.z == 3.0f);
     CHECK(tally.committed == 1);
+}
+
+TEST_CASE("next_width sets the next field's width", "[ui][kit]") {
+    KitHarness h;
+    float value = 0.0f;
+    float field_width = 0.0f;
+    h.set_ui([&] {
+        ui::next_width(120.0f);
+        (void)ui::slider("##value", value, 0.0f, 1.0f);
+        field_width = ui::item_max().x - ui::item_min().x;
+    });
+    h.step(2);
+    CHECK(field_width == 120.0f);
 }
 
 TEST_CASE("A vector fills the width it is given", "[ui][kit]") {

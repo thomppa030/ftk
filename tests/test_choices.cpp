@@ -2,13 +2,19 @@
 
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/text.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <optional>
+#include <string>
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -235,4 +241,69 @@ TEST_CASE("Dragging in the colour picker commits once, on release", "[ui][kit]")
     CHECK(tint != glm::vec3{0.5f, 0.5f, 0.5f});
     CHECK(tally.changed > 1);
     CHECK(tally.committed == 1);
+}
+
+TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {
+    KitHarness h;
+    int picked = -1;
+    bool any_open = false;
+    float width = 0.0f;
+    h.set_ui([&] {
+        {
+            ui::next_width(160.0f);
+            ui::Dropdown list("##event", "Pick an event...");
+            if (!list) {
+                h.mark("dropdown");
+                width = ui::item_max().x - ui::item_min().x;
+            }
+            if (list) {
+                for (int i = 0; i < 2; ++i) {
+                    ui::IdScope entry(i);
+                    if (ui::selectable(i == 0 ? "Storm" : "Fog", false)) picked = i;
+                    h.mark("entry" + std::to_string(i));
+                }
+            }
+        }
+        any_open = ui::any_popup_open();
+    });
+    h.step(2);
+    CHECK(width == 160.0f);
+    CHECK_FALSE(any_open);
+    h.click("dropdown");
+    h.step();
+    CHECK(any_open);
+    h.click("entry1");
+    h.step();
+    CHECK(picked == 1);
+    CHECK_FALSE(any_open);
+}
+
+TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged to", "[ui][kit]") {
+    KitHarness h;
+    int picked = 0;
+    glm::vec3 colour{0.2f, 0.4f, 0.6f};
+    ui::Edit last{};
+    bool committed = false;
+    h.set_ui([&] {
+        if (ui::swatch("##amber", {0.83f, 0.63f, 0.31f, 1.0f}, {20.0f, 20.0f})) ++picked;
+        h.mark("swatch");
+        ui::bullet_text("textures/rock.png");
+        ui::next_width(200.0f);
+        last = ui::color_picker("##custom", colour);
+        committed = committed || last.committed;
+        h.mark("picker");
+    });
+    h.step(2);
+    CHECK(h.rect("swatch").width() == 20.0f);
+    h.click("swatch");
+    CHECK(picked == 1);
+    // A press near the square's top-left corner: white, the brightest and
+    // least saturated.
+    const glm::vec2 corner = h.rect("picker").min + glm::vec2{2.0f, 2.0f};
+    h.click_at(corner);
+    h.step();
+    CHECK(colour.r > 0.9f);
+    CHECK(colour.g > 0.9f);
+    CHECK(colour.b > 0.9f);
+    CHECK(committed);
 }

@@ -1,26 +1,16 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
-#include "ftk/ui/kit/choice.hpp"
-#include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
-#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
-#include "ftk/ui/kit/loading.hpp"
-#include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
-#include "ftk/ui/kit/plot.hpp"
-#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
-#include "ftk/ui/kit/settings_file.hpp"
 #include "ftk/ui/kit/state.hpp"
-#include "ftk/ui/kit/table.hpp"
-#include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
@@ -67,17 +57,14 @@ TEST_CASE("The cursor is where the next item goes, and reserve takes room there"
     CHECK(space.y > 500.0f);
 }
 
-TEST_CASE("next_width sets the next field's width, and a group is one item", "[ui][kit]") {
+TEST_CASE("A group is one item", "[ui][kit]") {
     KitHarness h;
-    float field_width = 0.0f;
     glm::vec2 group_min{};
     glm::vec2 group_max{};
+    float next_width = 0.0f;
     h.set_ui([&] {
-        static float value = 0.0f;
         ui::next_width(120.0f);
-        CHECK(ui::next_item_width() == 120.0f);
-        (void)ui::slider("##value", value, 0.0f, 1.0f);
-        field_width = ui::item_max().x - ui::item_min().x;
+        next_width = ui::next_item_width();
         {
             ui::Group group;
             ui::button("Apply");
@@ -90,7 +77,7 @@ TEST_CASE("next_width sets the next field's width, and a group is one item", "[u
         group_max = ui::item_max();
     });
     h.step(2);
-    CHECK(field_width == 120.0f);
+    CHECK(next_width == 120.0f);
     CHECK(group_min == h.rect("apply").min);
     CHECK(group_max == h.rect("revert").max);
 }
@@ -169,49 +156,6 @@ TEST_CASE("What is put on the clipboard is what it holds", "[ui][kit]") {
     });
     h.step();
     CHECK(held == "[info] Opened harbour");
-}
-
-TEST_CASE("A popup opens by name and closes when an entry is chosen", "[ui][kit]") {
-    KitHarness h;
-    int chosen = 0;
-    bool open = false;
-    h.set_ui([&] {
-        if (ui::button("Menu")) ui::open_popup("##menu");
-        h.mark("menu");
-        if (auto menu = ui::Popup("##menu")) {
-            if (ui::menu_item({.label = "Rename"})) ++chosen;
-            h.mark("rename");
-        }
-        open = ui::popup_open("##menu");
-    });
-    h.step(2);
-    CHECK_FALSE(open);
-    h.click("menu");
-    h.step();
-    CHECK(open);
-    h.click("rename");
-    h.step();
-    CHECK(chosen == 1);
-    CHECK_FALSE(open);
-}
-
-TEST_CASE("A context menu opens on a right click on its item", "[ui][kit]") {
-    KitHarness h;
-    bool shown = false;
-    h.set_ui([&] {
-        ui::button("Track");
-        h.mark("track");
-        shown = false;
-        if (auto menu = ui::ContextMenu("##track")) {
-            shown = true;
-            ui::menu_item({.label = "Delete track", .destructive = true});
-        }
-    });
-    h.step(2);
-    CHECK_FALSE(shown);
-    h.click("track", ui::MouseButton::Right);
-    h.step();
-    CHECK(shown);
 }
 
 TEST_CASE("An image is an item the size it is given", "[ui][kit]") {
@@ -357,8 +301,6 @@ TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
             if (ui::selectable("Entry", picked == i)) picked = i;
             h.mark("entry" + std::to_string(i));
         }
-        ui::progress_bar(0.5f, 120.0f, "Halfway");
-        CHECK(ui::item_max().x - ui::item_min().x == 120.0f);
     });
     h.step(2);
     h.click("entry1");
@@ -393,169 +335,6 @@ TEST_CASE("A region is its own size and scrolls with the wheel unless told not t
     h.wheel(centre(h, "lanes"), -3.0f);
     h.step(2);
     CHECK(lanes_scroll == 0.0f);
-}
-
-TEST_CASE("A table's rows go under its headers, and a click on a header sorts by it", "[ui][kit]") {
-    KitHarness h;
-    static constexpr ui::Column COLUMNS[] = {
-        {.name = "Name", .default_sort = true},
-        {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
-    };
-    std::vector<ui::TableSort> sorts;
-    h.set_ui([&] {
-        if (auto table = ui::Table("##files", COLUMNS, {.sortable = true, .scroll = true})) {
-            ui::table_headers();
-            if (auto sort = ui::table_sort_changed()) sorts.push_back(*sort);
-            for (int i = 0; i < 3; ++i) {
-                ui::IdScope row(i);
-                ui::table_next_row();
-                ui::table_next_column();
-                ui::text("terrain.fjmesh");
-                h.mark("name" + std::to_string(i));
-                ui::table_next_column();
-                ui::text("12 KB");
-                h.mark("size" + std::to_string(i));
-            }
-        }
-    });
-    h.step(2);
-    REQUIRE(sorts.size() == 1);
-    CHECK(sorts[0].column == 0);
-    CHECK(sorts[0].ascending);
-    CHECK(h.rect("size0").min.x > h.rect("name0").max.x);
-    CHECK(h.rect("name1").min.y > h.rect("name0").min.y);
-    CHECK(h.rect("name1").min.x == h.rect("name0").min.x);
-
-    // The headers are a row above the first; the size column's is clicked.
-    const glm::vec2 size_header{h.rect("size0").min.x + 10.0f, h.rect("size0").min.y - 8.0f};
-    h.click_at(size_header);
-    REQUIRE(sorts.size() == 2);
-    CHECK(sorts[1].column == 1);
-    CHECK(sorts[1].ascending);
-    h.click_at(size_header);
-    REQUIRE(sorts.size() == 3);
-    CHECK(sorts[2].column == 1);
-    CHECK_FALSE(sorts[2].ascending);
-}
-
-TEST_CASE("A plot is an item the size it is given", "[ui][kit]") {
-    KitHarness h;
-    const std::array<float, 4> history{1.0f, 3.0f, 2.0f, 5.0f};
-    glm::vec2 size{};
-    h.set_ui([&] {
-        ui::plot_lines("##frame", history, 1, {200.0f, 35.0f}, {.max = 33.3f});
-        size = ui::item_max() - ui::item_min();
-    });
-    h.step(2);
-    CHECK(size == glm::vec2{200.0f, 35.0f});
-}
-
-TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {
-    KitHarness h;
-    int picked = -1;
-    bool any_open = false;
-    float width = 0.0f;
-    h.set_ui([&] {
-        {
-            ui::next_width(160.0f);
-            ui::Dropdown list("##event", "Pick an event...");
-            if (!list) {
-                h.mark("dropdown");
-                width = ui::item_max().x - ui::item_min().x;
-            }
-            if (list) {
-                for (int i = 0; i < 2; ++i) {
-                    ui::IdScope entry(i);
-                    if (ui::selectable(i == 0 ? "Storm" : "Fog", false)) picked = i;
-                    h.mark("entry" + std::to_string(i));
-                }
-            }
-        }
-        any_open = ui::any_popup_open();
-    });
-    h.step(2);
-    CHECK(width == 160.0f);
-    CHECK_FALSE(any_open);
-    h.click("dropdown");
-    h.step();
-    CHECK(any_open);
-    h.click("entry1");
-    h.step();
-    CHECK(picked == 1);
-    CHECK_FALSE(any_open);
-}
-
-TEST_CASE("A menu on the bar opens on a click and runs its entries", "[ui][kit]") {
-    KitHarness h;
-    int saved = 0;
-    h.set_ui([&] {
-        if (auto bar = ui::MenuBar()) {
-            const bool open = ui::begin_bar_menu("File");
-            if (!open) h.mark("file");
-            if (open) {
-                if (ui::menu_item({.label = "Save scene", .shortcut = "Ctrl S"})) ++saved;
-                h.mark("save");
-                ui::end_menu();
-            }
-        }
-    });
-    h.step(2);
-    h.click("file");
-    h.step();
-    h.click("save");
-    h.step();
-    CHECK(saved == 1);
-}
-
-TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
-    KitHarness h;
-    int stops = 0;
-    float height = 0.0f;
-    h.set_ui([&] {
-        if (ui::small_button("Stop")) ++stops;
-        h.mark("stop");
-        height = ui::item_max().y - ui::item_min().y;
-    });
-    h.step(2);
-    CHECK(height == ui::line_height());
-    h.click("stop");
-    CHECK(stops == 1);
-}
-
-TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it", "[ui][kit]") {
-    KitHarness h;
-    std::string name;
-    std::string seen;
-    int entered = 0;
-    int left = 0;
-    bool focus = false;
-    h.set_ui([&] {
-        if (ui::text_entry("##name", name, {.hint = "Project name", .focus = std::exchange(focus, false)})) ++entered;
-        if (ui::item_deactivated()) ++left;
-        h.mark("name");
-        seen = name;
-        ui::button("Elsewhere");
-        h.mark("elsewhere");
-    });
-    h.step(2);
-    // Focus asked for on one frame takes the keyboard on the next.
-    focus = true;
-    h.step(2);
-    h.type("Fjord");
-    h.step();
-    CHECK(seen == "Fjord");
-    CHECK(entered == 0);
-    h.press(ui::Key::Enter);
-    h.step();
-    CHECK(entered == 1);
-
-    h.click("name");
-    h.type("s");
-    h.step();
-    h.click("elsewhere");
-    CHECK(name == "Fjords");
-    CHECK(entered == 1);
-    CHECK(left >= 1);
 }
 
 TEST_CASE("The mouse pointer takes the shape asked for this frame", "[ui][kit]") {
@@ -684,60 +463,6 @@ TEST_CASE("A window placed each frame stays put and keeps within its size limits
     CHECK(area.size == h.size());
     CHECK(pos == glm::vec2{40.0f, 60.0f});
     CHECK(size == glm::vec2{300.0f, 100.0f});
-}
-
-TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged to", "[ui][kit]") {
-    KitHarness h;
-    int picked = 0;
-    glm::vec3 colour{0.2f, 0.4f, 0.6f};
-    ui::Edit last{};
-    bool committed = false;
-    h.set_ui([&] {
-        if (ui::swatch("##amber", {0.83f, 0.63f, 0.31f, 1.0f}, {20.0f, 20.0f})) ++picked;
-        h.mark("swatch");
-        ui::bullet_text("textures/rock.png");
-        ui::next_width(200.0f);
-        last = ui::color_picker("##custom", colour);
-        committed = committed || last.committed;
-        h.mark("picker");
-    });
-    h.step(2);
-    CHECK(h.rect("swatch").width() == 20.0f);
-    h.click("swatch");
-    CHECK(picked == 1);
-    // A press near the square's top-left corner: white, the brightest and
-    // least saturated.
-    const glm::vec2 corner = h.rect("picker").min + glm::vec2{2.0f, 2.0f};
-    h.click_at(corner);
-    h.step();
-    CHECK(colour.r > 0.9f);
-    CHECK(colour.g > 0.9f);
-    CHECK(colour.b > 0.9f);
-    CHECK(committed);
-}
-
-TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
-    KitHarness h;
-    static constexpr ui::Column COLUMNS[] = {{.name = "Property"}, {.name = "Value"}};
-    std::array<bool, 2> hovered{};
-    h.set_ui([&] {
-        if (auto table = ui::Table("##rows", COLUMNS)) {
-            for (int i = 0; i < 2; ++i) {
-                ui::IdScope row(i);
-                ui::table_next_row();
-                ui::table_next_column();
-                ui::text("width");
-                h.mark("label" + std::to_string(i));
-                ui::table_next_column();
-                ui::text("120 px");
-                hovered[static_cast<std::size_t>(i)] = ui::table_row_hovered();
-            }
-        }
-    });
-    h.step(2);
-    h.hover("label1");
-    CHECK_FALSE(hovered[0]);
-    CHECK(hovered[1]);
 }
 
 TEST_CASE("The windows shown are the top-level ones, found again by name", "[ui][kit]") {

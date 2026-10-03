@@ -3,9 +3,12 @@
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/plot.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <array>
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -216,6 +219,18 @@ TEST_CASE("A plot pans with the mouse and keeps its range when resized", "[ui][c
     size = {800.0f, 600.0f};
     h.step();
     CHECK(view.to_world({ORIGIN.x + 800.0f, ORIGIN.y}).x == Approx(4.0f));
+}
+
+TEST_CASE("A plot is an item the size it is given", "[ui][kit]") {
+    KitHarness h;
+    const std::array<float, 4> history{1.0f, 3.0f, 2.0f, 5.0f};
+    glm::vec2 size{};
+    h.set_ui([&] {
+        ui::plot_lines("##frame", history, 1, {200.0f, 35.0f}, {.max = 33.3f});
+        size = ui::item_max() - ui::item_min();
+    });
+    h.step(2);
+    CHECK(size == glm::vec2{200.0f, 35.0f});
 }
 
 TEST_CASE("A plot leaves room for its values and names outside it", "[ui][canvas]") {

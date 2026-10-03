@@ -47,6 +47,7 @@ add_executable(ftk-tests
     test_rail.cpp
     test_list_editor.cpp
     test_log.cpp
+    test_menu.cpp
     test_node_graph.cpp
     test_pages.cpp
     test_search.cpp
@@ -55,6 +56,7 @@ add_executable(ftk-tests
     test_slot.cpp
     test_small_vector.cpp
     test_status_bar.cpp
+    test_table.cpp
     test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp

@@ -12,6 +12,7 @@
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/region.hpp"
@@ -67,6 +68,32 @@ TEST_CASE("An action leads with its icon and is as tall as any button", "[ui][ki
     CHECK(h.rect("action").width() >= h.rect("button").width() + icon_room - 0.5f);
     h.click("action");
     CHECK(clicks == 1);
+}
+
+TEST_CASE("A small button is a line of text tall and is clicked", "[ui][kit]") {
+    KitHarness h;
+    int stops = 0;
+    float height = 0.0f;
+    h.set_ui([&] {
+        if (ui::small_button("Stop")) ++stops;
+        h.mark("stop");
+        height = ui::item_max().y - ui::item_min().y;
+    });
+    h.step(2);
+    CHECK(height == ui::line_height());
+    h.click("stop");
+    CHECK(stops == 1);
+}
+
+TEST_CASE("A progress bar is the width it is given", "[ui][kit]") {
+    KitHarness h;
+    float width = 0.0f;
+    h.set_ui([&] {
+        ui::progress_bar(0.5f, 120.0f, "Halfway");
+        width = ui::item_max().x - ui::item_min().x;
+    });
+    h.step(2);
+    CHECK(width == 120.0f);
 }
 
 TEST_CASE("An icon button is a frame-height square", "[ui][kit]") {

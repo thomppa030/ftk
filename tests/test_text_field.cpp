@@ -1,11 +1,13 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <utility>
 
 using ftk::test::KitHarness;
 using ftk::ui::TextField;
@@ -170,4 +172,40 @@ TEST_CASE("text_field keeps the value on Escape", "[ui][text_field]") {
     f.h.step();
     CHECK(f.commits == 0);
     CHECK(f.value == "idle");
+}
+
+TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it", "[ui][kit]") {
+    KitHarness h;
+    std::string name;
+    std::string seen;
+    int entered = 0;
+    int left = 0;
+    bool focus = false;
+    h.set_ui([&] {
+        if (ui::text_entry("##name", name, {.hint = "Project name", .focus = std::exchange(focus, false)})) ++entered;
+        if (ui::item_deactivated()) ++left;
+        h.mark("name");
+        seen = name;
+        ui::button("Elsewhere");
+        h.mark("elsewhere");
+    });
+    h.step(2);
+    // Focus asked for on one frame takes the keyboard on the next.
+    focus = true;
+    h.step(2);
+    h.type("Fjord");
+    h.step();
+    CHECK(seen == "Fjord");
+    CHECK(entered == 0);
+    h.press(ui::Key::Enter);
+    h.step();
+    CHECK(entered == 1);
+
+    h.click("name");
+    h.type("s");
+    h.step();
+    h.click("elsewhere");
+    CHECK(name == "Fjords");
+    CHECK(entered == 1);
+    CHECK(left >= 1);
 }
