@@ -51,6 +51,9 @@ public:
     /// further.
     void submit(std::move_only_function<OwnerStep()> work);
 
+    /// Queues a step that needs no worker half, behind those already waiting.
+    void post(OwnerStep step) { ready_.push_back(std::move(step)); }
+
     /// On the owning thread: takes the steps whose worker halves are done,
     /// in the order they were submitted, then runs them until `budget` is
     /// spent. A worker half still going holds back nothing finished after it.

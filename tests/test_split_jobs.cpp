@@ -97,3 +97,15 @@ TEST_CASE("a worker half that throws is reported and the rest go on", "[base][sp
     CHECK(ran == 1);
     CHECK(jobs.pending() == 0);
 }
+
+TEST_CASE("a step posted on the owning thread runs behind those already waiting", "[base][split_jobs]") {
+    ftk::ThreadPool pool(1);
+    SplitJobs jobs(pool);
+    std::vector<int> order;
+    jobs.submit([&order] { return OwnerStep{[&order] { order.push_back(1); }, 0}; });
+    jobs.wait_for_workers();
+    jobs.post(OwnerStep{[&order] { order.push_back(2); }, 0});
+    CHECK(jobs.pending() == 2);
+    CHECK(jobs.run(UNLIMITED) == 2);
+    CHECK(order == std::vector<int>{1, 2});
+}
