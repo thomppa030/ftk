@@ -8,7 +8,9 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/text.hpp"
@@ -16,6 +18,8 @@
 #include "ftk/ui/theme.hpp"
 
 #include <array>
+#include <utility>
+#include <vector>
 
 namespace ftk::example {
 
@@ -29,6 +33,23 @@ void ShellPage::draw(glm::vec2 size, float top) {
     using N = ui::DockNode;
     if (ui::begin_plain_window("##shell", {0.0f, top}, {size.x, size.y - top})) {
         if (ui::button("Reset layout")) built_ = false;
+        ui::same_line();
+        // A menu as data, as the editor's menu bar is.
+        if (ui::button("Panels")) ui::open_popup("##panels");
+        if (auto menu = ui::Popup("##panels")) {
+            std::vector<ui::MenuEntry> forward;
+            for (const char* name : {"Hierarchy", "Viewport", "Inspector", "Console", "History"}) {
+                forward.push_back({.label = name, .chosen = [name] { ui::focus_window(name); }});
+            }
+            const std::vector<ui::MenuEntry> entries{
+                ui::MenuEntry::heading("Layout"),
+                {.label = "Reset layout", .chosen = [this] { built_ = false; }},
+                ui::MenuEntry::submenu(nullptr, "Bring forward", std::move(forward)),
+                ui::MenuEntry::separator(),
+                ui::MenuEntry::note("Tear a tab out to float its panel"),
+            };
+            ui::menu_entries(entries);
+        }
         ui::same_line();
         ui::align_text_to_frame();
         ui::text("Drag a splitter, a tab along its row or off it, or a floating window by its title onto a "
