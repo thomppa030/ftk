@@ -54,10 +54,10 @@ void DrawList::reset(DrawData& data, glm::vec2 size, float scale, TextSystem* te
     targets_.clear();
 }
 
-void DrawList::push_target(std::vector<Primitive>& target) {
+void DrawList::push_target(std::vector<Primitive>& target, bool keep) {
     targets_.push_back({.previous = target_, .clip_depth = clip_stack_.size()});
     target_ = &target;
-    target.clear();
+    if (!keep) target.clear();
     clip_stack_.push_back(0);
 }
 

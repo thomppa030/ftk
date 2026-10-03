@@ -129,6 +129,19 @@ struct Sense {
     /// Only a pen or a mouse draws on it; fingers only make gestures
     /// (ArmorPaint's "pen painting only").
     bool pen_only{false};
+    /// Placed beneath the widgets placed before it in its panel rather than
+    /// over them, so the first placed takes the pointer where they overlap:
+    /// the order ImGui gives its widgets, which the kit keeps.
+    bool beneath{false};
+    /// With beneath: the widgets placed after it go over it, as an item
+    /// that allows overlap lets them.
+    bool overlap{false};
+};
+
+struct RegionOptions {
+    /// The wheel scrolls it; off for a region that takes the wheel itself,
+    /// whose panel scrolls instead.
+    bool wheel_scrolls{true};
 };
 
 struct FocusOptions {
@@ -245,8 +258,12 @@ public:
     /// end_panel(): drawn over the root and the panels shown before it, its
     /// ids under its own, its items inside its padding. Panels can begin
     /// inside others (a popup opened from one) and are drawn whole, over
-    /// them.
+    /// them. Begun again in the same frame, it keeps what it already holds
+    /// and what is drawn goes over it.
     void begin_panel(std::string_view name, Rect rect, const PanelOptions& options = {});
+    /// The same by its id: a panel named alike wherever it is begun, as the
+    /// kit's windows are.
+    void begin_panel(Id id, Rect rect, const PanelOptions& options = {}) { begin_panel_id(id, rect, options); }
     void end_panel();
     /// The panel being drawn, where it is this frame (a fitting one sized
     /// by what it held last frame): to draw its background. The root's
@@ -314,8 +331,20 @@ public:
     /// A part of what is drawn now that scrolls on its own, `size` big at
     /// the cursor (a width or height of FILL reaches the edge, one below
     /// zero leaves that much room), until end_region().
-    void begin_region(std::string_view name, glm::vec2 size);
+    void begin_region(std::string_view name, glm::vec2 size, const RegionOptions& options = {});
     void end_region();
+    /// The innermost panel or region being drawn: where it is, what its
+    /// items fill, and whether a pointer that hovers is over it rather than
+    /// over a panel or region on top of it, by last frame's places; or over
+    /// it or one inside it.
+    [[nodiscard]] Rect area_rect() const;
+    [[nodiscard]] Rect area_inside() const;
+    [[nodiscard]] bool area_under_pointer() const;
+    [[nodiscard]] bool area_or_inner_under_pointer() const;
+    /// A pointer that hovers is over `rect` in the area being drawn, with no
+    /// widget over it there: text or a picture, which takes nothing, under
+    /// the mouse.
+    [[nodiscard]] bool pointer_over(Rect rect) const;
 
     /// The innermost panel or region that scrolls: how far it is scrolled,
     /// and how far it can be, by what it held last frame.
@@ -444,6 +473,14 @@ public:
     /// What widgets keep from frame to frame.
     [[nodiscard]] Storage& storage() { return storage_; }
 
+    /// What a layer above the core keeps with the context, the kit's state:
+    /// made by that layer when it first needs it, and gone with the context.
+    struct Extension {
+        virtual ~Extension() = default;
+    };
+    [[nodiscard]] Extension* extension() const { return extension_.get(); }
+    void set_extension(std::unique_ptr<Extension> extension) { extension_ = std::move(extension); }
+
     /// Another frame at once, after this one.
     void request_frame() { next_now_ = true; }
     /// Another frame by `time` on the frame clock. The earliest asked for in
@@ -451,6 +488,11 @@ public:
     void request_frame_at(double time);
 
 private:
+    // How a place is ordered among those of its panel when the panel ends:
+    // a panel's or a region's own first, then the widgets that let those
+    // placed after them go over them, then those placed beneath (the first
+    // placed on top), then those placed over the rest, as placed.
+    enum class Place : uint8_t { Own, Overlapped, Beneath, Over };
     // Where a widget took the pointers this frame, for the next frame's
     // hover: in the panel and the scrolling area it is in.
     struct Hit {
@@ -458,13 +500,17 @@ private:
         Rect rect{};
         Id panel{0};
         Id area{0};
+        Place place{Place::Over};
+        uint32_t sequence{0};
     };
-    // A scrolling area inside another, and how far it can scroll.
+    // A scrolling area inside another, how far it can scroll, and whether
+    // the wheel scrolls it.
     struct AreaLink {
         Id id{0};
         Id parent{0};
         glm::vec2 room{0.0f};
         glm::vec2 offset{0.0f};
+        bool wheel{true};
     };
     // A panel as it was last drawn.
     struct Panel {
@@ -474,11 +520,16 @@ private:
         // Drawn over the panels of its layer of lower order.
         uint32_t order{0};
         uint64_t frame{0};
-        // What it held last frame, for a panel that fits it; not shown this
-        // frame, having nothing to fit yet.
+        // What it held last frame, for a panel that fits it, and what it
+        // holds this frame; not shown this frame, having nothing to fit yet.
         glm::vec2 content{0.0f};
+        glm::vec2 content_next{0.0f};
         bool measured{false};
         bool hidden{false};
+        // Begun again this frame: what it held the first time is kept, and
+        // its items go on from where the next one would have gone.
+        bool again{false};
+        glm::vec2 cursor{0.0f};
         std::vector<Primitive> primitives;
         std::vector<Hit> hits;
     };
@@ -558,10 +609,13 @@ private:
     // A pointer, and what the core keeps of it besides what it shows.
     struct Tracked {
         Pointer pointer;
-        // On top under it and the panel that is in, and where its press
-        // was, by last frame's hits.
+        // On top under it, the panel and the area that is in, whether it is
+        // the panel's or a region's own place, and where its press was, by
+        // last frame's hits.
         Id top{0};
         Id top_panel{0};
+        Id top_area{0};
+        bool top_own{false};
         Id press_top{0};
         // The widget holding it, by which button, since which frame.
         Id holder{0};
@@ -585,11 +639,12 @@ private:
         bool moved{false};
         uint64_t frame{0};
     };
-    // A panel or region being drawn.
+    // A panel or region being drawn: all of it, and where its items go.
     struct Area {
         Id id{0};
         bool panel{false};
         bool scrolls{false};
+        Rect rect{};
         Rect visible{};
     };
     struct KeptContainer {
@@ -633,6 +688,10 @@ private:
     Tracked& track(PointerType type, PointerId id);
     // The widget on top at `at` among `hits`, bottom to top; or zero.
     [[nodiscard]] static const Hit* top_hit(const std::vector<Hit>& hits, glm::vec2 at);
+    // Adds a place to this frame's hits, `place`d among them.
+    void add_hit(Id id, Rect rect, Place place);
+    // Puts `hits` in the order their places ask, when any asks for one.
+    static void order_hits(std::vector<Hit>& hits);
     // Takes the queued keys and text.
     void take_keys();
     // Moves the keyboard as the frame's keys and presses ask: Tab, the
@@ -678,8 +737,10 @@ private:
     std::unordered_map<Id, GestureState> gestures_;
     PointerStyle pointer_style_{};
     PointerType input_mode_{PointerType::Mouse};
-    // Where this frame's hits go: the root's own, or a panel's.
+    // Where this frame's hits go: the root's own, or a panel's; and how many
+    // have been placed this frame, for their order.
     std::vector<std::vector<Hit>*> hit_targets_;
+    uint32_t hit_sequence_{0};
     std::vector<bool> disabled_;
     Id last_widget_{0};
     Interaction last_interaction_{};
@@ -729,6 +790,7 @@ private:
     std::optional<double> next_at_{};
 
     FrameOutput output_;
+    std::unique_ptr<Extension> extension_;
 };
 
 /// The context the UI is drawn with: the one set last. Set before drawing.

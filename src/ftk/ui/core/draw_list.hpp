@@ -150,10 +150,10 @@ public:
     [[nodiscard]] glm::vec2 clip_min() const;
     [[nodiscard]] glm::vec2 clip_max() const;
 
-    /// What follows goes into `target`, cleared, until pop_target(): a
-    /// panel's own shapes, put in order over the others when the root ends.
-    /// Clips start again from the root's.
-    void push_target(std::vector<Primitive>& target);
+    /// What follows goes into `target`, cleared unless `keep`, until
+    /// pop_target(): a panel's own shapes, put in order over the others when
+    /// the root ends. Clips start again from the root's.
+    void push_target(std::vector<Primitive>& target, bool keep = false);
     void pop_target();
     /// How much the current target holds, and taking it back to that: what
     /// was drawn for a container that isn't to be seen yet.

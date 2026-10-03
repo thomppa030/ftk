@@ -41,6 +41,24 @@ const Context::Hit* Context::top_hit(const std::vector<Hit>& hits, glm::vec2 at)
     return nullptr;
 }
 
+void Context::add_hit(Id id, Rect rect, Place place) {
+    hit_targets_.back()->push_back(
+        {.id = id, .rect = rect, .panel = current_panel(), .area = current_area(), .place = place, .sequence = hit_sequence_++});
+}
+
+void Context::order_hits(std::vector<Hit>& hits) {
+    const bool ordered = std::ranges::all_of(hits, [](const Hit& hit) {
+        return hit.place == Place::Own || hit.place == Place::Over;
+    });
+    if (ordered) return;
+    std::ranges::sort(hits, [](const Hit& a, const Hit& b) {
+        if (a.place != b.place) return a.place < b.place;
+        // Beneath what came before it: the first placed is on top.
+        if (a.place == Place::Beneath) return a.sequence > b.sequence;
+        return a.sequence < b.sequence;
+    });
+}
+
 Context::Tracked& Context::track(PointerType type, PointerId id) {
     for (Tracked& tracked : pointers_) {
         if (tracked.pointer.type == type && tracked.pointer.id == id) return tracked;
@@ -165,6 +183,8 @@ void Context::take_input() {
         const Hit* top = p.present ? top_hit(kept.hits, p.now.position) : nullptr;
         tracked.top = top != nullptr ? top->id : 0;
         tracked.top_panel = top != nullptr ? top->panel : 0;
+        tracked.top_area = top != nullptr ? top->area : 0;
+        tracked.top_own = top != nullptr && top->place == Place::Own;
         if (p.pressed != 0) {
             const glm::vec2 at = p.press_position[index(first_button(p.pressed))];
             // Gestures measure a finger that came down this frame from there.
@@ -188,7 +208,7 @@ void Context::take_input() {
             }
         }
         // The wheel turns the innermost area under the mouse that can still
-        // scroll that way.
+        // scroll that way, and takes the wheel.
         if (p.wheel != glm::vec2{0.0f} && top != nullptr) {
             for (Id area = top->area; area != 0;) {
                 const auto link = std::ranges::find(kept.areas, area, &AreaLink::id);
@@ -197,7 +217,7 @@ void Context::take_input() {
                 const bool up = p.wheel.y > 0.0f && link->offset.y > 0.0f;
                 const bool right = p.wheel.x > 0.0f && link->offset.x < link->room.x;
                 const bool left = p.wheel.x < 0.0f && link->offset.x > 0.0f;
-                if (down || up || right || left) {
+                if (link->wheel && (down || up || right || left)) {
                     wheel_area_ = area;
                     wheel_ = p.wheel;
                     break;
@@ -214,7 +234,7 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
     if (root_ == nullptr) return {};
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
     if (hidden() || visible.empty()) return {};
-    hit_targets_.back()->push_back({.id = id, .rect = visible, .panel = current_panel(), .area = current_area()});
+    add_hit(id, visible, !sense.beneath ? Place::Over : (sense.overlap ? Place::Overlapped : Place::Beneath));
     if (disabled()) return {};
 
     const uint8_t takes = static_cast<uint8_t>((sense.left ? button_bit(MouseButton::Left) : 0) |

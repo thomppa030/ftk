@@ -97,6 +97,43 @@ TEST_CASE("A popup opens at the pointer, fits what it holds, and closes on a cho
     CHECK_FALSE(h.ui().popup_open(menu));
 }
 
+TEST_CASE("A panel begun again in a frame keeps what it holds, where it is, and settles", "[ui-core][layers]") {
+    UiHarness h;
+    constexpr ftk::ui::Color OVER{0.4f, 0.4f, 0.4f, 1.0f};
+    const Id viewport = core::hash_label("Viewport", 0);
+    int first = 0;
+    int second = 0;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.begin_panel(viewport, {.min = {300.0f, 100.0f}, .max = {500.0f, 250.0f}});
+        plate(ui);
+        if (widget(h, "First").clicked) ++first;
+        ui.end_panel();
+        ui.begin_panel("Hierarchy", {.min = {50.0f, 100.0f}, .max = {250.0f, 250.0f}});
+        ui.end_panel();
+        // Back in the viewport, by its id, wherever it is begun from; the
+        // rectangle given is the one it already has.
+        ui.begin_panel(viewport, {.min = {0.0f, 0.0f}, .max = {10.0f, 10.0f}});
+        CHECK(ui.panel_rect().min == glm::vec2{300.0f, 100.0f});
+        plate(ui, OVER);
+        if (widget(h, "Second", {100.0f, 60.0f}).clicked) ++second;
+        ui.end_panel();
+    });
+    h.step(2);
+    CHECK(drawn(h, PLATE));
+    CHECK(drawn(h, OVER));
+    // Its items go on from where the first time left off.
+    CHECK(h.rect("Second").min.y > h.rect("First").max.y);
+    // Both its widgets take the pointers.
+    h.click("First");
+    h.click("Second");
+    CHECK(first == 1);
+    CHECK(second == 1);
+    // Measured over both times, it doesn't keep asking for frames.
+    h.step(2);
+    CHECK(h.output().next.waits_for_input());
+}
+
 TEST_CASE("A popup opened near the window's edge is moved inside it", "[ui-core][layers]") {
     UiHarness h;
     core::Rect popup{};

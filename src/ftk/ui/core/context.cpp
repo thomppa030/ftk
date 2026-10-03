@@ -37,6 +37,7 @@ void Context::begin_frame(double time) {
     output_.next = {};
     last_widget_ = 0;
     last_interaction_ = {};
+    hit_sequence_ = 0;
     any_hovered_ = false;
     hover_next_ = 0;
     drag_.seen = false;
@@ -108,6 +109,15 @@ void Context::end_root() {
         ids_.clear();
     }
 
+    // What each panel held, for fitting it next frame; a change is drawn
+    // then.
+    for (const auto& panel : root_->panels) {
+        if (panel->frame != frame_) continue;
+        if (panel->measured && panel->content != panel->content_next) request_frame();
+        panel->content = panel->content_next;
+        panel->measured = true;
+    }
+
     // The panels drawn this frame go over the root's own shapes, layer by
     // layer and in order within one, and so do the places their widgets
     // take the pointers. One with nothing to fit yet waits a frame.
@@ -118,6 +128,7 @@ void Context::end_root() {
     std::ranges::sort(drawn, [](const Panel* a, const Panel* b) {
         return a->layer != b->layer ? a->layer < b->layer : a->order < b->order;
     });
+    order_hits(root_->base_hits);
     root_->hits = root_->base_hits;
     for (const Panel* panel : drawn) {
         root_->draw.primitives.insert(root_->draw.primitives.end(), panel->primitives.begin(), panel->primitives.end());
@@ -183,10 +194,16 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
     assert(root_ != nullptr && "UI: a panel begun outside a window");
     const Id parent_area = current_area();
     Panel& shown = panel(id);
-    // In its parent's layer at least, so it is drawn over its parent.
-    shown.layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
-    shown.hidden = false;
-    if (options.fit) {
+    // Begun again this frame: drawn over what it holds, where it was.
+    shown.again = shown.frame == frame_;
+    if (shown.again) {
+        rect = shown.rect;
+    } else {
+        // In its parent's layer at least, so it is drawn over its parent.
+        shown.layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
+        shown.hidden = false;
+    }
+    if (options.fit && !shown.again) {
         if (shown.measured) {
             rect.max = rect.min + shown.content + 2.0f * options.padding;
         } else {
@@ -202,9 +219,9 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
     shown.rect = rect;
     shown.frame = frame_;
     panel_stack_.push_back(&shown);
-    root_->list.push_target(shown.primitives);
+    root_->list.push_target(shown.primitives, shown.again);
     root_->list.push_clip(rect.min, rect.max);
-    shown.hits.clear();
+    if (!shown.again) shown.hits.clear();
     const Rect window{.min = {0.0f, 0.0f}, .max = root_->size};
     if (shown.layer >= Layer::Tooltip) {
         // Tooltips and drag previews take no pointers.
@@ -214,16 +231,23 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
         hit_targets_.push_back(&shown.hits);
         // A dialog covers the whole window beneath it; any panel covers
         // its own rectangle, under its widgets.
-        if (modal) shown.hits.push_back({.id = id, .rect = window, .panel = id, .area = id});
-        shown.hits.push_back({.id = id, .rect = rect.intersect(window), .panel = id, .area = id});
+        if (!shown.again) {
+            const auto own = [&](Rect r) {
+                shown.hits.push_back(
+                    {.id = id, .rect = r, .panel = id, .area = id, .place = Place::Own, .sequence = hit_sequence_++});
+            };
+            if (modal) own(window);
+            own(rect.intersect(window));
+        }
     }
     // Its items' ids under its own, whatever it was begun inside.
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
-    if (options.scroll) scroll_area(id, scroll);
+    if (options.scroll && !shown.again) scroll_area(id, scroll);
     const Rect inside{.min = rect.min + options.padding, .max = rect.max - options.padding};
     layout_.begin_area(inside, options.scroll ? scroll.offset : glm::vec2{0.0f, 0.0f});
-    areas_.push_back({.id = id, .panel = true, .scrolls = options.scroll, .visible = inside});
+    if (shown.again) layout_.set_cursor(shown.cursor);
+    areas_.push_back({.id = id, .panel = true, .scrolls = options.scroll, .rect = rect, .visible = inside});
     root_->areas_next.push_back({.id = id, .parent = parent_area});
 }
 
@@ -232,17 +256,18 @@ void Context::end_panel() {
         FTK_CORE_ERROR("UI: a panel ended inside a region, or never began");
         return;
     }
+    panel_stack_.back()->cursor = layout_.cursor();
     const glm::vec2 content = end_area();
     ids_.pop();
     root_->list.pop_clip();
     root_->list.pop_target();
+    order_hits(*hit_targets_.back());
     hit_targets_.pop_back();
-    // What it held, for fitting it next frame; a change is drawn then.
+    // What it held, settled when the root ends: begun again, it holds what
+    // it held the first time as well.
     Panel& ended = *panel_stack_.back();
     panel_stack_.pop_back();
-    if (ended.measured && ended.content != content) request_frame();
-    ended.content = content;
-    ended.measured = true;
+    ended.content_next = ended.again ? glm::max(ended.content_next, content) : content;
 }
 
 Rect Context::panel_rect() const {
@@ -250,19 +275,77 @@ Rect Context::panel_rect() const {
     return {.min = {0.0f, 0.0f}, .max = root_ != nullptr ? root_->size : glm::vec2{0.0f}};
 }
 
-void Context::begin_region(std::string_view name, glm::vec2 size) {
+void Context::begin_region(std::string_view name, glm::vec2 size, const RegionOptions& options) {
     const Id id = ids_.id(name);
     const Id parent_area = current_area();
     const glm::vec2 room = layout_.space_left();
     const float height = size.y == FILL ? room.y : (size.y < 0.0f ? std::max(room.y + size.y, 0.0f) : size.y);
     const Rect rect = layout_.next({layout_.resolve_width(size.x), height});
+    // Its own place, under its items: the pointer over it is over it, not
+    // its panel, where it has nothing.
+    const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
+    if (!hidden() && !visible.empty()) {
+        hit_targets_.back()->push_back({.id = id,
+                                        .rect = visible,
+                                        .panel = current_panel(),
+                                        .area = id,
+                                        .place = Place::Own,
+                                        .sequence = hit_sequence_++});
+    }
     root_->list.push_clip(rect.min, rect.max);
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
     scroll_area(id, scroll);
     layout_.begin_area(rect, scroll.offset);
-    areas_.push_back({.id = id, .panel = false, .scrolls = true, .visible = rect});
-    root_->areas_next.push_back({.id = id, .parent = parent_area});
+    areas_.push_back({.id = id, .panel = false, .scrolls = true, .rect = rect, .visible = rect});
+    root_->areas_next.push_back({.id = id, .parent = parent_area, .wheel = options.wheel_scrolls});
+}
+
+Rect Context::area_rect() const {
+    if (!areas_.empty()) return areas_.back().rect;
+    return {.min = {0.0f, 0.0f}, .max = root_ != nullptr ? root_->size : glm::vec2{0.0f}};
+}
+
+Rect Context::area_inside() const {
+    if (!areas_.empty()) return areas_.back().visible;
+    return area_rect();
+}
+
+bool Context::area_under_pointer() const {
+    if (root_ == nullptr) return false;
+    const Id area = current_area();
+    return std::ranges::any_of(pointers_, [&](const Tracked& tracked) {
+        const Pointer& p = tracked.pointer;
+        return p.root == root_->id && p.present && p.can_hover && tracked.top != 0 && tracked.top_area == area;
+    });
+}
+
+bool Context::area_or_inner_under_pointer() const {
+    if (root_ == nullptr) return false;
+    const Id area = current_area();
+    return std::ranges::any_of(pointers_, [&](const Tracked& tracked) {
+        const Pointer& p = tracked.pointer;
+        if (p.root != root_->id || !p.present || !p.can_hover || tracked.top == 0) return false;
+        // Up from the area it is over, through the areas it is inside, as
+        // last frame had them.
+        for (Id over = tracked.top_area; over != 0;) {
+            if (over == area) return true;
+            const auto link = std::ranges::find(root_->areas, over, &AreaLink::id);
+            if (link == root_->areas.end()) break;
+            over = link->parent;
+        }
+        return false;
+    });
+}
+
+bool Context::pointer_over(Rect rect) const {
+    if (root_ == nullptr || hidden()) return false;
+    const Id area = current_area();
+    return std::ranges::any_of(pointers_, [&](const Tracked& tracked) {
+        const Pointer& p = tracked.pointer;
+        return p.root == root_->id && p.present && p.can_hover && tracked.top_own && tracked.top_area == area &&
+               rect.contains(p.now.position);
+    });
 }
 
 void Context::end_region() {

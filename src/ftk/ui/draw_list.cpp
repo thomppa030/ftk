@@ -36,83 +36,83 @@ DrawList DrawList::window() {
 
 void DrawList::rect_filled(glm::vec2 min, glm::vec2 max, Color colour, float rounding,
                            RoundCorners corners) {
-    list_->AddRectFilled(min, max, pack(colour), rounding, flags(corners));
+    imgui()->AddRectFilled(min, max, pack(colour), rounding, flags(corners));
 }
 
 void DrawList::rect(glm::vec2 min, glm::vec2 max, Color colour, float rounding, RoundCorners corners,
                     float thickness) {
-    list_->AddRect(min, max, pack(colour), rounding, flags(corners), thickness);
+    imgui()->AddRect(min, max, pack(colour), rounding, flags(corners), thickness);
 }
 
 void DrawList::rect_gradient(glm::vec2 min, glm::vec2 max, Color left, Color right) {
     // Its corners clockwise from the top-left.
-    list_->AddRectFilledMultiColor(min, max, pack(left), pack(right), pack(right), pack(left));
+    imgui()->AddRectFilledMultiColor(min, max, pack(left), pack(right), pack(right), pack(left));
 }
 
 void DrawList::line(glm::vec2 from, glm::vec2 to, Color colour, float thickness) {
-    list_->AddLine(from, to, pack(colour), thickness);
+    imgui()->AddLine(from, to, pack(colour), thickness);
 }
 
 void DrawList::polyline(std::span<const glm::vec2> points, Color colour, float thickness,
                         bool closed) {
-    for (const glm::vec2 point : points) list_->PathLineTo(point);
-    list_->PathStroke(pack(colour), closed ? ImDrawFlags_Closed : ImDrawFlags_None, thickness);
+    for (const glm::vec2 point : points) imgui()->PathLineTo(point);
+    imgui()->PathStroke(pack(colour), closed ? ImDrawFlags_Closed : ImDrawFlags_None, thickness);
 }
 
 void DrawList::circle_filled(glm::vec2 centre, float radius, Color colour) {
-    list_->AddCircleFilled(centre, radius, pack(colour));
+    imgui()->AddCircleFilled(centre, radius, pack(colour));
 }
 
 void DrawList::circle(glm::vec2 centre, float radius, Color colour, float thickness) {
-    list_->AddCircle(centre, radius, pack(colour), 0, thickness);
+    imgui()->AddCircle(centre, radius, pack(colour), 0, thickness);
 }
 
 void DrawList::arc(glm::vec2 centre, float radius, float from, float to, Color colour,
                    float thickness) {
-    list_->PathArcTo(centre, radius, from, to);
-    list_->PathStroke(pack(colour), ImDrawFlags_None, thickness);
+    imgui()->PathArcTo(centre, radius, from, to);
+    imgui()->PathStroke(pack(colour), ImDrawFlags_None, thickness);
 }
 
 void DrawList::triangle_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour) {
-    list_->AddTriangleFilled(a, b, c, pack(colour));
+    imgui()->AddTriangleFilled(a, b, c, pack(colour));
 }
 
 void DrawList::triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour, float thickness) {
-    list_->AddTriangle(a, b, c, pack(colour), thickness);
+    imgui()->AddTriangle(a, b, c, pack(colour), thickness);
 }
 
 void DrawList::quad_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour) {
-    list_->AddQuadFilled(a, b, c, d, pack(colour));
+    imgui()->AddQuadFilled(a, b, c, d, pack(colour));
 }
 
 void DrawList::quad(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour,
                     float thickness) {
-    list_->AddQuad(a, b, c, d, pack(colour), thickness);
+    imgui()->AddQuad(a, b, c, d, pack(colour), thickness);
 }
 
 void DrawList::text(glm::vec2 at, Color colour, std::string_view text) {
-    list_->AddText(at, pack(colour), text.data(), text.data() + text.size());
+    imgui()->AddText(at, pack(colour), text.data(), text.data() + text.size());
 }
 
 void DrawList::image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding) {
     // At no rounding ImGui draws the plain image.
-    list_->AddImageRounded(texture.id, min, max, {0.0f, 0.0f}, {1.0f, 1.0f}, IM_COL32_WHITE, rounding);
+    imgui()->AddImageRounded(texture.id, min, max, {0.0f, 0.0f}, {1.0f, 1.0f}, IM_COL32_WHITE, rounding);
 }
 
 void DrawList::push_clip(glm::vec2 min, glm::vec2 max) {
-    list_->PushClipRect(min, max, true);
+    imgui()->PushClipRect(min, max, true);
 }
 
 void DrawList::pop_clip() {
-    list_->PopClipRect();
+    imgui()->PopClipRect();
 }
 
 glm::vec2 DrawList::clip_min() const {
-    return list_->GetClipRectMin();
+    return imgui()->GetClipRectMin();
 }
 
 glm::vec2 DrawList::clip_max() const {
-    return list_->GetClipRectMax();
+    return imgui()->GetClipRectMax();
 }
 
 } // namespace ftk::ui

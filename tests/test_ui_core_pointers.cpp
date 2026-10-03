@@ -108,6 +108,90 @@ TEST_CASE("What is drawn later is on top, and takes the pointer there", "[ui-cor
     CHECK(over.clicked == 1);
 }
 
+TEST_CASE("Placed beneath, the first placed takes the pointer, unless it lets those after it over", "[ui-core][pointers]") {
+    UiHarness h;
+    Seen tile;
+    Seen background;
+    Seen picture;
+    Seen fit;
+    Seen plain;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        // A tile, and a background over the whole grid placed after it.
+        const glm::vec2 at = ui.layout().cursor();
+        tile.add(widget(h, "tile", {50.0f, 50.0f}, {.beneath = true}));
+        h.mark("tile");
+        ui.layout().set_cursor(at);
+        background.add(widget(h, "background", {200.0f, 100.0f}, {.beneath = true}));
+        h.mark("background");
+        // A picture that lets its toolbar over it.
+        const glm::vec2 below = ui.layout().cursor();
+        picture.add(widget(h, "picture", {200.0f, 100.0f}, {.beneath = true, .overlap = true}));
+        h.mark("picture");
+        ui.layout().set_cursor(below);
+        fit.add(widget(h, "fit", {50.0f, 24.0f}, {.beneath = true}));
+        h.mark("fit");
+        // Placed over everything as core widgets are, it is on top.
+        ui.layout().set_cursor(at);
+        plain.add(widget(h, "plain", {20.0f, 20.0f}));
+        h.mark("plain");
+    });
+    h.step();
+    h.click_at(h.rect("tile").max - glm::vec2{5.0f, 5.0f});
+    CHECK(tile.clicked == 1);
+    CHECK(background.clicked == 0);
+    h.click_at(h.rect("background").max - glm::vec2{5.0f, 5.0f});
+    CHECK(background.clicked == 1);
+
+    h.click("fit");
+    CHECK(fit.clicked == 1);
+    CHECK(picture.clicked == 0);
+    h.click_at(h.rect("picture").max - glm::vec2{5.0f, 5.0f});
+    CHECK(picture.clicked == 1);
+
+    h.click("plain");
+    CHECK(plain.clicked == 1);
+    CHECK(tile.clicked == 1);
+}
+
+TEST_CASE("The pointer is told over the area being drawn, and over what takes nothing", "[ui-core][pointers]") {
+    UiHarness h;
+    bool over_text = false;
+    bool panel_under = false;
+    bool panel_or_inner = false;
+    bool region_under = false;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        const core::Rect text = ui.layout().next({120.0f, 16.0f});
+        h.mark("text");
+        over_text = ui.pointer_over(text);
+        (void)widget(h, "button");
+        h.mark("button");
+        ui.begin_region("list", {200.0f, 100.0f});
+        h.mark("list");
+        region_under = ui.area_under_pointer();
+        ui.end_region();
+        panel_under = ui.area_under_pointer();
+        panel_or_inner = ui.area_or_inner_under_pointer();
+    });
+    h.step();
+    h.move_to(h.rect("text").centre());
+    h.step();
+    CHECK(over_text);
+    CHECK(panel_under);
+    // A widget over it covers it.
+    h.move_to(h.rect("button").centre());
+    h.step();
+    CHECK_FALSE(over_text);
+    CHECK(panel_under);
+    // Over the region's empty space: the region, inside the panel.
+    h.move_to(h.rect("list").centre());
+    h.step();
+    CHECK(region_under);
+    CHECK_FALSE(panel_under);
+    CHECK(panel_or_inner);
+}
+
 TEST_CASE("A press holds the pointer until release, and nothing else is hovered meanwhile", "[ui-core][pointers]") {
     UiHarness h;
     Seen a;
@@ -356,6 +440,33 @@ TEST_CASE("The wheel scrolls the innermost region under the mouse that can still
     h.wheel(at, -1.0f);
     h.step(30);
     CHECK(outer_scroll.y == 48.0f);
+}
+
+TEST_CASE("Over a region's empty space the wheel scrolls it, unless it doesn't take the wheel", "[ui-core][pointers]") {
+    UiHarness h;
+    glm::vec2 log_scroll{};
+    glm::vec2 lanes_scroll{};
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.begin_region("log", {200.0f, 100.0f});
+        h.mark("log");
+        log_scroll = ui.scroll();
+        // Lines of text, which take nothing.
+        for (int i = 0; i < 20; ++i) (void)ui.layout().next({150.0f, 16.0f});
+        ui.end_region();
+        ui.begin_region("lanes", {200.0f, 100.0f}, {.wheel_scrolls = false});
+        h.mark("lanes");
+        lanes_scroll = ui.scroll();
+        for (int i = 0; i < 20; ++i) (void)ui.layout().next({150.0f, 16.0f});
+        ui.end_region();
+    });
+    h.step(2);
+    h.wheel(h.rect("log").centre(), -1.0f);
+    h.step(30);
+    CHECK(log_scroll.y == 48.0f);
+    h.wheel(h.rect("lanes").centre(), -1.0f);
+    h.step(30);
+    CHECK(lanes_scroll.y == 0.0f);
 }
 
 TEST_CASE("When what is under a still pointer changes, another frame finds it", "[ui-core][pointers]") {

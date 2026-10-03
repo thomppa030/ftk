@@ -12,7 +12,8 @@
 //     dl.text({x, y}, theme::text_secondary(), "Opening");
 //     dl.image(thumbnail, min, max, 4.0f);
 //
-// While ImGui draws the kit, a DrawList forwards to one of ImGui's.
+// A DrawList forwards to the list of the implementation drawing the kit:
+// the UI core's, or one of ImGui's while ImGui draws it.
 
 #include "ftk/ui/types.hpp"
 
@@ -26,6 +27,10 @@
 // kit. Named here, not included: the bridge goes with ImGui.
 struct ImDrawList;
 
+namespace ftk::ui::core {
+class DrawList;
+}
+
 namespace ftk::ui {
 
 // RoundCorners, the corners a rectangle rounds, is the core's
@@ -38,6 +43,8 @@ public:
 
     /// ImGui's own list, for code still drawing with ImGui: the bridge.
     DrawList(ImDrawList* list) : list_{list} {}
+    /// The core's, for the kit on the core.
+    explicit DrawList(core::DrawList& list) : list_{&list} {}
 
     void rect_filled(glm::vec2 min, glm::vec2 max, Color colour, float rounding = 0.0f,
                      RoundCorners corners = RoundCorners::All);
@@ -80,10 +87,13 @@ public:
     [[nodiscard]] glm::vec2 clip_max() const;
 
     /// The ImGui list this forwards to, for the kit's ImGui implementation.
-    [[nodiscard]] ImDrawList* imgui() const { return list_; }
+    [[nodiscard]] ImDrawList* imgui() const { return static_cast<ImDrawList*>(list_); }
+    /// The core's list this forwards to, for the kit on the core.
+    [[nodiscard]] core::DrawList& core() const { return *static_cast<core::DrawList*>(list_); }
 
 private:
-    ImDrawList* list_;
+    // An ImDrawList or a core::DrawList, by the implementation drawing.
+    void* list_;
 };
 
 } // namespace ftk::ui
