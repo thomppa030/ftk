@@ -53,6 +53,31 @@ void scrollbar(Window& window, Id id) {
                    style.scrollbar_size * 0.5f);
 }
 
+// A window docked in a leaf of a dockspace: the leaf, its tabs across the
+// top where a title bar would be, while it is the one in front; not shown
+// while another is or while its dockspace isn't shown. It stays behind the
+// windows that float, as ImGui's docked windows do.
+bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2 padding) {
+    core::Context& context = ui();
+    Kit& k = kit();
+    k.window_stack.push_back(id);
+    DockPart* leaf = shown_leaf(window.dock);
+    window.shown = leaf != nullptr && take_front(*leaf, id);
+    if (!window.shown) return false;
+
+    window.rect = leaf->rect;
+    window.padding = padding;
+    window.bar = frame_height();
+    context.begin_panel(id, window.rect, {.padding = padding, .bar = window.bar, .raise = false});
+    if (any_button_pressed() && context.area_or_inner_under_pointer()) k.focused_window = id;
+    const core::Rect& rect = window.rect;
+    core::DrawList& dl = context.draw_list();
+    if (options.background) dl.rect_filled(rect.min, rect.max, faded(theme::surface_base()));
+    window.tabs = dock_tabs(window.dock, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}});
+    dl.push_clip(rect.min + glm::vec2{0.0f, window.bar}, rect.max);
+    return true;
+}
+
 } // namespace
 
 bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding, bool* open) {
@@ -62,6 +87,10 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     const Id id = window_id(name);
     Window& window = k.windows[id];
     const bool again = window.frame == context.frame();
+    if (again && !window.shown) {
+        k.window_stack.push_back(id);
+        return false;
+    }
     if (again) {
         // Drawn again over what it holds.
         context.begin_panel(id, window.rect, {.padding = window.padding, .bar = window.bar});
@@ -73,12 +102,19 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     // Shown now, not last frame: it comes forward and takes the keyboard,
     // as a window does when it appears.
     const bool appearing = window.frame == 0 || window.frame + 1 < context.frame();
-    if (window.frame == 0) {
-        window.name = name;
-        window.rect = {.min = FIRST_PLACE, .max = FIRST_PLACE};
-    }
+    // Placed by the settings file, it opens where that had it.
+    const bool first = window.frame == 0 && !window.placed;
+    if (window.frame == 0) window.name = name;
+    if (first) window.rect = {.min = FIRST_PLACE, .max = FIRST_PLACE};
     const NextWindow next = std::exchange(k.next_window, {});
-    if (next.pos_once && window.frame == 0) window.rect = {.min = *next.pos_once, .max = *next.pos_once};
+    if (options.docking && window.dock != 0 && k.docks.contains(window.dock)) {
+        window.frame = context.frame();
+        window.options = options;
+        return begin_docked(window, id, options, padding);
+    }
+    window.shown = true;
+    window.tabs = 0;
+    if (next.pos_once && first) window.rect = {.min = *next.pos_once, .max = *next.pos_once};
     glm::vec2 size = window.rect.size();
     if (next.size_once && !window.sized) {
         size = *next.size_once;
@@ -145,10 +181,12 @@ void end_window() {
     const Id id = k.window_stack.back();
     k.window_stack.pop_back();
     Window& window = k.windows[id];
-    core::Context& context = ui();
-    context.draw_list().pop_clip();
-    if (window.options.scrollbar) scrollbar(window, id);
-    context.end_panel();
+    if (window.shown) {
+        core::Context& context = ui();
+        context.draw_list().pop_clip();
+        if (window.options.scrollbar) scrollbar(window, id);
+        context.end_panel();
+    }
     restore_item();
 }
 
@@ -182,7 +220,7 @@ std::vector<ShownWindow> shown_windows() {
     std::vector<ShownWindow> shown;
     const uint64_t frame = ui().frame();
     for (const auto& [id, window] : kit().windows) {
-        if (window.frame == frame) shown.push_back({window.name, window.rect.min, window.rect.size()});
+        if (window.frame == frame && window.shown) shown.push_back({window.name, window.rect.min, window.rect.size()});
     }
     return shown;
 }
@@ -207,7 +245,13 @@ InWindow::~InWindow() {
 }
 
 void focus_window(const char* name) {
-    kit().focused_window = core::hash_label(name, 0);
+    Kit& k = kit();
+    const Id id = core::hash_label(name, 0);
+    k.focused_window = id;
+    // Docked behind another tab, it comes forward, as ImGui's does.
+    const auto found = k.windows.find(id);
+    if (found == k.windows.end()) return;
+    if (const auto leaf = k.docks.find(found->second.dock); leaf != k.docks.end()) leaf->second.front = id;
 }
 
 glm::vec2 window_pos() {

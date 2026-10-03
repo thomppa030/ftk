@@ -134,6 +134,7 @@ add_executable(ftk-kit-core-tests
     test_grouped_picker.cpp
     test_kit.cpp
     test_kit_basics.cpp
+    test_kit_dock.cpp
     test_list_editor.cpp
     test_menu.cpp
     test_node_graph.cpp

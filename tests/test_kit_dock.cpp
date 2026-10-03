@@ -6,12 +6,15 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/settings_file.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -96,6 +99,33 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
     CHECK(tree->children[1].windows == std::vector<std::string>{"Inspector"});
 }
 
+TEST_CASE("Windows docked together are tabs, the one brought forward shown", "[ui][kit][dock]") {
+    KitHarness h;
+    bool built = false;
+    const char* forward = nullptr;
+    std::vector<std::string> shown;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, ui::DockNode::tabs({"Console", "History"}));
+            built = true;
+        }
+        if (forward != nullptr) ui::focus_window(std::exchange(forward, nullptr));
+        shown.clear();
+        for (const char* name : {"Console", "History"}) {
+            if (auto panel = ui::Panel("", name)) shown.emplace_back(name);
+        }
+    });
+    h.step(4);
+    REQUIRE(shown.size() == 1);
+    const std::string behind = shown[0] == "Console" ? "History" : "Console";
+    forward = behind.c_str();
+    h.step(3);
+    CHECK(shown == std::vector<std::string>{behind});
+    CHECK(ui::window_dock("Console") == ui::window_dock("History"));
+}
+
 TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui][kit]") {
     KitHarness h;
     bool any_key = false;
@@ -140,4 +170,25 @@ TEST_CASE("The settings file is written to a path and read back from it", "[ui][
 
     // The kit keeps a section for the program's life; these callbacks don't.
     ui::add_settings_section({.name = "KitLayout"});
+}
+
+TEST_CASE("A window opens where the settings file had it, and is written where it is", "[ui][kit]") {
+    KitHarness h;
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "ftk_kit_window_test.ini";
+    std::ofstream(path) << "[Window][Notes]\nPos=300,200\nSize=240,160\n\n";
+    ui::load_settings_file(path.string());
+    h.set_ui([] {
+        if (auto panel = ui::Panel("", "Notes")) ui::text("Notes");
+    });
+    h.step(2);
+    const auto notes = ui::window_named("Notes");
+    REQUIRE(notes.has_value());
+    CHECK(notes->pos == glm::vec2{300.0f, 200.0f});
+    CHECK(notes->size == glm::vec2{240.0f, 160.0f});
+
+    ui::save_settings_file(path.string());
+    std::stringstream saved;
+    saved << std::ifstream(path).rdbuf();
+    CHECK(saved.str().find("[Window][Notes]\nPos=300,200\nSize=240,160\n") != std::string::npos);
+    std::filesystem::remove(path);
 }

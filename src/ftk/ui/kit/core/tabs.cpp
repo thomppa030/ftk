@@ -45,8 +45,10 @@ TabLook look() {
     return k.tab_looks.empty() ? theme_look() : k.tab_looks.back();
 }
 
-// A tab's width for `label`, as ImGui sizes one: the padding either side,
-// and room for its × or its unsaved dot when it has one.
+} // namespace
+
+namespace corekit {
+
 float tab_width(std::string_view label, bool marked) {
     const Style& style = kit().style;
     const float width = measure(label).x + style.frame_padding.x;
@@ -54,33 +56,14 @@ float tab_width(std::string_view label, bool marked) {
     return width + style.frame_padding.x + 1.0f;
 }
 
-// The line along the bottom of a row of tabs at `rect`.
 void draw_bar_line(core::Rect rect, bool focused) {
     const TabLook l = look();
     ui().draw_list().rect_filled({rect.min.x, rect.max.y - BAR_BORDER}, rect.max,
                                  faded(focused ? l.front : l.front_dimmed));
 }
 
-struct TabFace {
-    std::string_view label{};
-    Color ink{};
-    bool front{false};
-    /// It has a ×, shown while it is in front or under the mouse.
-    bool closable{false};
-    bool unsaved{false};
-    /// The window the tab is in has the keyboard.
-    bool focused{true};
-};
-
-struct DrawnTab {
-    core::Interaction in{};
-    /// Under the mouse, its × included.
-    bool hovered{false};
-    bool closed{false};
-};
-
-// One tab at `rect`, as ImGui draws one: its × placed first, over it, then
-// its shape, its label and the × or the unsaved dot.
+// Its × placed first, over it, then its shape, its label and the × or the
+// unsaved dot.
 DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     core::Context& context = ui();
     const Style& style = kit().style;
@@ -138,7 +121,7 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     return drawn;
 }
 
-} // namespace
+} // namespace corekit
 
 TabStripResult tab_strip(const char* id, const TabStripSpec& spec) {
     TabStripResult result;

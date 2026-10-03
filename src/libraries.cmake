@@ -482,6 +482,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/component_block.cpp
         ftk/ui/kit/core/curve_editor.cpp
         ftk/ui/kit/core/dialog.cpp
+        ftk/ui/kit/core/dock.cpp
         ftk/ui/kit/core/drag_drop.cpp
         ftk/ui/kit/core/draw_list.cpp
         ftk/ui/kit/core/feedback.cpp
@@ -512,6 +513,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/search.cpp
         ftk/ui/kit/core/section.cpp
         ftk/ui/kit/core/selectable.cpp
+        ftk/ui/kit/core/settings_file.cpp
         ftk/ui/kit/core/slot.cpp
         ftk/ui/kit/core/state.cpp
         ftk/ui/kit/core/status_bar.cpp

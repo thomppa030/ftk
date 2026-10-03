@@ -8,6 +8,7 @@
 // are to be. Inside ftk-app-ui only.
 
 #include "ftk/ui/core/context.hpp"
+#include "ftk/ui/kit/dock.hpp"
 #include "ftk/ui/kit/edit.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/input.hpp"
@@ -19,6 +20,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -257,6 +259,35 @@ struct Window {
     glm::vec2 move_from{0.0f};
     /// Where its scrollbar's grab was pressed, as a share of what scrolls.
     float grab_from{0.0f};
+    /// The dock node it is docked in, or 0 while it floats.
+    Id dock{0};
+    /// It shows this frame: false while docked behind another tab or in a
+    /// dockspace not shown.
+    bool shown{true};
+    /// The tabs of the leaf it is docked in, its own among them.
+    std::size_t tabs{0};
+    /// Given its place by the settings file before it was first drawn.
+    bool placed{false};
+};
+
+/// A node of a dockspace's tree as the kit keeps it: a split into two, or
+/// a leaf whose windows are tabs.
+struct DockPart {
+    Id parent{0};
+    DockAxis split{DockAxis::None};
+    /// The first part's share: the left or the top.
+    float ratio{0.5f};
+    std::array<Id, 2> children{0, 0};
+    /// The windows docked here, in tab order, and the one in front.
+    std::vector<Id> windows{};
+    Id front{0};
+    /// The middle of its dockspace: what a split leaves of the root.
+    bool middle{false};
+    /// Where it was laid out, and in which frame; for the root, the frame
+    /// its dockspace was last drawn in, shown or hidden.
+    core::Rect rect{};
+    uint64_t frame{0};
+    uint64_t seen{0};
 };
 
 class Kit : public core::Context::Extension {
@@ -324,6 +355,8 @@ public:
     /// The text size around the tree being drawn, before it set its own;
     /// zero outside a tree given a size.
     float tree_base_size{0.0f};
+    /// Every dockspace's nodes, by id.
+    std::unordered_map<Id, DockPart> docks{};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -425,5 +458,44 @@ void end_popup();
 
 /// The table being drawn, or null outside one.
 [[nodiscard]] TableState* current_table();
+
+/// What a tab shows.
+struct TabFace {
+    std::string_view label{};
+    Color ink{};
+    bool front{false};
+    /// It has a ×, shown while it is in front or under the mouse.
+    bool closable{false};
+    bool unsaved{false};
+    /// The window the tab is in has the keyboard.
+    bool focused{true};
+};
+
+/// What happened to a tab drawn.
+struct DrawnTab {
+    core::Interaction in{};
+    /// Under the mouse, its × included.
+    bool hovered{false};
+    bool closed{false};
+};
+
+/// A tab's width for `label`, as ImGui sizes one: the padding either side,
+/// and room for its × or its unsaved dot when `marked`.
+[[nodiscard]] float tab_width(std::string_view label, bool marked);
+/// One tab at `rect`, in the tab look pushed, as ImGui draws one.
+DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face);
+/// The line along the bottom of a row of tabs at `rect`.
+void draw_bar_line(core::Rect rect, bool focused);
+
+/// The leaf `node` of a dockspace, when that dockspace shows this frame:
+/// laid out this frame, or last frame and not drawn yet this one.
+[[nodiscard]] DockPart* shown_leaf(Id node);
+/// Whether the window `id` is the one in front in the leaf `leaf`: it is
+/// already, or the one that was isn't drawn any more and it takes its place.
+[[nodiscard]] bool take_front(DockPart& leaf, Id id);
+/// The tabs of the leaf `node` across `strip`, one for each window docked
+/// there drawn last frame or this one: a press brings its window forward.
+/// Returns how many there are.
+std::size_t dock_tabs(Id node, core::Rect strip);
 
 } // namespace ftk::ui::corekit
