@@ -1,17 +1,23 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/dock.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/plot.hpp"
+#include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/settings_file.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tree.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -332,4 +338,59 @@ TEST_CASE("A window opens where the settings file had it, and is written where i
     saved << std::ifstream(path).rdbuf();
     CHECK(saved.str().find("[Window][Notes]\nPos=300,200\nSize=240,160\n") != std::string::npos);
     std::filesystem::remove(path);
+}
+
+TEST_CASE("An editor's docked panels at rest ask for no frame", "[ui][kit][dock]") {
+    // The desktop target of no frames while idle (the UI core plan's
+    // Verification): the pieces of the Performance page's load, once
+    // nothing moves, leave the loop asleep until there is input, after the
+    // mouse has passed over them as much as before.
+    KitHarness h;
+    using N = ui::DockNode;
+    std::vector<std::string> names;
+    for (int i = 0; i < 40; ++i) names.push_back("Crate " + std::to_string(i));
+    glm::vec3 position{1.0f, 0.0f, -2.5f};
+    float roughness = 0.6f;
+    bool shadows = true;
+    int body = 1;
+    constexpr std::array<const char*, 3> BODIES{"Static", "Dynamic", "Kinematic"};
+    std::vector<float> history(120, 0.5f);
+    bool built = false;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f},
+                                N::left_right(0.3f, N::tabs({"Hierarchy"}),
+                                              N::left_right(0.6f, N::tabs({"Console"}), N::tabs({"Inspector"}))));
+            built = true;
+        }
+        if (auto panel = ui::Panel("", "Hierarchy")) {
+            if (auto tree = ui::Tree("##tree")) {
+                for (const std::string& name : names) (void)ui::tree_row({.id = name.c_str(), .name = name});
+            }
+        }
+        if (auto panel = ui::Panel("", "Console")) {
+            ui::plot_lines("##frame", history, 0, {ui::space_left().x, 48.0f}, {.max = 2.0f});
+            for (const std::string& name : names) ui::text(name + " moved");
+        }
+        if (auto panel = ui::Panel("", "Inspector")) {
+            if (auto table = ui::PropertyTable("##rows")) {
+                ui::row("Position", [&] { (void)ui::vec3("##position", position); });
+                ui::row("Roughness", [&] { (void)ui::slider("##roughness", roughness, 0.0f, 1.0f); });
+                ui::row("Shadows", [&] { (void)ui::checkbox("##shadows", shadows); });
+                ui::row("Body", [&] { (void)ui::choice("##body", body, BODIES); });
+            }
+        }
+    });
+    h.step(8);
+    CHECK(h.output().next.waits_for_input());
+
+    // Across every panel, then still: what lit under the mouse settles.
+    for (float x = 20.0f; x < 780.0f; x += 40.0f) {
+        h.move_to({x, 120.0f});
+        h.step();
+    }
+    h.step(60);
+    CHECK(h.output().next.waits_for_input());
 }

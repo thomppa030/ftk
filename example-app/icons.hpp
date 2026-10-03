@@ -14,4 +14,11 @@ inline constexpr const char* viewport = ICON_LC_MONITOR;
 inline constexpr const char* inspector = ICON_LC_SLIDERS_HORIZONTAL;
 inline constexpr const char* scene = ICON_LC_BOX;
 
+// The Performance page's panel and its sections.
+inline constexpr const char* performance = ICON_LC_GAUGE;
+inline constexpr const char* frame = ICON_LC_ACTIVITY;
+inline constexpr const char* idle = ICON_LC_PAUSE;
+inline constexpr const char* atlas = ICON_LC_TYPE;
+inline constexpr const char* load = ICON_LC_LAYERS_3;
+
 } // namespace ftk::example::icon

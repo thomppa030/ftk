@@ -73,6 +73,7 @@ void UiLayer::begin_frame(glm::uvec2 pixels, float scale) {
 }
 
 void UiLayer::begin_root(glm::vec2 size, float scale) {
+    frame_start_ = UiInput::now();
     forget_released();
     ui::core::set_current(&ui_);
     // On the clock the platform stamps its events with.
@@ -103,6 +104,11 @@ const ui::core::FrameOutput& UiLayer::end_frame() {
             }
         }
     }
+    building_.primitives = 0;
+    for (const ui::core::RootOutput& root : last_->roots) {
+        if (root.draw != nullptr) building_.primitives += root.draw->primitives.size();
+    }
+    building_.cpu_seconds = UiInput::now() - frame_start_;
     return *last_;
 }
 
@@ -110,7 +116,10 @@ void UiLayer::render(gpu::CommandList& cmd, const gpu::TextureView& target, glm:
     if (last_ == nullptr) return;
     const auto drawn = std::ranges::find(last_->roots, ROOT, &ui::core::RootOutput::root);
     if (drawn == last_->roots.end()) return;
+    const double start = UiInput::now();
     renderer_->render(cmd, target, size, *drawn, ui_.text().atlas(), background());
+    cost_ = building_;
+    cost_.cpu_seconds += UiInput::now() - start;
 }
 
 Result<> UiLayer::show_windows() {

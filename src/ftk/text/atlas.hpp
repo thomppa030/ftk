@@ -93,6 +93,10 @@ public:
 
     [[nodiscard]] uint16_t page_size() const { return options_.page_size; }
     [[nodiscard]] uint16_t page_count() const { return static_cast<uint16_t>(pages_.size()); }
+    /// The most pages it grows to, its bound.
+    [[nodiscard]] uint16_t max_pages() const { return options_.max_pages; }
+    /// The glyphs it holds now.
+    [[nodiscard]] std::size_t glyph_count() const { return entries_.size(); }
 
     /// A page's pixels, row by row, one byte of coverage each.
     [[nodiscard]] std::span<const uint8_t> page(uint16_t page) const { return pages_[page].pixels; }

@@ -29,6 +29,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -44,6 +45,17 @@ namespace gpu {
 class CommandList;
 class Swapchain;
 } // namespace gpu
+
+/// What the UI cost in the last frame it drew and recorded.
+struct UiFrameCost {
+    /// CPU time from begin_frame() to the end of end_frame(), and in
+    /// render(): the program's UI calls, the core finishing the frame and
+    /// the renderer recording it. What the program does between them is
+    /// not counted.
+    double cpu_seconds{0.0};
+    /// The primitives the frame drew, over every window.
+    std::size_t primitives{0};
+};
 
 class UiLayer {
 public:
@@ -99,6 +111,8 @@ public:
     [[nodiscard]] glm::vec2 size() const { return size_; }
     /// What the last frame drew and asked for; none before the first ends.
     [[nodiscard]] const ui::core::FrameOutput* last() const { return last_; }
+    /// What the last frame recorded by render() cost; zero before one is.
+    [[nodiscard]] const UiFrameCost& last_cost() const { return cost_; }
     /// What nothing the UI draws covers, as light, as a frame is cleared to.
     void set_background(const gpu::Clear& clear) { background_ = clear; }
 
@@ -141,6 +155,11 @@ private:
     ui::core::Context ui_;
     std::unique_ptr<UiInput> input_;
     const ui::core::FrameOutput* last_{nullptr};
+    // When the frame began, what it has cost until it is recorded, and what
+    // the last one recorded cost.
+    double frame_start_{0.0};
+    UiFrameCost building_{};
+    UiFrameCost cost_{};
     glm::vec2 size_{0.0f};
     // This frame was begun at a size of its own: the window is left alone.
     bool fixed_{false};

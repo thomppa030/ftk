@@ -1,14 +1,18 @@
 // ftk-example-app, ftk's own test program. Each page shows one thing ftk's UI
 // has to get right: the UI core's primitives and text, the kit, its gallery,
-// and the shell's docks.
+// the shell's docks, and what the UI costs.
 //
 //     ftk-example-app [--page <name>]              a page, the first by default
 //     ftk-example-app --shot <name> <file.png>     a page drawn off screen at a
 //                                                  fixed size, written as a PNG
+//     ftk-example-app --measure                    the Performance page's load
+//                                                  drawn off screen at each size,
+//                                                  what the UI cost printed
 //     ... --scale <pixels per unit>                a page at that scale
 
 #include "kit_page.hpp"
 #include "painter.hpp"
+#include "performance_page.hpp"
 #include "primitives_page.hpp"
 #include "shell_page.hpp"
 #include "text_page.hpp"
@@ -33,18 +37,19 @@
 namespace {
 
 /// The example app's pages. More arrive with the work that needs them.
-enum class Page { gallery, primitives, text, kit, shell };
+enum class Page { gallery, primitives, text, kit, shell, performance };
 
 struct PageName {
     Page page;
     std::string_view name;
 };
 
-constexpr std::array<PageName, 5> PAGES{{{Page::gallery, "gallery"},
+constexpr std::array<PageName, 6> PAGES{{{Page::gallery, "gallery"},
                                          {Page::primitives, "primitives"},
                                          {Page::text, "text"},
                                          {Page::kit, "kit"},
-                                         {Page::shell, "shell"}}};
+                                         {Page::shell, "shell"},
+                                         {Page::performance, "performance"}}};
 
 /// The page a run starts on when none is named.
 constexpr Page FIRST = Page::primitives;
@@ -56,7 +61,8 @@ constexpr glm::uvec2 shot_size(Page page) {
     case Page::gallery: return {480, 5000};
     case Page::primitives:
     case Page::text:
-    case Page::shell: return {1280, 800};
+    case Page::shell:
+    case Page::performance: return {1280, 800};
     case Page::kit: return {1280, 2080};
     }
     return {1280, 800};
@@ -75,6 +81,8 @@ struct Request {
     Page page{FIRST};
     /// Where a shot goes; none to run in a window.
     std::optional<std::filesystem::path> shot{};
+    /// Measure the Performance page's load instead of running.
+    bool measure{false};
     /// Pixels to the layout unit.
     float scale{1.0f};
 };
@@ -92,6 +100,9 @@ std::optional<Request> parse(int argc, char** argv) {
             if (!page) return std::nullopt;
             request.page = *page;
             request.shot = std::filesystem::path(argv[++i]);
+        } else if (arg == "--measure") {
+            request.page = Page::performance;
+            request.measure = true;
         } else if (arg == "--scale" && i + 1 < argc) {
             const std::string_view value = argv[++i];
             const auto parsed = std::from_chars(value.data(), value.data() + value.size(), request.scale);
@@ -101,7 +112,7 @@ std::optional<Request> parse(int argc, char** argv) {
             }
         } else {
             FTK_CORE_ERROR("ftk example app does not know {}: use --page <name>, "
-                           "--shot <name> <file.png> or --scale <number>",
+                           "--shot <name> <file.png>, --measure or --scale <number>",
                            arg);
             return std::nullopt;
         }
@@ -134,10 +145,15 @@ class CorePages {
 public:
     CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page, bool shot)
         : fonts_(ftk::example::add_fonts(app.ui().text(), fonts)), primitives_(app, fonts_), text_(fonts_),
-          page_(page), shot_(shot) {
+          performance_(app), page_(page), shot_(shot) {
         // The kit's own faces, for the Kit page and the gallery.
         ftk::ui::use_kit_fonts(app.ui(), fonts);
     }
+
+    /// Before each frame the window draws.
+    void update() { performance_.before_frame(); }
+
+    [[nodiscard]] ftk::example::PerformancePage& performance() { return performance_; }
 
     void draw(ftk::ui::core::Context& ui, glm::vec2 size) {
         ui.draw_list().rect_filled({0.0f, 0.0f}, size, ftk::theme::surface_base());
@@ -149,6 +165,8 @@ public:
             gallery_.draw_page(size.x, size.y);
         } else if (page_ == Page::shell) {
             shell_.draw(size, TABS_BOTTOM);
+        } else if (page_ == Page::performance) {
+            performance_.draw(size, TABS_BOTTOM);
         } else {
             primitives_.draw(ui, size);
         }
@@ -162,9 +180,10 @@ private:
     void tabs(ftk::ui::core::Context& ui, glm::vec2 size) {
         namespace core = ftk::ui::core;
         ftk::example::Painter p(ui, fonts_);
-        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit, Page::gallery, Page::shell};
-        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit", "Gallery", "Shell"};
-        constexpr int COUNT = 5;
+        constexpr Page SHOWN[] = {Page::primitives, Page::text,  Page::kit,
+                                  Page::gallery,    Page::shell, Page::performance};
+        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit", "Gallery", "Shell", "Performance"};
+        constexpr int COUNT = 6;
         constexpr float PAD = 14.0f;
         constexpr float GAP = 6.0f;
         float x = size.x - 32.0f + GAP;
@@ -192,9 +211,38 @@ private:
     ftk::example::KitPage kit_;
     ftk::ui::KitGallery gallery_;
     ftk::example::ShellPage shell_;
+    ftk::example::PerformancePage performance_;
     Page page_;
     bool shot_;
 };
+
+/// The Performance page's load drawn off screen at each size: a few frames
+/// for the atlas and the layout to settle, then a measured run, each
+/// printed.
+int measure(ftk::AppWindow& app, CorePages& pages, const ftk::UiDraw& ui, float scale) {
+    constexpr int SETTLE = 30;
+    constexpr int MEASURED = ftk::example::PerformancePage::HISTORY + 1;
+    constexpr const char* SIZES[] = {"1x", "4x", "16x"};
+    const glm::uvec2 size = glm::uvec2(glm::vec2(shot_size(Page::performance)) * scale);
+    for (int i = 0; i < 3; ++i) {
+        pages.performance().set_size(i);
+        if (auto settled = app.shot(ui, size, scale, SETTLE); !settled) {
+            FTK_CORE_CRITICAL("ftk example app could not draw the load: {}", settled.error());
+            return EXIT_FAILURE;
+        }
+        pages.performance().reset();
+        if (auto measured = app.shot(ui, size, scale, MEASURED); !measured) {
+            FTK_CORE_CRITICAL("ftk example app could not draw the load: {}", measured.error());
+            return EXIT_FAILURE;
+        }
+        const ftk::example::PerformancePage::Summary s = pages.performance().summary();
+        FTK_CORE_INFO("load {:>3}: UI {:.3f} ms mean, {:.3f} p95, {:.3f} max, {} of {} over 1 ms; "
+                      "{} primitives; atlas {} of {} pages, {} glyphs",
+                      SIZES[i], s.mean_ms, s.p95_ms, s.max_ms, s.over, s.frames, s.primitives, s.atlas_pages,
+                      s.atlas_max_pages, s.glyphs);
+    }
+    return EXIT_SUCCESS;
+}
 
 int run(const Request& request) {
     auto made = ftk::AppWindow::create({
@@ -208,9 +256,10 @@ int run(const Request& request) {
         return EXIT_FAILURE;
     }
     ftk::AppWindow& app = **made;
-    CorePages pages(app, staged() / "fonts", request.page, request.shot.has_value());
+    CorePages pages(app, staged() / "fonts", request.page, request.shot.has_value() || request.measure);
     const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) { pages.draw(context, size); };
 
+    if (request.measure) return measure(app, pages, ui, request.scale);
     if (request.shot) {
         const glm::uvec2 size = shot_size(request.page);
         auto shot = app.shot(ui, glm::uvec2(glm::vec2(size) * request.scale), request.scale);
@@ -220,7 +269,7 @@ int run(const Request& request) {
         }
         return write_png(*request.shot, *shot) ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-    auto ran = app.run({.ui = ui});
+    auto ran = app.run({.ui = ui, .update = [&] { pages.update(); }});
     if (!ran) {
         FTK_CORE_CRITICAL("ftk example app stopped: {}", ran.error());
         return EXIT_FAILURE;
