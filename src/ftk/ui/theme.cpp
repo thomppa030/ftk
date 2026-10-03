@@ -67,6 +67,23 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::sdf_inside_far, "sdf_inside_far"},
     {Token::sdf_outside_near, "sdf_outside_near"},
     {Token::sdf_outside_far, "sdf_outside_far"},
+    {Token::code_keyword, "code_keyword"},
+    {Token::code_type, "code_type"},
+    {Token::code_function, "code_function"},
+    {Token::code_string, "code_string"},
+    {Token::code_number, "code_number"},
+    {Token::code_comment, "code_comment"},
+    {Token::code_meta, "code_meta"},
+    {Token::code_punctuation, "code_punctuation"},
+    {Token::code_member, "code_member"},
+    {Token::code_builtin, "code_builtin"},
+    {Token::code_current_line, "code_current_line"},
+    {Token::code_indent_guide, "code_indent_guide"},
+    {Token::code_indent_guide_active, "code_indent_guide_active"},
+    {Token::code_occurrence, "code_occurrence"},
+    {Token::code_bracket, "code_bracket"},
+    {Token::code_error_line, "code_error_line"},
+    {Token::code_warning_line, "code_warning_line"},
 };
 static_assert(std::size(TOKEN_NAMES) == static_cast<std::size_t>(Token::count));
 

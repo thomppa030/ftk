@@ -73,5 +73,23 @@
   "sdf_inside_near": "#4F87C4",
   "sdf_inside_far": "#122145",
   "sdf_outside_near": "#D98A59",
-  "sdf_outside_far": "#381F12"
+  "sdf_outside_far": "#381F12",
+
+  "code_keyword": "#BD9CD2",
+  "code_type": "#6FBDA5",
+  "code_function": "#7DB1DD",
+  "code_string": "#C3BA75",
+  "code_number": "#D59D77",
+  "code_comment": "#8F929A",
+  "code_meta": "#D295B7",
+  "code_punctuation": "#AEB1B6",
+  "code_member": "#A0A5E0",
+  "code_builtin": "#DC9690",
+  "code_current_line": "#26282E",
+  "code_indent_guide": "#2B2D31",
+  "code_indent_guide_active": "#45474E",
+  "code_occurrence": "#34363C",
+  "code_bracket": "#5A5D66",
+  "code_error_line": "#E66E68 7%",
+  "code_warning_line": "#DEC358 6%"
 }

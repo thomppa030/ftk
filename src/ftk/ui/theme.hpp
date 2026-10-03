@@ -36,6 +36,10 @@ enum class Token : uint8_t {
     grid_minor, grid_major, grid_zero,
     layout_margin, layout_padding, layout_box,
     sdf_inside_near, sdf_inside_far, sdf_outside_near, sdf_outside_far,
+    code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
+    code_punctuation, code_member, code_builtin,
+    code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
+    code_error_line, code_warning_line,
     count,
 };
 
@@ -179,6 +183,34 @@ inline ui::Color sdf_inside_near()  { return palette()[Token::sdf_inside_near]; 
 inline ui::Color sdf_inside_far()   { return palette()[Token::sdf_inside_far]; }
 inline ui::Color sdf_outside_near() { return palette()[Token::sdf_outside_near]; }
 inline ui::Color sdf_outside_far()  { return palette()[Token::sdf_outside_far]; }
+
+// Code in a code editor (sheet 39, K1), coloured by what each word is, from
+// the hues. The accent is never a code colour. Plain names are text.
+inline ui::Color code_keyword()     { return palette()[Token::code_keyword]; }
+/// Types, and the namespaces and classes a name is looked up in.
+inline ui::Color code_type()        { return palette()[Token::code_type]; }
+inline ui::Color code_function()    { return palette()[Token::code_function]; }
+inline ui::Color code_string()      { return palette()[Token::code_string]; }
+inline ui::Color code_number()      { return palette()[Token::code_number]; }
+inline ui::Color code_comment()     { return palette()[Token::code_comment]; }
+/// What speaks to the compiler: #include, attributes, a shader's hints.
+inline ui::Color code_meta()        { return palette()[Token::code_meta]; }
+inline ui::Color code_punctuation() { return palette()[Token::code_punctuation]; }
+/// Fields: members, keys, attributes, properties, and a shader's uniforms.
+inline ui::Color code_member()      { return palette()[Token::code_member]; }
+/// The names an engine gives a shader (ALBEDO, NdotL).
+inline ui::Color code_builtin()     { return palette()[Token::code_builtin]; }
+
+// Around the code: the caret's line, indent guides (the cursor's block
+// brighter), the other uses of the word at the cursor, the bracket paired
+// with the one at it, and the tint of a line with an error or a warning.
+inline ui::Color code_current_line()        { return palette()[Token::code_current_line]; }
+inline ui::Color code_indent_guide()        { return palette()[Token::code_indent_guide]; }
+inline ui::Color code_indent_guide_active() { return palette()[Token::code_indent_guide_active]; }
+inline ui::Color code_occurrence()          { return palette()[Token::code_occurrence]; }
+inline ui::Color code_bracket()             { return palette()[Token::code_bracket]; }
+inline ui::Color code_error_line()          { return palette()[Token::code_error_line]; }
+inline ui::Color code_warning_line()        { return palette()[Token::code_warning_line]; }
 
 // ── Metrics ─────────────────────────────────────────────────────────────
 
