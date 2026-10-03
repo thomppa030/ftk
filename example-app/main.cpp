@@ -7,12 +7,15 @@
 //                                                  fixed size, written as a PNG
 //     ... --scale <pixels per unit>                a core page at that scale
 
+#include "painter.hpp"
 #include "primitives_page.hpp"
+#include "text_page.hpp"
 
 #include "ftk/app/app_window.hpp"
 #include "ftk/base/log.hpp"
 #include "ftk/platform/platform.hpp"
 #include "ftk/ui/kit/gallery.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <stb_image_write.h>
 
@@ -26,18 +29,19 @@
 namespace {
 
 /// The example app's pages. More arrive with the work that needs them.
-enum class Page { gallery, primitives };
+enum class Page { gallery, primitives, text };
 
 struct PageName {
     Page page;
     std::string_view name;
 };
 
-constexpr std::array<PageName, 2> PAGES{{{Page::gallery, "gallery"}, {Page::primitives, "primitives"}}};
+constexpr std::array<PageName, 3> PAGES{
+    {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}}};
 
 /// Whether the page is drawn with the UI core, rather than ImGui.
 constexpr bool on_core(Page page) {
-    return page == Page::primitives;
+    return page != Page::gallery;
 }
 
 /// The size a page's shot is drawn at, in layout units: tall enough to show
@@ -45,7 +49,8 @@ constexpr bool on_core(Page page) {
 constexpr glm::uvec2 shot_size(Page page) {
     switch (page) {
     case Page::gallery: return {480, 5000};
-    case Page::primitives: return {1280, 800};
+    case Page::primitives:
+    case Page::text: return {1280, 800};
     }
     return {1280, 800};
 }
@@ -97,21 +102,69 @@ std::optional<Request> parse(int argc, char** argv) {
     return request;
 }
 
-/// Draws the pages: one at a time, each filling the frame.
+/// Draws the pages of ImGui: the gallery, filling the frame.
 class Pages {
 public:
     explicit Pages(Page page) : page_(page) {}
 
     void draw(float width, float height) {
-        switch (page_) {
-        case Page::gallery: gallery_.draw_page(width, height); break;
-        case Page::primitives: break;  // the core's
-        }
+        if (page_ == Page::gallery) gallery_.draw_page(width, height);
     }
 
 private:
     Page page_;
     ftk::ui::KitGallery gallery_;
+};
+
+/// Draws the pages of the UI core, one at a time, with tabs at the top right
+/// that switch between them in the window. The gallery isn't among them
+/// until the kit runs on the core (Phase 6).
+class CorePages {
+public:
+    CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page)
+        : fonts_(ftk::example::add_fonts(app.ui().text(), fonts)), primitives_(app, fonts_), text_(fonts_),
+          page_(page) {}
+
+    void draw(ftk::ui::core::Context& ui, glm::vec2 size) {
+        ui.draw_list().rect_filled({0.0f, 0.0f}, size, ftk::theme::surface_base());
+        if (page_ == Page::text) {
+            text_.draw(ui, size);
+        } else {
+            primitives_.draw(ui, size);
+        }
+        tabs(ui, size);
+    }
+
+private:
+    void tabs(ftk::ui::core::Context& ui, glm::vec2 size) {
+        namespace core = ftk::ui::core;
+        ftk::example::Painter p(ui, fonts_);
+        constexpr Page SHOWN[] = {Page::primitives, Page::text};
+        constexpr std::string_view NAMES[] = {"Primitives", "Text"};
+        constexpr float PAD = 14.0f;
+        float x = size.x - 32.0f;
+        for (int i = 1; i >= 0; --i) x -= p.width(NAMES[i], ftk::theme::BODY_TEXT) + 2.0f * PAD + (i == 1 ? 0.0f : 6.0f);
+        for (int i = 0; i < 2; ++i) {
+            const float width = p.width(NAMES[i], ftk::theme::BODY_TEXT) + 2.0f * PAD;
+            const core::Rect tab{.min = {x, 24.0f}, .max = {x + width, 52.0f}};
+            const core::Interaction in = ui.interact(core::hash_int(i, ui.id("##pages")), tab);
+            if (in.clicked) page_ = SHOWN[i];
+            if (in.hovered) ui.set_cursor_shape(ftk::ui::MouseCursor::Hand);
+            const bool on = page_ == SHOWN[i];
+            if (on || in.hovered) {
+                ui.draw_list().rect_filled(tab.min, tab.max, on ? ftk::theme::surface_active() : ftk::theme::surface_hover(),
+                                           14.0f);
+            }
+            p.body(tab.min + glm::vec2{PAD, 6.0f}, NAMES[i], ftk::theme::BODY_TEXT,
+                   on ? ftk::theme::text() : ftk::theme::text_secondary());
+            x += width + 6.0f;
+        }
+    }
+
+    ftk::example::Fonts fonts_;
+    ftk::example::PrimitivesPage primitives_;
+    ftk::example::TextPage text_;
+    Page page_;
 };
 
 bool write_png(const std::filesystem::path& path, const ftk::Shot& shot) {
@@ -146,10 +199,10 @@ int run(const Request& request) {
     ftk::AppWindow& app = **made;
     Pages pages(request.page);
     const auto draw = [&](float width, float height) { pages.draw(width, height); };
-    std::optional<ftk::example::PrimitivesPage> primitives;
-    if (request.page == Page::primitives) primitives.emplace(app, staged / "fonts");
+    std::optional<CorePages> core_pages;
+    if (on_core(request.page)) core_pages.emplace(app, staged / "fonts", request.page);
     const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) {
-        if (primitives) primitives->draw(context, size);
+        if (core_pages) core_pages->draw(context, size);
     };
 
     if (request.shot) {

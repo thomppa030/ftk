@@ -2,10 +2,6 @@
 
 #include "ftk/base/log.hpp"
 #include "ftk/gpu/upload.hpp"
-#include "ftk/text/face.hpp"
-#include "ftk/text/font_chain.hpp"
-#include "ftk/text/last_resort.hpp"
-#include "ftk/text/system_fallback.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -15,7 +11,6 @@
 #include <array>
 #include <cmath>
 #include <format>
-#include <memory>
 #include <numbers>
 #include <span>
 #include <string>
@@ -36,16 +31,11 @@ constexpr float PI = std::numbers::pi_v<float>;
 constexpr vec2 ORIGIN{32.0f, 88.0f};
 constexpr vec2 CARD{384.0f, 320.0f};
 constexpr float GAP = 24.0f;
-// Inside a card, below its title.
-constexpr vec2 INSET{20.0f, 52.0f};
 
-std::shared_ptr<const text::Face> load(const std::filesystem::path& fonts, const char* file) {
-    auto face = text::Face::load(fonts / file);
-    if (!face) {
-        FTK_CORE_ERROR("ftk example app: {}", face.error());
-        return nullptr;
-    }
-    return *face;
+// The card at column `column`, row `row`; returns where its content begins.
+vec2 card(Painter& p, int column, int row, std::string_view title) {
+    const vec2 min = ORIGIN + vec2{static_cast<float>(column), static_cast<float>(row)} * (CARD + GAP);
+    return p.card(min, min + CARD, title);
 }
 
 // A colour as the page's picture holds it: 8-bit sRGB values.
@@ -53,53 +43,6 @@ std::array<uint8_t, 4> bytes(ui::Color colour) {
     const auto byte = [](float c) { return static_cast<uint8_t>(std::lround(std::clamp(c, 0.0f, 1.0f) * 255.0f)); };
     return {byte(colour.r), byte(colour.g), byte(colour.b), byte(colour.a)};
 }
-
-class Painter {
-public:
-    Painter(core::Context& ui, core::FontId body, core::FontId bold, core::FontId mono)
-        : ui_(ui), dl_(ui.draw_list()), body_(body), bold_(bold), mono_(mono) {}
-
-    core::Context& ui() { return ui_; }
-    core::DrawList& dl() { return dl_; }
-    // The width of `line` in the body face at `size`.
-    float width(std::string_view line, float size) {
-        return ui_.text().measure(line, {.font = body_, .size = size}).x;
-    }
-
-    void text(vec2 at, std::string_view line, core::FontId font, float size, ui::Color colour) {
-        ui_.text().push_style({.font = font, .size = size});
-        dl_.text(at, colour, line);
-        ui_.text().pop_style();
-    }
-    void body(vec2 at, std::string_view line, float size = theme::BODY_TEXT, ui::Color colour = theme::text()) {
-        text(at, line, body_, size, colour);
-    }
-    void bold(vec2 at, std::string_view line, float size, ui::Color colour = theme::text()) {
-        text(at, line, bold_, size, colour);
-    }
-    void mono(vec2 at, std::string_view line, float size, ui::Color colour = theme::text_secondary()) {
-        text(at, line, mono_, size, colour);
-    }
-
-    // A card at column `column`, row `row`, with its title; returns where its
-    // content begins.
-    vec2 card(int column, int row, std::string_view title) {
-        const vec2 min = ORIGIN + vec2{static_cast<float>(column), static_cast<float>(row)} * (CARD + GAP);
-        const vec2 max = min + CARD;
-        dl_.shadow(min + vec2{0.0f, 6.0f}, max + vec2{0.0f, 6.0f}, theme::backdrop(), 12.0f, 10.0f);
-        dl_.rect_filled(min, max, theme::surface_raised(), 12.0f);
-        dl_.rect(min, max, theme::border(), 12.0f);
-        bold(min + vec2{20.0f, 18.0f}, title, theme::BODY_TEXT, theme::text_secondary());
-        return min + INSET;
-    }
-
-private:
-    core::Context& ui_;
-    core::DrawList& dl_;
-    core::FontId body_;
-    core::FontId bold_;
-    core::FontId mono_;
-};
 
 void rectangles(Painter& p, vec2 at, std::size_t& chip) {
     core::DrawList& dl = p.dl();
@@ -132,8 +75,11 @@ void rectangles(Painter& p, vec2 at, std::size_t& chip) {
         if (in.clicked) chip = h;
         if (in.hovered) ui.set_cursor_shape(ui::MouseCursor::Hand);
         dl.rect_filled(min, max, theme::hue(static_cast<theme::Hue>(h)), 6.0f);
-        if (h == chip) dl.rect(min - 3.0f, max + 3.0f, theme::accent(), 8.0f, RoundCorners::All, 2.0f);
-        else if (in.hovered) dl.rect(min - 3.0f, max + 3.0f, theme::text_secondary(), 8.0f, RoundCorners::All, 1.0f);
+        if (h == chip) {
+            dl.rect(min - 3.0f, max + 3.0f, theme::accent(), 8.0f, RoundCorners::All, 2.0f);
+        } else if (in.hovered) {
+            dl.rect(min - 3.0f, max + 3.0f, theme::text_secondary(), 8.0f, RoundCorners::All, 1.0f);
+        }
     }
     // Hairlines on whole and half units: crisp, and evenly soft.
     for (int i = 0; i < 8; ++i) {
@@ -211,63 +157,11 @@ void shapes_and_pictures(Painter& p, vec2 at, ui::Texture picture) {
            theme::text_secondary());
 }
 
-// A box that takes the keyboard when pressed: what is typed, the input
-// method's composing underlined after it, a blinking caret, Backspace,
-// Ctrl C and Ctrl V, and Escape to let the keyboard go.
-void text_box(Painter& p, vec2 at, std::string& typed, double& caret_since) {
-    core::Context& ui = p.ui();
-    core::DrawList& dl = p.dl();
-    const core::Rect box{.min = at, .max = at + vec2{344.0f, 30.0f}};
-    const ui::Id id = ui.id("##type here");
-    const core::Interaction in = ui.interact(id, box);
-    const core::Focus focus = ui.focusable(id, {.text = true});
-    if (in.hovered) ui.set_cursor_shape(ui::MouseCursor::Text);
-    if (focus.focused) {
-        const std::size_t before = typed.size();
-        typed += ui.typed();
-        if (ui.key_repeated(ui::Key::Backspace) && !typed.empty()) {
-            // The last character, however many bytes it takes.
-            std::size_t cut = typed.size() - 1;
-            while (cut > 0 && (static_cast<unsigned char>(typed[cut]) & 0xC0) == 0x80) --cut;
-            typed.erase(cut);
-        }
-        if (ui.modifiers().ctrl && ui.key_pressed(ui::Key::V)) typed += ui.clipboard();
-        if (ui.modifiers().ctrl && ui.key_pressed(ui::Key::C)) ui.set_clipboard(typed);
-        if (ui.key_pressed(ui::Key::Escape)) ui.clear_focus();
-        if (focus.gained || typed.size() != before) caret_since = ui.time();
-    }
-
-    dl.rect_filled(box.min, box.max, theme::surface_inset(), 6.0f);
-    dl.rect(box.min, box.max, focus.focused ? theme::accent() : theme::border(), 6.0f, RoundCorners::All,
-            focus.focused ? 1.5f : 1.0f);
-    constexpr float SIZE = theme::BODY_TEXT;
-    const vec2 text_at = box.min + vec2{10.0f, 7.0f};
-    const std::string_view composing = ui.composition();
-    if (typed.empty() && composing.empty() && !focus.focused) {
-        p.body(text_at, "Click, then type; Ctrl C and Ctrl V copy and paste", SIZE, theme::text_disabled());
-        return;
-    }
-    p.body(text_at, typed, SIZE);
-    float caret = text_at.x + p.width(typed, SIZE);
-    if (focus.focused && !composing.empty()) {
-        const float wide = p.width(composing, SIZE);
-        p.body({caret, text_at.y}, composing, SIZE, theme::accent_bright());
-        dl.line({caret, box.max.y - 7.0f}, {caret + wide, box.max.y - 7.0f}, theme::accent_bright(), 1.0f);
-        caret += p.width(composing.substr(0, static_cast<std::size_t>(ui.composition_cursor())), SIZE);
-    }
-    if (!focus.focused) return;
-    ui.set_text_input_area({.min = {caret, box.min.y}, .max = {caret + 1.0f, box.max.y}});
-    // Shown for half a second, hidden for half: the next change is a deadline.
-    const double since = ui.time() - caret_since;
-    if (std::fmod(since, 1.0) < 0.5) dl.rect_filled({caret, box.min.y + 6.0f}, {caret + 1.0f, box.max.y - 6.0f}, theme::text());
-    ui.request_frame_at(caret_since + (std::floor(since / 0.5) + 1.0) * 0.5);
-}
-
-void words(Painter& p, vec2 at, std::string& typed, double& caret_since) {
+void words(Painter& p, vec2 at, TextBox& box) {
     float y = at.y;
     const float sizes[] = {11.0f, 13.0f, 14.0f, 16.0f, 20.0f};
     for (const float size : sizes) {
-        p.body({at.x, y}, "Hamburgefonstiv 0123456789", size);
+        p.body({at.x, y}, "Hamburgefonstiv 0123456789", size, theme::text());
         y += size * 1.5f;
     }
     p.bold({at.x, y}, "Bold at 28", 28.0f);
@@ -275,9 +169,9 @@ void words(Painter& p, vec2 at, std::string& typed, double& caret_since) {
     // Icons from lucide sit in the line; Japanese comes from the system.
     const std::string icons = std::string(ui::icon::save) + " Save   " + ui::icon::remove +
                               " Delete   \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e";
-    p.body({at.x, y}, icons, 16.0f);
+    p.body({at.x, y}, icons, 16.0f, theme::text());
     y += 32.0f;
-    text_box(p, {at.x, y}, typed, caret_since);
+    text_box(p, "##type here", {at.x, y}, 344.0f, box, "Click, then type; Ctrl C and Ctrl V copy and paste");
 }
 
 void clips_and_shadows(Painter& p, vec2 at, vec2& dot, vec2& grab) {
@@ -310,21 +204,33 @@ void clips_and_shadows(Painter& p, vec2 at, vec2& dot, vec2& grab) {
     }
 }
 
+// Every pointer the frame knows, and the frames drawn: none while nothing
+// happens, as the loop sleeps.
+void pointers(Painter& p, vec2 at) {
+    core::Context& ui = p.ui();
+    std::string line = std::format("frame {}", ui.frame());
+    for (std::size_t i = 0; i < ui.pointer_count(); ++i) {
+        const core::Pointer& pointer = ui.pointer(i);
+        if (!pointer.present) continue;
+        const char* kind = "finger";
+        if (pointer.type == core::PointerType::Mouse) kind = "mouse";
+        if (pointer.type == core::PointerType::Pen) kind = "pen";
+        line += std::format("    {} {:.0f}, {:.0f}", kind, pointer.now.position.x, pointer.now.position.y);
+        if (pointer.type != core::PointerType::Mouse) line += std::format(" pressure {:.2f}", pointer.now.pressure);
+        if (pointer.type == core::PointerType::Pen) {
+            line += std::format(" tilt {:.2f}, {:.2f}{}", pointer.now.tilt.x, pointer.now.tilt.y,
+                                pointer.eraser ? " eraser" : "");
+        }
+        if (pointer.buttons != 0) line += " down";
+    }
+    p.mono(at, line, theme::SMALL_TEXT);
+}
+
 } // namespace
 
-PrimitivesPage::PrimitivesPage(AppWindow& app, const std::filesystem::path& fonts) {
-    core::TextSystem& text = app.ui().text();
-    const auto system = std::make_shared<text::SystemFallback>("ja");
-    const auto resort = text::last_resort();
-    text::FontChain body({load(fonts, "Inter-Regular.ttf")}, system, resort);
-    body.claim(load(fonts, "lucide.ttf"), 0xE042, 0xE685);
-    body_ = text.add_font(std::move(body));
-    bold_ = text.add_font(text::FontChain({load(fonts, "Inter-Bold.ttf")}, system, resort));
-    mono_ = text.add_font(text::FontChain({load(fonts, "JetBrainsMono-Regular.ttf")}, system, resort));
-    text.set_default_style({.font = body_, .size = theme::BODY_TEXT});
-
-    // A picture: a checker of two of the theme's surfaces, washed with a
-    // ramp of two hues from corner to corner.
+PrimitivesPage::PrimitivesPage(AppWindow& app, Fonts fonts) : fonts_(fonts) {
+    // A picture: a checker of two shades, washed with a ramp of two hues
+    // from corner to corner.
     constexpr uint32_t SIZE = 128;
     std::vector<uint8_t> pixels(static_cast<std::size_t>(SIZE) * SIZE * 4);
     const ui::Color from = theme::hue(theme::Hue::teal);
@@ -357,37 +263,17 @@ PrimitivesPage::PrimitivesPage(AppWindow& app, const std::filesystem::path& font
 }
 
 void PrimitivesPage::draw(core::Context& ui, glm::vec2 size) {
-    core::DrawList& dl = ui.draw_list();
-    dl.rect_filled({0.0f, 0.0f}, size, theme::surface_base());
-    Painter p(ui, body_, bold_, mono_);
+    Painter p(ui, fonts_);
     p.bold({32.0f, 24.0f}, "Primitives", 24.0f);
     p.body({32.0f, 58.0f}, "Every shape the UI core draws, its distance worked out on the GPU", theme::SMALL_TEXT,
            theme::text_secondary());
-    rectangles(p, p.card(0, 0, "Rectangles"), chip_);
-    circles(p, p.card(1, 0, "Circles and arcs"));
-    lines(p, p.card(2, 0, "Lines and curves"));
-    shapes_and_pictures(p, p.card(0, 1, "Triangles, quads and pictures"), picture_);
-    words(p, p.card(1, 1, "Text"), typed_, caret_since_);
-    clips_and_shadows(p, p.card(2, 1, "Clips and shadows"), dot_, grab_);
-
-    // Every pointer the frame knows, and the frames drawn: none while
-    // nothing happens, as the loop sleeps.
-    std::string line = std::format("frame {}", ui.frame());
-    for (std::size_t i = 0; i < ui.pointer_count(); ++i) {
-        const core::Pointer& pointer = ui.pointer(i);
-        if (!pointer.present) continue;
-        const char* kind = pointer.type == core::PointerType::Mouse ? "mouse"
-                           : pointer.type == core::PointerType::Pen ? "pen"
-                                                                    : "finger";
-        line += std::format("    {} {:.0f}, {:.0f}", kind, pointer.now.position.x, pointer.now.position.y);
-        if (pointer.type != core::PointerType::Mouse) line += std::format(" pressure {:.2f}", pointer.now.pressure);
-        if (pointer.type == core::PointerType::Pen) {
-            line += std::format(" tilt {:.2f}, {:.2f}{}", pointer.now.tilt.x, pointer.now.tilt.y,
-                                pointer.eraser ? " eraser" : "");
-        }
-        if (pointer.buttons != 0) line += " down";
-    }
-    p.mono({32.0f, size.y - 32.0f}, line, theme::SMALL_TEXT);
+    rectangles(p, card(p, 0, 0, "Rectangles"), chip_);
+    circles(p, card(p, 1, 0, "Circles and arcs"));
+    lines(p, card(p, 2, 0, "Lines and curves"));
+    shapes_and_pictures(p, card(p, 0, 1, "Triangles, quads and pictures"), picture_);
+    words(p, card(p, 1, 1, "Text"), box_);
+    clips_and_shadows(p, card(p, 2, 1, "Clips and shadows"), dot_, grab_);
+    pointers(p, {32.0f, size.y - 32.0f});
 }
 
 } // namespace ftk::example

@@ -6,18 +6,16 @@
 // circles, rings and arcs, lines and curves, triangles and quads, pictures,
 // clips, and text at several sizes, with icons and a fallback script.
 
-#include "ftk/app/app_window.hpp"
+#include "painter.hpp"
 
-#include <filesystem>
-#include <string>
+#include "ftk/app/app_window.hpp"
 
 namespace ftk::example {
 
 class PrimitivesPage {
 public:
-    /// Adds the fonts in `fonts` to `app`'s UI core and makes the page's
-    /// picture.
-    PrimitivesPage(AppWindow& app, const std::filesystem::path& fonts);
+    /// Makes the page's picture through `app`'s device and renderer.
+    PrimitivesPage(AppWindow& app, Fonts fonts);
 
     /// The page, which in a window also answers the pointers and the keys:
     /// the hue chips can be picked, the clipped circle dragged, the box
@@ -25,17 +23,14 @@ public:
     void draw(ui::core::Context& ui, glm::vec2 size);
 
 private:
+    Fonts fonts_;
     ui::Texture picture_{};
     gpu::Owned<gpu::Texture> picture_texture_;
-    ui::core::FontId body_{0};
-    ui::core::FontId bold_{0};
-    ui::core::FontId mono_{0};
     // What the page's live parts keep.
     std::size_t chip_{0};
     glm::vec2 dot_{160.0f, 100.0f};
     glm::vec2 grab_{0.0f};
-    std::string typed_;
-    double caret_since_{0.0};
+    TextBox box_;
 };
 
 } // namespace ftk::example
