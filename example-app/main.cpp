@@ -16,6 +16,7 @@
 #include "kit_page.hpp"
 #include "painter.hpp"
 #include "primitives_page.hpp"
+#include "shell_page.hpp"
 #include "text_page.hpp"
 
 #include "ftk/app/app_window.hpp"
@@ -39,15 +40,18 @@
 namespace {
 
 /// The example app's pages. More arrive with the work that needs them.
-enum class Page { gallery, primitives, text, kit };
+enum class Page { gallery, primitives, text, kit, shell };
 
 struct PageName {
     Page page;
     std::string_view name;
 };
 
-constexpr std::array<PageName, 4> PAGES{
-    {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}, {Page::kit, "kit"}}};
+constexpr std::array<PageName, 5> PAGES{{{Page::gallery, "gallery"},
+                                         {Page::primitives, "primitives"},
+                                         {Page::text, "text"},
+                                         {Page::kit, "kit"},
+                                         {Page::shell, "shell"}}};
 
 /// Whether this build has the page: the gallery is both's, the rest the
 /// core's.
@@ -73,7 +77,8 @@ constexpr glm::uvec2 shot_size(Page page) {
     switch (page) {
     case Page::gallery: return {480, 5000};
     case Page::primitives:
-    case Page::text: return {1280, 800};
+    case Page::text:
+    case Page::shell: return {1280, 800};
     case Page::kit: return {1280, 2080};
     }
     return {1280, 800};
@@ -205,6 +210,8 @@ public:
             kit_.draw(size, TABS_BOTTOM);
         } else if (page_ == Page::gallery) {
             gallery_.draw_page(size.x, size.y);
+        } else if (page_ == Page::shell) {
+            shell_.draw(size, TABS_BOTTOM);
         } else {
             primitives_.draw(ui, size);
         }
@@ -218,9 +225,9 @@ private:
     void tabs(ftk::ui::core::Context& ui, glm::vec2 size) {
         namespace core = ftk::ui::core;
         ftk::example::Painter p(ui, fonts_);
-        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit, Page::gallery};
-        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit", "Gallery"};
-        constexpr int COUNT = 4;
+        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit, Page::gallery, Page::shell};
+        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit", "Gallery", "Shell"};
+        constexpr int COUNT = 5;
         constexpr float PAD = 14.0f;
         constexpr float GAP = 6.0f;
         float x = size.x - 32.0f + GAP;
@@ -247,6 +254,7 @@ private:
     ftk::example::TextPage text_;
     ftk::example::KitPage kit_;
     ftk::ui::KitGallery gallery_;
+    ftk::example::ShellPage shell_;
     Page page_;
     bool shot_;
 };

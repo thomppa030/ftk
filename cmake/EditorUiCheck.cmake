@@ -83,6 +83,9 @@ function(_ftk_scan_editor_ui base allowlist icons)
     set(offending_files "")
     foreach(root IN LISTS ARGN)
         cmake_path(ABSOLUTE_PATH root BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE dir)
+        # A root of "." comes out with a slash at its end: without it, the
+        # files found are spelled as the ICONS files are.
+        string(REGEX REPLACE "/$" "" dir "${dir}")
         file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
         foreach(source IN LISTS sources)
             file(RELATIVE_PATH rel "${base}" "${source}")
