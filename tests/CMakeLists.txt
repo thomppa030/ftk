@@ -14,21 +14,12 @@ FetchContent_MakeAvailable(Catch2)
 FetchContent_GetProperties(Catch2)
 
 # --- Unit tests ---
+# The kit's tests are ftk-kit-core-tests, below.
 add_executable(ftk-tests
-    test_asset_header.cpp
-    test_asset_tile.cpp
-    test_canvas.cpp
-    test_choices.cpp
     test_color_space.cpp
     test_command_group.cpp
-    test_component_block.cpp
-    test_curve_editor.cpp
     test_delegate.cpp
-    test_dialog.cpp
-    test_draw_list.cpp
     test_document_history.cpp
-    test_edit_record.cpp
-    test_fields.cpp
     test_frame_graph.cpp
     test_gpu_access.cpp
     test_gpu_binding.cpp
@@ -38,37 +29,19 @@ add_executable(ftk-tests
     test_gpu_shader.cpp
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
-    test_grouped_picker.cpp
     test_handle_pool.cpp
-    test_kit.cpp
-    test_kit_basics.cpp
-    test_kit_dock.cpp
-    test_kit_imgui.cpp
-    test_bit_strip.cpp
-    test_rail.cpp
-    test_list_editor.cpp
     test_log.cpp
-    test_menu.cpp
-    test_node_graph.cpp
-    test_pages.cpp
-    test_search.cpp
-    test_sections.cpp
     test_shader_compiler.cpp
     test_shader_diagnostic.cpp
-    test_slot.cpp
     test_small_vector.cpp
-    test_status_bar.cpp
-    test_table.cpp
     test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp
-    test_text_field.cpp
     test_text_line_break.cpp
     test_text_shape.cpp
     test_text_translate.cpp
     test_theme.cpp
     test_thread_pool.cpp
-    test_tree.cpp
     test_ui_core_draw.cpp
     test_ui_core_frame.cpp
     test_ui_core_gestures.cpp
@@ -86,7 +59,6 @@ add_executable(ftk-tests
 target_link_libraries(ftk-tests PRIVATE
     ftk::app
     ftk::framegraph
-    ftk::imgui-harness
     ftk::image
     ftk::math
     ftk::platform
@@ -94,6 +66,7 @@ target_link_libraries(ftk-tests PRIVATE
     ftk::text
     ftk::ui-core
     ftk::ui-harness
+    ftk::ui-kit
     Catch2::Catch2WithMain
 )
 # The Vulkan backend's own tests (test_vulkan_*.cpp) read its headers.
@@ -129,6 +102,7 @@ add_executable(ftk-kit-core-tests
     test_component_block.cpp
     test_curve_editor.cpp
     test_dialog.cpp
+    test_edit_record.cpp
     test_fields.cpp
     test_grouped_picker.cpp
     test_kit.cpp
@@ -149,7 +123,7 @@ add_executable(ftk-kit-core-tests
     test_text_field.cpp
     test_tree.cpp
 )
-target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::ui-harness Catch2::Catch2WithMain)
+target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)
 target_compile_definitions(ftk-kit-core-tests PRIVATE FTK_KIT_ON_CORE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
 ftk_target_defaults(ftk-kit-core-tests)
 catch_discover_tests(ftk-kit-core-tests TEST_PREFIX "core: ")
@@ -182,6 +156,7 @@ ftk_library_link_check(image)
 ftk_library_link_check(text)
 ftk_library_link_check(ui-core)
 ftk_library_link_check(ui-harness)
+ftk_library_link_check(kit-harness)
 ftk_library_link_check(ui-kit)
 ftk_library_link_check(app-ui)
 ftk_library_link_check(app-ui-imgui)

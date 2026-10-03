@@ -547,6 +547,18 @@ ftk_library(ui-harness
         PUBLIC ftk::ui-core
 )
 
+# ftk-kit-harness is that harness with the kit on it, given ftk's faces:
+# what a program's tests drive its editor UI with.
+ftk_library(kit-harness
+    SOURCES
+        ftk/test/kit_harness.cpp
+    HEADERS
+        ftk/test/kit_harness.hpp
+    LINKS
+        PUBLIC ftk::ui-harness ftk::app-ui ftk::ui-kit
+)
+target_compile_definitions(ftk-kit-harness PRIVATE FTK_KIT_HARNESS_FONTS="${PROJECT_SOURCE_DIR}/fonts")
+
 # ftk-imgui-harness runs Dear ImGui with no window and no renderer, so a
 # program's tests can drive its editor UI: set the UI, feed it input, step
 # frames.

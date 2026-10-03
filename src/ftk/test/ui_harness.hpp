@@ -85,6 +85,8 @@ public:
     void click_at(glm::vec2 at, ui::MouseButton button = ui::MouseButton::Left);
     /// Two clicks in quick succession.
     void double_click(const std::string& name);
+    /// The same at a point.
+    void double_click_at(glm::vec2 at);
     /// Moves to the centre of a marked item and rests there half a second.
     void hover(const std::string& name);
     /// Presses `button` at `from`, moves to `to` over a few frames and

@@ -196,7 +196,10 @@ void UiHarness::click_at(glm::vec2 at, ui::MouseButton button) {
 }
 
 void UiHarness::double_click(const std::string& name) {
-    const glm::vec2 at = rect(name).centre();
+    double_click_at(rect(name).centre());
+}
+
+void UiHarness::double_click_at(glm::vec2 at) {
     click_at(at);
     mouse(core::PointerEvent::Kind::Down, at);
     step();
