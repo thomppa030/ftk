@@ -68,6 +68,36 @@ TEST_CASE("Items go one under the other, or on the same line when asked", "[ui-c
     CHECK(layout.end_area() == glm::vec2{95.0f, 85.0f});
 }
 
+TEST_CASE("The layout tells whether an item goes on the line of the one before it", "[ui-core][layout]") {
+    core::Layout layout;
+    layout.begin_area({.min = {0.0f, 0.0f}, .max = {300.0f, 200.0f}});
+    CHECK_FALSE(layout.continues_line());
+    (void)layout.next({50.0f, 20.0f});
+    CHECK_FALSE(layout.last_continued_line());
+    CHECK_FALSE(layout.continues_line());
+
+    layout.same_line();
+    CHECK(layout.continues_line());
+    (void)layout.next({50.0f, 20.0f});
+    CHECK(layout.last_continued_line());
+    CHECK_FALSE(layout.continues_line());
+
+    // A group begun on the line: its first item is on it too.
+    layout.same_line();
+    layout.begin_group();
+    CHECK(layout.continues_line());
+    (void)layout.next({20.0f, 20.0f});
+    CHECK(layout.last_continued_line());
+    CHECK_FALSE(layout.continues_line());
+    (void)layout.end_group();
+    CHECK(layout.last_continued_line());
+
+    layout.same_line();
+    layout.new_line();
+    CHECK_FALSE(layout.continues_line());
+    (void)layout.end_area();
+}
+
 TEST_CASE("A group is one item to what follows it", "[ui-core][layout]") {
     core::Layout layout;
     layout.begin_area({.min = {0.0f, 0.0f}, .max = {300.0f, 200.0f}});

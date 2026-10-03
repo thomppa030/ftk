@@ -297,6 +297,10 @@ public:
     std::vector<Style> styles{};
     Faces faces{};
     Item item{};
+    /// How far below its line's top text sits on the line of the item just
+    /// drawn: a field's padding once the line holds a field or was set
+    /// level with one, as ImGui keeps a line's text offset.
+    float line_drop{0.0f};
     NextItem next{};
     NextWindow next_window{};
     /// The colours text is drawn in, the innermost last; the theme's text
@@ -394,6 +398,10 @@ void draw_frame(core::Rect rect, const core::Interaction& in, bool active);
 core::Interaction place(Id id, core::Rect rect, core::Sense sense = {});
 /// Makes `rect` the item just drawn, one that takes nothing.
 void place_still(core::Rect rect);
+/// How far below its line's top text placed next sits: as far as the text
+/// of the line it continues, or a field's padding when asked to sit level
+/// with one; on a line of its own, at the top.
+[[nodiscard]] float line_text_drop();
 /// Keeps the item just drawn as a window, a popup or a tooltip begins, and
 /// makes it the item just drawn again as that ends.
 void keep_item();

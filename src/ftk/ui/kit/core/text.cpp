@@ -21,14 +21,12 @@ float wrap_width() {
 }
 
 // A line of text as an item, in `colour`. Asked to sit level with a field,
-// its line is a field's height and its text where a field's text would be;
-// the item is the text itself, as ImGui's is.
+// or on a line that holds one, its line is a field's height and its text
+// where a field's text would be; the item is the text itself, as ImGui's is.
 void text_item(std::string_view text, Color colour) {
-    Kit& k = kit();
-    const bool on_frame = k.next.text_on_frame;
     const float wrap = wrap_width();
     const glm::vec2 size = measure(text, wrap);
-    const float drop = on_frame ? k.style.frame_padding.y : 0.0f;
+    const float drop = line_text_drop();
     const core::Rect line = ui().layout().next({size.x, size.y + drop * 2.0f});
     const core::Rect rect{.min = {line.min.x, line.min.y + drop}, .max = {line.max.x, line.min.y + drop + size.y}};
     draw_text(rect.min, colour, text, wrap);

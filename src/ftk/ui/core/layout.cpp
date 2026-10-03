@@ -9,6 +9,7 @@ namespace ftk::ui::core {
 void Layout::reset() {
     scopes_.clear();
     last_item_ = {};
+    last_continued_line_ = false;
 }
 
 void Layout::begin_area(Rect bounds, glm::vec2 scroll) {
@@ -66,6 +67,7 @@ Layout::Position Layout::position(const Scope& scope, const glm::vec2* size) con
 
 void Layout::commit(Scope& scope, Rect rect, bool continues_line) {
     last_item_ = rect;
+    last_continued_line_ = continues_line;
     scope.extent = scope.has_items ? scope.extent.merge(rect) : rect;
     scope.has_items = true;
     if (scope.kind != Kind::Container || scope.options.wrap) {
@@ -89,9 +91,12 @@ void Layout::commit(Scope& scope, Rect rect, bool continues_line) {
 
 Rect Layout::next(glm::vec2 size) {
     Scope& scope = top();
+    const bool opens_group_on_line = !scope.has_items && scope.kind == Kind::Group && scope.continues_line;
     const Position at = position(scope, &size);
     const Rect rect{.min = at.at, .max = at.at + size};
     commit(scope, rect, at.continues_line);
+    // The first item of a group begun on a line is on that line too.
+    if (opens_group_on_line) last_continued_line_ = true;
     return rect;
 }
 
@@ -100,6 +105,12 @@ void Layout::same_line(float gap) {
     if (scope.kind == Kind::Container) return;  // a container places its own
     scope.same_line = true;
     scope.same_line_gap = gap < 0.0f ? style_.item_spacing.x : gap;
+}
+
+bool Layout::continues_line() const {
+    const Scope& scope = top();
+    if (!scope.has_items) return scope.kind == Kind::Group && scope.continues_line;
+    return position(scope, nullptr).continues_line;
 }
 
 void Layout::new_line() {

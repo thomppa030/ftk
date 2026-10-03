@@ -36,13 +36,9 @@ void detail::draw_highlighted(DrawList list, glm::vec2 pos, std::string_view tex
 }
 
 void highlighted_text(std::string_view text, std::string_view query, bool dimmed) {
-    const Kit& k = kit();
     glm::vec2 size = measure(text);
-    float drop = 0.0f;
-    if (k.next.text_on_frame) {
-        drop = k.style.frame_padding.y;
-        size.y += 2.0f * drop;
-    }
+    const float drop = line_text_drop();
+    size.y += 2.0f * drop;
     const core::Rect rect = ui().layout().next(size);
     place_still(rect);
     // A dimmed parent has no match of its own to mark.

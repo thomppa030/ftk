@@ -6,6 +6,7 @@
 #include "ftk/text/last_resort.hpp"
 #include "ftk/text/system_fallback.hpp"
 #include "ftk/ui/core_kit.hpp"
+#include "ftk/ui/kit/layout.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -114,10 +115,30 @@ float item_width() {
     return std::max(std::floor(layout.area().width() * k.style.item_width_share), 1.0f);
 }
 
+float line_text_drop() {
+    const Kit& k = kit();
+    float drop = ui().layout().continues_line() ? k.line_drop : 0.0f;
+    if (k.next.text_on_frame) drop = std::max(drop, k.style.frame_padding.y);
+    return drop;
+}
+
+namespace {
+
+// The text drop of the line the item just taken from the layout is on: the
+// line's so far when it went on after another, with its own; `field` for an
+// item a field's height, whose text is a field's.
+void keep_line_drop(Kit& k, bool field) {
+    const float own = k.next.text_on_frame || field ? k.style.frame_padding.y : 0.0f;
+    k.line_drop = ui().layout().last_continued_line() ? std::max(k.line_drop, own) : own;
+}
+
+} // namespace
+
 core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
     Kit& k = kit();
     sense.beneath = true;
     sense.overlap = k.next.allow_overlap;
+    keep_line_drop(k, std::abs(rect.height() - frame_height()) < 0.5f);
     k.next = {};
     const core::Interaction in = ui().interact(id, rect, sense);
     k.item = {.id = id, .rect = rect, .takes = true, .in = in};
@@ -126,6 +147,7 @@ core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
 
 void place_still(core::Rect rect) {
     Kit& k = kit();
+    keep_line_drop(k, false);
     k.next = {};
     k.item = {.id = 0, .rect = rect, .takes = false};
 }
@@ -278,10 +300,11 @@ bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory) {
     const auto resort = text::last_resort();
     // Each face draws lucide's icons, as ImGui's fonts have them merged in:
     // the text faces have glyphs of their own where lucide puts its icons.
+    // Centred on the text's middle, where ImGui nudges them down by hand.
     const auto icons = face(directory, {"lucide.ttf"});
     const auto chain = [&](std::shared_ptr<const text::Face> primary) {
         text::FontChain made({primary != nullptr ? std::move(primary) : body}, lib.system, resort);
-        if (icons) made.claim(icons, 0xE042, 0xE685);
+        if (icons) made.claim(icons, 0xE042, 0xE685, text::ClaimSeat::Centred);
         return made;
     };
 

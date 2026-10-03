@@ -89,6 +89,11 @@ public:
     /// The next item goes on the same line as the last, `gap` after it;
     /// below zero, the item spacing.
     void same_line(float gap = -1.0f);
+    /// The next item goes on the line of the item before it: after it, as
+    /// same_line() asked, or first in a group begun on its line.
+    [[nodiscard]] bool continues_line() const;
+    /// The last item placed went on the line of the one before it.
+    [[nodiscard]] bool last_continued_line() const { return last_continued_line_; }
     /// Ends the line, or leaves an empty one when nothing is on it yet.
     void new_line();
     /// A little room under the last item; below zero, the item spacing.
@@ -185,6 +190,7 @@ private:
     LayoutStyle style_{};
     std::vector<Scope> scopes_;
     Rect last_item_{};
+    bool last_continued_line_{false};
 };
 
 } // namespace ftk::ui::core

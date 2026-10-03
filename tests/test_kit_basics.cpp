@@ -100,6 +100,40 @@ TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
     CHECK(ui::frame_height() > ui::line_height());
 }
 
+TEST_CASE("Text on a line with a field, or set level with one, sits where a field's text does", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 button{};
+    glm::vec2 after_button{};
+    glm::vec2 line{};
+    glm::vec2 level{};
+    glm::vec2 after_level{};
+    glm::vec2 own_line{};
+    glm::vec2 own_text{};
+    h.set_ui([&] {
+        (void)ui::button("Save");
+        button = ui::item_min();
+        ui::same_line();
+        ui::text("after a button");
+        after_button = ui::item_min();
+        line = ui::cursor();
+        ui::align_text_to_frame();
+        ui::text("set level");
+        level = ui::item_min();
+        ui::same_line();
+        ui::text("after it");
+        after_level = ui::item_min();
+        own_line = ui::cursor();
+        ui::text("a line of its own");
+        own_text = ui::item_min();
+    });
+    h.step(2);
+    const float drop = ui::frame_padding().y;
+    CHECK(after_button.y == button.y + drop);
+    CHECK(level.y == line.y + drop);
+    CHECK(after_level.y == level.y);
+    CHECK(own_text.y == own_line.y);
+}
+
 TEST_CASE("A hit area answers to the buttons it is given", "[ui][kit]") {
     KitHarness h;
     int left = 0;

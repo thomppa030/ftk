@@ -11,10 +11,20 @@
 #include "ftk/text/face.hpp"
 #include "ftk/text/system_fallback.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 namespace ftk::text {
+
+/// How the glyphs of a claimed face sit on the line.
+enum class ClaimSeat : uint8_t {
+    /// On the baseline, as text's do.
+    Baseline,
+    /// Their face's middle on the primary face's, as icons sit: an icon
+    /// font draws in the em above its baseline, higher than text's middle.
+    Centred,
+};
 
 class FontChain {
 public:
@@ -28,8 +38,10 @@ public:
 
     /// Gives `face` the codepoints `first` to `last`, ahead of every other
     /// face: an icon font's private-use range, which a text face may use
-    /// for glyphs of its own (Inter has some 700 there).
-    FontChain& claim(std::shared_ptr<const Face> face, char32_t first, char32_t last);
+    /// for glyphs of its own (Inter has some 700 there). Its glyphs sit as
+    /// `seat` says.
+    FontChain& claim(std::shared_ptr<const Face> face, char32_t first, char32_t last,
+                     ClaimSeat seat = ClaimSeat::Baseline);
 
     [[nodiscard]] const std::vector<std::shared_ptr<const Face>>& faces() const { return faces_; }
     [[nodiscard]] bool empty() const { return faces_.empty(); }
@@ -42,6 +54,11 @@ public:
     /// The face that claims `codepoint`, or null when none does.
     [[nodiscard]] const Face* claimant(char32_t codepoint) const;
 
+    /// How far below the baseline the glyphs of `face` sit at `size`: for a
+    /// face claimed centred, from its middle down to the primary face's;
+    /// zero for any other.
+    [[nodiscard]] float drop(const Face& face, float size) const;
+
     /// The face of last resort, or null when the chain has none.
     [[nodiscard]] const Face* last_resort() const { return last_resort_.get(); }
 
@@ -53,6 +70,7 @@ private:
         std::shared_ptr<const Face> face;
         char32_t first;
         char32_t last;
+        ClaimSeat seat;
     };
 
     std::vector<std::shared_ptr<const Face>> faces_;

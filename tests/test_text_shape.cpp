@@ -91,6 +91,29 @@ TEST_CASE("A face that claims a range draws it ahead of a face that has it too",
     const text::ShapedText shaped = text::shape("A\xee\x88\xa5", chain, 16.0f);
     REQUIRE(shaped.glyphs.size() == 2);
     CHECK(shaped.glyphs[1].face == icons.get());
+    // On the baseline, as claimed.
+    CHECK(shaped.glyphs[1].offset.y == 0.0f);
+}
+
+TEST_CASE("An icon face claimed centred sits with its middle on the text's", "[text]") {
+    const auto inter = load("Inter-Regular.ttf");
+    const auto icons = load("lucide.ttf");
+    text::FontChain chain({inter});
+    chain.claim(icons, 0xE042, 0xE685, text::ClaimSeat::Centred);
+    const auto middle = [](const text::Face& face) {
+        const text::Metrics m = face.metrics(16.0f);
+        return (m.ascent - m.descent) * 0.5f;
+    };
+    // Lucide draws in the em above its baseline, higher than Inter's middle.
+    const float drop = middle(*icons) - middle(*inter);
+    CHECK(drop > 1.0f);
+    CHECK(chain.drop(*icons, 16.0f) == drop);
+    CHECK(chain.drop(*inter, 16.0f) == 0.0f);
+
+    const text::ShapedText shaped = text::shape("A\xee\x88\xa5", chain, 16.0f);
+    REQUIRE(shaped.glyphs.size() == 2);
+    CHECK(shaped.glyphs[0].offset.y == 0.0f);
+    CHECK(shaped.glyphs[1].offset.y == drop);
 }
 
 TEST_CASE("A combining mark is shaped with its letter", "[text]") {
