@@ -1,5 +1,6 @@
 #include "ftk/ui/kit/gallery.hpp"
 
+#include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
@@ -9,28 +10,38 @@
 #include "ftk/ui/kit/grouped_picker.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/slot.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/tree.hpp"
+#include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
-
-#include <imgui.h>
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+// Written on the kit alone, so it draws on either implementation: the ImGui
+// kit's library builds it, and the core's example app builds the same file
+// until the ImGui kit goes (Phase 9 of the UI core plan).
 
 namespace ftk::ui {
 
@@ -47,10 +58,10 @@ constexpr std::array<std::string_view, 6> SAMPLE_ASSETS{
 // fixed list. Returns true when `value` changed.
 bool sample_slot(const char* id, std::string& value, std::string_view extension) {
     bool changed = false;
-    ImGui::PushID(id);
+    IdScope scope(id);
     Slot slot(nullptr, {});
     if (slot.clicked()) grouped_picker::open(id);
-    if (slot.hovered() && !value.empty()) ImGui::SetItemTooltip("%s", value.c_str());
+    if (slot.hovered() && !value.empty()) item_tooltip(value);
 
     if (grouped_picker::is_open(id)) {
         std::array<grouped_picker::Group, 1> groups;
@@ -77,36 +88,27 @@ bool sample_slot(const char* id, std::string& value, std::string_view extension)
         value.clear();
         changed = true;
     }
-    ImGui::PopID();
     return changed;
 }
 
 // One colour token: a swatch, its name and its value.
-void swatch(const char* name, const ImVec4& colour) {
-    const float side = ImGui::GetFrameHeight();
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    auto* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, {p.x + side * 1.5f, p.y + side},
-                      ImGui::ColorConvertFloat4ToU32(colour), 3.0f);
-    dl->AddRect(p, {p.x + side * 1.5f, p.y + side},
-                ImGui::ColorConvertFloat4ToU32(theme::border()), 3.0f);
-    ImGui::Dummy({side * 1.5f, side});
-    ImGui::SameLine(0.0f, theme::GAP_M);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(name);
-    ImGui::SameLine(0.0f, theme::GAP_M);
-    char value[24];
-    std::snprintf(value, sizeof(value), "#%02X%02X%02X",
-                  static_cast<int>(colour.x * 255.0f + 0.5f),
-                  static_cast<int>(colour.y * 255.0f + 0.5f),
-                  static_cast<int>(colour.z * 255.0f + 0.5f));
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
-    ImGui::TextUnformatted(value);
-    if (colour.w < 1.0f) {
-        ImGui::SameLine();
-        ImGui::Text("@ %d %%", static_cast<int>(colour.w * 100.0f + 0.5f));
+void swatch(const char* name, Color colour) {
+    const float side = frame_height();
+    const glm::vec2 p = cursor();
+    DrawList dl = DrawList::window();
+    dl.rect_filled(p, {p.x + side * 1.5f, p.y + side}, colour, 3.0f);
+    dl.rect(p, {p.x + side * 1.5f, p.y + side}, theme::border(), 3.0f);
+    reserve({side * 1.5f, side});
+    same_line(theme::GAP_M);
+    align_text_to_frame();
+    text(name);
+    same_line(theme::GAP_M);
+    const auto byte = [](float channel) { return static_cast<int>(channel * 255.0f + 0.5f); };
+    text(std::format("#{:02X}{:02X}{:02X}", byte(colour.r), byte(colour.g), byte(colour.b)), theme::text_secondary());
+    if (colour.a < 1.0f) {
+        same_line();
+        text(std::format("@ {} %", static_cast<int>(colour.a * 100.0f + 0.5f)), theme::text_secondary());
     }
-    ImGui::PopStyleColor();
 }
 
 void tokens() {
@@ -164,11 +166,11 @@ void tokens() {
 void headings() {
     if (section_foldable("Headings", ICON_LC_MORE_HORIZONTAL)) {
         section("Section", icon::search);
-        ImGui::TextUnformatted("A part of the panel, with a rule and its own icon.");
+        text("A part of the panel, with a rule and its own icon.");
         subheading("Sub-heading");
-        ImGui::TextUnformatted("A named group inside a section or component.");
+        text("A named group inside a section or component.");
         if (subheading_foldable("Foldable sub-heading")) {
-            ImGui::TextUnformatted("Folds with the chevron on the left.");
+            text("Folds with the chevron on the left.");
         }
     }
 }
@@ -184,44 +186,39 @@ void KitGallery::buttons() {
         };
         for (bool disabled : {false, true}) {
             subheading(disabled ? "Disabled" : "Kinds");
-            ImGui::BeginDisabled(disabled);
+            Disabled scope(disabled);
             bool first = true;
             for (const auto& [name, kind] : kinds) {
-                if (!first) ImGui::SameLine();
+                if (!first) same_line();
                 first = false;
                 button(name, kind);
             }
-            ImGui::EndDisabled();
         }
 
         subheading("Icon buttons");
         icon_button("add", icon::add, "Add");
-        ImGui::SameLine();
+        same_line();
         icon_button("browse", ICON_LC_FOLDER_OPEN, "Browse");
-        ImGui::SameLine();
+        same_line();
         icon_button("use_selected", ICON_LC_CROSSHAIR, "Use selected");
-        ImGui::SameLine();
+        same_line();
         icon_button("clear", icon::clear, "Clear");
-        ImGui::SameLine();
+        same_line();
         icon_button("remove", icon::remove, "Remove (undoable)", ButtonKind::GhostDanger);
 
         subheading("Toggles");
         if (toggle_button("snap", ICON_LC_MAGNET, snap_, "Snap to grid")) snap_ = !snap_;
-        ImGui::SameLine();
+        same_line();
         if (toggle_button("grid", ICON_LC_GRID_3X3, grid_, "Show grid")) grid_ = !grid_;
-        ImGui::SameLine();
+        same_line();
         if (toggle("Paint", paint_, "A text toggle")) paint_ = !paint_;
     }
 }
 
 void KitGallery::rows() {
     if (section_foldable("Rows", ICON_LC_MORE_HORIZONTAL)) {
-        char width[64];
-        std::snprintf(width, sizeof(width), "Label column at this width: %.0f px",
-                      theme::label_column(ImGui::GetContentRegionAvail().x));
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_secondary());
-        ImGui::TextUnformatted(width);
-        ImGui::PopStyleColor();
+        text(std::format("Label column at this width: {:.0f} px", theme::label_column(space_left().x)),
+             theme::text_secondary());
 
         if (auto t = PropertyTable("##gallery_rows")) {
             row("Name", [&] { text_field("##name", name_); });
@@ -265,9 +262,7 @@ void KitGallery::fields() {
         }
         edit |= choices();
         if (edit.committed) ++commits_;
-        char count[48];
-        std::snprintf(count, sizeof(count), "Edits committed: %d", commits_);
-        hint(count);
+        hint(std::format("Edits committed: {}", commits_).c_str());
     }
 }
 
@@ -308,7 +303,7 @@ void KitGallery::blocks() {
             {"Audio Source", theme::Hue::orange},
         };
         for (const auto& [name, hue] : samples) {
-            ImGui::PushID(name);
+            IdScope scope(name);
             bool remove = false;
             if (component_block(name, hue, remove)) {
                 if (auto t = PropertyTable("##body")) {
@@ -331,7 +326,7 @@ void KitGallery::blocks() {
                         row("Size", [&] { vec3("##size", scale_); });
                         row("", [&] {
                             if (action(ICON_LC_CROSSHAIR, "Fit to mesh")) removed_ = "Fit to mesh";
-                            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+                            same_line(item_inner_spacing().x);
                             if (action(icon::remove, "Clear points", ButtonKind::GhostDanger)) {
                                 removed_ = "Clear points";
                             }
@@ -340,13 +335,8 @@ void KitGallery::blocks() {
                 }
             }
             if (remove) removed_ = name;
-            ImGui::PopID();
         }
-        if (removed_ != nullptr) {
-            char text[64];
-            std::snprintf(text, sizeof(text), "Last clicked: %s", removed_);
-            hint(text);
-        }
+        if (removed_ != nullptr) hint(std::format("Last clicked: {}", removed_).c_str());
     }
 }
 
@@ -400,8 +390,8 @@ void KitGallery::graphs() {
 
     subheading("By pins");
     {
-        const ImVec4 time_hue = theme::hue(theme::Hue::slate);
-        const ImVec4 float_colour = theme::hue(theme::Hue::blue);
+        const Color time_hue = theme::hue(theme::Hue::slate);
+        const Color float_colour = theme::hue(theme::Hue::blue);
         NodeGraphDesc desc;
         NodeRow time;
         time.output = NodePin{.id = 11, .label = "Seconds", .colour = float_colour};
@@ -427,10 +417,9 @@ void KitGallery::graphs() {
             // One link into an input.
             return std::none_of(pin_links_.begin(), pin_links_.end(), [&](const NodeLink& l) { return l.to == to; });
         };
-        if (ImGui::BeginChild("##pin_graph", {0.0f, 240.0f}, ImGuiChildFlags_Borders)) {
+        if (auto region = Region("##pin_graph", {0.0f, 240.0f}, {.border = true})) {
             apply(pin_graph_, pin_graph_.draw(desc, menu), pin_places_, pin_links_);
         }
-        ImGui::EndChild();
     }
 
     subheading("By edge");
@@ -453,10 +442,9 @@ void KitGallery::graphs() {
         }
         desc.links = state_links_;
         desc.start = NodeStart{.node = 1, .label = "Entry"};
-        if (ImGui::BeginChild("##edge_graph", {0.0f, 240.0f}, ImGuiChildFlags_Borders)) {
+        if (auto region = Region("##edge_graph", {0.0f, 240.0f}, {.border = true})) {
             apply(edge_graph_, edge_graph_.draw(desc, menu), state_places_, state_links_);
         }
-        ImGui::EndChild();
     }
 }
 
@@ -493,7 +481,7 @@ void KitGallery::tree_sample() {
         return own || below;
     };
 
-    if (tree_selected_ < count && ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_F2)) {
+    if (tree_selected_ < count && window_focused() && key_pressed(Key::F2)) {
         tree_rename_.start(static_cast<std::uint32_t>(tree_selected_), tree_names_[tree_selected_]);
     }
     if (auto tree = Tree("##gallery_tree")) {
@@ -524,31 +512,25 @@ void KitGallery::tree_sample() {
 void KitGallery::feedback() {
     if (section_foldable("Feedback", ICON_LC_MORE_HORIZONTAL)) {
         subheading("Menu");
-        if (button("Open menu")) ImGui::OpenPopup("##gallery_menu");
-        if (ImGui::BeginPopup("##gallery_menu")) {
+        if (button("Open menu")) open_popup("##gallery_menu");
+        if (auto menu = Popup("##gallery_menu")) {
             menu_item({.icon = ICON_LC_PENCIL, .label = "Rename", .shortcut = "F2"});
             menu_item({.icon = ICON_LC_COPY, .label = "Duplicate", .shortcut = "Ctrl D"});
             menu_item({.label = "Copy path"});
             menu_item({.icon = icon::add, .label = "Create material", .enabled = false,
                        .disabled_reason = "Needs a terrain asset first"});
-            ImGui::Separator();
+            separator();
             menu_item({.icon = icon::remove, .label = "Delete", .shortcut = "Del", .destructive = true});
-            ImGui::EndPopup();
         }
         subheading("Empty state");
-        if (ImGui::BeginChild("##empty", {0.0f, 180.0f}, ImGuiChildFlags_Borders)) {
+        if (auto region = Region("##empty", {0.0f, 180.0f}, {.border = true})) {
             if (empty_state(ICON_LC_MOUSE_POINTER_CLICK, "Nothing selected",
                             "Pick an object in the viewport or the hierarchy to edit it here",
                             "Select all")) {
                 ++empty_clicks_;
             }
         }
-        ImGui::EndChild();
-        if (empty_clicks_ > 0) {
-            char text[48];
-            std::snprintf(text, sizeof(text), "Action clicked %d times", empty_clicks_);
-            hint(text);
-        }
+        if (empty_clicks_ > 0) hint(std::format("Action clicked {} times", empty_clicks_).c_str());
     }
 }
 
@@ -565,15 +547,14 @@ void KitGallery::sections() {
 }
 
 void KitGallery::draw(bool* open) {
-    ImGui::SetNextWindowSize({420.0f, 640.0f}, ImGuiCond_FirstUseEver);
+    next_window_size_once({420.0f, 640.0f});
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", open)) {
         sections();
     }
 }
 
 void KitGallery::draw_page(float width, float height) {
-    ImGui::SetNextWindowPos({0.0f, 0.0f});
-    ImGui::SetNextWindowSize({width, height});
+    next_window_place({0.0f, 0.0f}, {width, height});
     const WindowOptions page{.title_bar = false, .resize = false, .move = false, .to_front = false,
                              .remembered = false};
     if (auto p = Panel(ICON_LC_PALETTE, "Kit Gallery", page)) {

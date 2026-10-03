@@ -1,9 +1,8 @@
 // ftk-example-app, ftk's own test program. Each page shows one thing ftk's UI
 // has to get right. It builds twice from this source: ftk-example-app on the
-// UI core, with the core's pages, and ftk-example-app-imgui on the kit's
-// ImGui implementation (FTK_EXAMPLE_APP_IMGUI), with the gallery of the kit.
-// The gallery comes to the core's build with the kit (Phase 6 of the UI core
-// plan).
+// UI core, with the core's pages and the kit's gallery, and
+// ftk-example-app-imgui on the kit's ImGui implementation
+// (FTK_EXAMPLE_APP_IMGUI), with the same gallery to hold the core's against.
 //
 //     ftk-example-app [--page <name>]              a page, the first by default
 //     ftk-example-app --shot <name> <file.png>     a page drawn off screen at a
@@ -21,6 +20,7 @@
 
 #include "ftk/app/app_window.hpp"
 #include "ftk/ui/core_kit.hpp"
+#include "ftk/ui/kit/gallery.hpp"
 #include "ftk/ui/theme.hpp"
 #endif
 
@@ -49,13 +49,14 @@ struct PageName {
 constexpr std::array<PageName, 4> PAGES{
     {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}, {Page::kit, "kit"}}};
 
-/// Whether this build has the page: the gallery is ImGui's, the rest the
+/// Whether this build has the page: the gallery is both's, the rest the
 /// core's.
 constexpr bool built_with(Page page) {
 #ifdef FTK_EXAMPLE_APP_IMGUI
     return page == Page::gallery;
 #else
-    return page != Page::gallery;
+    (void)page;
+    return true;
 #endif
 }
 
@@ -185,13 +186,14 @@ int run(const Request& request) {
 #else
 
 /// Draws the pages of the UI core, one at a time, with tabs at the top right
-/// that switch between them in the window.
+/// that switch between them in the window. A shot of the gallery is the
+/// gallery alone, as the ImGui build's is, to lay the two side by side.
 class CorePages {
 public:
-    CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page)
+    CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page, bool shot)
         : fonts_(ftk::example::add_fonts(app.ui().text(), fonts)), primitives_(app, fonts_), text_(fonts_),
-          page_(page) {
-        // The kit's own faces, for the Kit page.
+          page_(page), shot_(shot) {
+        // The kit's own faces, for the Kit page and the gallery.
         ftk::ui::use_kit_fonts(app.ui(), fonts);
     }
 
@@ -201,10 +203,12 @@ public:
             text_.draw(ui, size);
         } else if (page_ == Page::kit) {
             kit_.draw(size, TABS_BOTTOM);
+        } else if (page_ == Page::gallery) {
+            gallery_.draw_page(size.x, size.y);
         } else {
             primitives_.draw(ui, size);
         }
-        tabs(ui, size);
+        if (!shot_ || page_ != Page::gallery) tabs(ui, size);
     }
 
 private:
@@ -214,9 +218,9 @@ private:
     void tabs(ftk::ui::core::Context& ui, glm::vec2 size) {
         namespace core = ftk::ui::core;
         ftk::example::Painter p(ui, fonts_);
-        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit};
-        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit"};
-        constexpr int COUNT = 3;
+        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit, Page::gallery};
+        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit", "Gallery"};
+        constexpr int COUNT = 4;
         constexpr float PAD = 14.0f;
         constexpr float GAP = 6.0f;
         float x = size.x - 32.0f + GAP;
@@ -242,7 +246,9 @@ private:
     ftk::example::PrimitivesPage primitives_;
     ftk::example::TextPage text_;
     ftk::example::KitPage kit_;
+    ftk::ui::KitGallery gallery_;
     Page page_;
+    bool shot_;
 };
 
 int run(const Request& request) {
@@ -257,7 +263,7 @@ int run(const Request& request) {
         return EXIT_FAILURE;
     }
     ftk::AppWindow& app = **made;
-    CorePages pages(app, staged() / "fonts", request.page);
+    CorePages pages(app, staged() / "fonts", request.page, request.shot.has_value());
     const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) { pages.draw(context, size); };
 
     if (request.shot) {
