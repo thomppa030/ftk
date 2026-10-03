@@ -109,13 +109,23 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     const float width = std::max(space_left().x, 1.0f);
     const glm::vec2 max{min.x + width, min.y + row_height()};
     const bool renaming = spec.rename != nullptr && spec.rename->editing(spec.key);
+    const Id row_id = context.id("##row");
+
+    // Out of sight a row keeps its room and its open state, and draws
+    // nothing: a long tree costs what shows of it.
+    if (!renaming && can_skip_row(row_id, {.min = min, .max = max})) {
+        place_still(context.layout().next({width, row_height()}));
+        result.open = spec.has_children && (open || spec.force_open);
+        return result;
+    }
+    Kit& k = kit();
+    k.row_drawn = row_id;
 
     // The whole row is the click target. Only the rename field may sit over
     // it: allowing overlap otherwise would let something drawn behind the
     // tree take the row's mouse.
     if (renaming) next_item_allows_overlap();
     const core::Rect row = context.layout().next({width, row_height()});
-    const Id row_id = context.id("##row");
     const core::Interaction in = place(row_id, row);
     context.semantics(row_id, core::Role::TreeItem, spec.name, {},
                       {.selected = spec.selection != RowSelection::None, .expanded = open || spec.force_open});
@@ -201,8 +211,9 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     // field moved the cursor; the next row starts under this one.
     if (renaming) {
         set_cursor({min.x, max.y});
-        kit().item = {.id = row_id, .rect = row, .takes = true, .in = in};
+        k.item = {.id = row_id, .rect = row, .takes = true, .in = in};
     }
+    k.row_drawn = 0;
     result.open = spec.has_children && (open || spec.force_open);
     return result;
 }

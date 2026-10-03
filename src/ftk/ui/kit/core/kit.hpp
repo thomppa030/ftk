@@ -132,6 +132,17 @@ struct PropertyRows {
     float label_bottom{0.0f};
     float bottom{0.0f};
     bool in_row{false};
+    /// The row being drawn, by its label.
+    Id id{0};
+};
+
+/// The row, a property row or a tree row, that held what had a pointer or
+/// the keyboard: last frame's, which is drawn wherever it is, and this
+/// frame's so far.
+struct LiveRow {
+    uint64_t frame{0};
+    Id last{0};
+    Id now{0};
 };
 
 /// The search a RowFilter puts over the rows drawn while it lives.
@@ -361,6 +372,10 @@ public:
     PropertyRows rows{};
     RowSearch row_search{};
     RowMark row_mark{RowMark::None};
+    /// The row whose contents are being drawn, while they are; zero
+    /// outside a row.
+    Id row_drawn{0};
+    LiveRow live_row{};
     PickedColour picked{};
     EdgeBars bars{};
     /// The tab looks pushed, the innermost last; the theme's beneath them.
@@ -430,6 +445,15 @@ void draw_frame(core::Rect rect, const core::Interaction& in, bool active);
 core::Interaction place(Id id, core::Rect rect, core::Sense sense = {});
 /// Makes `rect` the item just drawn, one that takes nothing.
 void place_still(core::Rect rect);
+
+/// Whether `rect` lies wholly outside the clip, so nothing drawn in it shows.
+[[nodiscard]] bool out_of_clip(core::Rect rect);
+
+/// A row of a long list or table that may be skipped: wholly outside the
+/// clip, so nothing drawn in it shows, and not the row that held what had a
+/// pointer or the keyboard last frame, which goes on drawing what it holds
+/// wherever it is. A skipped row keeps its room and draws nothing.
+[[nodiscard]] bool can_skip_row(Id row, core::Rect rect);
 /// How far below its line's top text placed next sits: as far as the text
 /// of the line it continues, or a field's padding when asked to sit level
 /// with one; on a line of its own, at the top.

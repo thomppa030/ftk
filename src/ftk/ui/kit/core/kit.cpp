@@ -22,13 +22,36 @@ namespace corekit {
 namespace {
 
 Kit& kit_of(core::Context& context) {
-    if (auto* kept = dynamic_cast<Kit*>(context.extension())) return *kept;
+    // The last kit found, by the extension it is: every piece asks for the
+    // kit many times, and a cast each time was a long list's cost.
+    thread_local const core::Context::Extension* last = nullptr;
+    thread_local Kit* last_kit = nullptr;
+    const core::Context::Extension* extension = context.extension();
+    if (extension != nullptr && extension == last) return *last_kit;
+    if (auto* kept = dynamic_cast<Kit*>(context.extension())) {
+        last = extension;
+        last_kit = kept;
+        return *kept;
+    }
     auto made = std::make_unique<Kit>();
     Kit& kit = *made;
     context.set_extension(std::move(made));
+    last = context.extension();
+    last_kit = &kit;
     // Items as far apart as the kit's style has them.
     context.layout().set_style({.item_spacing = kit.style.item_spacing, .empty_line = theme::BODY_TEXT});
     return kit;
+}
+
+// The live rows, this frame's begun when the frame is.
+LiveRow& live_rows(Kit& k) {
+    const uint64_t frame = ui().frame();
+    if (k.live_row.frame != frame) {
+        k.live_row.last = k.live_row.now;
+        k.live_row.now = 0;
+        k.live_row.frame = frame;
+    }
+    return k.live_row;
 }
 
 } // namespace
@@ -142,6 +165,8 @@ core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
     k.next = {};
     const core::Interaction in = ui().interact(id, rect, sense);
     k.item = {.id = id, .rect = rect, .takes = true, .in = in};
+    // What a pointer holds or the keyboard is in keeps its row drawn.
+    if (k.row_drawn != 0 && (in.held || ui().focused() == id)) live_rows(k).now = k.row_drawn;
     return in;
 }
 
@@ -150,6 +175,18 @@ void place_still(core::Rect rect) {
     keep_line_drop(k, false);
     k.next = {};
     k.item = {.id = 0, .rect = rect, .takes = false};
+}
+
+bool out_of_clip(core::Rect rect) {
+    const core::DrawList& dl = ui().draw_list();
+    const glm::vec2 clip_min = dl.clip_min();
+    const glm::vec2 clip_max = dl.clip_max();
+    return rect.max.y <= clip_min.y || rect.min.y >= clip_max.y || rect.max.x <= clip_min.x ||
+           rect.min.x >= clip_max.x;
+}
+
+bool can_skip_row(Id row, core::Rect rect) {
+    return out_of_clip(rect) && live_rows(kit()).last != row;
 }
 
 void keep_item() {

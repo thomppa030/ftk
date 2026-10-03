@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/search.hpp"
+#include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 
@@ -46,13 +47,37 @@ void draw_mark(RowMark mark) {
     same_line(theme::GAP_S + theme::GAP_XS);
 }
 
+// Where a row's height is kept, the room it keeps while out of sight.
+Id height_id(Id row) {
+    return core::hash_label("##row_height", row);
+}
+
 // The row being drawn ends: the next goes under its tallest cell.
 void end_row() {
-    PropertyRows& rows = kit().rows;
+    Kit& k = kit();
+    PropertyRows& rows = k.rows;
     if (!rows.in_row) return;
-    const float value_bottom = cursor().y - kit().style.item_spacing.y;
+    const float value_bottom = cursor().y - k.style.item_spacing.y;
     rows.bottom = std::max(rows.label_bottom, value_bottom) + CELL_PADDING.y;
     rows.in_row = false;
+    if (rows.id != 0) store_float(height_id(rows.id), rows.bottom - rows.row_top);
+    k.row_drawn = 0;
+}
+
+// A row out of sight, as tall as it was when last drawn: its room is taken,
+// the table and what scrolls it as tall as when it is drawn, and nothing
+// else. A row never drawn yet is drawn, to learn its height.
+bool skip_row(Kit& k, Id row) {
+    PropertyRows& rows = k.rows;
+    const float height = stored_float(height_id(row), 0.0f);
+    if (height <= 0.0f) return false;
+    const core::Rect rect{.min = {rows.left, rows.bottom}, .max = {rows.right, rows.bottom + height}};
+    if (!can_skip_row(row, rect)) return false;
+    // What a drawn row's cells cover, inside its padding.
+    set_cursor({rect.min.x, rect.min.y + CELL_PADDING.y});
+    place_still(ui().layout().next({rect.width(), std::max(height - CELL_PADDING.y * 2.0f, 0.0f)}));
+    rows.bottom = rect.max.y;
+    return true;
 }
 
 } // namespace
@@ -108,8 +133,13 @@ bool detail::begin_row(const char* label, const char* help, bool bold) {
     if (search.active && !matches(label, search.query)) return false;
     set_edit_label(label);
     end_row();
+    // Under a search every match is drawn, to be counted.
+    const Id row = ui().id(label);
+    if (!search.active && skip_row(k, row)) return false;
     PropertyRows& rows = k.rows;
     rows.in_row = true;
+    rows.id = row;
+    k.row_drawn = row;
     rows.row_top = rows.bottom;
     const float top = rows.row_top + CELL_PADDING.y;
     set_cursor({rows.left, top});
@@ -180,6 +210,8 @@ void hint(const char* text) {
         // edge to the value's.
         end_row();
         rows.in_row = true;
+        // Drawn always, with no label to keep a height by.
+        rows.id = 0;
         rows.row_top = rows.bottom;
         const float top = rows.row_top + CELL_PADDING.y;
         const float width = rows.right - rows.left;

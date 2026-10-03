@@ -238,8 +238,18 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
     last_rests_disabled_ = false;
     if (root_ == nullptr) return {};
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
-    if (hidden() || visible.empty()) return {};
-    add_hit(id, visible, !sense.beneath ? Place::Over : (sense.overlap ? Place::Overlapped : Place::Beneath));
+    if (hidden()) return {};
+    if (visible.empty()) {
+        // Out of sight a widget is pressed and hovered no more, but one that
+        // holds a pointer keeps it: a number dragged as its panel scrolls
+        // goes on being dragged.
+        const bool holds = std::ranges::any_of(pointers_, [&](const Tracked& tracked) {
+            return tracked.pointer.root == root_->id && tracked.holder == id;
+        });
+        if (!holds) return {};
+    } else {
+        add_hit(id, visible, !sense.beneath ? Place::Over : (sense.overlap ? Place::Overlapped : Place::Beneath));
+    }
     if (disabled()) {
         // It takes nothing, but a hovering pointer resting on it is told to
         // its tooltip.

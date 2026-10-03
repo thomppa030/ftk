@@ -213,10 +213,11 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
         dl.push_clip(bar.min, {title_right, bar.max.y});
         draw_text(bar.min + k.style.frame_padding, theme::text(), shown(name));
         dl.pop_clip();
-        // Dragged by its title bar, it is carried from the next frame.
+        // Dragged by its title bar, it is carried from the next frame. Not
+        // on the frame it is let go, when carry() has just let go of it.
         if (options.move) {
             const core::Interaction in = context.interact(core::hash_label("#MOVE", id), bar, {.beneath = true});
-            if (in.held && in.dragging && k.carried.window != id) {
+            if (in.held && in.dragging && !in.released && k.carried.window != id) {
                 k.carried = {.window = id, .grab = in.press_position - rect.min};
                 context.request_frame();
             }

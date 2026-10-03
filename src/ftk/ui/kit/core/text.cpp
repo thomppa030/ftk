@@ -29,7 +29,8 @@ void text_item(std::string_view text, Color colour) {
     const float drop = line_text_drop();
     const core::Rect line = ui().layout().next({size.x, size.y + drop * 2.0f});
     const core::Rect rect{.min = {line.min.x, line.min.y + drop}, .max = {line.max.x, line.min.y + drop + size.y}};
-    draw_text(rect.min, colour, text, wrap);
+    // Out of sight it keeps its room, measured, and draws nothing.
+    if (!out_of_clip(rect)) draw_text(rect.min, colour, text, wrap);
     place_still(rect);
 }
 
