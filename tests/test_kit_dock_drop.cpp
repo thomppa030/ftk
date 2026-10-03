@@ -119,6 +119,56 @@ TEST_CASE("A window dropped on a dockspace's edge target splits the whole of it"
     CHECK(below.children[1].windows == std::vector<std::string>{"Viewport"});
 }
 
+TEST_CASE("A window torn out of the middle leaves no hole: what is left grows into its room", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    // The Viewport is the dockspace's middle: what the split leaves of it.
+    Dropping d({"Hierarchy", "Viewport"}, N::left_right(0.5f, N::tabs({"Hierarchy"}), N::tabs({"Viewport"})));
+    const auto viewport = ui::window_named("Viewport");
+    REQUIRE(viewport.has_value());
+    const float bar = ui::frame_height() * 0.5f;
+    d.h.drag({viewport->pos.x + 45.0f, viewport->pos.y + bar},
+             {viewport->pos.x + 60.0f, viewport->pos.y + viewport->size.y - 60.0f});
+    d.h.step(2);
+    CHECK(ui::window_dock("Viewport") == 0);
+    const ui::DockNode tree = d.tree();
+    CHECK(tree.split == ui::DockAxis::None);
+    CHECK(tree.windows == std::vector<std::string>{"Hierarchy"});
+    CHECK(ui::window_named("Hierarchy")->size.x > viewport->size.x * 1.8f);
+}
+
+TEST_CASE("A part whose windows aren't drawn lends its room, and takes it back when they are", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    KitHarness h;
+    bool built = false;
+    bool hierarchy = true;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, N::left_right(0.3f, N::tabs({"Hierarchy"}), N::tabs({"Viewport"})));
+            built = true;
+        }
+        if (hierarchy) {
+            if (auto panel = ui::Panel("", "Hierarchy")) ui::text("Hierarchy");
+        }
+        if (auto panel = ui::Panel("", "Viewport")) ui::text("Viewport");
+    });
+    h.step(4);
+    const float shared = ui::window_named("Viewport")->size.x;
+
+    // Closed for now: the Viewport takes the whole dockspace.
+    hierarchy = false;
+    h.step(3);
+    CHECK(ui::window_named("Viewport")->size.x > shared + 200.0f);
+    CHECK(ui::window_dock("Hierarchy") != 0);
+
+    // Drawn again, it is back in its place.
+    hierarchy = true;
+    h.step(3);
+    CHECK(ui::window_named("Viewport")->size.x == Approx(shared).margin(1.0f));
+    CHECK(ui::window_named("Hierarchy")->size.x > 100.0f);
+}
+
 TEST_CASE("An empty dockspace takes a window dropped in its middle", "[ui][kit][dock]") {
     Dropping d({}, std::nullopt);
     const auto notes = ui::window_named("Notes");

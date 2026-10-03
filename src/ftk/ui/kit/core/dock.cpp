@@ -61,10 +61,12 @@ core::Rect tab_strip(core::Rect rect) {
 
 // The leaf `id`, left with no windows, folds into its parent: the other
 // part takes the parent's place, keeping the parent's id, as ImGui merges
-// them. The dockspace's middle stays, empty.
+// them, so what is left grows into the room it had. Only a dockspace's
+// last leaf stays, empty.
 void fold_if_empty(Kit& k, Id id) {
     const DockPart& leaf = k.docks.at(id);
-    if (!leaf.windows.empty() || leaf.middle || leaf.parent == 0) return;
+    if (!leaf.windows.empty() || leaf.parent == 0) return;
+    const bool was_middle = leaf.middle;
     const Id parent_id = leaf.parent;
     DockPart& parent = k.docks.at(parent_id);
     const Id other_id = parent.children[0] == id ? parent.children[1] : parent.children[0];
@@ -76,11 +78,25 @@ void fold_if_empty(Kit& k, Id id) {
     parent.children = other.children;
     parent.windows = std::move(other.windows);
     parent.front = other.front;
-    parent.middle = other.middle;
+    // The middle too gives its room to what is left: it goes on in there.
+    parent.middle = other.middle || was_middle;
     for (const Id child : parent.children) {
         if (child != 0) k.docks.at(child).parent = parent_id;
     }
     for (const Id window : parent.windows) k.windows.at(window).dock = parent_id;
+}
+
+// The first leaf in the node `id`.
+Id first_leaf(const Kit& k, Id id) {
+    while (k.docks.at(id).split != DockAxis::None) id = k.docks.at(id).children[0];
+    return id;
+}
+
+// Whether any window docked in the node `id` has been drawn lately.
+bool shows(const Kit& k, Id id) {
+    const DockPart& part = k.docks.at(id);
+    if (part.split != DockAxis::None) return shows(k, part.children[0]) || shows(k, part.children[1]);
+    return std::ranges::any_of(part.windows, [&](Id window) { return drawn_lately(k.windows.at(window)); });
 }
 
 // The window `id` docked into the leaf `leaf`, as its tab in front.
@@ -337,11 +353,20 @@ void lay_out(Kit& k, Id id, core::Rect rect, bool see_through) {
     part.rect = rect;
     part.frame = ui().frame();
     if (part.split == DockAxis::None) {
-        const bool empty =
-            std::ranges::none_of(part.windows, [&](Id window) { return drawn_lately(k.windows.at(window)); });
-        if (empty && !(part.middle && see_through)) {
+        if (!shows(k, id) && !(part.middle && see_through)) {
             ui().draw_list().rect_filled(rect.min, rect.max, faded(theme::surface_base()));
         }
+        return;
+    }
+    // A part none of whose windows is drawn, closed for now, lends all its
+    // room to the other and keeps its place for when they are drawn again,
+    // as ImGui's do.
+    const bool first_shows = shows(k, part.children[0]);
+    const bool second_shows = shows(k, part.children[1]);
+    if (first_shows != second_shows) {
+        part.strip = {};
+        lay_out(k, first_shows ? part.children[0] : part.children[1], rect, see_through);
+        lay_out(k, first_shows ? part.children[1] : part.children[0], {.min = rect.min, .max = rect.min}, see_through);
         return;
     }
     const int axis = part.split == DockAxis::LeftRight ? 0 : 1;
@@ -530,10 +555,14 @@ void dock_home(Window& window, Id id) {
     Id leaf = std::exchange(window.home, 0);
     const auto is_leaf = [&](Id at) { return k.docks.contains(at) && k.docks.at(at).split == DockAxis::None; };
     if (!is_leaf(leaf)) {
-        // The leaf it came from is gone: the middle of a dockspace.
+        // The leaf it came from is gone: a leaf in the middle of a
+        // dockspace, or else in any dockspace.
         leaf = 0;
         for (const auto& [at, part] : k.docks) {
-            if (part.middle && part.split == DockAxis::None) leaf = at;
+            if (part.middle) leaf = first_leaf(k, at);
+        }
+        for (const auto& [at, part] : k.docks) {
+            if (leaf == 0 && part.parent == 0) leaf = first_leaf(k, at);
         }
     }
     if (leaf != 0) {

@@ -67,6 +67,9 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     if (!window.shown) return false;
 
     window.rect = leaf->rect;
+    // Its leaf lent its room while it wasn't drawn: it gets it back as the
+    // dockspace is next laid out.
+    if (window.rect.empty()) context.request_frame();
     window.padding = padding;
     window.bar = frame_height();
     context.begin_panel(id, window.rect, {.padding = padding, .bar = window.bar, .raise = false});
