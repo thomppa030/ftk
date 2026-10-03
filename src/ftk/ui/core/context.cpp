@@ -387,6 +387,7 @@ const FrameOutput& Context::end_frame() {
     }
     settle_layers();
     navigate();
+    finish_semantics();
     in_frame_ = false;
     // A deadline already reached is no reason to sleep.
     if (next_now_ || (next_at_ && *next_at_ <= time_)) {

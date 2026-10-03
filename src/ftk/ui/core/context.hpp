@@ -26,6 +26,7 @@
 #include "ftk/ui/core/input.hpp"
 #include "ftk/ui/core/layout.hpp"
 #include "ftk/ui/core/rect.hpp"
+#include "ftk/ui/core/semantics.hpp"
 #include "ftk/ui/core/storage.hpp"
 #include "ftk/ui/core/text.hpp"
 #include "ftk/ui/core/types.hpp"
@@ -36,6 +37,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -294,6 +296,19 @@ public:
     /// What is dragged, drawn at the pointer, until end_drag_preview().
     void begin_drag_preview();
     void end_drag_preview() { end_panel(); }
+
+    /// Records what the widget `id` is: `role`, its shown `label` (a "##"
+    /// part is dropped) and its `value`, at `rect` or, without one, at the
+    /// last item placed. Whether it is disabled or has the keyboard is
+    /// filled in.
+    void semantics(Id id, Role role, std::string_view label, std::string_view value = {}, SemanticState state = {});
+    void semantics(Id id, Role role, std::string_view label, std::string_view value, SemanticState state, Rect rect);
+    /// What the last frame recorded, in the order drawn. Good until the
+    /// next frame ends.
+    [[nodiscard]] std::span<const SemanticNode> semantics() const { return semantics_done_; }
+    /// The first widget the last frame recorded with `label`, and `role`
+    /// unless that is None.
+    [[nodiscard]] const SemanticNode* find(std::string_view label, Role role = Role::None) const;
 
     /// A part of what is drawn now that scrolls on its own, `size` big at
     /// the cursor (a width or height of FILL reaches the edge, one below
@@ -590,6 +605,8 @@ private:
     void settle_layers();
     // The pointer the drag is by, if it is still there.
     [[nodiscard]] const Tracked* drag_pointer() const;
+    // At the frame's end: its records become the ones read.
+    void finish_semantics();
     // Begins a scrolling area's frame: the wheel's turn if it is the one
     // under the mouse, and a step towards where it is going.
     void scroll_area(Id id, Scroll& scroll);
@@ -678,6 +695,20 @@ private:
     bool focus_given_{false};
     std::vector<Focusable> focus_order_;
     std::vector<std::pair<Id, Axis>> focus_scopes_;
+
+    // This frame's records and the last frame's, their labels and values in
+    // one text each, so recording allocates nothing per widget once warm.
+    struct Recorded {
+        SemanticNode node;
+        std::size_t label{0};
+        std::size_t label_size{0};
+        std::size_t value{0};
+        std::size_t value_size{0};
+    };
+    std::vector<Recorded> semantics_;
+    std::string semantics_text_;
+    std::vector<SemanticNode> semantics_done_;
+    std::string semantics_done_text_;
 
     bool next_now_{false};
     std::optional<double> next_at_{};

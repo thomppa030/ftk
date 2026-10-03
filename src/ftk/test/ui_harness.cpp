@@ -37,9 +37,9 @@ void UiHarness::mark(const std::string& name) {
 }
 
 core::Rect UiHarness::rect(const std::string& name) const {
-    const auto found = marks_.find(name);
-    if (found == marks_.end()) throw std::runtime_error("UiHarness: nothing marked '" + name + "'");
-    return found->second;
+    if (const auto marked = marks_.find(name); marked != marks_.end()) return marked->second;
+    if (const core::SemanticNode* named = ui_.find(name)) return named->rect;
+    throw std::runtime_error("UiHarness: nothing marked or named '" + name + "'");
 }
 
 void UiHarness::send(core::PointerEvent event) {

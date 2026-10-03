@@ -1,13 +1,14 @@
 #pragma once
 
 // Runs the UI core with no window and no renderer, so UI code can be driven
-// from a test: set the UI once, feed it the pointer, and step frames. It is
-// ImGuiHarness's vocabulary on the core, taking the kit's own types, so a
-// test reads the same against either.
+// from a test: set the UI once, feed it pointers, keys and text, and step
+// frames. It is ImGuiHarness's vocabulary on the core, taking the kit's own
+// types, so a test reads the same against either, with touch and the pen
+// besides, and widgets found by their names.
 //
 //     UiHarness h;
-//     h.set_ui([&] { if (button("Save")) saved = true; h.mark("save"); });
-//     h.click("save");
+//     h.set_ui([&] { if (button("Save")) saved = true; });
+//     h.click("Save");
 //
 // Input is queued the way a program queues what its window reports, and
 // the next frame takes it; each step is a sixtieth of a second. Each
@@ -49,9 +50,18 @@ public:
     [[nodiscard]] double time() const { return time_; }
 
     /// Inside the UI: remembers the last item's rectangle under `name`, for
-    /// what follows to aim at.
+    /// what follows to aim at. A widget that records what it is
+    /// (Context::semantics) needs no mark: its label finds it.
     void mark(const std::string& name);
+    /// What was marked `name`, or else the first widget the last frame
+    /// recorded with that label.
     [[nodiscard]] ui::core::Rect rect(const std::string& name) const;
+    /// The first widget the last frame recorded with `label`, and `role`
+    /// unless that is None.
+    [[nodiscard]] const ui::core::SemanticNode* find(std::string_view label,
+                                                     ui::core::Role role = ui::core::Role::None) const {
+        return ui_.find(label, role);
+    }
 
     /// Moves the mouse to `at` and runs the frame that takes it.
     void move_to(glm::vec2 at);

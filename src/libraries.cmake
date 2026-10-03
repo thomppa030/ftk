@@ -295,6 +295,7 @@ ftk_library(ui-core
         ftk/ui/core/context_input.cpp
         ftk/ui/core/context_keys.cpp
         ftk/ui/core/context_layers.cpp
+        ftk/ui/core/context_semantics.cpp
         ftk/ui/core/draw_list.cpp
         ftk/ui/core/id.cpp
         ftk/ui/core/layout.cpp
@@ -306,6 +307,7 @@ ftk_library(ui-core
         ftk/ui/core/input.hpp
         ftk/ui/core/layout.hpp
         ftk/ui/core/rect.hpp
+        ftk/ui/core/semantics.hpp
         ftk/ui/core/storage.hpp
         ftk/ui/core/text.hpp
         ftk/ui/core/types.hpp
