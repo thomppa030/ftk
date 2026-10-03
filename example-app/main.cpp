@@ -14,11 +14,13 @@
 #include "ftk/app/imgui_app_window.hpp"
 #include "ftk/ui/kit/gallery.hpp"
 #else
+#include "kit_page.hpp"
 #include "painter.hpp"
 #include "primitives_page.hpp"
 #include "text_page.hpp"
 
 #include "ftk/app/app_window.hpp"
+#include "ftk/ui/core_kit.hpp"
 #include "ftk/ui/theme.hpp"
 #endif
 
@@ -37,15 +39,15 @@
 namespace {
 
 /// The example app's pages. More arrive with the work that needs them.
-enum class Page { gallery, primitives, text };
+enum class Page { gallery, primitives, text, kit };
 
 struct PageName {
     Page page;
     std::string_view name;
 };
 
-constexpr std::array<PageName, 3> PAGES{
-    {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}}};
+constexpr std::array<PageName, 4> PAGES{
+    {{Page::gallery, "gallery"}, {Page::primitives, "primitives"}, {Page::text, "text"}, {Page::kit, "kit"}}};
 
 /// Whether this build has the page: the gallery is ImGui's, the rest the
 /// core's.
@@ -70,7 +72,8 @@ constexpr glm::uvec2 shot_size(Page page) {
     switch (page) {
     case Page::gallery: return {480, 5000};
     case Page::primitives:
-    case Page::text: return {1280, 800};
+    case Page::text:
+    case Page::kit: return {1280, 800};
     }
     return {1280, 800};
 }
@@ -187,12 +190,17 @@ class CorePages {
 public:
     CorePages(ftk::AppWindow& app, const std::filesystem::path& fonts, Page page)
         : fonts_(ftk::example::add_fonts(app.ui().text(), fonts)), primitives_(app, fonts_), text_(fonts_),
-          page_(page) {}
+          page_(page) {
+        // The kit's own faces, for the Kit page.
+        ftk::ui::use_kit_fonts(app.ui(), fonts);
+    }
 
     void draw(ftk::ui::core::Context& ui, glm::vec2 size) {
         ui.draw_list().rect_filled({0.0f, 0.0f}, size, ftk::theme::surface_base());
         if (page_ == Page::text) {
             text_.draw(ui, size);
+        } else if (page_ == Page::kit) {
+            kit_.draw(size, TABS_BOTTOM);
         } else {
             primitives_.draw(ui, size);
         }
@@ -200,15 +208,20 @@ public:
     }
 
 private:
+    // Where the tabs end, and a page that leaves room for them begins.
+    static constexpr float TABS_BOTTOM = 64.0f;
+
     void tabs(ftk::ui::core::Context& ui, glm::vec2 size) {
         namespace core = ftk::ui::core;
         ftk::example::Painter p(ui, fonts_);
-        constexpr Page SHOWN[] = {Page::primitives, Page::text};
-        constexpr std::string_view NAMES[] = {"Primitives", "Text"};
+        constexpr Page SHOWN[] = {Page::primitives, Page::text, Page::kit};
+        constexpr std::string_view NAMES[] = {"Primitives", "Text", "Kit"};
+        constexpr int COUNT = 3;
         constexpr float PAD = 14.0f;
-        float x = size.x - 32.0f;
-        for (int i = 1; i >= 0; --i) x -= p.width(NAMES[i], ftk::theme::BODY_TEXT) + 2.0f * PAD + (i == 1 ? 0.0f : 6.0f);
-        for (int i = 0; i < 2; ++i) {
+        constexpr float GAP = 6.0f;
+        float x = size.x - 32.0f + GAP;
+        for (int i = 0; i < COUNT; ++i) x -= p.width(NAMES[i], ftk::theme::BODY_TEXT) + 2.0f * PAD + GAP;
+        for (int i = 0; i < COUNT; ++i) {
             const float width = p.width(NAMES[i], ftk::theme::BODY_TEXT) + 2.0f * PAD;
             const core::Rect tab{.min = {x, 24.0f}, .max = {x + width, 52.0f}};
             const core::Interaction in = ui.interact(core::hash_int(i, ui.id("##pages")), tab);
@@ -221,13 +234,14 @@ private:
             }
             p.body(tab.min + glm::vec2{PAD, 6.0f}, NAMES[i], ftk::theme::BODY_TEXT,
                    on ? ftk::theme::text() : ftk::theme::text_secondary());
-            x += width + 6.0f;
+            x += width + GAP;
         }
     }
 
     ftk::example::Fonts fonts_;
     ftk::example::PrimitivesPage primitives_;
     ftk::example::TextPage text_;
+    ftk::example::KitPage kit_;
     Page page_;
 };
 
