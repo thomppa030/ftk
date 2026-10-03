@@ -34,6 +34,18 @@ namespace ftk::gpu {
 
 class CommandList;
 
+/// How the UI reads a picture.
+struct UiPicture {
+    /// Its sampler; none for the renderer's own, linear and clamped.
+    Sampler sampler{};
+    /// Its texels sample as linear light: an sRGB-format image, which
+    /// decodes as it is sampled, or a render target holding light. They are
+    /// encoded into sRGB values, as the canvas holds. Otherwise they are
+    /// taken as sRGB values already (an 8-bit UNORM texture holding them, as
+    /// icons and thumbnails are).
+    bool linear{false};
+};
+
 class UiRenderer {
 public:
     /// What draws the UI into targets of `target_format`; its shaders are
@@ -47,11 +59,10 @@ public:
     UiRenderer(UiRenderer&&) = delete;
     UiRenderer& operator=(UiRenderer&&) = delete;
 
-    /// A picture the UI can show: `view`, sampled in the fragment stage,
-    /// whose texels the shader takes as sRGB values (an 8-bit UNORM
-    /// texture holding them). The texture must outlive the handle's use;
-    /// forget() lets the handle go.
-    [[nodiscard]] ui::Texture texture(const TextureView& view);
+    /// A picture the UI can show: `view`, sampled in the fragment stage as
+    /// `picture` says. The texture must outlive the handle's use; forget()
+    /// lets the handle go.
+    [[nodiscard]] ui::Texture texture(const TextureView& view, UiPicture picture = {});
     void forget(ui::Texture texture);
 
     /// Draws `root`, as the core recorded it, into `target`, `size` pixels,
@@ -67,8 +78,24 @@ private:
     // The atlas's pages on the GPU, made as the atlas grows, and its new
     // regions written into them.
     [[nodiscard]] Result<> upload_atlas(text::GlyphAtlas& atlas);
-    // The canvas, made again when the target's size changes.
-    [[nodiscard]] Result<> fit_canvas(glm::uvec2 size);
+    // A canvas the size of a target.
+    struct Canvas {
+        Owned<Texture> texture;
+        glm::uvec2 size{0, 0};
+        // Whether it has been drawn and read before, for its transition.
+        bool used{false};
+        // The render it was last drawn in, to let the longest unused go.
+        uint64_t drawn{0};
+    };
+    // A picture's view and how it is read.
+    struct Shown {
+        TextureView view;
+        UiPicture picture;
+    };
+
+    // The canvas of the target's size: kept, so windows of different sizes
+    // each keep theirs, or made.
+    [[nodiscard]] Result<Canvas*> canvas_for(glm::uvec2 size);
 
     Device* device_;
     Owned<GraphicsPipeline> draw_;
@@ -78,11 +105,9 @@ private:
     // What a page or a picture slot holds when nothing is in it.
     Owned<Texture> blank_;
     std::vector<Owned<Texture>> pages_;
-    Owned<Texture> canvas_;
-    glm::uvec2 canvas_size_{0, 0};
-    // Whether the canvas has been drawn and read before, for its transition.
-    bool canvas_used_{false};
-    std::unordered_map<uint64_t, TextureView> pictures_;
+    std::vector<Canvas> canvases_;
+    uint64_t renders_{0};
+    std::unordered_map<uint64_t, Shown> pictures_;
     uint64_t next_picture_{1};
     // This frame's shapes, with the pictures they name renumbered per draw.
     std::vector<ui::core::Primitive> primitives_;

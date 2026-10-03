@@ -140,7 +140,7 @@ void lines(Painter& p, vec2 at) {
     p.mono(at + vec2{0.0f, 238.0f}, "polyline(64 segments, 2.5)", theme::SMALL_TEXT);
 }
 
-void shapes_and_pictures(Painter& p, vec2 at, ui::Texture picture) {
+void shapes_and_pictures(Painter& p, vec2 at, ui::Texture values, ui::Texture light, ui::Texture pixels) {
     core::DrawList& dl = p.dl();
     // Play, a diamond, and a triangle's outline.
     dl.triangle_filled(at + vec2{0.0f, 0.0f}, at + vec2{40.0f, 22.0f}, at + vec2{0.0f, 44.0f}, theme::success());
@@ -149,11 +149,12 @@ void shapes_and_pictures(Painter& p, vec2 at, ui::Texture picture) {
     dl.triangle(at + vec2{150.0f, 44.0f}, at + vec2{172.0f, 2.0f}, at + vec2{194.0f, 44.0f}, theme::error(), 2.0f);
     dl.quad(at + vec2{220.0f, 4.0f}, at + vec2{300.0f, 0.0f}, at + vec2{290.0f, 44.0f}, at + vec2{230.0f, 40.0f},
             theme::text(), 1.5f);
-    // The same picture square, rounded, and round.
-    dl.image(picture, at + vec2{0.0f, 72.0f}, at + vec2{104.0f, 176.0f});
-    dl.image(picture, at + vec2{120.0f, 72.0f}, at + vec2{224.0f, 176.0f}, 16.0f);
-    dl.image(picture, at + vec2{240.0f, 72.0f}, at + vec2{344.0f, 176.0f}, 52.0f);
-    p.body(at + vec2{0.0f, 196.0f}, "A picture with square, rounded and round corners", theme::SMALL_TEXT,
+    // The picture square as sRGB values, rounded as light, and a small one
+    // round, read texel by texel.
+    dl.image(values, at + vec2{0.0f, 72.0f}, at + vec2{104.0f, 176.0f});
+    dl.image(light, at + vec2{120.0f, 72.0f}, at + vec2{224.0f, 176.0f}, 16.0f);
+    dl.image(pixels, at + vec2{240.0f, 72.0f}, at + vec2{344.0f, 176.0f}, 52.0f);
+    p.body(at + vec2{0.0f, 196.0f}, "Pictures as sRGB values and as light, and one read nearest", theme::SMALL_TEXT,
            theme::text_secondary());
 }
 
@@ -245,21 +246,45 @@ PrimitivesPage::PrimitivesPage(AppWindow& app, Fonts fonts) : fonts_(fonts) {
             std::copy(texel.begin(), texel.end(), pixels.begin() + static_cast<std::ptrdiff_t>((y * SIZE + x) * 4));
         }
     }
-    auto texture = app.device().create(gpu::TextureDesc{
-        .format = gpu::Format::rgba8_unorm,
-        .width = SIZE,
-        .height = SIZE,
-        .use = gpu::TextureUse::sampled,
-        .name = "example_picture",
-    });
-    if (!texture) {
-        FTK_CORE_ERROR("ftk example app: the page's picture: {}", texture.error());
-        return;
+    const auto make = [&](gpu::Format format, uint32_t side, std::span<const uint8_t> texels) {
+        auto texture = app.device().create(gpu::TextureDesc{
+            .format = format,
+            .width = side,
+            .height = side,
+            .use = gpu::TextureUse::sampled,
+            .name = "example_picture",
+        });
+        if (!texture) {
+            FTK_CORE_ERROR("ftk example app: the page's picture: {}", texture.error());
+            return gpu::Owned<gpu::Texture>{};
+        }
+        app.device().upload().to_texture(texture->get(), {}, std::as_bytes(texels),
+                                         {.after = gpu::Access::sampled_fragment});
+        return std::move(*texture);
+    };
+    // The same bytes as sRGB values, and in an sRGB image, which samples
+    // them as light.
+    values_texture_ = make(gpu::Format::rgba8_unorm, SIZE, pixels);
+    light_texture_ = make(gpu::Format::rgba8_srgb, SIZE, pixels);
+    // Eight by eight of the two hues, to be read texel by texel.
+    constexpr uint32_t SMALL = 8;
+    std::vector<uint8_t> small(static_cast<std::size_t>(SMALL) * SMALL * 4);
+    for (uint32_t y = 0; y < SMALL; ++y) {
+        for (uint32_t x = 0; x < SMALL; ++x) {
+            const auto texel = bytes((x + y) % 2 == 0 ? from : to);
+            std::copy(texel.begin(), texel.end(), small.begin() + static_cast<std::ptrdiff_t>((y * SMALL + x) * 4));
+        }
     }
-    picture_texture_ = std::move(*texture);
-    app.device().upload().to_texture(picture_texture_.get(), {}, std::as_bytes(std::span(pixels)),
-                                     {.after = gpu::Access::sampled_fragment});
-    picture_ = app.ui_renderer().texture(picture_texture_.get());
+    pixels_texture_ = make(gpu::Format::rgba8_unorm, SMALL, small);
+    gpu::UiRenderer& renderer = app.ui_renderer();
+    if (values_texture_) values_ = renderer.texture(values_texture_.get());
+    if (light_texture_) light_ = renderer.texture(light_texture_.get(), {.linear = true});
+    if (pixels_texture_) {
+        pixels_ = renderer.texture(pixels_texture_.get(),
+                                   {.sampler = app.device().sampler({.filter = gpu::Filter::nearest,
+                                                                     .mip_filter = gpu::Filter::nearest,
+                                                                     .address = gpu::Address::clamp})});
+    }
 }
 
 void PrimitivesPage::draw(core::Context& ui, glm::vec2 size) {
@@ -270,7 +295,7 @@ void PrimitivesPage::draw(core::Context& ui, glm::vec2 size) {
     rectangles(p, card(p, 0, 0, "Rectangles"), chip_);
     circles(p, card(p, 1, 0, "Circles and arcs"));
     lines(p, card(p, 2, 0, "Lines and curves"));
-    shapes_and_pictures(p, card(p, 0, 1, "Triangles, quads and pictures"), picture_);
+    shapes_and_pictures(p, card(p, 0, 1, "Triangles, quads and pictures"), values_, light_, pixels_);
     words(p, card(p, 1, 1, "Text"), box_);
     clips_and_shadows(p, card(p, 2, 1, "Clips and shadows"), dot_, grab_);
     pointers(p, {32.0f, size.y - 32.0f});

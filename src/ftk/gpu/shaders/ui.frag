@@ -33,7 +33,8 @@ layout(set = 0, binding = 3) uniform sampler2D pictures[8];
 layout(push_constant) uniform UiView {
     vec2 size;
     float scale;
-    float unused;
+    // A bit for each picture slot whose texels sample as linear light.
+    uint linear;
 } view;
 
 layout(location = 0) in vec2 v_at;
@@ -93,6 +94,11 @@ float triangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
     return -sqrt(d.x) * sign(d.y);
 }
 
+vec3 encode_srgb(vec3 light) {
+    light = clamp(light, 0.0, 1.0);
+    return mix(light * 12.92, 1.055 * pow(light, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), light));
+}
+
 // How much of the pixel the shape covers, from its distance.
 float coverage(float distance, float softness) {
     if (softness > 0.0) return 1.0 - smoothstep(-softness, softness, distance);
@@ -115,7 +121,13 @@ void main() {
         // Shaded from the left edge to the right; one colour when both are.
         const float across = clamp((v_at.x - p.min_corner.x) / size.x, 0.0, 1.0);
         colour = mix(colour, unpackUnorm4x8(p.colour2), across);
-        if (p.texture != 0u) colour *= texture(pictures[nonuniformEXT(p.texture - 1u)], uv);
+        if (p.texture != 0u) {
+            const uint slot = p.texture - 1u;
+            vec4 texel = texture(pictures[nonuniformEXT(slot)], uv);
+            // Light, encoded into the sRGB values the canvas holds.
+            if (((view.linear >> slot) & 1u) != 0u) texel.rgb = encode_srgb(texel.rgb);
+            colour *= texel;
+        }
     } else if (p.kind == KIND_SEGMENT) {
         covered = coverage(segment(v_at, p.shape.xy, p.shape.zw) - 0.5 * p.thickness, p.softness);
     } else if (p.kind == KIND_ARC) {

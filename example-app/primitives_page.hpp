@@ -14,7 +14,7 @@ namespace ftk::example {
 
 class PrimitivesPage {
 public:
-    /// Makes the page's picture through `app`'s device and renderer.
+    /// Makes the page's pictures through `app`'s device and renderer.
     PrimitivesPage(AppWindow& app, Fonts fonts);
 
     /// The page, which in a window also answers the pointers and the keys:
@@ -24,8 +24,14 @@ public:
 
 private:
     Fonts fonts_;
-    ui::Texture picture_{};
-    gpu::Owned<gpu::Texture> picture_texture_;
+    // The picture as sRGB values and as light, which look the same, and a
+    // small one read nearest.
+    ui::Texture values_{};
+    ui::Texture light_{};
+    ui::Texture pixels_{};
+    gpu::Owned<gpu::Texture> values_texture_;
+    gpu::Owned<gpu::Texture> light_texture_;
+    gpu::Owned<gpu::Texture> pixels_texture_;
     // What the page's live parts keep.
     std::size_t chip_{0};
     glm::vec2 dot_{160.0f, 100.0f};

@@ -41,11 +41,15 @@ constexpr std::size_t PICTURE_SLOTS = 8;
 // The canvas holds sRGB values as they are, so they blend as such.
 constexpr Format CANVAS_FORMAT = Format::rgba8_unorm;
 
+// The canvases kept for targets of different sizes, one a window.
+constexpr std::size_t KEPT_CANVASES = 4;
+
 // ui.vert's and ui.frag's push data.
 struct View {
     glm::vec2 size;
     float scale;
-    float unused;
+    // A bit for each of the batch's slots whose picture holds linear light.
+    uint32_t linear;
 };
 
 // Shapes from `first` up to `end` that read the same pictures.
@@ -53,6 +57,8 @@ struct Batch {
     std::size_t first{0};
     std::size_t end{0};
     std::array<TextureView, PICTURE_SLOTS> views{};
+    std::array<Sampler, PICTURE_SLOTS> samplers{};
+    uint32_t linear{0};
 };
 
 } // namespace
@@ -90,9 +96,9 @@ Result<std::unique_ptr<UiRenderer>> UiRenderer::create(Device& device, Format ta
 
 UiRenderer::~UiRenderer() = default;
 
-ui::Texture UiRenderer::texture(const TextureView& view) {
+ui::Texture UiRenderer::texture(const TextureView& view, UiPicture picture) {
     const uint64_t id = next_picture_++;
-    pictures_[id] = view;
+    pictures_[id] = {.view = view, .picture = picture};
     return ui::Texture{id};
 }
 
@@ -131,31 +137,40 @@ Result<> UiRenderer::upload_atlas(text::GlyphAtlas& atlas) {
     return {};
 }
 
-Result<> UiRenderer::fit_canvas(glm::uvec2 size) {
-    if (canvas_ && canvas_size_ == size) return {};
-    auto canvas = device_->create(TextureDesc{
+Result<UiRenderer::Canvas*> UiRenderer::canvas_for(glm::uvec2 size) {
+    ++renders_;
+    for (Canvas& kept : canvases_) {
+        if (kept.size != size) continue;
+        kept.drawn = renders_;
+        return &kept;
+    }
+    auto texture = device_->create(TextureDesc{
         .format = CANVAS_FORMAT,
         .width = size.x,
         .height = size.y,
         .use = TextureUse::color_target | TextureUse::sampled,
         .name = "ui_canvas",
     });
-    if (!canvas) return make_error(canvas.error());
-    // The one it replaces goes once the frames drawing with it are done.
-    canvas_ = std::move(*canvas);
-    canvas_size_ = size;
-    canvas_used_ = false;
-    return {};
+    if (!texture) return make_error(texture.error());
+    // One left unused longest goes, once the frames drawing with it are
+    // done, when there are more than windows to keep them for.
+    if (canvases_.size() >= KEPT_CANVASES) {
+        canvases_.erase(std::ranges::min_element(canvases_, {}, &Canvas::drawn));
+    }
+    canvases_.push_back({.texture = std::move(*texture), .size = size, .drawn = renders_});
+    return &canvases_.back();
 }
 
 void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 size, const ui::core::RootOutput& root,
                         text::GlyphAtlas& atlas, ui::Color background) {
     if (size.x == 0 || size.y == 0 || root.draw == nullptr) return;
     if (auto uploaded = upload_atlas(atlas); !uploaded) FTK_GFX_ERROR("UI: the glyph atlas: {}", uploaded.error());
-    if (auto fitted = fit_canvas(size); !fitted) {
-        FTK_GFX_ERROR("UI: the canvas: {}", fitted.error());
+    auto made = canvas_for(size);
+    if (!made) {
+        FTK_GFX_ERROR("UI: the canvas: {}", made.error());
         return;
     }
+    Canvas& canvas = **made;
     const ui::core::DrawData& data = *root.draw;
 
     // The shapes, each picture renumbered to its slot in its draw's batch:
@@ -177,31 +192,40 @@ void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 
             }
             slot = used++;
             slot_of[slot] = p.texture;
+            Batch& batch = batches.back();
             const auto found = pictures_.find(data.textures[p.texture].id);
-            batches.back().views[slot] = found != pictures_.end() ? found->second : TextureView(blank_.get());
+            if (found != pictures_.end()) {
+                const UiPicture& picture = found->second.picture;
+                batch.views[slot] = found->second.view;
+                batch.samplers[slot] = picture.sampler.valid() ? picture.sampler : linear_;
+                if (picture.linear) batch.linear |= 1u << slot;
+            } else {
+                batch.views[slot] = TextureView(blank_.get());
+                batch.samplers[slot] = linear_;
+            }
         }
         p.texture = static_cast<uint32_t>(slot + 1);
     }
     batches.back().end = primitives_.size();
 
     // The canvas, read by the last frame's copy, cleared and drawn into.
-    const Transition to_draw{.texture = canvas_.get(),
-                             .wait_for = canvas_used_ ? AccessSet{Access::sampled_fragment} : AccessSet{},
+    const Transition to_draw{.texture = canvas.texture.get(),
+                             .wait_for = canvas.used ? AccessSet{Access::sampled_fragment} : AccessSet{},
                              .visible_to = Access::color_attachment,
                              .to = Access::color_attachment,
                              .name = "ui_canvas"};
     cmd.transition({&to_draw, 1});
     {
-        auto pass = cmd.render({.color = {{.view = canvas_.get(),
+        auto pass = cmd.render({.color = {{.view = canvas.texture.get(),
                                            .load = Load::clear,
                                            .clear = Clear{background.r, background.g, background.b, 1.0f}}}});
         if (!primitives_.empty()) {
             pass.set_pipeline(draw_.get());
-            pass.push(View{.size = root.size, .scale = root.scale, .unused = 0.0f});
             const BufferRange shapes = pass.transient(primitives_);
             const BufferRange clips = pass.transient(data.clips);
             for (const Batch& batch : batches) {
                 if (batch.end == batch.first) continue;
+                pass.push(View{.size = root.size, .scale = root.scale, .linear = batch.linear});
                 std::array<BindEntry, 2 + ATLAS_SLOTS + PICTURE_SLOTS> entries{};
                 std::size_t n = 0;
                 entries[n++] = {.name = "UiPrimitives", .resource = storage(shapes)};
@@ -211,8 +235,11 @@ void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 
                     entries[n++] = {.name = "atlas", .resource = sampled(view, linear_), .element = page};
                 }
                 for (uint32_t slot = 0; slot < PICTURE_SLOTS; ++slot) {
-                    const TextureView view = batch.views[slot].texture.valid() ? batch.views[slot] : TextureView(blank_.get());
-                    entries[n++] = {.name = "pictures", .resource = sampled(view, linear_), .element = slot};
+                    const bool held = batch.views[slot].texture.valid();
+                    const TextureView view = held ? batch.views[slot] : TextureView(blank_.get());
+                    entries[n++] = {.name = "pictures",
+                                    .resource = sampled(view, held ? batch.samplers[slot] : linear_),
+                                    .element = slot};
                 }
                 pass.bind(std::span<const BindEntry>(entries.data(), n));
                 pass.draw(static_cast<uint32_t>(batch.end - batch.first) * 6, 1, static_cast<uint32_t>(batch.first) * 6, 0);
@@ -222,7 +249,7 @@ void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 
 
     // Copied into the target, decoded so the sRGB target stores the values as
     // they were.
-    const Transition to_read{.texture = canvas_.get(),
+    const Transition to_read{.texture = canvas.texture.get(),
                              .wait_for = Access::color_attachment,
                              .flush = Access::color_attachment,
                              .visible_to = Access::sampled_fragment,
@@ -230,11 +257,11 @@ void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 
                              .to = Access::sampled_fragment,
                              .name = "ui_canvas"};
     cmd.transition({&to_read, 1});
-    canvas_used_ = true;
+    canvas.used = true;
     {
         auto pass = cmd.render({.color = {{.view = target, .load = Load::discard}}, .width = size.x, .height = size.y});
         pass.set_pipeline(copy_.get());
-        pass.bind({{"canvas", sampled(canvas_.get(), nearest_)}});
+        pass.bind({{"canvas", sampled(canvas.texture.get(), nearest_)}});
         pass.draw(3);
     }
 }

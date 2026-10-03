@@ -33,7 +33,8 @@ layout(push_constant) uniform UiView {
     // The window in layout units, and its pixels to the unit.
     vec2 size;
     float scale;
-    float unused;
+    // ui.frag's: which pictures hold linear light.
+    uint linear;
 } view;
 
 layout(location = 0) out vec2 v_at;
