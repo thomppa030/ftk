@@ -150,19 +150,36 @@ public:
     [[nodiscard]] glm::vec2 clip_min() const;
     [[nodiscard]] glm::vec2 clip_max() const;
 
+    /// What follows goes into `target`, cleared, until pop_target(): a
+    /// panel's own shapes, put in order over the others when the root ends.
+    /// Clips start again from the root's.
+    void push_target(std::vector<Primitive>& target);
+    void pop_target();
+    /// How much the current target holds, and taking it back to that: what
+    /// was drawn for a container that isn't to be seen yet.
+    [[nodiscard]] std::size_t mark() const { return target_->size(); }
+    void truncate(std::size_t mark);
+
     /// Pixels to the unit.
     [[nodiscard]] float scale() const { return scale_; }
     [[nodiscard]] const DrawData& data() const { return *data_; }
 
 private:
+    struct Target {
+        std::vector<Primitive>* previous{nullptr};
+        std::size_t clip_depth{0};
+    };
+
     // Records `p` under the current clip, unless its bounds fall outside it.
     void add(Primitive p);
     void segment(glm::vec2 from, glm::vec2 to, uint32_t colour, float thickness);
 
     DrawData* data_{nullptr};
+    std::vector<Primitive>* target_{nullptr};
     TextSystem* text_{nullptr};
     float scale_{1.0f};
     std::vector<uint32_t> clip_stack_;
+    std::vector<Target> targets_;
 };
 
 } // namespace ftk::ui::core

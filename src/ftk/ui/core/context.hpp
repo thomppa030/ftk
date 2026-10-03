@@ -23,6 +23,8 @@
 
 #include "ftk/ui/core/draw_list.hpp"
 #include "ftk/ui/core/id.hpp"
+#include "ftk/ui/core/layout.hpp"
+#include "ftk/ui/core/rect.hpp"
 #include "ftk/ui/core/storage.hpp"
 #include "ftk/ui/core/text.hpp"
 #include "ftk/ui/core/types.hpp"
@@ -70,6 +72,13 @@ struct FrameOutput {
     NextFrame next{};
 };
 
+struct PanelOptions {
+    /// Between the panel's edges and what it holds.
+    glm::vec2 padding{8.0f, 8.0f};
+    /// What it holds scrolls when it doesn't fit.
+    bool scroll{true};
+};
+
 class Context {
 public:
     explicit Context(text::AtlasOptions atlas = {});
@@ -96,6 +105,39 @@ public:
     [[nodiscard]] DrawList& draw_list();
     /// The program's fonts, the style text is drawn in, and the atlas.
     [[nodiscard]] TextSystem& text() { return text_; }
+    /// Where the next item goes. Between begin_root() and a panel, items go
+    /// in the root itself, from its top-left.
+    [[nodiscard]] Layout& layout() { return layout_; }
+
+    /// What follows is the panel `name`, at `rect` in the root, until
+    /// end_panel(): drawn over the root and the panels shown before it, its
+    /// ids under its own, its items inside its padding. Panels can begin
+    /// inside others (a popup opened from one) and are drawn whole, over
+    /// them.
+    void begin_panel(std::string_view name, Rect rect, const PanelOptions& options = {});
+    void end_panel();
+
+    /// A part of what is drawn now that scrolls on its own, `size` big at
+    /// the cursor (a width or height of FILL reaches the edge, one below
+    /// zero leaves that much room), until end_region().
+    void begin_region(std::string_view name, glm::vec2 size);
+    void end_region();
+
+    /// The innermost panel or region that scrolls: how far it is scrolled,
+    /// and how far it can be, by what it held last frame.
+    [[nodiscard]] glm::vec2 scroll() const;
+    [[nodiscard]] glm::vec2 scroll_max() const;
+    void set_scroll(glm::vec2 scroll);
+
+    /// A measured container (ftk/ui/core/layout.hpp) named `name`, until
+    /// end_container(). Shown for the first time it has no measurements, so
+    /// it is hidden for that frame and asks for the next; a wrapping row
+    /// never is.
+    void begin_container(std::string_view name, const ContainerOptions& options = {});
+    void spring() { layout_.spring(); }
+    void end_container();
+    /// What is drawn now is in a container that isn't shown this frame.
+    [[nodiscard]] bool hidden() const { return hidden_ > 0; }
 
     /// Seconds on the program's clock at this frame's start, and since the
     /// last frame's (zero on the first).
@@ -120,6 +162,15 @@ public:
     void request_frame_at(double time);
 
 private:
+    // A panel as it was last drawn.
+    struct Panel {
+        Id id{0};
+        Rect rect{};
+        // Drawn over the panels of lower order.
+        uint32_t order{0};
+        uint64_t frame{0};
+        std::vector<Primitive> primitives;
+    };
     // What is kept for an OS window from frame to frame.
     struct Root {
         RootId id{0};
@@ -127,7 +178,41 @@ private:
         float scale{1.0f};
         DrawData draw;
         DrawList list;
+        std::vector<std::unique_ptr<Panel>> panels;
+        uint32_t next_order{0};
     };
+    // How far a panel or region is scrolled, and what it held.
+    struct Scroll {
+        glm::vec2 offset{0.0f};
+        glm::vec2 content{0.0f};
+        glm::vec2 visible{0.0f};
+        uint64_t frame{0};
+    };
+    // A panel or region being drawn.
+    struct Area {
+        Id id{0};
+        bool panel{false};
+        bool scrolls{false};
+        Rect visible{};
+    };
+    struct KeptContainer {
+        ContainerMemory memory{};
+        uint64_t frame{0};
+    };
+    struct OpenContainer {
+        Id id{0};
+        // Placed by what it measured: every container but a wrapping row.
+        bool measured{false};
+        bool hidden{false};
+        std::size_t mark{0};
+    };
+
+    Panel& panel(Id id);
+    // Ends the innermost panel's or region's area, keeping what it held for
+    // scrolling.
+    void end_area();
+    // Forgets what hasn't been drawn for a long while.
+    void sweep();
 
     double time_{0.0};
     float delta_{0.0f};
@@ -140,6 +225,13 @@ private:
     IdStack ids_;
     Storage storage_;
     TextSystem text_;
+    Layout layout_;
+
+    std::vector<Area> areas_;
+    std::unordered_map<Id, Scroll> scrolls_;
+    std::unordered_map<Id, KeptContainer> containers_;
+    std::vector<OpenContainer> open_containers_;
+    int hidden_{0};
 
     bool next_now_{false};
     std::optional<double> next_at_{};

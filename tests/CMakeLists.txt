@@ -67,6 +67,7 @@ add_executable(ftk-tests
     test_ui_core_draw.cpp
     test_ui_core_frame.cpp
     test_ui_core_ids.cpp
+    test_ui_core_layout.cpp
     test_ui_core_text.cpp
     test_utf8.cpp
     test_vulkan_access.cpp

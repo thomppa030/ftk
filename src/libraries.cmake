@@ -286,19 +286,22 @@ ftk_embed_file(ftk-text "${FTK_SOURCE_ROOT}/../fonts/LastResortHE-Regular.ttf")
 
 # ftk-ui-core is ftk's own immediate-mode UI, which the kit is to draw with
 # in place of ImGui (the UI core plan): ids and kept state, frames and the
-# OS windows drawn into, and what they draw, as shapes and text from
-# ftk-text. It holds no GPU code and never ImGui, so it runs headless in
-# the unit tests.
+# OS windows drawn into, where items go in them, and what they draw, as
+# shapes and text from ftk-text. It holds no GPU code and never ImGui, so it
+# runs headless in the unit tests.
 ftk_library(ui-core
     SOURCES
         ftk/ui/core/context.cpp
         ftk/ui/core/draw_list.cpp
         ftk/ui/core/id.cpp
+        ftk/ui/core/layout.cpp
         ftk/ui/core/text.cpp
     HEADERS
         ftk/ui/core/context.hpp
         ftk/ui/core/draw_list.hpp
         ftk/ui/core/id.hpp
+        ftk/ui/core/layout.hpp
+        ftk/ui/core/rect.hpp
         ftk/ui/core/storage.hpp
         ftk/ui/core/text.hpp
         ftk/ui/core/types.hpp

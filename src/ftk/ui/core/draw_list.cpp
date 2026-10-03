@@ -44,12 +44,35 @@ uint32_t pack_colour(Color colour) {
 
 void DrawList::reset(DrawData& data, glm::vec2 size, float scale, TextSystem* text) {
     data_ = &data;
+    target_ = &data.primitives;
     text_ = text;
     scale_ = scale;
     data.primitives.clear();
     data.clips.assign(1, {.min = {0.0f, 0.0f}, .max = size});
     data.textures.assign(1, Texture{});
     clip_stack_.assign(1, 0);
+    targets_.clear();
+}
+
+void DrawList::push_target(std::vector<Primitive>& target) {
+    targets_.push_back({.previous = target_, .clip_depth = clip_stack_.size()});
+    target_ = &target;
+    target.clear();
+    clip_stack_.push_back(0);
+}
+
+void DrawList::pop_target() {
+    if (targets_.empty()) {
+        FTK_CORE_ERROR("UI: a draw target popped that was never pushed");
+        return;
+    }
+    target_ = targets_.back().previous;
+    clip_stack_.resize(targets_.back().clip_depth);
+    targets_.pop_back();
+}
+
+void DrawList::truncate(std::size_t mark) {
+    if (mark < target_->size()) target_->resize(mark);
 }
 
 void DrawList::add(Primitive p) {
@@ -58,7 +81,7 @@ void DrawList::add(Primitive p) {
     if (p.max.x <= clip.min.x || p.max.y <= clip.min.y || p.min.x >= clip.max.x || p.min.y >= clip.max.y) return;
     if ((p.colour >> 24) == 0 && (p.colour2 >> 24) == 0) return;
     p.clip = clip_stack_.back();
-    data_->primitives.push_back(p);
+    target_->push_back(p);
 }
 
 void DrawList::rect_filled(glm::vec2 min, glm::vec2 max, Color colour, float rounding, RoundCorners corners) {
@@ -217,7 +240,8 @@ void DrawList::push_clip(glm::vec2 min, glm::vec2 max) {
 }
 
 void DrawList::pop_clip() {
-    if (clip_stack_.size() <= 1) {
+    const std::size_t floor = targets_.empty() ? 1 : targets_.back().clip_depth + 1;
+    if (clip_stack_.size() <= floor) {
         FTK_CORE_ERROR("UI: a clip popped that was never pushed");
         return;
     }
