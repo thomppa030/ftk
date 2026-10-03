@@ -150,10 +150,12 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
             const text::Glyph& glyph = entry.shaped.glyphs[g];
             // A control character draws nothing, whatever face took it.
             if (static_cast<unsigned char>(text[glyph.cluster]) < 0x20) continue;
-            const auto placed = atlas_.glyph(*glyph.face, glyph.index, pixel_size);
+            // Across, drawn where in its pixel the pen falls, to a quarter;
+            // down, on the whole pixel the baseline is hinted to.
+            const text::PenPixel pen = text::pen_pixel((at.x + glyph.x - origin + glyph.offset.x) * scale);
+            const auto placed = atlas_.glyph(*glyph.face, glyph.index, pixel_size, pen.step);
             if (!placed || placed->rect.empty()) continue;
-            // On whole pixels, as the atlas's coverage was drawn.
-            const float x = std::round((at.x + glyph.x - origin + glyph.offset.x) * scale) + placed->bearing.x;
+            const float x = pen.pixel + placed->bearing.x;
             const float y = std::round((baseline + glyph.offset.y) * scale) + placed->bearing.y;
             const glm::vec2 min = glm::vec2{x, y} / scale;
             const glm::vec2 size = glm::vec2{placed->rect.width, placed->rect.height} / scale;

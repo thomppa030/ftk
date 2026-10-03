@@ -2,6 +2,8 @@
 
 #include "ftk/text/detail/face_impl.hpp"
 
+#include FT_OUTLINE_H
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -17,10 +19,18 @@ constexpr uint16_t BORDER = 1;
 
 } // namespace
 
+PenPixel pen_pixel(float x) {
+    const float pixel = std::floor(x);
+    const int step = static_cast<int>(std::lround((x - pixel) * static_cast<float>(SUBPIXEL_STEPS)));
+    if (step >= SUBPIXEL_STEPS) return {.pixel = pixel + 1.0f, .step = 0};
+    return {.pixel = pixel, .step = step};
+}
+
 std::size_t GlyphAtlas::KeyHash::operator()(const Key& key) const {
     std::size_t hash = key.face;
     hash = hash * 1000003u ^ key.glyph;
     hash = hash * 1000003u ^ static_cast<uint32_t>(key.size);
+    hash = hash * 1000003u ^ key.step;
     return hash;
 }
 
@@ -81,8 +91,11 @@ std::optional<std::pair<uint16_t, AtlasRect>> GlyphAtlas::allocate(uint16_t widt
     return std::nullopt;
 }
 
-std::optional<AtlasGlyph> GlyphAtlas::glyph(const Face& face, uint32_t index, float size) {
-    const Key key{.face = face.id(), .glyph = index, .size = static_cast<int32_t>(std::lround(size * 64.0f))};
+std::optional<AtlasGlyph> GlyphAtlas::glyph(const Face& face, uint32_t index, float size, int step) {
+    const Key key{.face = face.id(),
+                  .glyph = index,
+                  .size = static_cast<int32_t>(std::lround(size * 64.0f)),
+                  .step = static_cast<uint8_t>(std::clamp(step, 0, SUBPIXEL_STEPS - 1))};
     if (auto found = entries_.find(key); found != entries_.end()) {
         if (!found->second.glyph.rect.empty()) pages_[found->second.glyph.page].last_used = frame_;
         return found->second.glyph;
@@ -90,13 +103,17 @@ std::optional<AtlasGlyph> GlyphAtlas::glyph(const Face& face, uint32_t index, fl
 
     // Rasterized at exactly the size, 72 dots to the inch making a point a
     // pixel. Light hinting fits the outline to the pixel grid vertically
-    // only, so the advances shaping gave still hold.
+    // only, so the advances shaping gave still hold, and the outline can be
+    // moved right by its step before it is drawn.
     FT_Face ft = face.impl().ft;
-    if (FT_Set_Char_Size(ft, 0, key.size, 72, 72) != 0 ||
-        FT_Load_Glyph(ft, index, FT_LOAD_TARGET_LIGHT | FT_LOAD_RENDER) != 0) {
+    if (FT_Set_Char_Size(ft, 0, key.size, 72, 72) != 0 || FT_Load_Glyph(ft, index, FT_LOAD_TARGET_LIGHT) != 0) {
         return std::nullopt;
     }
     const FT_GlyphSlot slot = ft->glyph;
+    if (slot->format == FT_GLYPH_FORMAT_OUTLINE && key.step != 0) {
+        FT_Outline_Translate(&slot->outline, key.step * 64 / SUBPIXEL_STEPS, 0);
+    }
+    if (FT_Render_Glyph(slot, FT_RENDER_MODE_LIGHT) != 0) return std::nullopt;
     const FT_Bitmap& bitmap = slot->bitmap;
     AtlasGlyph placed{.bearing = {static_cast<float>(slot->bitmap_left), -static_cast<float>(slot->bitmap_top)}};
     // A glyph without pixels (a space), or in colour, which this atlas

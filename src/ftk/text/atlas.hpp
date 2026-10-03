@@ -2,13 +2,16 @@
 
 // Glyphs rasterized on first use into the pages of a bounded atlas
 // (decision 12): each at the exact pixel size it is drawn at, as 8-bit
-// coverage, packed in rows. When every page is full, the page used longest
-// ago is cleared for the new glyphs. The pixels stay here: whoever draws
-// uploads the regions written since it last asked.
+// coverage, packed in rows. A glyph is drawn where its pen falls within a
+// pixel, to the nearest quarter, so it sits where shaping put it rather
+// than up to half a pixel off. When every page is full, the page used
+// longest ago is cleared for the new glyphs. The pixels stay here: whoever
+// draws uploads the regions written since it last asked.
 //
 //     atlas.begin_frame();
 //     for (const text::Glyph& g : line.glyphs) {
-//         if (auto placed = atlas.glyph(*g.face, g.index, 14.0f)) draw(placed->page, placed->rect, pen + g.offset + placed->bearing);
+//         const text::PenPixel at = text::pen_pixel(pen.x + g.x);
+//         if (auto placed = atlas.glyph(*g.face, g.index, 14.0f, at.step)) draw(placed->page, placed->rect, {at.pixel, pen.y} + placed->bearing);
 //     }
 //     for (const text::AtlasWrite& w : atlas.take_writes()) upload(w, atlas.page(w.page));
 //
@@ -37,6 +40,19 @@ struct AtlasRect {
 
     [[nodiscard]] bool empty() const { return width == 0 || height == 0; }
 };
+
+/// How many places across a pixel a glyph is drawn at, a quarter apart.
+inline constexpr int SUBPIXEL_STEPS = 4;
+
+/// A pen's place across the pixels: the whole pixel it is in, and how many
+/// steps past that pixel's left edge, the nearest of SUBPIXEL_STEPS.
+struct PenPixel {
+    float pixel{0.0f};
+    int step{0};
+};
+
+/// Where the pen at `x` pixels falls: past the last step, at the next pixel.
+[[nodiscard]] PenPixel pen_pixel(float x);
 
 /// Where a glyph is in the atlas.
 struct AtlasGlyph {
@@ -69,11 +85,11 @@ public:
     /// and their pages are not cleared until a later frame.
     void begin_frame();
 
-    /// Glyph `index` of `face` at `size` pixels to the em, rasterized now if
-    /// this is its first use at that size. None when it can't be placed:
-    /// it is bigger than a page, or every page holds glyphs in use this
-    /// frame.
-    [[nodiscard]] std::optional<AtlasGlyph> glyph(const Face& face, uint32_t index, float size);
+    /// Glyph `index` of `face` at `size` pixels to the em, drawn `step`
+    /// SUBPIXEL_STEPS right of its pen, rasterized now if this is its first
+    /// use so. None when it can't be placed: it is bigger than a page, or
+    /// every page holds glyphs in use this frame.
+    [[nodiscard]] std::optional<AtlasGlyph> glyph(const Face& face, uint32_t index, float size, int step = 0);
 
     [[nodiscard]] uint16_t page_size() const { return options_.page_size; }
     [[nodiscard]] uint16_t page_count() const { return static_cast<uint16_t>(pages_.size()); }
@@ -91,6 +107,8 @@ private:
         uint32_t glyph{0};
         /// The size in 64ths of a pixel, as FreeType takes it.
         int32_t size{0};
+        /// How far right of its pen it is drawn, in SUBPIXEL_STEPS.
+        uint8_t step{0};
         bool operator==(const Key&) const = default;
     };
     struct KeyHash {

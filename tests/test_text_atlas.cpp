@@ -3,6 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <memory>
 
@@ -70,6 +71,45 @@ TEST_CASE("A glyph is rasterized into the atlas on first use and found there aft
     const auto bigger = atlas.glyph(*face, a, 32.0f);
     REQUIRE(bigger.has_value());
     CHECK(bigger->rect.height > placed->rect.height);
+}
+
+TEST_CASE("A glyph is drawn where its pen falls within a pixel, to a quarter", "[text]") {
+    CHECK(text::pen_pixel(10.0f).pixel == 10.0f);
+    CHECK(text::pen_pixel(10.0f).step == 0);
+    CHECK(text::pen_pixel(10.3f).pixel == 10.0f);
+    CHECK(text::pen_pixel(10.3f).step == 1);
+    CHECK(text::pen_pixel(10.5f).step == 2);
+    CHECK(text::pen_pixel(10.9f).pixel == 11.0f);
+    CHECK(text::pen_pixel(10.9f).step == 0);
+    CHECK(text::pen_pixel(-0.25f).pixel == -1.0f);
+    CHECK(text::pen_pixel(-0.25f).step == 3);
+
+    const auto face = inter();
+    text::GlyphAtlas atlas({.page_size = 256, .max_pages = 2});
+    atlas.begin_frame();
+    const uint32_t l = glyph_of(face, "l");
+    // Where its ink is across, from its pen: the middle of its coverage.
+    const auto ink_x = [&](int step) {
+        const auto placed = atlas.glyph(*face, l, 16.0f, step);
+        REQUIRE(placed.has_value());
+        REQUIRE_FALSE(placed->rect.empty());
+        const auto pixels = atlas.page(placed->page);
+        double sum = 0.0;
+        double weighted = 0.0;
+        for (int y = placed->rect.y; y < placed->rect.y + placed->rect.height; ++y) {
+            for (int x = 0; x < placed->rect.width; ++x) {
+                const double ink = pixels[static_cast<std::size_t>(y) * atlas.page_size() + placed->rect.x + x];
+                sum += ink;
+                weighted += ink * (x + 0.5);
+            }
+        }
+        return placed->bearing.x + weighted / sum;
+    };
+    const double whole = ink_x(0);
+    CHECK(std::abs(ink_x(2) - whole - 0.5) < 0.1);
+    CHECK(std::abs(ink_x(1) - whole - 0.25) < 0.1);
+    // Each step is its own glyph in the atlas.
+    CHECK(atlas.glyph(*face, l, 16.0f, 2)->rect.x != atlas.glyph(*face, l, 16.0f, 0)->rect.x);
 }
 
 TEST_CASE("A full atlas clears the page used longest ago, never one in use this frame", "[text]") {
