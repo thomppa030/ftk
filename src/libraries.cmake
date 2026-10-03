@@ -476,9 +476,11 @@ ftk_library(app-ui
         ftk/ui/kit/core/asset_tile.cpp
         ftk/ui/kit/core/bit_strip.cpp
         ftk/ui/kit/core/button.cpp
+        ftk/ui/kit/core/canvas.cpp
         ftk/ui/kit/core/choice.cpp
         ftk/ui/kit/core/color_field.cpp
         ftk/ui/kit/core/component_block.cpp
+        ftk/ui/kit/core/curve_editor.cpp
         ftk/ui/kit/core/dialog.cpp
         ftk/ui/kit/core/drag_drop.cpp
         ftk/ui/kit/core/draw_list.cpp
@@ -495,10 +497,12 @@ ftk_library(app-ui
         ftk/ui/kit/core/list_editor.cpp
         ftk/ui/kit/core/loading.cpp
         ftk/ui/kit/core/menu.cpp
+        ftk/ui/kit/core/node_graph.cpp
         ftk/ui/kit/core/overlay.cpp
         ftk/ui/kit/core/pages.cpp
         ftk/ui/kit/core/pane.cpp
         ftk/ui/kit/core/panel.cpp
+        ftk/ui/kit/core/plot.cpp
         ftk/ui/kit/core/popup.cpp
         ftk/ui/kit/core/rail.cpp
         ftk/ui/kit/core/region.cpp

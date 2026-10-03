@@ -393,6 +393,11 @@ bool close_button(Id id, glm::vec2 at);
 [[nodiscard]] core::Rect close_rect(glm::vec2 at);
 void draw_close(core::Rect rect, const core::Interaction& in);
 
+/// The picker a colour field opens, at the cursor: the square, the hue bar
+/// and with `alpha` the alpha bar, the colour's numbers under them. Edits
+/// sRGB `rgba`.
+Edit popup_picker(Id id, float* rgba, bool alpha);
+
 /// A whole number dragged from `min` to `max`, as wide as the next item,
 /// `letter` pinned to its left in `colour` as a vector's axes are: a
 /// colour's R, G and B.

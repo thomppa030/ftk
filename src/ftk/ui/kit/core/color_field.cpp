@@ -374,6 +374,11 @@ Edit srgb_field(const char* id, float* rgba, bool alpha) {
 
 } // namespace
 
+Edit corekit::popup_picker(Id id, float* rgba, bool alpha) {
+    bool started = false;
+    return picker(id, rgba, alpha, POPUP_PICKER_WIDTH, Below::Numbers, started);
+}
+
 Edit color(const char* id, glm::vec3& value, ColorSpace space) {
     const glm::vec3 shown = space == ColorSpace::Linear ? color_space::linear_to_srgb(value) : value;
     float rgba[4]{shown.r, shown.g, shown.b, 1.0f};

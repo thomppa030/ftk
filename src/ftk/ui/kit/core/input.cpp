@@ -112,6 +112,11 @@ float mouse_wheel() {
     return m != nullptr ? m->wheel.y : 0.0f;
 }
 
+glm::vec2 mouse_delta() {
+    const core::Pointer* m = mouse();
+    return m != nullptr ? m->now.position - m->previous : glm::vec2{0.0f};
+}
+
 double seconds() {
     return ui().time();
 }

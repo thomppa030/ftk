@@ -152,6 +152,9 @@ struct Pointer {
     RootId root{0};
     /// Where it is now, and how.
     PointerSample now{};
+    /// Where it was as the last frame ended: it has moved by now's position
+    /// less this since. Where it came in, the frame it comes.
+    glm::vec2 previous{0.0f};
     bool eraser{false};
     /// Touch has no hover: a finger is only somewhere while it is down.
     bool can_hover{true};

@@ -125,8 +125,10 @@ add_executable(ftk-kit-core-tests
     test_asset_header.cpp
     test_asset_tile.cpp
     test_bit_strip.cpp
+    test_canvas.cpp
     test_choices.cpp
     test_component_block.cpp
+    test_curve_editor.cpp
     test_dialog.cpp
     test_fields.cpp
     test_grouped_picker.cpp
@@ -134,6 +136,7 @@ add_executable(ftk-kit-core-tests
     test_kit_basics.cpp
     test_list_editor.cpp
     test_menu.cpp
+    test_node_graph.cpp
     test_pages.cpp
     test_rail.cpp
     test_search.cpp

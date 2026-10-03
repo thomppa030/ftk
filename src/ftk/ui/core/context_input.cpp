@@ -83,6 +83,8 @@ void Context::apply(const PointerEvent& event) {
     p.root = event.root;
     p.eraser = event.eraser;
     const auto record = [&] {
+        // A pointer that has just come moved from where it came in.
+        if (!p.present && p.samples.empty()) p.previous = event.sample.position;
         p.now = event.sample;
         p.samples.push_back(event.sample);
     };
@@ -154,6 +156,7 @@ void Context::take_input() {
         tracked.holder_seen = false;
         tracked.press_top = 0;
         tracked.frame_start = p.now.position;
+        p.previous = p.now.position;
         p.pressed = 0;
         p.released = 0;
         p.cancelled = false;

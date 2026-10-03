@@ -7,6 +7,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
+#include "ftk/ui/kit/curve_editor.hpp"
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
@@ -17,6 +18,7 @@
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/plot.hpp"
 #include "ftk/ui/kit/rail.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -175,6 +177,49 @@ void KitPage::draw(glm::vec2 size, float top) {
     draw_emitters({10.0f, top + 570.0f});
     draw_feedback({size.x - 460.0f, top + 620.0f});
     draw_scene({10.0f, top + 1150.0f});
+    draw_canvases({10.0f, top + 1610.0f});
+}
+
+void KitPage::draw_canvases(glm::vec2 at) {
+    ui::next_window_size_once({1240.0f, 380.0f});
+    ui::next_window_pos(at);
+    auto panel = ui::Panel(ui::icon::history, "Canvases");
+    if (!panel) return;
+
+    {
+        ui::Group left;
+        (void)ui::curve_editor("##fade", fade_, {.size = {380.0f, 180.0f}, .hue = theme::Hue::orange});
+        // Frame times, a ring of them read from the oldest.
+        static constexpr std::array<float, 24> FRAMES{7.1f, 6.9f, 7.4f, 8.2f, 7.0f, 6.8f, 12.5f, 7.2f,
+                                                      7.0f, 6.9f, 7.3f, 7.1f, 9.8f, 7.0f, 6.9f, 7.2f,
+                                                      7.4f, 7.1f, 6.8f, 7.0f, 7.6f, 7.2f, 6.9f, 7.0f};
+        ui::plot_lines("##frames", FRAMES, 5, {380.0f, 48.0f}, {.max = 16.6f, .overlay = "6.94 ms"});
+    }
+    ui::same_line(16.0f);
+
+    // Three nodes, one value of each linked into a material.
+    ui::NodeGraphDesc desc;
+    ui::NodeRow strength;
+    strength.output = ui::NodePin{.id = 11, .label = "Strength", .colour = theme::hue(theme::Hue::teal)};
+    ui::NodeRow strength_value;
+    strength_value.value = ui::NodeValue::number(strength_, {.speed = 0.01f, .lo = 0.0f, .hi = 1.0f});
+    desc.nodes.push_back({.id = 1, .position = node_places_[0], .title = "Noise",
+                          .hue = theme::hue(theme::Hue::teal), .rows = {strength_value, strength}});
+    ui::NodeRow colour;
+    colour.output = ui::NodePin{.id = 21, .label = "Colour", .colour = theme::hue(theme::Hue::coral)};
+    ui::NodeRow colour_value;
+    colour_value.value = ui::NodeValue::colour(tint_node_);
+    desc.nodes.push_back({.id = 2, .position = node_places_[1], .title = "Tint",
+                          .hue = theme::hue(theme::Hue::coral), .rows = {colour_value, colour}});
+    ui::NodeRow mask;
+    mask.input = ui::NodePin{.id = 31, .label = "Mask", .colour = theme::hue(theme::Hue::teal)};
+    ui::NodeRow base;
+    base.input = ui::NodePin{.id = 32, .label = "Base colour", .colour = theme::hue(theme::Hue::coral)};
+    desc.nodes.push_back({.id = 3, .position = node_places_[2], .title = "Material",
+                          .hue = theme::hue(theme::Hue::ochre), .rows = {mask, base}});
+    desc.links = {{.id = 1, .from = {1, 11}, .to = {3, 31}}, {.id = 2, .from = {2, 21}, .to = {3, 32}}};
+    const ui::NodeGraphEvents events = graph_.draw(desc);
+    if (events.moved) node_places_[events.moved->node - 1] = events.moved->position;
 }
 
 void KitPage::draw_scene(glm::vec2 at) {

@@ -47,6 +47,21 @@ PointerEvent touch(PointerEvent::Kind kind, glm::vec2 at, core::PointerId finger
 
 } // namespace
 
+TEST_CASE("A pointer knows where it was as the last frame ended, and comes in from where it is", "[ui-core][pointers]") {
+    UiHarness h;
+    glm::vec2 moved{-1.0f};
+    h.set_ui([&] {
+        const core::Context& ui = h.ui();
+        if (ui.pointer_count() > 0) moved = ui.pointer(0).now.position - ui.pointer(0).previous;
+    });
+    h.move_to({100.0f, 80.0f});
+    CHECK(moved == glm::vec2{0.0f});
+    h.move_to({130.0f, 60.0f});
+    CHECK(moved == glm::vec2{30.0f, -20.0f});
+    h.step();
+    CHECK(moved == glm::vec2{0.0f});
+}
+
 TEST_CASE("A click is a press and a release over the same widget", "[ui-core][pointers]") {
     UiHarness h;
     core::Interaction last;

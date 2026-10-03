@@ -9,9 +9,13 @@
 // vector, a tick box, a switch, a stepper, a tag, a text field, choices
 // segmented and dropped down, and colour fields; an effect's emitters, with
 // a tab strip, a section, a box set apart, a rail of steps and a strip of
-// bits; what the kit tells, over a status bar along the window's foot; and
-// a scene's things in a tree, a table, tiles and cards. The gallery takes
-// its place once every piece is on the core.
+// bits; what the kit tells, over a status bar along the window's foot; a
+// scene's things in a tree, a table, tiles and cards; and canvases: a curve,
+// a plot and a graph of nodes. The gallery takes its place once every piece
+// is on the core.
+
+#include "ftk/math/curve.hpp"
+#include "ftk/ui/kit/node_graph.hpp"
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -41,6 +45,9 @@ private:
     /// The panel of a scene's things: a tree, a table of files, asset tiles
     /// and a list of cards, at `at`.
     void draw_scene(glm::vec2 at);
+    /// The panel of canvases: a curve, a plot of frame times and a graph of
+    /// nodes, at `at`.
+    void draw_canvases(glm::vec2 at);
 
     int picked_{1};
     int clicks_{0};
@@ -75,6 +82,12 @@ private:
     int selected_node_{2};
     int selected_tile_{1};
     std::vector<glm::vec3> points_{{0.0f, 0.5f, 0.0f}, {1.2f, 0.4f, -0.3f}};
+
+    Curve fade_{.keyframes = {{0.0f, 0.0f, 0.0f, 3.0f}, {0.35f, 0.9f, 0.0f, 0.0f}, {1.0f, 0.1f, -1.0f, 0.0f}}};
+    ui::NodeGraph graph_{};
+    std::vector<glm::vec2> node_places_{{40.0f, 40.0f}, {300.0f, 20.0f}, {300.0f, 170.0f}};
+    float strength_{0.8f};
+    glm::vec3 tint_node_{0.83f, 0.63f, 0.31f};
 };
 
 } // namespace ftk::example

@@ -139,6 +139,10 @@ glm::vec2 mouse_pos() {
     return ImGui::GetMousePos();
 }
 
+glm::vec2 mouse_delta() {
+    return ImGui::GetIO().MouseDelta;
+}
+
 bool mouse_over(glm::vec2 min, glm::vec2 max) {
     return ImGui::IsMouseHoveringRect(min, max);
 }

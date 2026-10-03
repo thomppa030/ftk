@@ -69,6 +69,9 @@ void set_mouse_cursor(MouseCursor cursor);
 /// Where the mouse is, in screen pixels.
 [[nodiscard]] glm::vec2 mouse_pos();
 
+/// How far the mouse moved since the last frame, in screen pixels.
+[[nodiscard]] glm::vec2 mouse_delta();
+
 /// The mouse is in the rectangle from `min` to `max`, in the part of it
 /// the window being drawn shows.
 [[nodiscard]] bool mouse_over(glm::vec2 min, glm::vec2 max);
