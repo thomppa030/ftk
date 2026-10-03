@@ -65,8 +65,7 @@ public:
     /// reported, or give it back.
     void set_cursor_captured(bool captured);
 
-    /// SDL's window, for the ImGui platform backend and the GPU backend's
-    /// surface.
+    /// SDL's window, for the GPU backend's surface and the UI's input.
     [[nodiscard]] SDL_Window* handle() const { return window_; }
     /// The size in pixels, as of the last event that changed it.
     [[nodiscard]] uint32_t width() const { return width_; }
@@ -91,7 +90,7 @@ public:
     Delegate<void(const std::vector<std::string>&)> on_files_dropped;
 
     /// Every event SDL delivers for this window, for the layers that read the
-    /// platform's events themselves: its Input and its ImGui backend. An event
+    /// platform's events themselves: its Input and the UI's input. An event
     /// that belongs to no window, such as a gamepad being plugged in, reaches
     /// every window's listeners.
     Delegate<void(const SDL_Event&)> on_event;

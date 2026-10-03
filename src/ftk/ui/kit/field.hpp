@@ -9,7 +9,7 @@
 
 // Value fields for the value column of a property row (ui::row). Each fills
 // the width it is given, takes its name from the row rather than drawing
-// one, and reports an Edit. `id` is an ImGui ID ("##mass").
+// one, and reports an Edit. `id` is the field's id ("##mass").
 //
 // Drag a field for an open range; use a slider only for a bounded range
 // whose ends mean something (0–1 strength, 0–90° slope). Both take typed

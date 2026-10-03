@@ -1,4 +1,0 @@
-# Files of ftk's own that still reach Dear ImGui past the kit: its headers,
-# ImGui::, its types or its IM_ macros. ftk's ImGui check skips these. When a
-# file moves onto the kit, delete its line here: the check fails while a
-# listed file has no ImGui left, so the list only shrinks.

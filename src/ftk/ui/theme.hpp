@@ -17,11 +17,10 @@ namespace ftk::theme {
 // Every colour the editor draws with is a token below, named by what it
 // means. Its value is data, in a palette (src/ftk/ui/palettes/): ftk builds
 // in the approved dark one, and a program with a palette of its own uses it
-// at startup. Every colour is sRGB, the way ImGui itself assumes; the ImGui
-// fragment stage (shaders/imgui.frag) decodes it for the sRGB swapchain.
+// at startup. Every colour is sRGB: the UI blends in sRGB values, and its
+// renderer decodes them for the sRGB swapchain.
 //
-// Nothing outside the theme, the style imgui_theme.cpp writes from it and
-// src/ftk/ui/kit/ writes a colour value (cmake/EditorUiCheck.cmake enforces
+// Nothing outside the theme and src/ftk/ui/kit/ writes a colour value (cmake/EditorUiCheck.cmake enforces
 // it); a colour that is missing is added as a token, by what it means, and
 // given a value in every palette.
 

@@ -49,16 +49,15 @@ void refusal_tooltip(std::string_view why);
 /// disabled while it is empty, so the field keeps its width; and a problem
 /// with what it holds is said under it.
 ///
-///     ImGui::PushID(id);
+///     ui::IdScope scope(id);
 ///     ui::Slot slot(PAYLOAD, [&](const ui::Payload& p) { return why_not(p); });
 ///     if (slot.clicked()) ui::grouped_picker::open(id);
-///     if (slot.hovered()) ImGui::SetItemTooltip("%s", full_name.c_str());
+///     if (slot.hovered()) ui::item_tooltip(full_name);
 ///     if (const ui::Payload* p = slot.dropped()) value = decode(*p);
 ///     ui::grouped_picker::draw(id, groups, {}, picked);  // hangs under the field
 ///     if (slot.finish(face_of(value), value.empty(), problem)) value.clear();
-///     ImGui::PopID();
 ///
-/// The caller pushes its own ImGui ID around the slot, and draws its picker
+/// The caller scopes its own id around the slot, and draws its picker
 /// between the two halves, while the field is still the last item.
 class Slot {
 public:
@@ -81,8 +80,7 @@ public:
     /// The mouse is over the field, for the caller's tooltip.
     [[nodiscard]] bool hovered() const { return hovered_; }
     /// What was let go on the field this frame and fits, or null. The slot's
-    /// own copy: ImGui clears its payload as the drop target closes, before
-    /// the caller could read it.
+    /// own copy, still good once the drop target has closed.
     [[nodiscard]] const Payload* dropped() const { return has_drop_ ? &dropped_ : nullptr; }
 
     /// Draws the face over the field, then the clear button, disabled while

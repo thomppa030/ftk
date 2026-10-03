@@ -4,14 +4,7 @@
 
 namespace ftk::ui {
 
-/// Custom-titled panel. Drop-in replacement for:
-///
-///     if (ImGui::Begin("Properties")) {
-///         ...
-///         ImGui::End();
-///     }
-///
-/// becomes:
+/// Custom-titled panel: a window with a header of its own.
 ///
 ///     if (auto p = ui::Panel(ui::icon::history, "History")) {
 ///         ...
@@ -22,9 +15,9 @@ namespace ftk::ui {
 ///   - bold label
 ///   - dimmed underline for separation from content
 ///
-/// The window still docks (the ImGui dockspace machinery doesn't require
-/// a title bar) and the tab in the dockspace shows the label passed to
-/// the constructor (used as the window name). It never collapses.
+/// The window still docks (a dockspace needs no title bar) and the tab in
+/// the dockspace shows the label passed to the constructor (used as the
+/// window name). It never collapses.
 class Panel {
 public:
     Panel(const char* icon, const char* label, WindowOptions options = {})

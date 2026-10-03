@@ -28,7 +28,7 @@ struct ImportedImage {
     // state.
     bool persistent{false};
     /// How readers the graph cannot see use the image (a shader sampling it
-    /// through the global set, ImGui showing it): where it rests between
+    /// through the global set, the UI showing it): where it rests between
     /// the passes that declare it. The graph starts it there when it has no
     /// memory of it, and after a pass leaves it in any other access returns
     /// it to rest before anything else runs, so an unseen reader always finds
@@ -199,7 +199,7 @@ public:
     void parallel_group(uint32_t group) { parallel_group_ = group; }
 
     /// Mark this pass as never-cullable. Debug visualizations with
-    /// side-effects that the graph can't see (ImGui, direct writes to
+    /// side-effects that the graph can't see (the UI, direct writes to
     /// host-visible buffers) use this.
     void never_cull() { never_cull_ = true; }
 

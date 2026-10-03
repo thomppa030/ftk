@@ -20,7 +20,7 @@
 namespace ftk::ui {
 
 struct AssetTileSpec {
-    /// Unique among the grid's tiles; also the ImGui ID.
+    /// Unique among the grid's tiles; also the tile's id.
     const char* id{""};
     std::string_view name{};
     /// The tile's picture: a rendered thumbnail, or an icon image; 0 for

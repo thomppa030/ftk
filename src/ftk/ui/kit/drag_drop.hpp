@@ -60,8 +60,8 @@ struct Drop {
 };
 
 /// While it lives, the item just drawn takes drops, when this is true:
-/// while something is dragged over it. A payload is ImGui's own and good
-/// until the scope ends.
+/// while something is dragged over it. A payload's data is the UI's own
+/// and good until the scope ends.
 class DropTarget {
 public:
     DropTarget();

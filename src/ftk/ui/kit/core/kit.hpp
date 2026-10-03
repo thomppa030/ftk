@@ -2,10 +2,10 @@
 
 // The kit on the UI core: what it keeps with the core's context and the
 // helpers its pieces share. The kit's headers are the API; each piece of it
-// is written here on ftk::ui::core, as the ImGui kit's are written on
-// ImGui, and keeps ImGui's model where the kit's API carries it: windows
-// by name, the item just drawn, what the next item and the next window
-// are to be. Inside ftk-app-ui only.
+// is written here on ftk::ui::core, and keeps ImGui's model, which the kit
+// was first drawn with, where the kit's API carries it: windows by name,
+// the item just drawn, what the next item and the next window are to be.
+// Inside ftk-app-ui only.
 
 #include "ftk/ui/core/context.hpp"
 #include "ftk/ui/kit/dock.hpp"
@@ -30,8 +30,8 @@
 
 namespace ftk::ui::corekit {
 
-/// The kit's metrics: those the ImGui kit gives ImGui's style
-/// (imgui_theme.cpp), so a piece measures alike on either.
+/// The kit's metrics: those the ImGui kit gave ImGui's style, so the
+/// editor measures as it did.
 struct Style {
     glm::vec2 window_padding{10.0f, 8.0f};
     glm::vec2 frame_padding{8.0f, 5.0f};

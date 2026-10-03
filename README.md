@@ -2,8 +2,8 @@
 
 ftk is a toolkit for desktop programs with a GPU and an editor-style UI,
 written in C++23: an SDL window and a GPU interface with a Vulkan backend, a
-frame graph, Dear ImGui drawn through it with a theme and a kit of widgets,
-undo, a console, and the plumbing such programs share. It began as the
+frame graph, an immediate-mode UI of its own drawn through it with a theme
+and a kit of widgets, undo, a console, and the plumbing such programs share. It began as the
 foundation of the Fjell engine and is meant for programs like it: editors,
 tools and creative apps. It builds on Linux and Windows.
 
@@ -18,15 +18,18 @@ library it does not link; the build checks that.
 | `ftk::math` | Colour space conversions and keyed curves |
 | `ftk::platform` | Paths, processes, file watching and shared libraries, one backend per OS |
 | `ftk::gpu` | The GPU interface and the window; its Vulkan backend, `src/ftk/gpu/vulkan/`, is the only code that names Vulkan |
-| `ftk::gpu-imgui` | Dear ImGui drawn through the GPU interface |
 | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
 | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, with glslc's errors read back |
 | `ftk::image` | Image loading, saving and resizing (stb) |
-| `ftk::ui-kit` | The kit's headers, the editor theme and its icons, for a program to link with one implementation of the kit |
-| `ftk::app-ui-imgui` | The kit of widgets drawn by Dear ImGui |
-| `ftk::app` | The main window on the UI core, its input and undo |
-| `ftk::app-imgui` | The window on the kit's ImGui implementation, the ImGui layer, standalone windows, undo's history panel, the console, the file browser, the icon cache and editor contexts |
-| `ftk::imgui-harness` | Dear ImGui with no window, for a program's tests to drive its UI |
+| `ftk::text` | Font faces, fallback chains, shaping and glyph rasterising (FreeType, HarfBuzz) |
+| `ftk::ui-core` | The immediate-mode UI: ids and kept state, layout, input, OS windows and popups, draw lists; no GPU code |
+| `ftk::ui-kit` | The kit's headers, the editor theme and its icons |
+| `ftk::app-ui` | The kit of widgets drawn by the UI core, and its gallery |
+| `ftk::gpu-ui` | The UI core's frames drawn through the GPU interface |
+| `ftk::app` | The main window, or a layer for a program running its own loop, its input and undo |
+| `ftk::app-editor` | Standalone windows, undo's history panel, the console, the file browser, the icon cache and editor contexts |
+| `ftk::ui-harness` | The UI core with no window, to step frames and feed it the mouse and keys |
+| `ftk::kit-harness` | That harness with the kit and its fonts, for a program's tests to drive its UI |
 
 ## Building
 
@@ -59,9 +62,9 @@ target_link_libraries(my_program PRIVATE ftk::app)
 ftk_stage_editor_data(my_program)
 ```
 
-`ftk_stage_editor_data()` puts the theme's fonts and the ImGui layer's
-fragment stage in `ftk/` beside the program's binary, and the program hands
-those paths to its ImGui layer. When working on ftk and a program at once,
+`ftk_stage_editor_data()` puts the theme's fonts in `ftk/fonts/` beside the
+program's binary, and the program hands that path to `ui::use_kit_fonts()`.
+When working on ftk and a program at once,
 point the fetch at a checkout with `-DFETCHCONTENT_SOURCE_DIR_FTK=<path>`.
 
 A program can hold its own code to the rules ftk keeps. Each check runs at

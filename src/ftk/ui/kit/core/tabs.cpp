@@ -31,7 +31,7 @@ constexpr float BAR_BORDER = 1.0f;
 constexpr Color UNSAVED{1.0f, 1.0f, 1.0f, 1.0f};
 
 // How tabs are drawn when nothing says otherwise: as the ImGui kit's theme
-// colours them.
+// coloured them.
 TabLook theme_look() {
     return {.rest = theme::surface_sunken(),
             .hover = theme::surface_raised(),

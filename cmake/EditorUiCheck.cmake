@@ -1,8 +1,7 @@
 # Refuses editor UI that styles itself by hand. Colours come from named tokens
 # in ftk's theme (src/ftk/ui/theme.hpp) and widgets from its kit
 # (src/ftk/ui/kit/);
-# everywhere else a colour literal, a style push with a literal, or a font
-# picked by index fails the check with the file and line.
+# everywhere else a colour literal fails the check with the file and line.
 #
 #     ftk_check_editor_ui(<target> ROOTS <dirs>... [ALLOWLIST <file>]
 #                         [ICONS <files>...])
@@ -32,29 +31,9 @@
 function(_ftk_scan_editor_ui base allowlist icons)
     get_filename_component(src_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src" ABSOLUTE)
     set(patterns
-        # IM_COL32(40, 42, 46, 255)
-        "IM_COL32[ \t]*\\([ \t]*[0-9]"
-        # ImVec4{0.8f, ...}, ImVec4(0.8f, ...)
-        "ImVec4[ \t]*[({][ \t]*-?[0-9.]"
-        # ImVec4 red{0.8f, ...}, const ImVec4 red = {0.8f, ...}
-        "ImVec4[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=?[ \t]*[({][ \t]*-?[0-9.]"
         # ui::Color{0.8f, ...}, ui::Color red = {0.8f, ...}: the kit's colour
         "ui::Color[ \t]*[({][ \t]*-?[0-9.]"
         "ui::Color[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=?[ \t]*[({][ \t]*-?[0-9.]"
-        # ImColor(0.8f, ...), ImColor(212, 160, 84)
-        "ImColor[ \t]*[({][ \t]*-?[0-9.]"
-        # ImColor red(0.8f, ...)
-        "ImColor[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=?[ \t]*[({][ \t]*-?[0-9.]"
-        # TextColored({0.8f, ...}, "...")
-        "TextColored[ \t]*\\([ \t]*{[ \t]*-?[0-9.]"
-        # PushStyleColor(ImGuiCol_Button, {0.8f, ...})
-        "PushStyleColor[ \t]*\\([^)]*{[ \t]*-?[0-9.]"
-        # PushStyleVar(ImGuiStyleVar_FramePadding, {4, 4}) / ImVec2(4, 4) / 4.0f
-        "PushStyleVar[ \t]*\\([^,]*,[ \t]*(ImVec2[ \t]*[({][ \t]*-?[0-9.]|{[ \t]*-?[0-9.]|-?[0-9.])"
-        # io.Fonts->Fonts[1] instead of the theme's named fonts. Written
-        # without the bracket: CMake list splitting treats an unbalanced
-        # bracket as grouping and would merge this with the next pattern.
-        "Fonts->Fonts"
     )
     list(JOIN patterns "|" literal_pattern)
     # ICON_LC_PLUS instead of icon::add: icons are named by meaning, in the
@@ -93,12 +72,10 @@ function(_ftk_scan_editor_ui base allowlist icons)
             if(in_src MATCHES "^\\.\\./")
                 set(in_src "")
             endif()
-            # The theme defines the tokens (and imgui_theme.cpp loads its
-            # fonts, the glyphs among them, and writes its style), icons_lc.hpp
-            # the glyphs, and the kit is the one place that turns them into
-            # widgets.
-            if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/imgui_theme.cpp"
-               OR in_src STREQUAL "ftk/ui/icons_lc.hpp" OR in_src MATCHES "^ftk/ui/kit/")
+            # The theme defines the tokens, icons_lc.hpp the glyphs, and the
+            # kit is the one place that turns them into widgets.
+            if(in_src STREQUAL "ftk/ui/theme.hpp" OR in_src STREQUAL "ftk/ui/icons_lc.hpp"
+               OR in_src MATCHES "^ftk/ui/kit/")
                 continue()
             endif()
             if(source IN_LIST icon_files)
@@ -144,8 +121,7 @@ function(_ftk_scan_editor_ui base allowlist icons)
     if(offenders)
         list(JOIN offenders "\n" offenders)
         string(APPEND report
-            "Editor UI styled by hand (a colour literal, a literal style push, a font by index, "
-            "or an icon glyph by name):\n"
+            "Editor UI styled by hand (a colour literal or an icon glyph by name):\n"
             "${offenders}\n"
             "Use a colour token from ftk's theme (src/ftk/ui/theme.hpp), an icon from the "
             "program's icon file, or a piece of ftk's kit in src/ftk/ui/kit/. "

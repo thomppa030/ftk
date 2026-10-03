@@ -6,7 +6,7 @@ namespace ftk::ui {
 
 using namespace corekit;
 
-// Every colour faded in a disabled scope, as the ImGui kit packs its own.
+// Every colour faded in a disabled scope, as the ImGui kit packed its own.
 
 DrawList DrawList::window() {
     return DrawList(ui().draw_list());

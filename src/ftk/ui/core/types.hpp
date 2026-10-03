@@ -18,14 +18,11 @@ namespace ftk::ui {
 /// colour the theme names.
 using Color = glm::vec4;
 
-/// A widget's id: its label hashed with the ids pushed around it. While
-/// ImGui draws the kit it is ImGui's own id.
+/// A widget's id: its label hashed with the ids pushed around it.
 using Id = uint32_t;
 
 /// A picture the UI shows, by handle: made from a GPU texture by what draws
-/// the UI, which keeps the texture behind it. Zero is none. While ImGui
-/// draws the kit it holds ImGui's texture id, and is made from one without
-/// a word.
+/// the UI, which keeps the texture behind it. Zero is none.
 struct Texture {
     uint64_t id{0};
 

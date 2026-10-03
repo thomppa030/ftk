@@ -54,17 +54,11 @@ jobs:
       - name: Cache fetched dependencies
         uses: actions/cache@v4
         with:
-          path: |
-            build/_deps
-            build-asan/_deps
+          path: build-asan/_deps
           key: deps-linux-asan-${{ hashFiles('cmake/Dependencies.cmake', 'tests/CMakeLists.txt') }}
 
-      # The asan preset builds from the imgui checkout the debug configure
-      # fetches.
       - name: Configure
-        run: |
-          cmake --preset debug
-          cmake --preset asan
+        run: cmake --preset asan
 
       - name: Build the tests
         run: cmake --build --preset asan --target ftk-tests -- -k 0

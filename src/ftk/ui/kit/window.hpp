@@ -125,11 +125,4 @@ void set_scroll_y(float y);
 /// way down it: 0 the top, 1 the bottom, as a log follows its last line.
 void scroll_to_cursor(float ratio);
 
-namespace detail {
-
-/// ImGui's window flags for `options`, while ImGui draws the kit.
-[[nodiscard]] int imgui_window_flags(const WindowOptions& options);
-
-} // namespace detail
-
 } // namespace ftk::ui

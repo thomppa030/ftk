@@ -1,7 +1,6 @@
 #pragma once
 
-// The kit's own types where its headers took ImGui's, so a program reaches
-// the kit without ImGui. Points and sizes are glm::vec2. Those the UI core
+// The kit's own types. Points and sizes are glm::vec2. Those the UI core
 // shares (a colour, an id, a texture, a payload) are the core's; the font
 // is the kit's.
 

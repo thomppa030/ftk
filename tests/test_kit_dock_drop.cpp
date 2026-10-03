@@ -14,10 +14,9 @@
 #include <string>
 #include <vector>
 
-// Where a window carried over a dockspace docks, on the kit drawn by the
-// core: among a leaf's tabs at its middle target, beside it at its side
-// targets, or beside the whole dockspace at its edges' targets. The ImGui
-// kit lays its targets out a little differently.
+// Where a window carried over a dockspace docks: among a leaf's tabs at its
+// middle target, beside it at its side targets, or beside the whole
+// dockspace at its edges' targets.
 
 using Catch::Approx;
 using ftk::test::KitHarness;

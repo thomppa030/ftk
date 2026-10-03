@@ -12,7 +12,7 @@
 //                smaller, no rule, no icon
 //
 // Sections belong to the panel, never inside a component. Any level may
-// fold; the fold state is remembered by ImGui under the heading's ID.
+// fold; the fold state is remembered under the heading's ID.
 
 namespace ftk::ui {
 

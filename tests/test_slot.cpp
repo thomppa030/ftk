@@ -69,8 +69,8 @@ TEST_CASE("A slot hands over what is dropped on it once it fits", "[ui][slot]") 
     t.h.drag(t.source(), t.into_field());
     CHECK(t.held.empty());
 
-    // The payload is read after the drop target has closed, which is when
-    // ImGui clears its own: the slot keeps a copy.
+    // The payload is read after the drop target has closed: the slot keeps
+    // a copy.
     t.dragged = "goblin";
     t.h.drag(t.source(), t.into_field());
     CHECK(t.held == "goblin");

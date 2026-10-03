@@ -21,9 +21,8 @@
 # own by the build step (script mode below).
 function(_ftk_scan_gpu_backend base)
     set(patterns
-        # #include <vulkan/vulkan.h>, <vk_mem_alloc.h>, <imgui_impl_vulkan.h>,
-        # <backends/imgui_impl_vulkan.h>, "ftk/gpu/vulkan/native.hpp"
-        "^[ \t]*#[ \t]*include[ \t]*[<\"](vulkan/|vk_mem_alloc\\.h|(backends/)?imgui_impl_vulkan|ftk/gpu/vulkan/)"
+        # #include <vulkan/vulkan.h>, <vk_mem_alloc.h>, "ftk/gpu/vulkan/native.hpp"
+        "^[ \t]*#[ \t]*include[ \t]*[<\"](vulkan/|vk_mem_alloc\\.h|ftk/gpu/vulkan/)"
         # gpu::vulkan::native_view(, vulkan::defer(
         "(^|[^A-Za-z0-9_])vulkan::"
         # VkImage, VmaAllocator, tracy::VkCtx

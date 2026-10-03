@@ -11,8 +11,8 @@
 #include <fstream>
 #include <optional>
 
-// The settings file as ImGui writes it, so a layout saved by either kit
-// reads in the other: entries headed [section][entry], their lines under
+// The settings file as ImGui wrote it, so a file saved while ImGui drew the
+// kit still reads: entries headed [section][entry], their lines under
 // them. The kit's windows that float are kept as [Window][name] with where
 // they were left; the docks' trees are not kept here yet (named layouts are
 // the shell's, Phase 8 of the UI core plan).

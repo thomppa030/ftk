@@ -975,7 +975,7 @@ void FrameGraph::apply_final_states(const PassDecl& pass) {
         carve_slices(img, fs.range, indices_scratch_);
         for (size_t idx : indices_scratch_) {
             // What the pass left the write visible to is where it expects
-            // readers, some of which the graph never sees (ImGui showing a
+            // readers, some of which the graph never sees (the UI showing a
             // viewport image), so the next write waits for those stages.
             img.slices[idx].in = fs.left_as;
             img.slices[idx].state = AccessState{

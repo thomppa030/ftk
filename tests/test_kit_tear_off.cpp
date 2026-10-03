@@ -10,8 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 // Tearing a window out into an OS window of its own (decision 20 of the UI
-// core plan), on the kit drawn by the core: the ImGui kit's windows stay in
-// the program's window.
+// core plan).
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;

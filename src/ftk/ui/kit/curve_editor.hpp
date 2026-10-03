@@ -14,7 +14,7 @@
 // Double-click or the right-click menu adds a key, Del removes the
 // selected one, the wheel zooms, a middle or Alt drag pans, F frames the
 // curve. The first and last keys stay at 0 and 1; keys between keep their
-// order. The view is kept per editor in ImGui's storage.
+// order. The view is kept per editor in the UI's storage.
 
 namespace ftk::ui {
 

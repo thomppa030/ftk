@@ -2,7 +2,6 @@
 
 // Docking: the panels of a dockspace laid out as a tree of splits with
 // tabbed leaves, which the user rearranges by dragging tabs (decision 19).
-// While ImGui draws the kit, the tree is ImGui's dock nodes.
 //
 // A tree is built once, when a dockspace is first shown, and read back to
 // be saved as a named layout or copied to another dockspace:

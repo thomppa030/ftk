@@ -1,7 +1,7 @@
 # What ftk's libraries need, fetched whether ftk is built on its own or as
 # part of a program: windowing, maths, logging, JSON, stb, FreeType and
-# HarfBuzz for text, the patched Dear ImGui, Vulkan with VMA, and Tracy when
-# it is switched on. Fjell's libraries
+# HarfBuzz for text, Vulkan with VMA, and Tracy when it is switched on.
+# Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
 
@@ -59,15 +59,6 @@ FetchContent_Declare(
     # cannot check out once master moves on.
 )
 
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        f5f6ca07be7ce0ea9eed6c04d55833bac3f6b50b  # docking branch, 1.92.7
-    # No GIT_SHALLOW: a shallow clone fetches branch tips, and this pin is a
-    # commit off docking rather than a tag, so the checkout lands on the tip and
-    # then fails. The patch step needs the exact commit it was generated against.
-    SOURCE_SUBDIR  no-cmake-here
-)
 
 FetchContent_Declare(
     json
@@ -127,42 +118,6 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz)
-
-# Consumed as plain sources: its files are compiled straight into the ImGui
-# targets in src/libraries.cmake, so it is fetched but never added as a
-# subdirectory.
-FetchContent_MakeAvailable(imgui)
-
-block()
-    # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
-    # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
-    # Original PR: https://github.com/ocornut/imgui/pull/846
-    #
-    # Applied with `git apply` rather than the patch(1) binary: git is already
-    # required to fetch every dependency, while patch(1) is absent on a stock
-    # Windows box. The editor UI calls BeginHorizontal/Spring, so a failure here
-    # has to stop the configure — left as a warning it resurfaces much later as
-    # unrelated-looking compile errors.
-    set(_layout_patch "${CMAKE_CURRENT_LIST_DIR}/patches/imgui_layout.patch")
-    set(_layout_marker "${imgui_SOURCE_DIR}/.layout_patched")
-    if(EXISTS "${_layout_patch}" AND NOT EXISTS "${_layout_marker}")
-        find_package(Git QUIET REQUIRED)
-        execute_process(
-            COMMAND "${GIT_EXECUTABLE}" apply -p1 --whitespace=nowarn "${_layout_patch}"
-            WORKING_DIRECTORY "${imgui_SOURCE_DIR}"
-            RESULT_VARIABLE _patch_result
-            ERROR_VARIABLE _patch_error
-        )
-        if(_patch_result EQUAL 0)
-            file(WRITE "${_layout_marker}" "patched")
-            message(STATUS "imgui: applied stack layout extensions patch")
-        else()
-            message(FATAL_ERROR
-                "imgui: failed to apply the stack layout patch (${_patch_result}): "
-                "${_patch_error}\nDelete ${imgui_SOURCE_DIR} and reconfigure to retry.")
-        endif()
-    endif()
-endblock()
 
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)

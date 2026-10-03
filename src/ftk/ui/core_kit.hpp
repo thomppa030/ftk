@@ -1,8 +1,7 @@
 #pragma once
 
-// What a program drawing the kit on the UI core does once, before the
-// kit's first frame: give the kit its faces. The kit's ImGui implementation
-// takes them from the ImGui layer's files instead.
+// What a program drawing the kit does once, before the kit's first frame:
+// give the kit its faces.
 //
 //     ui::use_kit_fonts(app.ui(), staged / "fonts");
 

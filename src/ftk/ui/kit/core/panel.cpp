@@ -11,7 +11,7 @@ using namespace corekit;
 namespace {
 
 // The panel's header strip: its icon in the accent, its label in bold, and
-// a rule under them, as the ImGui kit draws it for a window on its own.
+// a rule under them, as the ImGui kit drew it for a window on its own.
 void draw_header(const char* icon, const char* label) {
     // Docked among other tabs, its tab names it.
     const Kit& k = kit();

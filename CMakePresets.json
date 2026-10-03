@@ -29,7 +29,7 @@
             "name": "asan",
             "inherits": "base",
             "displayName": "Debug + ASan/UBSan",
-            "description": "Debug build with AddressSanitizer + UndefinedBehaviorSanitizer for chasing memory corruption and lifetime bugs. Reuses the debug preset's imgui checkout, so configure `debug` first. GCC/Clang only.",
+            "description": "Debug build with AddressSanitizer + UndefinedBehaviorSanitizer for chasing memory corruption and lifetime bugs. GCC/Clang only.",
             "binaryDir": "${sourceDir}/build-asan",
             "condition": {
                 "type": "notEquals",
@@ -40,8 +40,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g",
                 "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g",
-                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
-                "FETCHCONTENT_SOURCE_DIR_IMGUI": "${sourceDir}/build/_deps/imgui-src"
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
             }
         }
     ],

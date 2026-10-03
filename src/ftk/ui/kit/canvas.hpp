@@ -19,9 +19,9 @@
 // its view, with one hit radius, and marks handles with the kit's handle.
 //
 //     view_.place(origin, size);
-//     ImGui::InvisibleButton("##canvas", size, ...);
-//     view_.input(ImGui::IsItemHovered());
-//     if (!view_.panning() && ImGui::IsItemActivated()) { ...pick what is under the mouse... }
+//     (void)ui::hit_area("##canvas", size, {.right = true, .middle = true});
+//     view_.input(ui::item_hovered());
+//     if (!view_.panning() && ui::item_activated()) { ...pick what is under the mouse... }
 //     const glm::vec2 at = view_.to_screen(point);
 
 namespace ftk::ui {
@@ -88,7 +88,7 @@ public:
     bool recall(const std::string& key);
 
     /// For a canvas drawn by a function rather than kept by an object (a
-    /// curve in an inspector): the view ImGui keeps under `id` in the
+    /// curve in an inspector): the view the UI keeps under `id` in the
     /// current window, which is per asset since every editor's windows are.
     /// False when there is none yet: the caller frames.
     bool load(Id id);

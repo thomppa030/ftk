@@ -55,7 +55,7 @@ private:
 };
 
 struct TreeRowSpec {
-    /// Unique among the tree's rows; also the ImGui ID.
+    /// Unique among the tree's rows; also the row's id.
     const char* id{""};
     std::string_view name{};
     int depth{0};

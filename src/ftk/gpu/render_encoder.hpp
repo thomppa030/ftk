@@ -235,9 +235,6 @@ public:
 
 private:
     friend class CommandList;
-    /// What a backend records into a scope with besides the calls above
-    /// (a renderer of a library of its own, as ImGui's is).
-    friend struct RenderEncoderBackend;
 
     RenderEncoder(Device& device, CommandList& list, bool open) noexcept
         : device_(&device), list_(&list), open_(open) {}

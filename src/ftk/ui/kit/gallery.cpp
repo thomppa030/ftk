@@ -39,9 +39,7 @@
 #include <string_view>
 #include <vector>
 
-// Written on the kit alone, so it draws on either implementation: the ImGui
-// kit's library builds it, and the core's example app builds the same file
-// until the ImGui kit goes (Phase 9 of the UI core plan).
+// Written on the kit's headers alone, as a program would write it.
 
 namespace ftk::ui {
 

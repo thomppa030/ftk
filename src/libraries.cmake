@@ -1,6 +1,5 @@
-# ftk's libraries, declared through ftk_library() (cmake/FtkLibrary.cmake),
-# and the Dear ImGui targets they draw with. Included from ftk's
-# CMakeLists.txt. Paths are relative to src/.
+# ftk's libraries, declared through ftk_library() (cmake/FtkLibrary.cmake).
+# Included from ftk's CMakeLists.txt. Paths are relative to src/.
 
 # ftk-base holds what any program needs before it has a window: the log,
 # results, delegates, handles and handle pools, the thread pool, the
@@ -284,11 +283,10 @@ ftk_library(text
 # The face of last resort, compiled in so every program has it.
 ftk_embed_file(ftk-text "${FTK_SOURCE_ROOT}/../fonts/LastResortHE-Regular.ttf")
 
-# ftk-ui-core is ftk's own immediate-mode UI, which the kit is to draw with
-# in place of ImGui (the UI core plan): ids and kept state, frames and the
-# OS windows drawn into, where items go in them, and what they draw, as
-# shapes and text from ftk-text. It holds no GPU code and never ImGui, so it
-# runs headless in the unit tests.
+# ftk-ui-core is ftk's own immediate-mode UI, which the kit draws with: ids
+# and kept state, frames and the OS windows drawn into, where items go in
+# them, and what they draw, as shapes and text from ftk-text. It holds no GPU
+# code, so it runs headless in the unit tests.
 ftk_library(ui-core
     SOURCES
         ftk/ui/core/context.cpp
@@ -316,9 +314,9 @@ ftk_library(ui-core
 )
 
 # ftk-ui-kit is how a creative app or an editor looks, as its programs see
-# it: the kit's headers, the theme's tokens and palette, and the icons. Each
-# implementation of the kit links it and defines what its headers declare;
-# a program links one of them, never both.
+# it: the kit's headers, the theme's tokens and palette, the icons, and what
+# of the kit runs without a UI (dock layouts, units, search). ftk-app-ui
+# defines the rest of what its headers declare.
 ftk_library(ui-kit
     SOURCES
         ftk/ui/theme.cpp
@@ -398,81 +396,11 @@ ftk_library(ui-kit
 # The approved dark palette, the theme's until a program uses another.
 ftk_embed_file(ftk-ui-kit "${FTK_SOURCE_ROOT}/ftk/ui/palettes/dark.json")
 
-# ftk-app-ui-imgui is the kit drawn by ImGui's core alone, so it draws
-# headless in the unit tests and in any window a program brings: the
-# editor's and the hub's until they move onto the UI core (Phase 9 of the
-# UI core plan), when it goes.
-ftk_library(app-ui-imgui
-    SOURCES
-        ftk/ui/draw_list.cpp
-        ftk/ui/imgui_theme.cpp
-        ftk/ui/kit/asset_header.cpp
-        ftk/ui/kit/asset_tile.cpp
-        ftk/ui/kit/button.cpp
-        ftk/ui/kit/bit_strip.cpp
-        ftk/ui/kit/rail.cpp
-        ftk/ui/kit/region.cpp
-        ftk/ui/kit/canvas.cpp
-        ftk/ui/kit/choice.cpp
-        ftk/ui/kit/color_field.cpp
-        ftk/ui/kit/component_block.cpp
-        ftk/ui/kit/curve_editor.cpp
-        ftk/ui/kit/dialog.cpp
-        ftk/ui/kit/dock.cpp
-        ftk/ui/kit/drag_drop.cpp
-        ftk/ui/kit/feedback.cpp
-        ftk/ui/kit/field.cpp
-        ftk/ui/kit/gallery.cpp
-        ftk/ui/kit/grouped_picker.cpp
-        ftk/ui/kit/image.cpp
-        ftk/ui/kit/input.cpp
-        ftk/ui/kit/inset_group.cpp
-        ftk/ui/kit/item.cpp
-        ftk/ui/kit/key_cap.cpp
-        ftk/ui/kit/layout.cpp
-        ftk/ui/kit/list_editor.cpp
-        ftk/ui/kit/loading.cpp
-        ftk/ui/kit/menu.cpp
-        ftk/ui/kit/node_graph.cpp
-        ftk/ui/kit/overlay.cpp
-        ftk/ui/kit/pages.cpp
-        ftk/ui/kit/pane.cpp
-        ftk/ui/kit/panel.cpp
-        ftk/ui/kit/plot.cpp
-        ftk/ui/kit/popup.cpp
-        ftk/ui/kit/row.cpp
-        ftk/ui/kit/save_bar.cpp
-        ftk/ui/kit/scope.cpp
-        ftk/ui/kit/search.cpp
-        ftk/ui/kit/section.cpp
-        ftk/ui/kit/selectable.cpp
-        ftk/ui/kit/settings_file.cpp
-        ftk/ui/kit/slot.cpp
-        ftk/ui/kit/state.cpp
-        ftk/ui/kit/status_bar.cpp
-        ftk/ui/kit/strip.cpp
-        ftk/ui/kit/table.cpp
-        ftk/ui/kit/tabs.cpp
-        ftk/ui/kit/text.cpp
-        ftk/ui/kit/text_field.cpp
-        ftk/ui/kit/tooltip.cpp
-        ftk/ui/kit/tree.cpp
-        ftk/ui/kit/viewport_toolbar.cpp
-        ftk/ui/kit/window.cpp
-    HEADERS
-        ftk/ui/imgui_input.hpp
-        ftk/ui/imgui_theme.hpp
-    LINKS
-        PUBLIC ftk::base ftk::math ftk::ui-kit ftk::ui-core ftk::imgui-headless glm::glm
-        PRIVATE nlohmann_json::nlohmann_json
-)
-
 # ftk-app-ui is the kit drawn by the UI core: the kit's headers defined on
-# ftk::ui::core, with the faces it draws text in. The kit's pieces come
-# onto it a group at a time (Phase 6 of the UI core plan); a program draws
-# with this or with ftk-app-ui-imgui, never both.
+# ftk::ui::core, with the faces it draws text in, and the kit's gallery.
 ftk_library(app-ui
     SOURCES
+        ftk/ui/kit/gallery.cpp
         ftk/ui/kit/core/asset_header.cpp
         ftk/ui/kit/core/asset_tile.cpp
         ftk/ui/kit/core/bit_strip.cpp
@@ -536,8 +464,8 @@ ftk_library(app-ui
         PUBLIC ftk::base ftk::math ftk::ui-kit ftk::ui-core ftk::text glm::glm
 )
 
-# ftk-ui-harness runs the UI core with no window and no renderer, as
-# ftk-imgui-harness runs ImGui: set the UI, feed it pointers, step frames.
+# ftk-ui-harness runs the UI core with no window and no renderer: set the
+# UI, feed it pointers and keys, step frames.
 ftk_library(ui-harness
     SOURCES
         ftk/test/ui_harness.cpp
@@ -559,32 +487,6 @@ ftk_library(kit-harness
 )
 target_compile_definitions(ftk-kit-harness PRIVATE FTK_KIT_HARNESS_FONTS="${PROJECT_SOURCE_DIR}/fonts")
 
-# ftk-imgui-harness runs Dear ImGui with no window and no renderer, so a
-# program's tests can drive its editor UI: set the UI, feed it input, step
-# frames.
-ftk_library(imgui-harness
-    SOURCES
-        ftk/test/imgui_harness.cpp
-    HEADERS
-        ftk/test/imgui_harness.hpp
-    LINKS
-        PUBLIC ftk::app-ui-imgui ftk::ui-kit ftk::ui-core ftk::imgui-headless
-)
-
-# ftk-gpu-imgui draws Dear ImGui with the GPU interface: gpu::ImGuiRenderer,
-# with the backend's own renderer for ImGui behind it (imgui_impl_vulkan).
-# Apart from both, so neither the GPU library nor ImGui needs the other.
-ftk_library(gpu-imgui
-    SOURCES
-        ftk/gpu/vulkan/imgui_renderer.cpp
-    HEADERS
-        ftk/gpu/imgui_renderer.hpp
-    LINKS
-        PUBLIC ftk::base ftk::gpu ftk::imgui-headless
-        PRIVATE ftk::imgui
-)
-ftk_vulkan_backend(ftk-gpu-imgui)
-
 # ftk-gpu-ui draws the UI core's frames with the GPU interface:
 # gpu::UiRenderer, written on the interface alone, its shaders compiled in.
 # Apart from both, so the core stays headless and the GPU library knows no UI.
@@ -601,8 +503,9 @@ foreach(shader ui.vert ui.frag ui_copy.vert ui_copy.frag)
 endforeach()
 
 # ftk-app is what a creative app's window needs around the UI core: the main
-# window and its frame loop, the platform's input for the core, and undo's
-# command and document histories. It holds no ImGui.
+# window and its frame loop, or the layer a program running its own loop
+# draws through, the platform's input for the core, and undo's command and
+# document histories.
 ftk_library(app
     SOURCES
         ftk/app/app_window.cpp
@@ -646,57 +549,3 @@ ftk_library(app-editor
         PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-ui ftk::app-ui ftk::ui-kit ftk::ui-core
         PRIVATE ftk::image
 )
-
-# ftk-app-imgui is ImGuiAppWindow and its loop, and the ImGui layer it draws
-# with: what ftk-example-app-imgui runs on, until ImGui goes (Phase 9 of the
-# UI core plan).
-ftk_library(app-imgui
-    SOURCES
-        ftk/app/imgui_app_window.cpp
-        ftk/app/imgui_layer.cpp
-    HEADERS
-        ftk/app/imgui_app_window.hpp
-        ftk/app/imgui_layer.hpp
-    LINKS
-        PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-imgui ftk::imgui ftk::app-ui-imgui ftk::ui-kit ftk::ui-core
-        PRIVATE SDL3::SDL3
-)
-
-# --- Dear ImGui ---
-# Built once for everything that draws with it. ftk-imgui-headless is the
-# core without a platform or renderer backend, which is what the unit tests
-# run editor UI on (ftk/test/imgui_harness.hpp); ftk-imgui adds the SDL3 and
-# Vulkan backends for a window that presents. Warnings are off: the code is
-# third-party, and the stack layout patch leaves unused parameters that only
-# surface once the optimiser runs.
-add_library(ftk-imgui-headless STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-)
-target_include_directories(ftk-imgui-headless SYSTEM PUBLIC ${imgui_SOURCE_DIR})
-# ftk's ImGui configuration (src/ftk/imgui_config.hpp): ImGui's vectors and
-# glm's convert both ways, for ImGui and for every file that includes it.
-target_include_directories(ftk-imgui-headless PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_compile_definitions(ftk-imgui-headless PUBLIC "IMGUI_USER_CONFIG=\"ftk/imgui_config.hpp\"")
-target_link_libraries(ftk-imgui-headless PUBLIC glm::glm)
-add_library(ftk::imgui-headless ALIAS ftk-imgui-headless)
-
-add_library(ftk-imgui STATIC
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-)
-target_include_directories(ftk-imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(ftk-imgui PUBLIC ftk::imgui-headless PRIVATE SDL3::SDL3 Vulkan::Vulkan)
-add_library(ftk::imgui ALIAS ftk-imgui)
-
-foreach(imgui_target ftk-imgui-headless ftk-imgui)
-    if(MSVC)
-        target_compile_options(${imgui_target} PRIVATE /w)
-    else()
-        target_compile_options(${imgui_target} PRIVATE -w)
-    endif()
-endforeach()

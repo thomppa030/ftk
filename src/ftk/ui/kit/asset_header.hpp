@@ -12,7 +12,7 @@
 //
 //     if (auto header = ui::AssetHeaderBar(spec)) {
 //         header.begin_actions();
-//         ImGui::SameLine();
+//         ui::same_line();
 //         if (ui::action(ui::icon::file, "wood.frag", ui::ButtonKind::Ghost)) open_shader();
 //         switch (header.finish()) { ... }
 //     }
@@ -46,7 +46,7 @@ public:
     explicit operator bool() const { return open_; }
 
     /// Starts the editor's own actions, against the right edge; each is
-    /// drawn after ImGui::SameLine().
+    /// drawn after ui::same_line().
     void begin_actions();
 
     /// Ends the strip and draws the callout for a failed save. Returns what

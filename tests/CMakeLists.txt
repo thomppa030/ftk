@@ -14,7 +14,7 @@ FetchContent_MakeAvailable(Catch2)
 FetchContent_GetProperties(Catch2)
 
 # --- Unit tests ---
-# The kit's tests are ftk-kit-core-tests, below.
+# The kit's tests are ftk-kit-tests, below.
 add_executable(ftk-tests
     test_color_space.cpp
     test_command_group.cpp
@@ -89,11 +89,9 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(ftk-tests)
 
-# --- The kit on the UI core ---
-# The kit's tests built a second time, against the kit drawn by the UI core
-# (FTK_KIT_ON_CORE), so they pass on both. A file joins as the pieces it
-# draws come onto the core (Phase 6 of the UI core plan).
-add_executable(ftk-kit-core-tests
+# --- The kit ---
+# The kit's tests, drawn by the UI core through ftk-kit-harness.
+add_executable(ftk-kit-tests
     test_asset_header.cpp
     test_asset_tile.cpp
     test_bit_strip.cpp
@@ -123,10 +121,10 @@ add_executable(ftk-kit-core-tests
     test_text_field.cpp
     test_tree.cpp
 )
-target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)
-target_compile_definitions(ftk-kit-core-tests PRIVATE FTK_KIT_ON_CORE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
-ftk_target_defaults(ftk-kit-core-tests)
-catch_discover_tests(ftk-kit-core-tests TEST_PREFIX "core: ")
+target_link_libraries(ftk-kit-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)
+target_compile_definitions(ftk-kit-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
+ftk_target_defaults(ftk-kit-tests)
+catch_discover_tests(ftk-kit-tests TEST_PREFIX "kit: ")
 
 # --- Library link checks ---
 # One program per library that links that library alone, and whole, so every
@@ -159,15 +157,12 @@ ftk_library_link_check(ui-harness)
 ftk_library_link_check(kit-harness)
 ftk_library_link_check(ui-kit)
 ftk_library_link_check(app-ui)
-ftk_library_link_check(app-ui-imgui)
-ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
 # The GPU link test builds pipelines from the test shaders.
 add_dependencies(ftk-link-gpu ftk-tests_shaders)
 target_compile_definitions(ftk-link-gpu PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 ftk_library_link_check(app NEEDS_GPU)
 ftk_library_link_check(app-editor NEEDS_GPU)
-ftk_library_link_check(app-imgui NEEDS_GPU)
 ftk_library_link_check(gpu-ui NEEDS_GPU)
 
 # --- Text sample ---

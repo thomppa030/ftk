@@ -6,11 +6,11 @@
 #include <glm/vec2.hpp>
 
 // The toolbar of a viewport (sheet 28): small dark pills floating over the
-// picture's top corners, each holding kit buttons laid out with SameLine.
+// picture's top corners, each holding kit buttons laid out with same_line.
 // What changes the view goes here, never what changes the asset.
 //
 //     if (auto pill = ui::ViewportPill("##view", image_min, image_max, ui::PillPlace::TopRight)) {
-//         ui::mode_button(...); ImGui::SameLine(); ui::icon_button(...);
+//         ui::mode_button(...); ui::same_line(); ui::icon_button(...);
 //     }
 
 namespace ftk::ui {

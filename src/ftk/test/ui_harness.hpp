@@ -2,9 +2,8 @@
 
 // Runs the UI core with no window and no renderer, so UI code can be driven
 // from a test: set the UI once, feed it pointers, keys and text, and step
-// frames. It is ImGuiHarness's vocabulary on the core, taking the kit's own
-// types, so a test reads the same against either, with touch and the pen
-// besides, and widgets found by their names.
+// frames. It takes the kit's own types, with touch and the pen besides, and
+// finds widgets by their names.
 //
 //     UiHarness h;
 //     h.set_ui([&] { if (button("Save")) saved = true; });

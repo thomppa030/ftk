@@ -3,13 +3,11 @@
 #
 #     ftk_stage_editor_data(<target> [DESTINATION <dir>])
 #
-# compiles the ImGui layer's sRGB fragment stage and copies the theme's fonts,
-# with the licences each copy has to carry, into <dir> (default ftk) next to
-# <target>'s binary, before <target> is built and again whenever either
-# changes. The program hands the paths to its ImGui layer:
+# copies the theme's fonts, with the licences each copy has to carry, into
+# <dir> (default ftk) next to <target>'s binary, before <target> is built and
+# again whenever one changes. The program gives them to its UI:
 #
-#     ImGuiLayerFiles{.fonts = exe_dir / "ftk" / "fonts",
-#                     .srgb_fragment = exe_dir / "ftk" / "imgui.frag.spv"}
+#     ui::use_kit_fonts(layer.context(), exe_dir / "ftk" / "fonts");
 
 function(ftk_stage_editor_data target)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "DESTINATION" "")
@@ -21,22 +19,9 @@ function(ftk_stage_editor_data target)
         set(destination "${arg_DESTINATION}")
     endif()
 
-    ftk_find_glslc()
     get_filename_component(ftk_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
     set(staging "${CMAKE_CURRENT_BINARY_DIR}/${target}_editor_data")
-
-    set(fragment "${ftk_root}/shaders/imgui.frag")
-    set(spirv "${staging}/imgui.frag.spv")
-    file(GLOB includes CONFIGURE_DEPENDS "${ftk_root}/shaders/include/*.glsl")
-    add_custom_command(
-        OUTPUT "${spirv}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${staging}"
-        COMMAND "${GLSLC}" --target-env=vulkan1.3 -I "${ftk_root}/shaders/include"
-                "${fragment}" -o "${spirv}"
-        DEPENDS "${fragment}" ${includes}
-        COMMENT "Compiling ${target}'s editor shader: imgui.frag"
-        VERBATIM)
-    set(staged "${spirv}")
+    set(staged "")
 
     file(GLOB fonts CONFIGURE_DEPENDS "${ftk_root}/fonts/*.ttf" "${ftk_root}/fonts/*.txt")
     foreach(source IN LISTS fonts)
