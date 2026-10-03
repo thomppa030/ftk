@@ -1,9 +1,13 @@
 // ftk-example-app, ftk's own test program. Each page shows one thing ftk's UI
-// has to get right; the gallery of the kit is the first.
+// has to get right; the gallery of the kit is the first. The gallery is drawn
+// with ImGui; the pages of the UI core with the core.
 //
 //     ftk-example-app [--page <name>]              a page, the gallery by default
 //     ftk-example-app --shot <name> <file.png>     a page drawn off screen at a
 //                                                  fixed size, written as a PNG
+//     ... --scale <pixels per unit>                a core page at that scale
+
+#include "primitives_page.hpp"
 
 #include "ftk/app/app_window.hpp"
 #include "ftk/base/log.hpp"
@@ -13,6 +17,7 @@
 #include <stb_image_write.h>
 
 #include <array>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
@@ -21,20 +26,26 @@
 namespace {
 
 /// The example app's pages. More arrive with the work that needs them.
-enum class Page { gallery };
+enum class Page { gallery, primitives };
 
 struct PageName {
     Page page;
     std::string_view name;
 };
 
-constexpr std::array<PageName, 1> PAGES{{{Page::gallery, "gallery"}}};
+constexpr std::array<PageName, 2> PAGES{{{Page::gallery, "gallery"}, {Page::primitives, "primitives"}}};
 
-/// The size a page's shot is drawn at: tall enough to show the whole page
-/// without scrolling, so a shot covers everything on it.
+/// Whether the page is drawn with the UI core, rather than ImGui.
+constexpr bool on_core(Page page) {
+    return page == Page::primitives;
+}
+
+/// The size a page's shot is drawn at, in layout units: tall enough to show
+/// the whole page without scrolling, so a shot covers everything on it.
 constexpr glm::uvec2 shot_size(Page page) {
     switch (page) {
     case Page::gallery: return {480, 5000};
+    case Page::primitives: return {1280, 800};
     }
     return {1280, 800};
 }
@@ -52,6 +63,8 @@ struct Request {
     Page page{Page::gallery};
     /// Where a shot goes; none to run in a window.
     std::optional<std::filesystem::path> shot{};
+    /// Pixels to the layout unit, for a page of the core.
+    float scale{1.0f};
 };
 
 std::optional<Request> parse(int argc, char** argv) {
@@ -67,9 +80,16 @@ std::optional<Request> parse(int argc, char** argv) {
             if (!page) return std::nullopt;
             request.page = *page;
             request.shot = std::filesystem::path(argv[++i]);
+        } else if (arg == "--scale" && i + 1 < argc) {
+            const std::string_view value = argv[++i];
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), request.scale);
+            if (parsed.ec != std::errc{} || request.scale <= 0.0f) {
+                FTK_CORE_ERROR("ftk example app: --scale takes a number above zero, not {}", value);
+                return std::nullopt;
+            }
         } else {
-            FTK_CORE_ERROR("ftk example app does not know {}: use --page <name> or "
-                           "--shot <name> <file.png>",
+            FTK_CORE_ERROR("ftk example app does not know {}: use --page <name>, "
+                           "--shot <name> <file.png> or --scale <number>",
                            arg);
             return std::nullopt;
         }
@@ -85,6 +105,7 @@ public:
     void draw(float width, float height) {
         switch (page_) {
         case Page::gallery: gallery_.draw_page(width, height); break;
+        case Page::primitives: break;  // the core's
         }
     }
 
@@ -125,9 +146,17 @@ int run(const Request& request) {
     ftk::AppWindow& app = **made;
     Pages pages(request.page);
     const auto draw = [&](float width, float height) { pages.draw(width, height); };
+    std::optional<ftk::example::PrimitivesPage> primitives;
+    if (request.page == Page::primitives) primitives.emplace(app, staged / "fonts");
+    const ftk::UiDraw ui = [&](ftk::ui::core::Context& context, glm::vec2 size) {
+        if (primitives) primitives->draw(context, size);
+    };
 
     if (request.shot) {
-        auto shot = app.shot(draw, shot_size(request.page));
+        const glm::uvec2 size = shot_size(request.page);
+        auto shot = on_core(request.page)
+                        ? app.shot_ui(ui, glm::uvec2(glm::vec2(size) * request.scale), request.scale)
+                        : app.shot(draw, size);
         if (!shot) {
             FTK_CORE_CRITICAL("ftk example app could not take the shot: {}", shot.error());
             return EXIT_FAILURE;
@@ -135,7 +164,7 @@ int run(const Request& request) {
         return write_png(*request.shot, *shot) ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-    auto ran = app.run({.draw = draw});
+    auto ran = on_core(request.page) ? app.run({.ui = ui}) : app.run({.draw = draw});
     if (!ran) {
         FTK_CORE_CRITICAL("ftk example app stopped: {}", ran.error());
         return EXIT_FAILURE;

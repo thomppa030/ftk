@@ -485,6 +485,21 @@ ftk_library(gpu-imgui
 )
 ftk_vulkan_backend(ftk-gpu-imgui)
 
+# ftk-gpu-ui draws the UI core's frames with the GPU interface:
+# gpu::UiRenderer, written on the interface alone, its shaders compiled in.
+# Apart from both, so the core stays headless and the GPU library knows no UI.
+ftk_library(gpu-ui
+    SOURCES
+        ftk/gpu/ui_renderer.cpp
+    HEADERS
+        ftk/gpu/ui_renderer.hpp
+    LINKS
+        PUBLIC ftk::base ftk::gpu ftk::text ftk::ui-core glm::glm
+)
+foreach(shader ui.vert ui.frag ui_copy.vert ui_copy.frag)
+    ftk_embed_shader(ftk-gpu-ui "${FTK_SOURCE_ROOT}/ftk/gpu/shaders/${shader}")
+endforeach()
+
 # ftk-app is what a creative app's or an editor's window needs around the
 # kit: the main window and its frame loop, the ImGui layer on a window of its
 # own, the console, undo and the history panel, the icon cache, the file
@@ -516,7 +531,7 @@ ftk_library(app
         ftk/app/imgui_layer.hpp
         ftk/app/standalone_window.hpp
     LINKS
-        PUBLIC ftk::base ftk::gpu ftk::gpu-imgui ftk::imgui ftk::app-ui
+        PUBLIC ftk::base ftk::gpu ftk::gpu-imgui ftk::gpu-ui ftk::imgui ftk::app-ui ftk::ui-core
         PRIVATE ftk::image SDL3::SDL3
 )
 

@@ -4,9 +4,12 @@
 #include "ftk/base/result.hpp"
 #include "ftk/gpu/clear.hpp"
 #include "ftk/gpu/device.hpp"
+#include "ftk/gpu/ui_renderer.hpp"
+#include "ftk/ui/core/context.hpp"
 
 #include <glm/vec2.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -35,11 +38,17 @@ struct AppWindowDesc {
     gpu::Clear clear{0.012f, 0.012f, 0.015f, 1.0f};
 };
 
-/// What a program does in each frame: `update`, then `draw`.
+/// What a program draws a frame of the UI core with: inside the window's
+/// root, `size` in layout units.
+using UiDraw = std::function<void(ui::core::Context& ui, glm::vec2 size)>;
+
+/// What a program does in each frame: `update`, then `draw` or `ui`.
 struct AppFrame {
     /// Inside the frame, between ImGui's begin and end, with the window's size
     /// in pixels.
     std::function<void(float width, float height)> draw{};
+    /// Given, the frame is drawn with ftk's own UI core instead of ImGui.
+    UiDraw ui{};
     /// After the platform's events, before the frame records: work that must
     /// not run inside one, such as drawing a StandaloneWindow.
     std::function<void()> update{};
@@ -91,28 +100,42 @@ public:
     /// @return the last frame's pixels, or why they could not be drawn or read
     [[nodiscard]] Result<Shot> shot(const std::function<void(float, float)>& draw, glm::uvec2 size,
                                     int frames = 4);
+    /// The same for a frame drawn with the UI core, `size` pixels at `scale`
+    /// pixels to the layout unit.
+    [[nodiscard]] Result<Shot> shot_ui(const UiDraw& ui, glm::uvec2 size, float scale = 1.0f, int frames = 4);
 
     [[nodiscard]] Window& window() const { return *window_; }
     [[nodiscard]] gpu::Device& device() const { return *device_; }
     [[nodiscard]] gpu::Swapchain& swapchain() const { return *swapchain_; }
     [[nodiscard]] ImGuiLayer& imgui() const { return *imgui_; }
+    /// The UI core's context, which a program adds its fonts to, and what
+    /// draws it.
+    [[nodiscard]] ui::core::Context& ui() { return ui_; }
+    [[nodiscard]] gpu::UiRenderer& ui_renderer() const { return *ui_renderer_; }
 
 private:
     AppWindow(std::unique_ptr<Window> window, std::unique_ptr<gpu::Device> device,
               std::unique_ptr<gpu::Swapchain> swapchain, std::unique_ptr<ImGuiLayer> imgui,
-              gpu::Clear clear);
+              std::unique_ptr<gpu::UiRenderer> ui_renderer, gpu::Clear clear);
 
     /// One frame: acquire, draw, present. A frame the swapchain cannot take,
     /// while it is being rebuilt, is skipped.
-    Result<> draw_frame(const std::function<void(float, float)>& draw);
+    Result<> draw_frame(const AppFrame& frame);
+    /// A frame of the UI core for the window's root, `pixels` big at `scale`.
+    const ui::core::FrameOutput& draw_ui(const UiDraw& ui, glm::uvec2 pixels, float scale);
+    /// The clear colour as the UI's canvas takes it: sRGB values.
+    [[nodiscard]] ui::Color background() const;
 
-    // Destroyed from the bottom up: the layer and the swapchain before the
-    // device, the device before the window.
+    // Destroyed from the bottom up: the renderers and the swapchain before
+    // the device, the device before the window.
     std::unique_ptr<Window> window_;
     std::unique_ptr<gpu::Device> device_;
     std::unique_ptr<gpu::Swapchain> swapchain_;
     std::unique_ptr<ImGuiLayer> imgui_;
+    std::unique_ptr<gpu::UiRenderer> ui_renderer_;
     gpu::Clear clear_;
+    ui::core::Context ui_;
+    std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
 };
 
 } // namespace ftk

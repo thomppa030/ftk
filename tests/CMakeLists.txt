@@ -146,6 +146,7 @@ ftk_library_link_check(gpu NEEDS_GPU)
 add_dependencies(ftk-link-gpu ftk-tests_shaders)
 target_compile_definitions(ftk-link-gpu PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 ftk_library_link_check(app NEEDS_GPU)
+ftk_library_link_check(gpu-ui NEEDS_GPU)
 
 # --- Text sample ---
 # Draws text through ftk-text alone into a PNG, to look at before the UI core
