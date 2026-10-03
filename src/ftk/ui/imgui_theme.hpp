@@ -5,6 +5,8 @@
 // (the ImGui layer, the test harness), not for widgets, which take the theme
 // through ftk/ui/theme.hpp.
 
+#include "ftk/ui/types.hpp"
+
 #include <string>
 
 struct ImFont;
@@ -24,6 +26,11 @@ void forget_fonts(const ImGuiContext* context);
 
 /// Writes the theme's colours and metrics into `style`.
 void apply(ImGuiStyle& style);
+
+/// The current context's font for `face`: the bold or mono face load_font()
+/// found, else the current font; the context's default for the body; and
+/// null for the current face, which ImGui::PushFont() keeps.
+[[nodiscard]] ImFont* imgui_font(ui::Font face);
 
 namespace detail {
 

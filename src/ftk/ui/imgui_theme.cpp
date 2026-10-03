@@ -28,15 +28,33 @@ detail::Faces& detail::current_faces() {
     return faces()[ImGui::GetCurrentContext()];
 }
 
-ui::Font bold_font() {
-    ImFont* face = detail::current_faces().bold;
-    return face != nullptr ? face : ImGui::GetFont();
+ImFont* imgui_font(ui::Font face) {
+    switch (face) {
+    case ui::Font::Current: return nullptr;
+    case ui::Font::Body: return ImGui::GetIO().FontDefault != nullptr ? ImGui::GetIO().FontDefault : ImGui::GetFont();
+    case ui::Font::Bold: {
+        ImFont* bold = detail::current_faces().bold;
+        return bold != nullptr ? bold : ImGui::GetFont();
+    }
+    case ui::Font::Mono: {
+        ImFont* mono = detail::current_faces().mono;
+        return mono != nullptr ? mono : ImGui::GetFont();
+    }
+    }
+    return nullptr;
 }
 
-ui::Font mono_font() {
-    ImFont* face = detail::current_faces().mono;
-    return face != nullptr ? face : ImGui::GetFont();
+} // namespace ftk::theme
+
+void ImGui::PushFont(ftk::ui::Font face, float size) {
+    PushFont(ftk::theme::imgui_font(face), size);
 }
+
+void ImGui::PushFont(ftk::ui::Font face) {
+    PushFont(ftk::theme::imgui_font(face));
+}
+
+namespace ftk::theme {
 
 void forget_fonts(const ImGuiContext* context) {
     faces().erase(context);

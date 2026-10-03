@@ -227,13 +227,13 @@ inline float label_column(float width) {
 }
 
 // ── Fonts ───────────────────────────────────────────────────────────────
-// The faces loaded for the window drawing now: each window's UI has its
-// own. Either is the current font when its file was missing.
+// The faces by what they are for: each implementation of the kit finds its
+// own font for one, the current face when its file was missing.
 
 /// The bold face, for headings.
-[[nodiscard]] ui::Font bold_font();
+[[nodiscard]] constexpr ui::Font bold_font() { return ui::Font::Bold; }
 
 /// The monospace face, for the console and code.
-[[nodiscard]] ui::Font mono_font();
+[[nodiscard]] constexpr ui::Font mono_font() { return ui::Font::Mono; }
 
 } // namespace ftk::theme

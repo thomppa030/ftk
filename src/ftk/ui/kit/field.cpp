@@ -3,6 +3,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/imgui_theme.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <imgui.h>
@@ -65,7 +66,7 @@ void draw_text(const char* number, Unit unit, const Axis* axis, bool signed_rang
     float text_left = left;
     if (axis != nullptr) {
         // Sit the smaller bold letter on the number's baseline.
-        ImFont* bold = theme::bold_font();
+        ImFont* bold = theme::imgui_font(theme::bold_font());
         const float baseline = ImGui::GetFontBaked()->Ascent
             - bold->GetFontBaked(AXIS_LETTER_SIZE)->Ascent;
         dl->AddText(bold, AXIS_LETTER_SIZE, {left, y + std::floor(baseline)},

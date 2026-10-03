@@ -3,28 +3,24 @@
 // The kit's own types where its headers took ImGui's, so a program reaches
 // the kit without ImGui. Points and sizes are glm::vec2. Those the UI core
 // shares (a colour, an id, a texture, a payload) are the core's; the font
-// is the kit's, while ImGui draws it.
+// is the kit's.
 
 #include "ftk/ui/core/types.hpp"
 
-// ImGui's font, which a Font is while ImGui draws the kit. Named here, not
-// included: the bridge goes with ImGui.
-struct ImFont;
+#include <cstdint>
 
 namespace ftk::ui {
 
-/// One of the theme's faces, at no size of its own: the size is given where
-/// it is drawn. While ImGui draws the kit it is one of ImGui's fonts, and
-/// goes wherever ImGui takes one.
-class Font {
-public:
-    constexpr Font() = default;
-    constexpr Font(ImFont* font) : font_{font} {}
-
-    constexpr operator ImFont*() const { return font_; }
-
-private:
-    ImFont* font_{nullptr};
+/// One of the theme's faces, by what it is for, at no size of its own: the
+/// size is given where it is drawn. Each implementation of the kit finds its
+/// own font for a face; `Current` keeps the face text is drawn in now.
+enum class Font : uint8_t {
+    Current,
+    Body,
+    /// For headings.
+    Bold,
+    /// For the console and code.
+    Mono,
 };
 
 } // namespace ftk::ui

@@ -33,7 +33,7 @@ KeyCapResult key_cap(const KeyCapSpec& spec) {
     // while listening the note on how to stop.
     float w = PAD_X * 2.0f;
     if (spec.device_icon != nullptr && !spec.listening) w += ImGui::CalcTextSize(spec.device_icon).x + GAP;
-    ImGui::PushFont(unbound || spec.listening ? nullptr : theme::bold_font(), 0.0f);
+    ImGui::PushFont(unbound || spec.listening ? ui::Font::Current : theme::bold_font(), 0.0f);
     const float label_w = ImGui::CalcTextSize(label.c_str()).x;
     ImGui::PopFont();
     w += label_w;

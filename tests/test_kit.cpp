@@ -637,9 +637,9 @@ TEST_CASE("Each ImGui context keeps its own fonts", "[ui][kit]") {
     ftk::theme::detail::current_faces().bold = &browser_bold;
 
     ImGui::SetCurrentContext(editor);
-    CHECK(ftk::theme::bold_font() == &editor_bold);
+    CHECK(ftk::theme::imgui_font(ftk::theme::bold_font()) == &editor_bold);
     ImGui::SetCurrentContext(browser);
-    CHECK(ftk::theme::bold_font() == &browser_bold);
+    CHECK(ftk::theme::imgui_font(ftk::theme::bold_font()) == &browser_bold);
 
     ftk::theme::forget_fonts(browser);
     ftk::theme::forget_fonts(editor);
