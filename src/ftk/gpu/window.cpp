@@ -18,6 +18,18 @@ std::vector<Window*>& open_windows() {
     return windows;
 }
 
+/// The window the mouse was last in, for its events that name none.
+Window*& mouse_window() {
+    static Window* window = nullptr;
+    return window;
+}
+
+/// Whether an event is the mouse's.
+bool is_mouse(Uint32 type) {
+    return type == SDL_EVENT_MOUSE_MOTION || type == SDL_EVENT_MOUSE_BUTTON_DOWN || type == SDL_EVENT_MOUSE_BUTTON_UP ||
+           type == SDL_EVENT_MOUSE_WHEEL;
+}
+
 /// Whether events of this type happen in one window and go only to it. The
 /// rest (quitting, gamepads, displays, devices coming and going) concern
 /// the whole program and go to every window.
@@ -111,6 +123,7 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height, const Wi
 
 Window::~Window() {
     std::erase(open_windows(), this);
+    if (mouse_window() == this) mouse_window() = nullptr;
     SDL_DestroyWindow(window_);
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
     FTK_CORE_DEBUG("Window destroyed");
@@ -160,12 +173,20 @@ void Window::dispatch(const SDL_Event& event) {
         }
         return;
     }
-    // Keys typed while no window of ours has focus belong to none of them.
-    SDL_Window* target = SDL_GetWindowFromEvent(&event);
-    if (target == nullptr) return;
     const auto& windows = open_windows();
+    SDL_Window* target = SDL_GetWindowFromEvent(&event);
+    if (target == nullptr) {
+        // A button let go after the pointer was dragged out of its window
+        // names no window where SDL can't hold on to the mouse (Wayland):
+        // it is the window's the mouse was last in, at the last place SDL
+        // knew, past that window's edge. Keys typed while no window of ours
+        // has focus belong to none of them.
+        if (is_mouse(event.type) && std::ranges::contains(windows, mouse_window())) mouse_window()->receive(event);
+        return;
+    }
     const auto owner = std::ranges::find(windows, target, &Window::window_);
     if (owner != windows.end()) {
+        if (is_mouse(event.type)) mouse_window() = *owner;
         (*owner)->receive(event);
     }
 }
