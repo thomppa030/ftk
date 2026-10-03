@@ -65,7 +65,12 @@ std::runtime_error sdl_failure(std::string_view what) {
 
 } // namespace
 
-Window::Window(std::string_view title, uint32_t width, uint32_t height) {
+Window::Window(std::string_view title, uint32_t width, uint32_t height) : Window(title, width, height, nullptr) {}
+
+Window::Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent)
+    : Window(title, width, height, &parent) {}
+
+Window::Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent) {
     // Ctrl+C and a terminating signal end the program as they always have,
     // rather than becoming a quit event the loop may not be reading yet.
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
@@ -74,14 +79,23 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height) {
         throw sdl_failure("Failed to initialise SDL video");
     }
 
+    // A window of another's is shown once it is that one's, so the window
+    // manager places it so from the start.
     window_ = SDL_CreateWindow(std::string{title}.c_str(),
                                static_cast<int>(width), static_cast<int>(height),
                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
-                                   | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                                   | SDL_WINDOW_HIGH_PIXEL_DENSITY
+                                   | (parent != nullptr ? SDL_WINDOW_HIDDEN : 0));
     if (window_ == nullptr) {
         auto failure = sdl_failure("Failed to create window");
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         throw failure;
+    }
+    if (parent != nullptr) {
+        if (!SDL_SetWindowParent(window_, parent->window_)) {
+            FTK_CORE_WARN("A window couldn't be made its parent's: {}", SDL_GetError());
+        }
+        SDL_ShowWindow(window_);
     }
 
     int pixel_width = 0;
@@ -185,6 +199,16 @@ void Window::receive(const SDL_Event& event) {
 
 void Window::set_title(std::string_view title) {
     SDL_SetWindowTitle(window_, std::string{title}.c_str());
+}
+
+glm::ivec2 Window::position() const {
+    glm::ivec2 at{0};
+    SDL_GetWindowPosition(window_, &at.x, &at.y);
+    return at;
+}
+
+void Window::set_position(glm::ivec2 at) {
+    SDL_SetWindowPosition(window_, at.x, at.y);
 }
 
 void Window::set_cursor_captured(bool captured) {

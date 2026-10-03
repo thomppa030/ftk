@@ -4,10 +4,12 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace ftk {
 
@@ -89,6 +91,17 @@ std::size_t byte_of(std::string_view text, int characters) {
 
 } // namespace
 
+namespace {
+
+// The UiInputs living for each context: the clipboard is the context's
+// while one does, through any of them.
+std::unordered_map<const core::Context*, int>& inputs_living() {
+    static std::unordered_map<const core::Context*, int> living;
+    return living;
+}
+
+} // namespace
+
 UiInput::UiInput(Window& window, core::Context& ui, core::RootId root) : window_(window), ui_(ui), root_(root) {
     // Pens and fingers come as themselves, not also as a mouse. Left so once
     // set: a program that has a UiInput takes them so throughout.
@@ -99,24 +112,32 @@ UiInput::UiInput(Window& window, core::Context& ui, core::RootId root) : window_
     cursors_ = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT),
                 SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE),
                 SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE)};
-    ui_.set_clipboard_access({
-        .set = [](std::string_view text) { SDL_SetClipboardText(std::string(text).c_str()); },
-        .get = [] {
-            char* held = SDL_GetClipboardText();
-            std::string text = held != nullptr ? held : "";
-            SDL_free(held);
-            return text;
-        },
-    });
+    if (inputs_living()[&ui_]++ == 0) {
+        ui_.set_clipboard_access({
+            .set = [](std::string_view text) { SDL_SetClipboardText(std::string(text).c_str()); },
+            .get = [] {
+                char* held = SDL_GetClipboardText();
+                std::string text = held != nullptr ? held : "";
+                SDL_free(held);
+                return text;
+            },
+        });
+    }
     events_ = window.on_event.bind([this](const SDL_Event& event) { receive(event); });
 }
 
 UiInput::~UiInput() {
     if (text_input_) SDL_StopTextInput(window_.handle());
+    // The pointer's shape is the system's: not left one of these.
+    if (std::ranges::contains(cursors_, SDL_GetCursor())) SDL_SetCursor(SDL_GetDefaultCursor());
     for (SDL_Cursor* cursor : cursors_) {
         if (cursor != nullptr) SDL_DestroyCursor(cursor);
     }
-    ui_.set_clipboard_access({});
+    // The last of the context's windows to go takes the clipboard with it.
+    if (--inputs_living()[&ui_] == 0) {
+        inputs_living().erase(&ui_);
+        ui_.set_clipboard_access({});
+    }
 }
 
 float UiInput::units_per_point() const {
@@ -269,9 +290,11 @@ void UiInput::receive(const SDL_Event& event) {
 
 void UiInput::apply(const core::RootOutput& root) {
     SDL_Window* window = window_.handle();
-    if (root.cursor != shown_) {
-        shown_ = root.cursor;
-        SDL_SetCursor(cursors_[static_cast<std::size_t>(shown_)]);
+    // The pointer's shape is the system's, one for every window: set while
+    // the pointer is over this one.
+    if (SDL_GetMouseFocus() == window) {
+        SDL_Cursor* wanted = cursors_[static_cast<std::size_t>(root.cursor)];
+        if (SDL_GetCursor() != wanted) SDL_SetCursor(wanted);
     }
     if (root.text_input) {
         // In the window's points, which the platform places its window by.

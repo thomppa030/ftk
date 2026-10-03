@@ -70,7 +70,6 @@ private:
     ui::core::RootId root_;
     Connection events_;
     std::array<SDL_Cursor*, 6> cursors_{};
-    ui::MouseCursor shown_{ui::MouseCursor::Arrow};
     bool text_input_{false};
     std::unordered_map<uint32_t, Pen> pens_;
 };

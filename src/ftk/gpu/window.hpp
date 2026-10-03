@@ -19,7 +19,11 @@ namespace ftk {
 /// window it belongs to. What the GPU draws into it is the swapchain's.
 class Window {
 public:
+    /// `width` by `height` points.
     Window(std::string_view title, uint32_t width, uint32_t height);
+    /// A window of `parent`'s: a panel torn out of it. The window manager
+    /// keeps it with its parent, over it, and a tiling one floats it.
+    Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent);
     ~Window();
 
     Window(const Window&) = delete;
@@ -44,6 +48,11 @@ public:
     /// do by then even without an event, such as a tooltip coming due.
     void wait_events_for(double seconds);
     void set_title(std::string_view title);
+    /// Where its top-left is on the desktop, in points, and puts it there:
+    /// as far as the platform lets a program know and place its windows
+    /// (Wayland keeps both to itself).
+    [[nodiscard]] glm::ivec2 position() const;
+    void set_position(glm::ivec2 at);
 
     /// Hide the cursor and let it move without bound, so only its motion is
     /// reported, or give it back.
@@ -81,6 +90,9 @@ public:
     Delegate<void(const SDL_Event&)> on_event;
 
 private:
+    /// The two above, `parent` null for a window of the program's own.
+    Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent);
+
     /// Hand one event to the window it belongs to, or to every window.
     static void dispatch(const SDL_Event& event);
     /// Apply what an event means to the window itself, then pass it on.

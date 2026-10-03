@@ -5,8 +5,10 @@
 // runs them. The loop draws only when there is a reason: it sleeps until
 // input arrives or the last frame's deadline comes (decision 9 of the UI
 // core plan), and the platform's pens, fingers, keys and text reach the
-// core as themselves. Programs on the kit's ImGui implementation use
-// ImGuiAppWindow until they move over.
+// core as themselves. The windows the UI asks for, a panel torn out into
+// one of its own, it opens beside the main one, each a root of the one
+// context with a swapchain of its own (decision 20). Programs on the kit's
+// ImGui implementation use ImGuiAppWindow until they move over.
 //
 //     auto app = ftk::AppWindow::create({.title = "Tool"});
 //     if (!app) return fail(app.error());
@@ -29,6 +31,7 @@
 namespace ftk {
 
 class Window;
+class UiInput;
 
 namespace gpu {
 class Swapchain;
@@ -109,11 +112,28 @@ private:
               std::unique_ptr<gpu::Swapchain> swapchain, std::unique_ptr<gpu::UiRenderer> ui_renderer,
               gpu::Clear clear);
 
-    /// One frame: acquire, draw, present. A frame the swapchain cannot take,
-    /// while it is being rebuilt, is skipped.
+    /// An OS window the UI asked for, beside the main one: a root of the
+    /// context, its swapchain, and its input.
+    struct Extra {
+        ui::core::RootId root{0};
+        std::unique_ptr<Window> window;
+        std::unique_ptr<gpu::Swapchain> swapchain;
+        std::unique_ptr<UiInput> input;
+    };
+
+    /// One frame: the UI over every window, then each window's acquire,
+    /// draw and present. A window whose swapchain cannot take a frame, while
+    /// it is being rebuilt, misses it.
     Result<> draw_frame(const AppFrame& frame);
-    /// A frame of the UI core for the window's root, `pixels` big at `scale`.
+    /// The root `root` of `out` drawn into `swapchain`, as a frame of the
+    /// GPU's of its own.
+    Result<> show(gpu::Swapchain& swapchain, ui::core::RootId root, const ui::core::FrameOutput& out);
+    /// A frame of the UI core: the window's root, `pixels` big at `scale`,
+    /// and then the other windows' roots.
     const ui::core::FrameOutput& draw_ui(const UiDraw& ui, glm::uvec2 pixels, float scale);
+    /// Opens and closes the windows the last frame asked for, and closes
+    /// those their user closed, telling the UI.
+    Result<> keep_windows(const ui::core::FrameOutput& out);
     /// The clear colour as the UI's canvas takes it: sRGB values.
     [[nodiscard]] ui::Color background() const;
 
@@ -127,6 +147,8 @@ private:
     ui::core::Context ui_;
     // What the last frame drew and asked for; none when it was skipped.
     const ui::core::FrameOutput* last_ui_{nullptr};
+    // The other windows, gone before the context and the device.
+    std::vector<Extra> extras_;
 };
 
 } // namespace ftk
