@@ -20,9 +20,11 @@
 # What draws with ImGui is exempt at its place in ftk's tree, not by its
 # name: the kit and the theme (src/ftk/ui/), the ImGui layer and its renderer,
 # the test harness that drives ImGui headless, and ImGui's configuration.
-# ftk's own ImGuiLayer and ImGuiLayerFiles, and their header, are not hits:
-# they name the layer a program runs its UI with, which takes the UI core's
-# name when the core takes over the frame loop, not ImGui's API.
+# The UI core (src/ftk/ui/core/) is not: it replaces ImGui, so it is held
+# to the check like code outside the kit. ftk's own ImGuiLayer and
+# ImGuiLayerFiles, and their header, are not hits: they name the layer a
+# program runs its UI with, which takes the UI core's name when the core
+# takes over the frame loop, not ImGui's API.
 
 # Scans `roots` under `base`, skipping what `allowlist` names, and fails with
 # every offender. Also run on its own by the build step (script mode below).
@@ -66,7 +68,7 @@ function(_ftk_scan_imgui base allowlist)
         foreach(source IN LISTS sources)
             file(RELATIVE_PATH rel "${base}" "${source}")
             file(RELATIVE_PATH in_src "${src_root}" "${source}")
-            if(NOT in_src MATCHES "^\\.\\./" AND in_src MATCHES "${imgui_path}")
+            if(NOT in_src MATCHES "^\\.\\./" AND in_src MATCHES "${imgui_path}" AND NOT in_src MATCHES "^ftk/ui/core/")
                 continue()
             endif()
             file(STRINGS "${source}" hits REGEX "${pattern}" ENCODING UTF-8)

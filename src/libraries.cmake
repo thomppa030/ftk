@@ -284,6 +284,23 @@ ftk_library(text
 # The face of last resort, compiled in so every program has it.
 ftk_embed_file(ftk-text "${FTK_SOURCE_ROOT}/../fonts/LastResortHE-Regular.ttf")
 
+# ftk-ui-core is ftk's own immediate-mode UI, which the kit is to draw with
+# in place of ImGui (the UI core plan): ids and kept state, frames and the
+# OS windows drawn into. It holds no GPU code and never ImGui, so it runs
+# headless in the unit tests.
+ftk_library(ui-core
+    SOURCES
+        ftk/ui/core/context.cpp
+        ftk/ui/core/id.cpp
+    HEADERS
+        ftk/ui/core/context.hpp
+        ftk/ui/core/id.hpp
+        ftk/ui/core/storage.hpp
+        ftk/ui/core/types.hpp
+    LINKS
+        PUBLIC ftk::base glm::glm
+)
+
 # ftk-app-ui is how a creative app or an editor looks: the theme's tokens,
 # the icons and every widget of the kit, on ImGui's core alone, so it draws
 # headless in the unit tests and in any window a program brings.
@@ -411,7 +428,7 @@ ftk_library(app-ui
         ftk/ui/theme.hpp
         ftk/ui/types.hpp
     LINKS
-        PUBLIC ftk::base ftk::math ftk::imgui-headless glm::glm
+        PUBLIC ftk::base ftk::math ftk::ui-core ftk::imgui-headless glm::glm
         PRIVATE nlohmann_json::nlohmann_json
 )
 # The approved dark palette, the theme's until a program uses another.

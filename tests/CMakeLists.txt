@@ -64,6 +64,8 @@ add_executable(ftk-tests
     test_theme.cpp
     test_thread_pool.cpp
     test_tree.cpp
+    test_ui_core_frame.cpp
+    test_ui_core_ids.cpp
     test_utf8.cpp
     test_vulkan_access.cpp
     test_vulkan_frame_descriptor_cache.cpp
@@ -77,6 +79,7 @@ target_link_libraries(ftk-tests PRIVATE
     ftk::platform
     ftk::shader
     ftk::text
+    ftk::ui-core
     Catch2::Catch2WithMain
 )
 # The Vulkan backend's own tests (test_vulkan_*.cpp) read its headers.
@@ -125,6 +128,7 @@ ftk_delay_load_vulkan(ftk-link-framegraph)
 ftk_library_link_check(shader)
 ftk_library_link_check(image)
 ftk_library_link_check(text)
+ftk_library_link_check(ui-core)
 ftk_library_link_check(app-ui)
 ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
