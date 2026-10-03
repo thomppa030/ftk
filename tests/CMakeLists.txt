@@ -37,6 +37,7 @@ add_executable(ftk-tests
     test_shader_compiler.cpp
     test_shader_diagnostic.cpp
     test_small_vector.cpp
+    test_split_jobs.cpp
     test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp

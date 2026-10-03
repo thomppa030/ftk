@@ -8,12 +8,14 @@ ftk_library(base
     SOURCES
         ftk/base/log.cpp
         ftk/base/range_allocator.cpp
+        ftk/base/split_jobs.cpp
         ftk/base/thread_pool.cpp
     HEADERS
         ftk/base/delegate.hpp
         ftk/base/handle.hpp
         ftk/base/handle_pool.hpp
         ftk/base/range_allocator.hpp
+        ftk/base/split_jobs.hpp
         ftk/base/small_vector.hpp
         ftk/base/log.hpp
         ftk/base/profiler.hpp
