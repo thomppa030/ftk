@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <optional>
@@ -30,6 +31,21 @@ std::vector<SettingsSection>& sections() {
     static std::vector<SettingsSection> kept;
     return kept;
 }
+
+// The program's own settings file, and when something in it first changed
+// since it was last written.
+struct Kept {
+    std::string path{};
+    std::optional<double> changed{};
+};
+
+Kept& kept_file() {
+    static Kept kept;
+    return kept;
+}
+
+// How long a change waits to be written, as ImGui waits.
+constexpr double SAVE_AFTER = 5.0;
 
 // "x,y" as two numbers.
 std::optional<glm::vec2> pair_of(std::string_view text) {
@@ -89,8 +105,20 @@ void add_settings_section(SettingsSection section) {
 }
 
 void settings_changed() {
-    // The core's program window keeps no settings file of its own yet: a
-    // program saves it with save_settings_file() when it chooses.
+    Kept& kept = kept_file();
+    if (!kept.path.empty() && !kept.changed) kept.changed = ui().time();
+}
+
+void keep_settings_file(const std::string& path) {
+    kept_file() = {.path = path};
+    if (std::filesystem::exists(path)) load_settings_file(path);
+}
+
+void save_settings_when_due() {
+    Kept& kept = kept_file();
+    if (!kept.changed || ui().time() < *kept.changed + SAVE_AFTER) return;
+    kept.changed.reset();
+    save_settings_file(kept.path);
 }
 
 void save_settings_file(const std::string& path) {

@@ -21,7 +21,7 @@ class Device;
 
 /// The editor's pictures read from image files: its icons, and small
 /// thumbnails of textures for the content browser and asset fields. What it
-/// hands out is drawn through the current ImGui context's layer.
+/// hands out is drawn through the current UI layer.
 class IconCache {
 public:
     /// Thumbnails fit in a square this many pixels a side.

@@ -610,21 +610,17 @@ ftk_library(app
         PRIVATE SDL3::SDL3
 )
 
-# ftk-app-imgui is what an editor's window needs around the kit's ImGui
-# implementation: ImGuiAppWindow and its loop, the ImGui layer on a window
-# of its own, the console and the history panel, the icon cache, the file
-# browser, and the EditorContext a tool's documents build on. Where a host
-# keeps its files is passed in. The editor and the hub use it until they
-# move onto the UI core (Phase 9 of the UI core plan).
-ftk_library(app-imgui
+# ftk-app-editor is what an editor's windows need around the kit on the UI
+# core: the console and the history panel, the icon cache, the file browser
+# and the standalone windows it opens, and the EditorContext a tool's
+# documents build on. Where a host keeps its files is passed in.
+ftk_library(app-editor
     SOURCES
         ftk/app/console.cpp
         ftk/app/editor_context.cpp
         ftk/app/file_browser.cpp
         ftk/app/history_panel.cpp
         ftk/app/icon_cache.cpp
-        ftk/app/imgui_app_window.cpp
-        ftk/app/imgui_layer.cpp
         ftk/app/standalone_window.cpp
     HEADERS
         ftk/app/console.hpp
@@ -633,12 +629,25 @@ ftk_library(app-imgui
         ftk/app/file_browser.hpp
         ftk/app/history_panel.hpp
         ftk/app/icon_cache.hpp
-        ftk/app/imgui_app_window.hpp
-        ftk/app/imgui_layer.hpp
         ftk/app/standalone_window.hpp
     LINKS
+        PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-ui ftk::app-ui ftk::ui-kit ftk::ui-core
+        PRIVATE ftk::image
+)
+
+# ftk-app-imgui is ImGuiAppWindow and its loop, and the ImGui layer it draws
+# with: what ftk-example-app-imgui runs on, until ImGui goes (Phase 9 of the
+# UI core plan).
+ftk_library(app-imgui
+    SOURCES
+        ftk/app/imgui_app_window.cpp
+        ftk/app/imgui_layer.cpp
+    HEADERS
+        ftk/app/imgui_app_window.hpp
+        ftk/app/imgui_layer.hpp
+    LINKS
         PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-imgui ftk::imgui ftk::app-ui-imgui ftk::ui-kit ftk::ui-core
-        PRIVATE ftk::image SDL3::SDL3
+        PRIVATE SDL3::SDL3
 )
 
 # --- Dear ImGui ---

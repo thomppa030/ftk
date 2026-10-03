@@ -3,7 +3,7 @@
 #include "ftk/base/profiler.hpp"
 #include "ftk/base/thread_pool.hpp"
 #include "ftk/gpu/device.hpp"
-#include "ftk/app/imgui_layer.hpp"
+#include "ftk/app/ui_layer.hpp"
 
 #include <stb_image.h>
 #include <stb_image_resize2.h>
@@ -133,7 +133,7 @@ IconCache::~IconCache() = default;
 
 ui::Texture IconCache::icon(const std::string& name) const {
     const auto it = icons_.find(name);
-    return it != icons_.end() ? imgui_texture(it->second) : ui::Texture{};
+    return it != icons_.end() ? ui_texture(it->second) : ui::Texture{};
 }
 
 gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels, uint32_t width, uint32_t height,
@@ -144,8 +144,8 @@ gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels,
         FTK_CORE_ERROR("Icon cache: {} has {} bytes for {}x{} pixels", name, pixels.size(), width, height);
         return {};
     }
-    // PNG pixels are sRGB; sampling through an sRGB format hands ImGui
-    // linear light, which the swapchain encodes back to the authored colour.
+    // PNG pixels are sRGB; sampling through an sRGB format hands the UI
+    // light, which it encodes back to the authored colour.
     auto made = device_.create(gpu::TextureDesc{
         .format = gpu::Format::rgba8_srgb,
         .width = width,
@@ -175,7 +175,7 @@ void IconCache::load_icon(const std::string& name, const std::string& path) {
 ui::Texture IconCache::thumbnail(const std::string& path) {
     take_decoded();
     if (const auto it = thumbnails_.find(path); it != thumbnails_.end()) {
-        return it->second ? imgui_texture(it->second) : ui::Texture{};
+        return it->second ? ui_texture(it->second) : ui::Texture{};
     }
     if (decoding_.insert(path).second) {
         (void)pool_.submit([inbox = inbox_, path, generation = generation_, folder = cache_folder_] {

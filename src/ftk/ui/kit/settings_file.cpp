@@ -86,4 +86,14 @@ void load_settings_file(const std::string& path) {
     ImGui::LoadIniSettingsFromDisk(path.c_str());
 }
 
+void keep_settings_file(const std::string& path) {
+    // ImGui reads the file it is given as the frame begins, and writes it
+    // itself; the name has to outlive the context.
+    static std::string kept;
+    kept = path;
+    ImGui::GetIO().IniFilename = kept.c_str();
+}
+
+void save_settings_when_due() {}
+
 } // namespace ftk::ui

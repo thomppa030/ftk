@@ -114,7 +114,7 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
     }
     navigate(start, false);
 
-    window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, imgui_files_);
+    window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, prepare_);
 }
 
 void FileBrowser::tick() {
@@ -247,7 +247,7 @@ void FileBrowser::confirm_selection() {
     window_->request_close();
 }
 
-// ── ImGui UI ────────────────────────────────────────────────────────────
+// ── UI ──────────────────────────────────────────────────────────────────
 
 bool FileBrowser::draw_ui(float window_w, float window_h) {
     ui::next_window_place({0.0f, 0.0f}, {window_w, window_h});

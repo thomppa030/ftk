@@ -1,16 +1,13 @@
 // Links ftk-app-imgui alone and whole (tests/CMakeLists.txt), so it builds
 // only if everything in the library finds what it needs in the library and
-// its own dependencies. Running it opens a standalone window on a GPU and
-// draws the kit in it for a few frames, which takes a GPU and a display: it
-// is run by hand, not as a test, with the ImGui layer's files:
+// its own dependencies. Running it opens a window on a GPU and takes a shot
+// of the kit drawn with ImGui, which takes a GPU and a display: it is run by
+// hand, not as a test, with the ImGui layer's files:
 //
 //     ftk-link-app-imgui <fonts directory> <imgui.frag.spv>
 
-#include "ftk/app/imgui_layer.hpp"
-#include "ftk/app/standalone_window.hpp"
+#include "ftk/app/imgui_app_window.hpp"
 #include "ftk/base/log.hpp"
-#include "ftk/gpu/device.hpp"
-#include "ftk/gpu/window.hpp"
 #include "ftk/ui/kit/button.hpp"
 
 #include <cstdio>
@@ -23,23 +20,21 @@ int main(int argc, char** argv) {
     ftk::log::init({.level = spdlog::level::warn});
     int drawn = 0;
     {
-        // The device is made for a window of its own, as the editor's is.
-        ftk::Window main_window("ftk-link-app-imgui", 320, 240);
-        auto made = ftk::gpu::Device::create(main_window);
+        auto made = ftk::ImGuiAppWindow::create({.title = "ftk-link-app-imgui",
+                                                 .width = 320,
+                                                 .height = 240,
+                                                 .files = {.fonts = argv[1], .srgb_fragment = argv[2]}});
         if (!made) {
             std::fprintf(stderr, "%s\n", made.error().c_str());
             return 1;
         }
-        ftk::gpu::Device& device = **made;
-        ftk::StandaloneWindow window(device, "ftk-link-app-imgui", 480, 320,
-                                     {.fonts = argv[1], .srgb_fragment = argv[2]});
-        for (int frame = 0; frame < 10; ++frame) {
-            window.frame([&](float, float) {
+        auto shot = (*made)->shot(
+            [&](float, float) {
                 (void)ftk::ui::button("OK");
                 ++drawn;
-            });
-        }
-        device.wait_idle();
+            },
+            {160, 120});
+        if (!shot) drawn = 0;
     }
     ftk::log::shutdown();
     return drawn > 0 ? 0 : 1;

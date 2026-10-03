@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ftk/app/imgui_layer.hpp"
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/delegate.hpp"
 
@@ -51,12 +50,11 @@ public:
         std::function<void(const std::vector<std::string>&)> save;
     };
 
-    /// Set the device its window draws with, and where the window's ImGui
-    /// layer finds its fonts and sRGB fragment stage. Must be called before
-    /// open().
-    void set_device(gpu::Device* device, ImGuiLayerFiles files) {
+    /// Set the device its window draws with, and what its UI is given before
+    /// its first frame (the fonts). Must be called before open().
+    void set_device(gpu::Device* device, UiPrepare prepare) {
         device_ = device;
-        imgui_files_ = std::move(files);
+        prepare_ = std::move(prepare);
     }
 
     /// Keep the recent folders in `recent`. Without it none are kept.
@@ -109,7 +107,7 @@ private:
     static std::string format_time(std::filesystem::file_time_type time);
 
     gpu::Device* device_{nullptr};
-    ImGuiLayerFiles imgui_files_;
+    UiPrepare prepare_;
     RecentFolders recent_;
     std::unique_ptr<StandaloneWindow> window_;
 

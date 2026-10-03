@@ -53,4 +53,15 @@ void save_settings_file(const std::string& path);
 /// windows take the places it gives them as they are next drawn.
 void load_settings_file(const std::string& path);
 
+/// Keeps the program's own settings file at `path`, as ImGui keeps
+/// imgui.ini: reads it now when it is there, and from then on writes it a
+/// few seconds after something in it changed, through
+/// save_settings_when_due(). A program writes it once more on its way out
+/// with save_settings_file().
+void keep_settings_file(const std::string& path);
+
+/// Writes the kept settings file when what changed in it has waited long
+/// enough. Once a frame.
+void save_settings_when_due();
+
 } // namespace ftk::ui
