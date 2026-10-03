@@ -156,6 +156,10 @@ void Context::end_root() {
     hit_targets_.clear();
 }
 
+glm::vec2 Context::root_size() const {
+    return root_ != nullptr ? root_->size : glm::vec2{0.0f};
+}
+
 void Context::forget_root(RootId root) {
     if (root_ != nullptr && root_->id == root) {
         FTK_CORE_ERROR("UI: window {} forgotten while it is drawn", root);
@@ -202,10 +206,11 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
         // In its parent's layer at least, so it is drawn over its parent.
         shown.layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
         shown.hidden = false;
+        shown.raise = options.raise;
     }
     if (options.fit && !shown.again) {
         if (shown.measured) {
-            rect.max = rect.min + shown.content + 2.0f * options.padding;
+            rect.max = rect.min + shown.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
         } else {
             shown.hidden = true;
             request_frame();
@@ -244,7 +249,7 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
     if (options.scroll && !shown.again) scroll_area(id, scroll);
-    const Rect inside{.min = rect.min + options.padding, .max = rect.max - options.padding};
+    const Rect inside{.min = rect.min + options.padding + glm::vec2{0.0f, options.bar}, .max = rect.max - options.padding};
     layout_.begin_area(inside, options.scroll ? scroll.offset : glm::vec2{0.0f, 0.0f});
     if (shown.again) layout_.set_cursor(shown.cursor);
     areas_.push_back({.id = id, .panel = true, .scrolls = options.scroll, .rect = rect, .visible = inside});

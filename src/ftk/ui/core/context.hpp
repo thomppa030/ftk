@@ -100,6 +100,9 @@ enum class Layer : uint8_t {
 struct PanelOptions {
     /// Between the panel's edges and what it holds.
     glm::vec2 padding{8.0f, 8.0f};
+    /// Room across its top, above its padding, that what it holds stays
+    /// below: a title bar, drawn by what began the panel.
+    float bar{0.0f};
     /// What it holds scrolls when it doesn't fit.
     bool scroll{true};
     Layer layer{Layer::Base};
@@ -108,6 +111,9 @@ struct PanelOptions {
     /// the first time it has no size yet, so it is hidden for that frame
     /// and asks for the next.
     bool fit{false};
+    /// A press on it brings it in front of the others of its layer; off
+    /// for a panel that stays behind them, as a host does.
+    bool raise{true};
 };
 
 /// What a drag carries to where it is let go.
@@ -243,6 +249,8 @@ public:
     /// units, `scale` pixels to the unit, until end_root().
     void begin_root(RootId root, glm::vec2 size, float scale);
     void end_root();
+    /// The size of the OS window being drawn, in layout units.
+    [[nodiscard]] glm::vec2 root_size() const;
     /// Lets go of what was kept for a window that is gone.
     void forget_root(RootId root);
 
@@ -530,6 +538,8 @@ private:
         // its items go on from where the next one would have gone.
         bool again{false};
         glm::vec2 cursor{0.0f};
+        // A press on it brings it to the front.
+        bool raise{true};
         std::vector<Primitive> primitives;
         std::vector<Hit> hits;
     };

@@ -41,6 +41,10 @@ using FontId = uint32_t;
 struct TextStyle {
     FontId font{0};
     float size{13.0f};
+    /// Lines this far apart, the face's ascent and descent centred in each,
+    /// as a design gives text in rows of its own height; zero keeps the
+    /// face's own line height.
+    float line_height{0.0f};
 };
 
 /// No wrapping: lines end only at newlines.

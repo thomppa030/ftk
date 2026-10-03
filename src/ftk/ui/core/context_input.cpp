@@ -192,10 +192,11 @@ void Context::take_input() {
             const Hit* pressed = top_hit(kept.hits, at);
             tracked.press_top = pressed != nullptr ? pressed->id : 0;
             const Id panel_pressed = pressed != nullptr ? pressed->panel : 0;
-            // A press brings the panel it lands in to the front.
+            // A press brings the panel it lands in to the front, unless it
+            // stays behind.
             if (panel_pressed != 0) {
                 for (const auto& panel : kept.panels) {
-                    if (panel->id == panel_pressed) panel->order = kept.next_order++;
+                    if (panel->id == panel_pressed && panel->raise) panel->order = kept.next_order++;
                 }
             }
             // It closes the popups it isn't in: those over the one it is in,

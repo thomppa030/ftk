@@ -11,6 +11,10 @@ namespace {
 
 constexpr double FRAME = 1.0 / 60.0;
 constexpr core::RootId WINDOW = 1;
+// A held key repeats after this long, and then this often, as a keyboard
+// does by default.
+constexpr double REPEAT_DELAY = 0.275;
+constexpr double REPEAT_RATE = 0.05;
 
 // Each modifier held in either.
 ui::Modifiers either(ui::Modifiers a, ui::Modifiers b) {
@@ -19,7 +23,7 @@ ui::Modifiers either(ui::Modifiers a, ui::Modifiers b) {
 
 } // namespace
 
-UiHarness::UiHarness(glm::vec2 size, float scale) : size_{size}, scale_{scale} {
+UiHarness::UiHarness(glm::vec2 size, float scale, bool panel) : size_{size}, scale_{scale}, panel_{panel} {
     core::set_current(&ui_);
 }
 
@@ -27,11 +31,17 @@ void UiHarness::step(int count) {
     for (int i = 0; i < count; ++i) {
         core::set_current(&ui_);
         time_ += FRAME;
+        // The keys held down repeat, as the system sends them.
+        for (auto& [key, next] : keys_held_) {
+            if (time_ < next) continue;
+            send({.kind = core::KeyEvent::Kind::Down, .key = key, .repeat = true, .modifiers = held_});
+            next += REPEAT_RATE;
+        }
         ui_.begin_frame(time_);
         ui_.begin_root(WINDOW, size_, scale_);
-        ui_.begin_panel("##harness", {.min = {0.0f, 0.0f}, .max = size_});
+        if (panel_) ui_.begin_panel("##harness", {.min = {0.0f, 0.0f}, .max = size_});
         if (draw_) draw_();
-        ui_.end_panel();
+        if (panel_) ui_.end_panel();
         ui_.end_root();
         output_ = &ui_.end_frame();
     }
@@ -95,10 +105,12 @@ void UiHarness::hold(ui::Modifiers modifiers) {
 
 void UiHarness::key_down(ui::Key key) {
     send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = held_});
+    keys_held_[key] = time_ + REPEAT_DELAY;
     step();
 }
 
 void UiHarness::key_up(ui::Key key) {
+    keys_held_.erase(key);
     send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = held_});
     step();
 }

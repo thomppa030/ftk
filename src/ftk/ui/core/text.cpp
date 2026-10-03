@@ -75,6 +75,7 @@ const std::vector<text::Line>& TextSystem::lines(std::string_view text, const Sh
 }
 
 float TextSystem::line_height(TextStyle style) const {
+    if (style.line_height > 0.0f) return style.line_height;
     return fonts_[style.font].primary().metrics(style.size).line_height();
 }
 
@@ -98,7 +99,11 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
     const float pixel_size = style.size * scale;
     const float page_size = atlas_.page_size();
 
-    float baseline = at.y + metrics.ascent;
+    // The face's line from the top, or its ascent and descent centred in
+    // the line asked for.
+    const float pitch = style.line_height > 0.0f ? style.line_height : metrics.line_height();
+    const float top = style.line_height > 0.0f ? (pitch - metrics.ascent - metrics.descent) * 0.5f : 0.0f;
+    float baseline = at.y + top + metrics.ascent;
     for (const text::Line& line : lines(text, entry, wrap_width)) {
         const float origin = line.first_glyph < entry.shaped.glyphs.size() ? entry.shaped.glyphs[line.first_glyph].x : 0.0f;
         for (std::size_t g = line.first_glyph; g < line.end_glyph; ++g) {
@@ -116,7 +121,7 @@ void TextSystem::draw(DrawList& list, glm::vec2 at, Color colour, std::string_vi
             const glm::vec2 uv_max = glm::vec2{placed->rect.x + placed->rect.width, placed->rect.y + placed->rect.height} / page_size;
             list.glyph(min, min + size, uv_min, uv_max, placed->page, colour);
         }
-        baseline += metrics.line_height();
+        baseline += pitch;
     }
 }
 

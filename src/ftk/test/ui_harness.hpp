@@ -29,8 +29,10 @@ namespace ftk::test {
 
 class UiHarness {
 public:
-    /// A window `size` big at `scale` pixels to the unit.
-    explicit UiHarness(glm::vec2 size = {800.0f, 600.0f}, float scale = 1.0f);
+    /// A window `size` big at `scale` pixels to the unit. The UI is drawn
+    /// in a panel of the harness's own filling it, or with `panel` false
+    /// straight in the window, for a UI that opens its own.
+    explicit UiHarness(glm::vec2 size = {800.0f, 600.0f}, float scale = 1.0f, bool panel = true);
     // The context stops being the current one as it goes.
     ~UiHarness() = default;
     UiHarness(const UiHarness&) = delete;
@@ -118,7 +120,7 @@ public:
     /// keys that follow, until the next hold(); hold({}) lets them go.
     void hold(ui::Modifiers modifiers);
     /// Puts `key` down, and runs the frame: for a key held while frames go
-    /// by.
+    /// by, repeating as a keyboard does.
     void key_down(ui::Key key);
     /// Lets `key` go, and runs the frame.
     void key_up(ui::Key key);
@@ -147,10 +149,13 @@ private:
     std::function<void()> draw_;
     glm::vec2 size_;
     float scale_;
+    bool panel_;
     double time_{0.0};
     // Where the mouse was last sent, and the modifiers hold() keeps down.
     glm::vec2 mouse_at_{0.0f};
     ui::Modifiers held_{};
+    // The keys key_down() holds, and when each will repeat next.
+    std::map<ui::Key, double> keys_held_;
     std::map<std::string, ui::core::Rect> marks_;
     const ui::core::FrameOutput* output_{nullptr};
     ui::core::PointerId fingers_{999};

@@ -462,6 +462,36 @@ ftk_library(app-ui-imgui
         PRIVATE nlohmann_json::nlohmann_json
 )
 
+# ftk-app-ui is the kit drawn by the UI core: the kit's headers defined on
+# ftk::ui::core, with the faces it draws text in. The kit's pieces come
+# onto it a group at a time (Phase 6 of the UI core plan); a program draws
+# with this or with ftk-app-ui-imgui, never both.
+ftk_library(app-ui
+    SOURCES
+        ftk/ui/kit/core/button.cpp
+        ftk/ui/kit/core/drag_drop.cpp
+        ftk/ui/kit/core/draw_list.cpp
+        ftk/ui/kit/core/image.cpp
+        ftk/ui/kit/core/input.cpp
+        ftk/ui/kit/core/item.cpp
+        ftk/ui/kit/core/kit.cpp
+        ftk/ui/kit/core/layout.cpp
+        ftk/ui/kit/core/panel.cpp
+        ftk/ui/kit/core/popup.cpp
+        ftk/ui/kit/core/region.cpp
+        ftk/ui/kit/core/scope.cpp
+        ftk/ui/kit/core/selectable.cpp
+        ftk/ui/kit/core/state.cpp
+        ftk/ui/kit/core/text.cpp
+        ftk/ui/kit/core/tooltip.cpp
+        ftk/ui/kit/core/window.cpp
+    HEADERS
+        ftk/ui/core_kit.hpp
+        ftk/ui/kit/core/kit.hpp
+    LINKS
+        PUBLIC ftk::base ftk::ui-kit ftk::ui-core ftk::text glm::glm
+)
+
 # ftk-ui-harness runs the UI core with no window and no renderer, as
 # ftk-imgui-harness runs ImGui: set the UI, feed it pointers, step frames.
 ftk_library(ui-harness

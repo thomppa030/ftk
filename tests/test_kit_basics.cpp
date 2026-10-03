@@ -12,6 +12,7 @@
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
@@ -529,4 +530,124 @@ TEST_CASE("A claimed key is still read by its shortcut", "[ui][kit]") {
     h.step(2);
     h.press(ui::Key::End);
     CHECK(snapped);
+}
+
+TEST_CASE("What is drawn in a disabled scope takes no clicks", "[ui][kit]") {
+    KitHarness h;
+    bool disabled = true;
+    int clicks = 0;
+    h.set_ui([&] {
+        ui::Disabled off(disabled);
+        if (ui::button("Bake")) ++clicks;
+        h.mark("bake");
+    });
+    h.step(2);
+    h.click("bake");
+    CHECK(clicks == 0);
+
+    disabled = false;
+    h.step();
+    h.click("bake");
+    CHECK(clicks == 1);
+}
+
+TEST_CASE("An id scope tells the same label apart", "[ui][kit]") {
+    KitHarness h;
+    int first = 0;
+    int second = 0;
+    h.set_ui([&] {
+        {
+            ui::IdScope id("first");
+            if (ui::button("Remove")) ++first;
+            h.mark("first");
+        }
+        {
+            ui::IdScope id(2);
+            if (ui::button("Remove")) ++second;
+            h.mark("second");
+        }
+    });
+    h.step(2);
+    h.click("second");
+    CHECK(first == 0);
+    CHECK(second == 1);
+}
+
+TEST_CASE("The next item goes beside the last, or under a rule", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::button("Apply");
+        h.mark("apply");
+        ui::same_line();
+        ui::button("Revert");
+        h.mark("revert");
+        ui::same_line(20.0f);
+        ui::button("Close");
+        h.mark("close");
+        ui::separator();
+        ui::button("Help");
+        h.mark("help");
+    });
+    h.step(2);
+    CHECK(h.rect("revert").min.y == h.rect("apply").min.y);
+    CHECK(h.rect("revert").min.x > h.rect("apply").max.x);
+    CHECK(h.rect("close").min.x == h.rect("revert").max.x + 20.0f);
+    CHECK(h.rect("help").min.y > h.rect("apply").max.y);
+}
+
+TEST_CASE("An item's tooltip shows once the mouse rests on it", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::button("Bake");
+        ui::item_tooltip("Bakes every probe in the scene", "Ctrl B");
+        h.mark("bake");
+        ui::button("Clear");
+        h.mark("clear");
+    });
+    h.step(2);
+    h.hover("clear");
+    CHECK_FALSE(h.tooltip().has_value());
+    h.hover("bake");
+    CHECK(h.tooltip().has_value());
+}
+
+TEST_CASE("An item's tooltip can hold what is drawn in its scope", "[ui][kit]") {
+    KitHarness h;
+    bool drawn = false;
+    glm::vec2 text_min{};
+    h.set_ui([&] {
+        ui::button("Crate");
+        h.mark("crate");
+        drawn = false;
+        if (auto tip = ui::ItemTooltip()) {
+            ui::text("props/crate_wood.png");
+            text_min = ui::item_min();
+            drawn = true;
+        }
+    });
+    h.step(2);
+    CHECK_FALSE(drawn);
+    h.hover("crate");
+    REQUIRE(drawn);
+    const auto tooltip = h.tooltip();
+    REQUIRE(tooltip.has_value());
+    CHECK(tooltip->contains(text_min));
+}
+
+TEST_CASE("The item just drawn is the same after a tooltip shows for it", "[ui][kit]") {
+    KitHarness h;
+    bool hovered_after = false;
+    glm::vec2 min_after{};
+    h.set_ui([&] {
+        ui::button("Bake");
+        h.mark("bake");
+        ui::item_tooltip("Bakes every probe in the scene");
+        hovered_after = ui::item_hovered();
+        min_after = ui::item_min();
+    });
+    h.step(2);
+    h.hover("bake");
+    REQUIRE(h.tooltip().has_value());
+    CHECK(hovered_after);
+    CHECK(min_after == h.rect("bake").min);
 }

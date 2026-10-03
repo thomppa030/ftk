@@ -115,6 +115,18 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(ftk-tests)
 
+# --- The kit on the UI core ---
+# The kit's tests built a second time, against the kit drawn by the UI core
+# (FTK_KIT_ON_CORE), so they pass on both. A file joins as the pieces it
+# draws come onto the core (Phase 6 of the UI core plan).
+add_executable(ftk-kit-core-tests
+    test_kit_basics.cpp
+)
+target_link_libraries(ftk-kit-core-tests PRIVATE ftk::app-ui ftk::ui-harness Catch2::Catch2WithMain)
+target_compile_definitions(ftk-kit-core-tests PRIVATE FTK_KIT_ON_CORE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
+ftk_target_defaults(ftk-kit-core-tests)
+catch_discover_tests(ftk-kit-core-tests TEST_PREFIX "core: ")
+
 # --- Library link checks ---
 # One program per library that links that library alone, and whole, so every
 # object in it is linked: a definition the library needs from outside itself
@@ -144,6 +156,7 @@ ftk_library_link_check(text)
 ftk_library_link_check(ui-core)
 ftk_library_link_check(ui-harness)
 ftk_library_link_check(ui-kit)
+ftk_library_link_check(app-ui)
 ftk_library_link_check(app-ui-imgui)
 ftk_library_link_check(imgui-harness)
 ftk_library_link_check(gpu NEEDS_GPU)
