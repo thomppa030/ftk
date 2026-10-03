@@ -741,6 +741,16 @@ void Device::after_frames(std::move_only_function<void()> fn) {
     impl_->release_later(std::move(fn));
 }
 
+uint64_t Device::memory_in_use() const {
+    VmaTotalStatistics stats{};
+    vmaCalculateStatistics(impl_->allocator, &stats);
+    return stats.total.statistics.allocationBytes;
+}
+
+uint64_t Device::recording_frame() const { return impl_->recording; }
+
+uint64_t Device::released_frame() const { return impl_->releases.collected(); }
+
 Upload& Device::upload() {
     if (!impl_->upload) impl_->upload = std::make_unique<Upload>(*this, impl_->upload_state);
     return *impl_->upload;

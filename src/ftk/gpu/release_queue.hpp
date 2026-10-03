@@ -45,6 +45,9 @@ public:
 
     /// How many retirements are waiting.
     [[nodiscard]] size_t pending() const { return entries_.size(); }
+    /// The latest value `collect()` has run everything up to: what was
+    /// retired at it, or before, is gone.
+    [[nodiscard]] uint64_t collected() const { return collected_; }
 
 private:
     struct Entry {
@@ -53,6 +56,7 @@ private:
     };
 
     std::deque<Entry> entries_;
+    uint64_t collected_{0};
 };
 
 } // namespace ftk::gpu

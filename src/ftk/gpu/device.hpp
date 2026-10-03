@@ -259,6 +259,17 @@ public:
     /// `fn` reaches nothing that is gone by then.
     void after_frames(std::move_only_function<void()> fn);
 
+    /// Bytes of GPU memory in live allocations: every buffer, image and page
+    /// the device has made and not yet released. For a test that checks a
+    /// program gives back what it took.
+    [[nodiscard]] uint64_t memory_in_use() const;
+    /// The serial of the frame recording now, which what is released now
+    /// waits for.
+    [[nodiscard]] uint64_t recording_frame() const;
+    /// The latest frame whose releases have all run: what was released while
+    /// it recorded, or before, is out of memory_in_use().
+    [[nodiscard]] uint64_t released_frame() const;
+
     /// Sends the uploads not yet sent and waits until the GPU has finished
     /// everything sent to it. What is released waits for the frames that may
     /// use it on its own; this is for teardown, and for code that has yet to

@@ -1,5 +1,7 @@
 #include "ftk/gpu/release_queue.hpp"
 
+#include <algorithm>
+
 namespace ftk::gpu {
 
 void ReleaseQueue::defer(uint64_t after, std::move_only_function<void()> fn) {
@@ -14,6 +16,7 @@ void ReleaseQueue::collect(uint64_t completed) {
         entries_.pop_front();
         fn();
     }
+    collected_ = std::max(collected_, completed);
 }
 
 void ReleaseQueue::flush() {

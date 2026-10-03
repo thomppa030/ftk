@@ -83,6 +83,21 @@ TEST_CASE("what a destructor retires waits for its own value", "[gpu][release]")
     CHECK(ran == std::vector<std::string>{"outer", "inner"});
 }
 
+TEST_CASE("the release queue says how far it has collected", "[gpu][release]") {
+    ReleaseQueue queue;
+    CHECK(queue.collected() == 0);
+    queue.defer(4, [] {});
+    queue.collect(2);
+    CHECK(queue.collected() == 2);
+    CHECK(queue.pending() == 1);
+    queue.collect(5);
+    CHECK(queue.collected() == 5);
+    CHECK(queue.pending() == 0);
+    // An older value collected late does not take it back.
+    queue.collect(3);
+    CHECK(queue.collected() == 5);
+}
+
 TEST_CASE("flushing the release queue runs everything", "[gpu][release]") {
     std::vector<std::string> destroyed;
     ReleaseQueue queue;
