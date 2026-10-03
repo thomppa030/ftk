@@ -23,19 +23,25 @@ bool begin(Id id) {
 
 namespace corekit {
 
-bool begin_popup(Id id, core::PanelOptions options) {
+bool begin_popup(Id id, core::PanelOptions options, PopupKind kind) {
     core::Context& context = ui();
     const Style& style = kit().style;
-    options.layer = core::Layer::Popup;
     options.fit = true;
-    if (!context.begin_popup(id, options)) return false;
+    if (kind == PopupKind::Dialog) {
+        if (!context.begin_modal_popup(id, options)) return false;
+    } else {
+        options.layer = core::Layer::Popup;
+        if (!context.begin_popup(id, options)) return false;
+    }
     // Its plate drawn, and recorded as a popup, as the harness finds it.
     const core::Rect rect = context.panel_rect();
-    Color plate = theme::surface_sunken();
-    plate.a *= 0.98f;
-    context.draw_list().rect_filled(rect.min, rect.max, faded(plate), style.popup_rounding);
-    context.draw_list().rect(rect.min, rect.max, faded(theme::border()), style.popup_rounding);
-    context.semantics(id, core::Role::Popup, {}, {}, {}, rect);
+    if (kind == PopupKind::Menu) {
+        Color plate = theme::surface_sunken();
+        plate.a *= 0.98f;
+        context.draw_list().rect_filled(rect.min, rect.max, faded(plate), style.popup_rounding);
+        context.draw_list().rect(rect.min, rect.max, faded(theme::border()), style.popup_rounding);
+    }
+    context.semantics(id, kind == PopupKind::Menu ? core::Role::Popup : core::Role::Dialog, {}, {}, {}, rect);
     drawing().push_back(id);
     keep_item();
     return true;

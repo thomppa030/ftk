@@ -31,6 +31,7 @@ void Context::begin_frame(double time) {
     time_ = time;
     ++frame_;
     in_frame_ = true;
+    typing_as_begun_ = typing();
     next_now_ = false;
     next_at_.reset();
     output_.roots.clear();
@@ -213,6 +214,9 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
             const glm::vec2 fits = shown.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
             rect.max = rect.min + glm::clamp(fits, options.min_size, options.max_size);
         } else {
+            // Not seen yet: as big as it is to be at least, while what it
+            // holds is measured.
+            rect.max = rect.min + options.min_size;
             shown.hidden = true;
             request_frame();
         }

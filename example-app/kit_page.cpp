@@ -2,6 +2,7 @@
 
 #include "ftk/ui/core_kit.hpp"
 #include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/kit/asset_tile.hpp"
 #include "ftk/ui/kit/bit_strip.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
@@ -12,6 +13,7 @@
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/panel.hpp"
@@ -24,10 +26,12 @@
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/status_bar.hpp"
+#include "ftk/ui/kit/table.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
+#include "ftk/ui/kit/tree.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
@@ -170,6 +174,95 @@ void KitPage::draw(glm::vec2 size, float top) {
 
     draw_emitters({10.0f, top + 570.0f});
     draw_feedback({size.x - 460.0f, top + 620.0f});
+    draw_scene({10.0f, top + 1150.0f});
+}
+
+void KitPage::draw_scene(glm::vec2 at) {
+    ui::next_window_size_once({1240.0f, 440.0f});
+    ui::next_window_pos(at);
+    auto panel = ui::Panel(ui::icon::folder, "Scene");
+    if (!panel) return;
+
+    // A hierarchy in a box of its own.
+    if (auto box = ui::Region("##hierarchy", {300.0f, 360.0f}, {.border = true})) {
+        if (auto tree = ui::Tree("##scene")) {
+            static constexpr std::array<theme::Hue, 2> COMPOSED{theme::Hue::coral, theme::Hue::teal};
+            const auto row = [&](int id, const char* name, int depth, bool children, const char* icon,
+                                 std::optional<theme::Hue> hue, std::span<const theme::Hue> dots = {}) {
+                const std::string key = std::to_string(id);
+                const auto drawn = ui::tree_row({.id = key.c_str(),
+                                                 .name = name,
+                                                 .depth = depth,
+                                                 .has_children = children,
+                                                 .icon = icon,
+                                                 .hue = hue,
+                                                 .dots = dots,
+                                                 .selection = selected_node_ == id ? ui::RowSelection::Primary
+                                                                                   : ui::RowSelection::None});
+                if (drawn.clicked) selected_node_ = id;
+                return drawn.open;
+            };
+            if (row(1, "Harbour", 0, true, ui::icon::project, theme::Hue::ochre)) {
+                if (row(2, "Docks", 1, true, ui::icon::folder, theme::Hue::blue, COMPOSED)) {
+                    (void)row(3, "crate_large_weathered", 2, false, ui::icon::file, std::nullopt);
+                    (void)row(4, "Rope coil", 2, false, ui::icon::file, std::nullopt);
+                }
+                (void)row(5, "Sea", 1, false, ui::icon::texture, theme::Hue::cyan, COMPOSED);
+                (void)row(6, "Sky with a name long enough to be cut short", 1, false, ui::icon::texture,
+                          theme::Hue::periwinkle);
+            }
+        }
+    }
+    ui::same_line(16.0f);
+    {
+        ui::Group right;
+        static constexpr ui::Column COLUMNS[] = {
+            {.name = "Name", .default_sort = true},
+            {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
+            {.name = "Kind", .sizing = ui::ColumnWidth::Fixed, .width = 90.0f},
+        };
+        static constexpr std::array<std::array<const char*, 3>, 3> FILES{{
+            {"harbour.fjell", "84 KB", "scene"},
+            {"crate.fjmesh", "1.2 MB", "mesh"},
+            {"sea.fjsl", "6 KB", "shader"},
+        }};
+        ui::next_width(520.0f);
+        if (auto box = ui::Region("##files", {520.0f, 110.0f})) {
+            if (auto table = ui::Table("##files", COLUMNS, {.sortable = true, .column_lines = true})) {
+                ui::table_headers();
+                for (const auto& file : FILES) {
+                    ui::table_next_row();
+                    for (const char* cell : file) {
+                        ui::table_next_column();
+                        ui::text(cell);
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < 3; ++i) {
+            static constexpr std::array<const char*, 3> NAMES{"crate_large_weathered.fjmesh", "rock.png", "harbour.fjell"};
+            static constexpr std::array<theme::Hue, 3> HUES{theme::Hue::blue, theme::Hue::coral, theme::Hue::ochre};
+            if (i > 0) ui::same_line();
+            const std::string key = std::to_string(i);
+            if (ui::asset_tile({.id = key.c_str(),
+                                .name = NAMES[static_cast<std::size_t>(i)],
+                                .icon = ui::icon::file,
+                                .hue = HUES[static_cast<std::size_t>(i)],
+                                .selected = selected_tile_ == i})
+                    .clicked) {
+                selected_tile_ = i;
+            }
+        }
+    }
+    ui::same_line(16.0f);
+    {
+        ui::Group cards;
+        ui::next_width(360.0f);
+        (void)ui::list_editor("##points", points_, "Add point", "No points. The collider's corners are used",
+                              [](glm::vec3& point, std::size_t) {
+                                  return ui::vec3("##point", point, {.unit = ui::Unit::Metres});
+                              });
+    }
 }
 
 void KitPage::draw_feedback(glm::vec2 at) {

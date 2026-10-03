@@ -38,7 +38,9 @@ Modifiers modifiers() {
 }
 
 bool typing() {
-    return ui().typing();
+    // As ImGui's WantTextInput: a field that had the keyboard as the frame
+    // began still holds this frame's keys, though Enter let it go.
+    return ui().typing() || ui().typing_as_begun();
 }
 
 bool any_key_pressed() {

@@ -9,8 +9,9 @@
 // vector, a tick box, a switch, a stepper, a tag, a text field, choices
 // segmented and dropped down, and colour fields; an effect's emitters, with
 // a tab strip, a section, a box set apart, a rail of steps and a strip of
-// bits; and what the kit tells, over a status bar along the window's foot.
-// The gallery takes its place once every piece is on the core.
+// bits; what the kit tells, over a status bar along the window's foot; and
+// a scene's things in a tree, a table, tiles and cards. The gallery takes
+// its place once every piece is on the core.
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -37,6 +38,9 @@ private:
     /// state, progress, key caps, notes over a picture and a save bar, at
     /// `at`; and the status bar along the window's foot.
     void draw_feedback(glm::vec2 at);
+    /// The panel of a scene's things: a tree, a table of files, asset tiles
+    /// and a list of cards, at `at`.
+    void draw_scene(glm::vec2 at);
 
     int picked_{1};
     int clicks_{0};
@@ -67,6 +71,10 @@ private:
     bool unsaved_{true};
     bool content_open_{false};
     bool listening_{false};
+
+    int selected_node_{2};
+    int selected_tile_{1};
+    std::vector<glm::vec3> points_{{0.0f, 0.5f, 0.0f}, {1.2f, 0.4f, -0.3f}};
 };
 
 } // namespace ftk::example

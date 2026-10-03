@@ -46,11 +46,22 @@ void Context::close_popups_from(std::size_t index) {
 }
 
 bool Context::begin_popup(Id id, PanelOptions options) {
+    return begin_open_popup(id, options, false);
+}
+
+bool Context::begin_modal_popup(Id id, PanelOptions options) {
+    // Over the whole window, so a press outside it lands in it and closes
+    // only what was opened from it.
+    options.layer = Layer::Modal;
+    return begin_open_popup(id, options, true);
+}
+
+bool Context::begin_open_popup(Id id, const PanelOptions& options, bool modal) {
     const auto open = std::ranges::find(popups_, id, &OpenPopup::id);
     if (open == popups_.end() || root_ == nullptr || (open->root != 0 && open->root != root_->id)) return false;
     open->root = root_->id;
     open->drawn = frame_;
-    begin_panel_id(id, {.min = open->at, .max = open->at}, options);
+    begin_panel_id(id, {.min = open->at, .max = open->at}, options, modal);
     return true;
 }
 

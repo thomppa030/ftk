@@ -275,7 +275,7 @@ TextInput text_input(Id id, core::Rect rect, std::string& value, const TextInput
         }
         core::TextSystem& system = context.text();
         const float caret_x = system.caret_x(shown_text, text, caret);
-        const float width = inside.width();
+        const float width = std::max(inside.width(), 0.0f);
         state.scroll = std::clamp(state.scroll, caret_x - width, caret_x);
         state.scroll = std::clamp(state.scroll, 0.0f, std::max(system.measure(shown_text, text).x - width, 0.0f));
         const float x0 = origin_x - state.scroll;

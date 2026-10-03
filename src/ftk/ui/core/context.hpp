@@ -303,6 +303,10 @@ public:
     /// window taking the pointers while it shows.
     void begin_modal(std::string_view name, Rect rect, PanelOptions options = {});
     void end_modal() { end_panel(); }
+    /// The popup `id` drawn as a dialog while it is open: in the modal
+    /// layer, nothing beneath it taking the pointers, and a press outside
+    /// it leaving it open. Then end_popup().
+    bool begin_modal_popup(Id id, PanelOptions options = {.fit = true});
 
     /// The widget last passed to interact() should show its tooltip now:
     /// the mouse has rested on it for the delay, or a finger long-pressed
@@ -466,6 +470,9 @@ public:
     [[nodiscard]] Id focused() const { return focused_; }
     /// A text widget has the keyboard: keys are its, not shortcuts.
     [[nodiscard]] bool typing() const { return focused_ != 0 && focused_text_; }
+    /// One had it as the frame began: this frame's keys were its, though it
+    /// may have let the keyboard go since (Enter in a field).
+    [[nodiscard]] bool typing_as_begun() const { return typing_as_begun_; }
     /// Within it, the arrows along `axis` move the keyboard from one
     /// widget to the next, and Home and End to the first and the last: a
     /// list, a tree, a menu. Until pop_focus_scope().
@@ -688,6 +695,9 @@ private:
     glm::vec2 end_area();
     // Closes the popups from `index` up the stack.
     void close_popups_from(std::size_t index);
+    // Begins the open popup `id` as a panel, over the whole window when
+    // `modal`.
+    bool begin_open_popup(Id id, const PanelOptions& options, bool modal);
     // At the frame's end: popups not drawn, Escape, the drag's end, and
     // the widget the mouse rests on.
     void settle_layers();
@@ -784,6 +794,7 @@ private:
     // The widget with the keyboard, and whether it takes text.
     Id focused_{0};
     bool focused_text_{false};
+    bool typing_as_begun_{false};
     // The widgets told they have the keyboard and not yet told they lost
     // it: one, or two in the frame it moves from one drawn earlier to one
     // drawn later.

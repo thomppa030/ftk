@@ -11,6 +11,7 @@
 #include "ftk/ui/kit/edit.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/table.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
@@ -41,6 +42,9 @@ struct Style {
     float disabled_alpha{0.6f};
     /// A field's width when none is asked for: this share of the room.
     float item_width_share{0.65f};
+    /// Everything drawn is this opaque: the body of a block switched off,
+    /// as ImGui's style alpha.
+    float alpha{1.0f};
 };
 
 /// The faces the kit draws text in, by role.
@@ -191,6 +195,37 @@ struct TabLook {
     std::optional<Color> overline{};
 };
 
+/// A table: its columns' widths and its sort, kept from frame to frame, and
+/// where its rows have reached while it is drawn.
+struct TableState {
+    /// Each column's width as last laid out, and those the user dragged.
+    std::vector<float> widths{};
+    std::vector<bool> resized{};
+    /// The widest each column's contents came out, last frame and this.
+    std::vector<float> content{};
+    std::vector<float> content_next{};
+    int sort_column{-1};
+    bool ascending{true};
+    bool sort_dirty{false};
+    /// The row the mouse was on last frame, and this frame.
+    int hovered_row{-1};
+    int hovered_next{-1};
+    /// Where a column edge was when it was pressed, to drag it from.
+    float resize_from{0.0f};
+
+    // This frame.
+    std::span<const Column> columns{};
+    TableOptions options{};
+    core::Rect rect{};
+    std::vector<float> x{};
+    float row_top{0.0f};
+    float row_bottom{0.0f};
+    int row{-1};
+    int column{-1};
+    bool in_cell{false};
+    bool scrolling{false};
+};
+
 /// A row of tabs: its tabs in the order shown, as wide as they were last
 /// drawn, the one in front, and where it is while it is drawn.
 struct TabBar {
@@ -272,6 +307,23 @@ public:
     std::unordered_map<Id, TabBar> tab_bars{};
     /// The row of tabs being drawn.
     Id tab_bar{0};
+    /// Where text wraps, the innermost last: at that x, or at the area's
+    /// right edge for zero. Text doesn't wrap while there is none.
+    std::vector<float> text_wraps{};
+    /// The submenu open from each menu, by the menu's popup.
+    std::unordered_map<Id, Id> submenus{};
+    /// The menu bar's menu open, and the one shown last frame and this.
+    Id bar_menu{0};
+    Id bar_menu_shown{0};
+    Id bar_menu_shown_next{0};
+    /// The dialog being drawn shows for the first time since it opened.
+    bool dialog_appearing{false};
+    std::unordered_map<Id, TableState> tables{};
+    /// The tables being drawn, innermost last.
+    std::vector<Id> table_stack{};
+    /// The text size around the tree being drawn, before it set its own;
+    /// zero outside a tree given a size.
+    float tree_base_size{0.0f};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -347,9 +399,26 @@ void draw_close(core::Rect rect, const core::Interaction& in);
 Edit lettered_int(const char* id, int& value, int min, int max, const char* letter, Color colour,
                   Unit unit = Unit::None);
 
-/// Begins the popup `id` when it is open, on the kit's plate and fitting
-/// what it holds as `options` say, recorded as a popup; then end_popup().
-bool begin_popup(Id id, core::PanelOptions options);
+/// What a popup of the kit's is.
+enum class PopupKind : uint8_t {
+    /// A menu, a list, a picker: on the kit's plate, closed by a press
+    /// outside it.
+    Menu,
+    /// A dialog: nothing beneath it takes the pointers and a press outside
+    /// leaves it open; it draws its own plate.
+    Dialog,
+};
+
+/// Begins the popup `id` when it is open, fitting what it holds as
+/// `options` say, recorded as a popup; then end_popup().
+bool begin_popup(Id id, core::PanelOptions options, PopupKind kind = PopupKind::Menu);
 void end_popup();
+
+/// `text` as it fits `width` in the text style now: whole, or cut short with
+/// an ellipsis, as ImGui's RenderTextEllipsis cuts it.
+[[nodiscard]] std::string ellipsized(std::string_view text, float width);
+
+/// The table being drawn, or null outside one.
+[[nodiscard]] TableState* current_table();
 
 } // namespace ftk::ui::corekit

@@ -73,7 +73,7 @@ constexpr glm::uvec2 shot_size(Page page) {
     case Page::gallery: return {480, 5000};
     case Page::primitives:
     case Page::text: return {1280, 800};
-    case Page::kit: return {1280, 1320};
+    case Page::kit: return {1280, 1700};
     }
     return {1280, 800};
 }

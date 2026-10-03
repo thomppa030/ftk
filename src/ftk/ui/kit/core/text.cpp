@@ -1,6 +1,9 @@
 #include "ftk/ui/kit/text.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/layout.hpp"
+
+#include <algorithm>
 
 namespace ftk::ui {
 
@@ -8,19 +11,27 @@ using namespace corekit;
 
 namespace {
 
-// A line of text as an item, in `colour`: as tall as a field when the line
-// was asked to sit level with one, its text where a field's text would be.
+// How wide text at the cursor may run before it wraps, while a wrap is
+// pushed.
+float wrap_width() {
+    const Kit& k = kit();
+    if (k.text_wraps.empty()) return core::NO_WRAP;
+    const float right = k.text_wraps.back() > 0.0f ? k.text_wraps.back() : ui().layout().area().max.x;
+    return std::max(right - cursor().x, 1.0f);
+}
+
+// A line of text as an item, in `colour`. Asked to sit level with a field,
+// its line is a field's height and its text where a field's text would be;
+// the item is the text itself, as ImGui's is.
 void text_item(std::string_view text, Color colour) {
     Kit& k = kit();
     const bool on_frame = k.next.text_on_frame;
-    glm::vec2 size = measure(text);
-    float drop = 0.0f;
-    if (on_frame) {
-        drop = k.style.frame_padding.y;
-        size.y += 2.0f * drop;
-    }
-    const core::Rect rect = ui().layout().next(size);
-    draw_text({rect.min.x, rect.min.y + drop}, colour, text);
+    const float wrap = wrap_width();
+    const glm::vec2 size = measure(text, wrap);
+    const float drop = on_frame ? k.style.frame_padding.y : 0.0f;
+    const core::Rect line = ui().layout().next({size.x, size.y + drop * 2.0f});
+    const core::Rect rect{.min = {line.min.x, line.min.y + drop}, .max = {line.max.x, line.min.y + drop + size.y}};
+    draw_text(rect.min, colour, text, wrap);
     place_still(rect);
 }
 

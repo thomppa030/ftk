@@ -274,3 +274,29 @@ TEST_CASE("The keyboard goes with its widget, and a text widget asks for the sys
     CHECK(h.ui().focused() == 0);
     CHECK_FALSE(h.output().roots[0].text_input);
 }
+
+TEST_CASE("A text widget that lets the keyboard go on Enter was still typing as the frame began", "[ui-core][keys]") {
+    UiHarness h;
+    bool typing = false;
+    bool as_begun = false;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        const core::Focus focus = field(h, "name", {.text = true});
+        // Enter in a field ends the typing, as a text field's does.
+        if (focus.focused && ui.key_pressed(Key::Enter)) ui.clear_focus();
+        typing = ui.typing();
+        as_begun = ui.typing_as_begun();
+    });
+    h.step();
+    CHECK_FALSE(as_begun);
+    h.click("name");
+    h.step();
+    CHECK(typing);
+    CHECK(as_begun);
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::Enter});
+    h.step();
+    CHECK_FALSE(typing);
+    CHECK(as_begun);
+    h.step();
+    CHECK_FALSE(as_begun);
+}

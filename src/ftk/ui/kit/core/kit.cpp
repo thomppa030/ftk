@@ -61,8 +61,32 @@ void draw_text(glm::vec2 at, Color colour, std::string_view text, float wrap) {
 }
 
 Color faded(Color colour) {
-    if (ui().disabled()) colour.a *= kit().style.disabled_alpha;
+    const Style& style = kit().style;
+    colour.a *= style.alpha;
+    if (ui().disabled()) colour.a *= style.disabled_alpha;
     return colour;
+}
+
+std::string ellipsized(std::string_view text, float width) {
+    if (measure(text).x <= width) return std::string(text);
+    constexpr std::string_view ELLIPSIS = "\xe2\x80\xa6";
+    const float room = std::max(width - measure(ELLIPSIS).x, 0.0f);
+    // The longest start that fits, a character at a time back from where
+    // the caret nearest the room's end goes, the spaces it ends with dropped.
+    std::size_t end = std::min(ui().text().caret_at(text, text_style(), room), text.size());
+    while (end > 0 && measure(text.substr(0, end)).x > room) {
+        do {
+            --end;
+        } while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0u) == 0x80u);
+    }
+    while (end > 0 && text[end - 1] == ' ') --end;
+    return std::string(text.substr(0, end)).append(ELLIPSIS);
+}
+
+TableState* current_table() {
+    Kit& k = kit();
+    if (k.table_stack.empty()) return nullptr;
+    return &k.tables[k.table_stack.back()];
 }
 
 Color text_colour() {

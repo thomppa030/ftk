@@ -7,6 +7,7 @@
 #include <glm/vec2.hpp>
 
 #include <string>
+#include <vector>
 
 namespace core = ftk::ui::core;
 using core::PointerEvent;
@@ -41,6 +42,36 @@ bool drawn(const UiHarness& h, ftk::ui::Color colour) {
 }
 
 } // namespace
+
+TEST_CASE("A dialog opened as a popup blocks what is beneath and stays through a press outside", "[ui-core][layers]") {
+    UiHarness h;
+    const Id dialog = 0xD1A1;
+    int behind = 0;
+    bool shown = false;
+    std::vector<core::Rect> rects;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        behind += widget(h, "behind").clicked ? 1 : 0;
+        shown = ui.begin_modal_popup(dialog, {.fit = true, .min_size = {200.0f, 60.0f}});
+        if (shown) {
+            rects.push_back(ui.panel_rect());
+            (void)widget(h, "inside", {150.0f, 24.0f});
+            ui.end_popup();
+        }
+    });
+    h.step();
+    h.ui().open_popup(dialog, {300.0f, 200.0f});
+    h.step(3);
+    REQUIRE(shown);
+    // Before what it holds is measured it is as big as it is to be at least.
+    REQUIRE(rects.size() >= 2);
+    CHECK(rects[0].size() == glm::vec2{200.0f, 60.0f});
+    CHECK(rects.back().min == glm::vec2{300.0f, 200.0f});
+    h.click("behind");
+    CHECK(behind == 0);
+    CHECK(shown);
+    CHECK(h.ui().popup_open(dialog));
+}
 
 TEST_CASE("A popup opens at the pointer, fits what it holds, and closes on a choice, outside or Escape", "[ui-core][layers]") {
     UiHarness h;
