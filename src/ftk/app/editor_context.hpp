@@ -118,6 +118,9 @@ public:
     // Dockspace layout tracking
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }
+    /// Its dockspace is laid out anew when it is next drawn: a named layout
+    /// was loaded.
+    void forget_dockspace() { dockspace_built_ = false; }
 
     // Per-context dockspace ID and index (set by Engine)
     void set_dockspace_id(ui::Id id) { dockspace_id_ = id; }
