@@ -5,13 +5,11 @@
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/settings_file.hpp"
-#include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include <array>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -96,42 +94,6 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
     REQUIRE(tree->children.size() == 2);
     CHECK(tree->children[0].windows == std::vector<std::string>{"Preview"});
     CHECK(tree->children[1].windows == std::vector<std::string>{"Inspector"});
-}
-
-TEST_CASE("Document tabs say which is in front, come forward when asked and close", "[ui][kit]") {
-    KitHarness h;
-    std::array<bool, 3> front{};
-    std::array<bool, 3> closed{};
-    int select = -1;
-    h.set_ui([&] {
-        if (auto tabs = ui::DocumentTabs("##docs")) {
-            static constexpr const char* NAMES[] = {"Scene", "Rock", "Grass"};
-            for (int i = 0; i < 3; ++i) {
-                ui::IdScope tab_id(i);
-                const auto tab = ui::document_tab(
-                    {.label = NAMES[i], .closable = i != 0, .unsaved = i == 1, .select = select == i});
-                front[static_cast<std::size_t>(i)] = tab.front;
-                closed[static_cast<std::size_t>(i)] = closed[static_cast<std::size_t>(i)] || tab.closed;
-                h.mark(NAMES[i]);
-            }
-        }
-        select = -1;
-    });
-    h.step(2);
-    CHECK(front == std::array<bool, 3>{true, false, false});
-    select = 2;
-    h.step(2);
-    CHECK(front == std::array<bool, 3>{false, false, true});
-    h.click("Rock");
-    h.step();
-    CHECK(front == std::array<bool, 3>{false, true, false});
-
-    // The × sits at the right end of the tab in front.
-    const auto rock = h.rect("Rock");
-    h.click_at({rock.max.x - rock.height() * 0.5f, rock.centre().y});
-    CHECK(closed[1]);
-    CHECK_FALSE(closed[0]);
-    CHECK_FALSE(closed[2]);
 }
 
 TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui][kit]") {

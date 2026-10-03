@@ -472,6 +472,7 @@ ftk_library(app-ui-imgui
 # with this or with ftk-app-ui-imgui, never both.
 ftk_library(app-ui
     SOURCES
+        ftk/ui/kit/core/bit_strip.cpp
         ftk/ui/kit/core/button.cpp
         ftk/ui/kit/core/choice.cpp
         ftk/ui/kit/core/color_field.cpp
@@ -480,17 +481,24 @@ ftk_library(app-ui
         ftk/ui/kit/core/field.cpp
         ftk/ui/kit/core/image.cpp
         ftk/ui/kit/core/input.cpp
+        ftk/ui/kit/core/inset_group.cpp
         ftk/ui/kit/core/item.cpp
         ftk/ui/kit/core/kit.cpp
         ftk/ui/kit/core/layout.cpp
+        ftk/ui/kit/core/pages.cpp
+        ftk/ui/kit/core/pane.cpp
         ftk/ui/kit/core/panel.cpp
         ftk/ui/kit/core/popup.cpp
+        ftk/ui/kit/core/rail.cpp
         ftk/ui/kit/core/region.cpp
         ftk/ui/kit/core/row.cpp
         ftk/ui/kit/core/scope.cpp
         ftk/ui/kit/core/search.cpp
+        ftk/ui/kit/core/section.cpp
         ftk/ui/kit/core/selectable.cpp
         ftk/ui/kit/core/state.cpp
+        ftk/ui/kit/core/strip.cpp
+        ftk/ui/kit/core/tabs.cpp
         ftk/ui/kit/core/text.cpp
         ftk/ui/kit/core/text_field.cpp
         ftk/ui/kit/core/text_input.cpp

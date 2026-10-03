@@ -249,3 +249,26 @@ TEST_CASE("A region scrolls what it holds, as far as that reaches", "[ui-core][l
     CHECK(frame(ui, draw).next.waits_for_input());
     CHECK(first.min.y == -16.0f);
 }
+
+TEST_CASE("A region's padding keeps what it holds in from its edges", "[ui-core][layout]") {
+    core::Context ui;
+    Rect first;
+    Rect inside;
+    glm::vec2 scroll_max{};
+    const auto draw = [&] {
+        ui.begin_region("pane", {200.0f, 100.0f}, {.padding = {10.0f, 8.0f}});
+        inside = ui.area_inside();
+        for (int i = 0; i < 5; ++i) {
+            const Rect row = item(ui, {ui.layout().resolve_width(core::FILL), 20.0f});
+            if (i == 0) first = row;
+        }
+        scroll_max = ui.scroll_max();
+        ui.end_region();
+    };
+    (void)frame(ui, draw);
+    (void)frame(ui, draw);
+    CHECK(inside == Rect{.min = {10.0f, 8.0f}, .max = {190.0f, 92.0f}});
+    CHECK(first == Rect{.min = {10.0f, 8.0f}, .max = {190.0f, 28.0f}});
+    // Five rows of 20 with 4 between: 116 tall in 84 of room.
+    CHECK(scroll_max == glm::vec2{0.0f, 32.0f});
+}

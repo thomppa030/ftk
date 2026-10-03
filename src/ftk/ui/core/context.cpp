@@ -302,8 +302,10 @@ void Context::begin_region(std::string_view name, glm::vec2 size, const RegionOp
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
     scroll_area(id, scroll);
-    layout_.begin_area(rect, scroll.offset);
-    areas_.push_back({.id = id, .panel = false, .scrolls = true, .rect = rect, .visible = rect});
+    const Rect inside{.min = rect.min + options.padding,
+                      .max = glm::max(rect.max - options.padding, rect.min + options.padding)};
+    layout_.begin_area(inside, scroll.offset);
+    areas_.push_back({.id = id, .panel = false, .scrolls = true, .rect = rect, .visible = inside});
     root_->areas_next.push_back({.id = id, .parent = parent_area, .wheel = options.wheel_scrolls});
 }
 

@@ -154,6 +154,8 @@ struct RegionOptions {
     /// The wheel scrolls it; off for a region that takes the wheel itself,
     /// whose panel scrolls instead.
     bool wheel_scrolls{true};
+    /// Between its edges and what it holds.
+    glm::vec2 padding{0.0f, 0.0f};
 };
 
 struct FocusOptions {

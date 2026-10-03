@@ -1,24 +1,30 @@
 #include "kit_page.hpp"
 
 #include "ftk/ui/core_kit.hpp"
+#include "ftk/ui/kit/bit_strip.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/rail.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/selectable.hpp"
+#include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <algorithm>
 #include <array>
 #include <string>
 
@@ -49,6 +55,7 @@ constexpr std::array<glm::vec3, 6> PALETTE{{
     {0.58f, 0.44f, 0.76f},
     {0.86f, 0.86f, 0.84f},
 }};
+constexpr std::array<const char*, 8> LAYERS{"Default", "Props", "Water", "Terrain", "", "Sky", "Debris", ""};
 
 } // namespace
 
@@ -151,6 +158,67 @@ void KitPage::draw(glm::vec2 size, float top) {
         ui::button("Open");
         ui::same_line();
         ui::button("Duplicate", ui::ButtonKind::Ghost);
+    }
+
+    draw_emitters({10.0f, top + 570.0f});
+}
+
+void KitPage::draw_emitters(glm::vec2 at) {
+    ui::next_window_size_once({780.0f, 560.0f});
+    ui::next_window_pos(at);
+    auto panel = ui::Panel(ui::icon::project, "Emitters");
+    if (!panel) return;
+
+    const auto tabs = ui::tab_strip("##emitters", {.names = emitters_,
+                                                   .selected = emitter_,
+                                                   .hue = theme::Hue::orange,
+                                                   .add_label = "Add emitter",
+                                                   .remove_label = "Remove emitter"});
+    if (tabs.selected) emitter_ = *tabs.selected;
+    if (tabs.add) emitters_.push_back("emitter " + std::to_string(emitters_.size() + 1));
+    if (tabs.removed) {
+        emitters_.erase(emitters_.begin() + *tabs.removed);
+        emitter_ = std::min(emitter_, static_cast<int>(emitters_.size()) - 1);
+    }
+
+    ui::section("Spawn", ui::icon::history);
+    if (auto table = ui::PropertyTable("##spawn")) {
+        ui::row("Rate", [&] { (void)ui::drag("##rate", rate_, {.speed = 0.5f, .min = 0.0f, .max = 1000.0f}); });
+        ui::row("Lifetime", [&] {
+            (void)ui::drag("##lifetime", lifetime_, {.speed = 0.01f, .min = 0.0f, .max = 30.0f, .unit = ui::Unit::Seconds});
+        });
+    }
+    if (auto box = ui::InsetGroup("##material", "Material · ember", ui::icon::texture, theme::hue(theme::Hue::orange))) {
+        if (auto table = ui::PropertyTable("##material_rows")) {
+            ui::row("Glow", [&] { (void)ui::slider("##glow", roughness_, 0.0f, 1.0f); });
+        }
+    }
+
+    ui::subheading("Stages");
+    const ui::RailEntry stages[] = {
+        {.label = "Spawn"},
+        {.label = "Burst", .icon = ui::icon::add, .item = 0, .note = "every 2 s", .selected = stage_ == 0},
+        {.label = "Update"},
+        {.label = "Drift", .icon = ui::icon::follow, .item = 1, .selected = stage_ == 1},
+        {.label = "Render"},
+    };
+    if (const auto item = ui::rail("##stages", stages, theme::Hue::orange)) stage_ = *item;
+
+    ui::subheading("Layers");
+    std::array<ui::Bit, LAYERS.size()> bits{};
+    for (std::size_t i = 0; i < bits.size(); ++i) {
+        const bool named = *LAYERS[i] != '\0';
+        const bool set = (layers_ >> i & 1u) != 0;
+        bits[i] = {.state = !named ? ui::BitState::unavailable
+                            : i == 6 ? ui::BitState::inherited
+                            : set    ? ui::BitState::on
+                                     : ui::BitState::off,
+                   .tooltip = named ? LAYERS[i] : nullptr};
+    }
+    if (const auto clicked = ui::bit_strip("##layers", bits)) layers_ ^= 1u << *clicked;
+    for (std::size_t i = 0; i < bits.size(); ++i) {
+        if (bits[i].state == ui::BitState::on) ui::bit_line(i, LAYERS[i]);
+        if (bits[i].state == ui::BitState::inherited) ui::bit_line(i, LAYERS[i], "the ember prefab");
     }
 }
 

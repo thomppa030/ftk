@@ -51,6 +51,10 @@ void UiHarness::mark(const std::string& name) {
     marks_[name] = ui_.layout().last_item();
 }
 
+void UiHarness::mark(const std::string& name, core::Rect rect) {
+    marks_[name] = rect;
+}
+
 core::Rect UiHarness::rect(const std::string& name) const {
     if (const auto marked = marks_.find(name); marked != marks_.end()) return marked->second;
     if (const core::SemanticNode* named = ui_.find(name)) return named->rect;

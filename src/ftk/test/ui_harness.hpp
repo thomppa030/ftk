@@ -58,6 +58,8 @@ public:
     /// what follows to aim at. A widget that records what it is
     /// (Context::semantics) needs no mark: its label finds it.
     void mark(const std::string& name);
+    /// The same for `rect`: an item as a layer above the core reckons it.
+    void mark(const std::string& name, ui::core::Rect rect);
     /// What was marked `name`, or else the first widget the last frame
     /// recorded with that label.
     [[nodiscard]] ui::core::Rect rect(const std::string& name) const;

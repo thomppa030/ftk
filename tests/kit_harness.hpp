@@ -11,11 +11,13 @@
 #ifdef FTK_KIT_ON_CORE
 #include "ftk/test/ui_harness.hpp"
 #include "ftk/ui/core_kit.hpp"
+#include "ftk/ui/kit/item.hpp"
 #else
 #include "ftk/test/imgui_harness.hpp"
 #endif
 
 #include <functional>
+#include <string>
 #include <utility>
 
 namespace ftk::test {
@@ -33,6 +35,10 @@ public:
             ui::end_plain_window();
         });
     }
+
+    /// Remembers the kit's item just drawn, as ImGuiHarness remembers
+    /// ImGui's: a piece may place an item by hand, past the layout.
+    void mark(const std::string& name) { UiHarness::mark(name, {.min = ui::item_min(), .max = ui::item_max()}); }
 };
 #else
 using KitHarness = ImGuiHarness;

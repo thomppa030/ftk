@@ -8,7 +8,6 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
-#include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -18,8 +17,6 @@
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
-#include "ftk/ui/kit/section.hpp"
-#include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
@@ -120,36 +117,6 @@ TEST_CASE("A toggle reports clicks and leaves the state to the caller", "[ui][ki
     CHECK(on);
     h.click("toggle");
     CHECK_FALSE(on);
-}
-
-TEST_CASE("A foldable section opens and closes and remembers", "[ui][kit]") {
-    KitHarness h;
-    bool open = false;
-    h.set_ui([&] {
-        open = ui::section_foldable("Weather", nullptr, true);
-        h.mark("heading");
-    });
-    h.step(2);
-    CHECK(open);
-    h.click("heading");
-    CHECK_FALSE(open);
-    h.step(3);
-    CHECK_FALSE(open);
-    h.click("heading");
-    CHECK(open);
-}
-
-TEST_CASE("A foldable sub-heading starts the way it is asked to", "[ui][kit]") {
-    KitHarness h;
-    bool open = true;
-    h.set_ui([&] {
-        open = ui::subheading_foldable("Lightning", false);
-        h.mark("heading");
-    });
-    h.step(2);
-    CHECK_FALSE(open);
-    h.click("heading");
-    CHECK(open);
 }
 
 TEST_CASE("A component block folds from its header and asks to be removed from its trash icon", "[ui][kit]") {
@@ -301,34 +268,6 @@ TEST_CASE("A tool button is a tool-sized square and reports its click", "[ui][ki
     CHECK(on);
 }
 
-TEST_CASE("An inset group folds from its heading and keeps its contents inside it", "[ui][kit]") {
-    KitHarness h;
-    bool drawn = false;
-    float window_right = 0.0f;
-    float frame = 0.0f;
-    h.set_ui([&] {
-        window_right = ui::cursor().x + ui::space_left().x;
-        frame = ui::frame_height();
-        drawn = false;
-        if (auto box = ui::InsetGroup("##box", "Material", nullptr, {1, 1, 1, 1})) {
-            drawn = true;
-            ui::next_width(ui::FILL);
-            float v = 0.5f;
-            (void)ui::drag("##v", v);
-            h.mark("field");
-        }
-    });
-    h.step(2);
-    REQUIRE(drawn);
-    // The field stops at the box's padding, not at the window's edge.
-    CHECK(h.rect("field").max.x < window_right - 4.0f);
-    // The heading is the box's first line: clicking it folds the box.
-    const glm::vec2 field_min = h.rect("field").min;
-    h.click_at({field_min.x + 40.0f, field_min.y - frame * 0.5f - 2.0f});
-    h.step();
-    CHECK_FALSE(drawn);
-}
-
 TEST_CASE("A mode button is as wide as mode_button_width says, to be placed by it", "[ui][kit]") {
     KitHarness h;
     h.set_ui([&] {
@@ -408,26 +347,6 @@ TEST_CASE("A block with a switch turns off without folding or removing", "[ui][k
     CHECK_FALSE(removed);
 }
 
-TEST_CASE("A tab strip reports only the user's picks, not a selection the caller moved", "[ui][kit]") {
-    KitHarness h;
-    const std::string names[] = {"embers", "smoke", "sparks"};
-    int selected = 0;
-    int picks = 0;
-    h.set_ui([&] {
-        const auto tabs = ui::tab_strip("##emitters", {.names = names, .selected = selected, .add_label = "Add emitter"});
-        if (tabs.selected) {
-            ++picks;
-            selected = *tabs.selected;
-        }
-    });
-    h.step(3);
-    // An emitter added or removed moves the selection from outside.
-    selected = 2;
-    h.step(4);
-    CHECK(picks == 0);
-    CHECK(selected == 2);
-}
-
 TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][kit]") {
     KitHarness h;
     int listens = 0;
@@ -457,28 +376,6 @@ TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][ki
     h.step();
     CHECK(listens == 1);
     CHECK(long_end - long_start > short_end - start.x);
-}
-
-TEST_CASE("A named box's remove icon removes without folding it", "[ui][kit]") {
-    KitHarness h;
-    bool remove = false;
-    bool open = false;
-    float right = 0.0f;
-    float top = 0.0f;
-    float side = 0.0f;
-    h.set_ui([&] {
-        top = ui::cursor().y;
-        right = ui::cursor().x + ui::space_left().x;
-        side = ui::frame_height();
-        auto box = ui::InsetGroup("##jump", {.text = "jump", .named = true, .remove = &remove});
-        open = static_cast<bool>(box);
-    });
-    h.step(2);
-    // The remove icon: a frame-height square at the heading's right end.
-    h.click_at({right - side * 0.5f - 4.0f, top + 3.0f + side * 0.5f});
-    h.step();
-    CHECK(remove);
-    CHECK(open);
 }
 
 TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui][kit]") {

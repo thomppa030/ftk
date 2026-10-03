@@ -33,9 +33,9 @@ void draw_header(const char* icon, const char* label) {
 
 } // namespace
 
-Panel::Panel(const char* icon, const char* label, bool* /*p_open*/, WindowOptions options) {
+Panel::Panel(const char* icon, const char* label, bool* p_open, WindowOptions options) {
     options.collapse = false;
-    open_ = begin_window(label, options, kit().style.window_padding);
+    open_ = begin_window(label, options, kit().style.window_padding, p_open);
     if (open_) draw_header(icon, label);
 }
 

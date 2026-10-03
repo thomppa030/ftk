@@ -55,7 +55,7 @@ void scrollbar(Window& window, Id id) {
 
 } // namespace
 
-bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding) {
+bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding, bool* open) {
     core::Context& context = ui();
     Kit& k = kit();
     keep_item();
@@ -78,6 +78,7 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
         window.rect = {.min = FIRST_PLACE, .max = FIRST_PLACE};
     }
     const NextWindow next = std::exchange(k.next_window, {});
+    if (next.pos_once && window.frame == 0) window.rect = {.min = *next.pos_once, .max = *next.pos_once};
     glm::vec2 size = window.rect.size();
     if (next.size_once && !window.sized) {
         size = *next.size_once;
@@ -110,7 +111,15 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     if (window.bar > 0.0f) {
         const core::Rect bar{.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}};
         dl.rect_filled(bar.min, bar.max, faded(theme::surface_sunken()));
-        dl.push_clip(bar.min, bar.max);
+        // A × at its right end closes it, as ImGui's.
+        float title_right = bar.max.x;
+        if (open != nullptr) {
+            const float side = text_style().size;
+            const glm::vec2 at{bar.max.x - k.style.frame_padding.x - side, bar.min.y + k.style.frame_padding.y};
+            if (close_button(core::hash_label("#CLOSE", id), at)) *open = false;
+            title_right = at.x - k.style.item_inner_spacing.x;
+        }
+        dl.push_clip(bar.min, {title_right, bar.max.y});
         draw_text(bar.min + k.style.frame_padding, theme::text(), shown(name));
         dl.pop_clip();
         // Dragged by its title bar, it follows from the next frame.
@@ -165,7 +174,8 @@ void next_window_size_limits(glm::vec2 min, glm::vec2 max) {
 }
 
 WorkArea work_area() {
-    return {.pos = {0.0f, 0.0f}, .size = ui().root_size()};
+    const core::Rect rect = work_rect();
+    return {.pos = rect.min, .size = rect.size()};
 }
 
 std::vector<ShownWindow> shown_windows() {

@@ -158,9 +158,52 @@ struct NextItem {
 /// What the next window is to be.
 struct NextWindow {
     std::optional<glm::vec2> pos{};
+    /// Where it goes the first time it shows; after that, where it is left.
+    std::optional<glm::vec2> pos_once{};
     std::optional<glm::vec2> size{};
     std::optional<glm::vec2> size_once{};
     std::optional<std::pair<glm::vec2, glm::vec2>> size_limits{};
+};
+
+/// What the bars along the program window's top and bottom take from it: a
+/// menu bar, the context bar, the status bar. The work area is what the
+/// last frame's bars left; a bar goes after those drawn before it this
+/// frame, as ImGui's side bars do.
+struct EdgeBars {
+    uint64_t frame{0};
+    float top{0.0f};
+    float bottom{0.0f};
+    float last_top{0.0f};
+    float last_bottom{0.0f};
+};
+
+/// How tabs are drawn: their colours resting, under the mouse and in
+/// front, those while the window they are in hasn't the keyboard, their
+/// corner, an outline, and the line over the tab in front.
+struct TabLook {
+    Color rest{};
+    Color hover{};
+    Color front{};
+    Color rest_dimmed{};
+    Color front_dimmed{};
+    float rounding{2.0f};
+    float border{0.0f};
+    std::optional<Color> overline{};
+};
+
+/// A row of tabs: its tabs in the order shown, as wide as they were last
+/// drawn, the one in front, and where it is while it is drawn.
+struct TabBar {
+    struct Tab {
+        Id id{0};
+        float width{0.0f};
+        bool seen{false};
+    };
+    std::vector<Tab> tabs{};
+    Id front{0};
+    /// The tabs can be put in another order by dragging them.
+    bool reorder{false};
+    core::Rect rect{};
 };
 
 /// One of the kit's windows: what it keeps from frame to frame.
@@ -184,6 +227,8 @@ struct Window {
 class Kit : public core::Context::Extension {
 public:
     Style style{};
+    /// The styles push_style() covered, the innermost last.
+    std::vector<Style> styles{};
     Faces faces{};
     Item item{};
     NextItem next{};
@@ -221,6 +266,12 @@ public:
     RowSearch row_search{};
     RowMark row_mark{RowMark::None};
     PickedColour picked{};
+    EdgeBars bars{};
+    /// The tab looks pushed, the innermost last; the theme's beneath them.
+    std::vector<TabLook> tab_looks{};
+    std::unordered_map<Id, TabBar> tab_bars{};
+    /// The row of tabs being drawn.
+    Id tab_bar{0};
 };
 
 /// The context the kit draws with, the current one, and what the kit keeps
@@ -263,13 +314,32 @@ void place_still(core::Rect rect);
 void keep_item();
 void restore_item();
 
+/// Covers the kit's style with `style` until pop_style(): its spacing,
+/// padding and the rest, as ImGui's PushStyleVar() does.
+void push_style(const Style& style);
+void pop_style();
+
 /// Begins the kit's window `name`, as ImGui's Begin() does: where it was
 /// left or where the next window is asked to be, its background and title
 /// bar drawn as `options` say, what it holds `padding` in from its edges.
-/// Begun again in a frame, it goes on drawing in it. Ended by end_window(),
-/// whatever it returns; false when it shows nothing.
-bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding);
+/// With `open`, its title bar has a × that sets it false. Begun again in a
+/// frame, it goes on drawing in it. Ended by end_window(), whatever it
+/// returns; false when it shows nothing.
+bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padding, bool* open = nullptr);
 void end_window();
+
+/// A bar `height` tall across the program window, along its top or its
+/// bottom after the bars already there: where it goes this frame.
+[[nodiscard]] core::Rect take_edge_bar(bool top, float height);
+/// The program window less what the last frame's edge bars took.
+[[nodiscard]] core::Rect work_rect();
+/// A × a line of text square at `at`, lit under the mouse, as ImGui's close
+/// button. Returns true when clicked.
+bool close_button(Id id, glm::vec2 at);
+/// The same in two steps, for a × placed before what it sits on and drawn
+/// after it: its square at `at`, and the × there as `in` finds it.
+[[nodiscard]] core::Rect close_rect(glm::vec2 at);
+void draw_close(core::Rect rect, const core::Interaction& in);
 
 /// A whole number dragged from `min` to `max`, as wide as the next item,
 /// `letter` pinned to its left in `colour` as a vector's axes are: a
