@@ -293,8 +293,66 @@ void Context::begin_panel(std::string_view name, Rect rect, const PanelOptions& 
     begin_panel_id(ids_.id(name), rect, options);
 }
 
+bool Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal) {
+    if (!popups_leave_window_ || !options.fit || modal) return false;
+    const Layer layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
+    if (layer != Layer::Popup && layer < Layer::Tooltip) return false;
+
+    // How big it came to: in its own window when it was drawn there, else
+    // in this one. Not measured yet, it is measured here first.
+    const auto measured_in = [&](const Root& root) -> const Panel* {
+        for (const auto& kept : root.panels) {
+            if (kept->id == id && kept->measured) return kept.get();
+        }
+        return nullptr;
+    };
+    const Panel* measured = nullptr;
+    if (const auto known = outside_.find(id); known != outside_.end()) {
+        if (const auto there = roots_.find(known->second); there != roots_.end()) measured = measured_in(*there->second);
+    }
+    if (measured == nullptr) measured = measured_in(*root_);
+    if (measured == nullptr) return false;
+    const glm::vec2 size = glm::clamp(measured->content + 2.0f * options.padding + glm::vec2{0.0f, options.bar},
+                                      options.min_size, options.max_size);
+    const Rect wanted{.min = rect.min, .max = rect.min + size};
+    if (wanted.min.x >= 0.0f && wanted.min.y >= 0.0f && wanted.max.x <= root_->size.x && wanted.max.y <= root_->size.y) {
+        outside_.erase(id);
+        return false;
+    }
+
+    // Its window closed by the platform (Wayland dismisses popups): the
+    // popup closes with it, drawn inside this window this last frame.
+    const RootId outside = hash_label("#OUTSIDE", id);
+    if (root_closed(outside)) {
+        std::erase(closed_roots_, outside);
+        outside_.erase(id);
+        close_popup(id);
+        return false;
+    }
+
+    // Asked for, or asked to move and size as it is now; drawn there once
+    // the program has opened it, inside this window until then.
+    outside_[id] = outside;
+    if (!std::ranges::contains(outside_now_, outside)) {
+        open_root({.root = outside,
+                   .kind = layer >= Layer::Tooltip ? RootKind::Tooltip : RootKind::Popup,
+                   .size = size,
+                   .near = root_->id,
+                   .at = wanted.min});
+        outside_now_.push_back(outside);
+    }
+    if (!begin_other_root(outside)) return false;
+    PanelOptions there = options;
+    there.fit = false;
+    begin_panel_id(id, {.min = {0.0f, 0.0f}, .max = root_->size}, there);
+    panel_stack_.back()->outside = true;
+    return true;
+}
+
 void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal) {
     assert(root_ != nullptr && "UI: a panel begun outside a window");
+    // Past the window's edge, into an OS popup window of its own.
+    if (begin_outside(id, rect, options, modal)) return;
     const Id parent_area = current_area();
     Panel& shown = panel(id);
     // Begun again this frame: drawn over what it holds, where it was.
@@ -376,6 +434,8 @@ void Context::end_panel() {
     Panel& ended = *panel_stack_.back();
     panel_stack_.pop_back();
     ended.content_next = ended.again ? glm::max(ended.content_next, content) : content;
+    // Drawn in its own OS popup window: back to the window it was begun in.
+    if (std::exchange(ended.outside, false)) end_other_root();
 }
 
 Rect Context::panel_rect() const {
@@ -578,6 +638,13 @@ const FrameOutput& Context::end_frame() {
         FTK_CORE_ERROR("UI: the frame ended drawing into window {}", root_->id);
         while (!suspended_.empty()) end_other_root();
     }
+    // The OS popup windows of popups not drawn this frame close.
+    for (const RootId was : outside_last_) {
+        if (std::ranges::contains(outside_now_, was)) continue;
+        close_root(was);
+        std::erase_if(outside_, [&](const auto& kept) { return kept.second == was; });
+    }
+    outside_last_ = std::exchange(outside_now_, {});
     if (root_ != nullptr) {
         FTK_CORE_ERROR("UI: the frame ended inside window {}", root_->id);
         end_root();

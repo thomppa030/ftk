@@ -77,10 +77,23 @@ struct RootOutput {
     Rect text_area{};
 };
 
+/// What an OS window the frame asks for is.
+enum class RootKind : uint8_t {
+    /// A window of its own beside its parent's: a panel torn out.
+    Window,
+    /// A popup placed against its parent window, past its edge if need be:
+    /// a menu, a list, a picker.
+    Popup,
+    /// The same that takes no pointers: a tooltip, a drag preview.
+    Tooltip,
+};
+
 /// An OS window the frame asks the program to open: a panel torn out into
-/// a window of its own.
+/// a window of its own, or a popup that doesn't fit inside its window. Asked
+/// for again while it is open, it is moved and sized as asked.
 struct RootRequest {
     RootId root{0};
+    RootKind kind{RootKind::Window};
     /// Its size in layout units.
     glm::vec2 size{0.0f};
     /// Where it opens: at `at` in the window `near`'s layout units, as near
@@ -298,6 +311,12 @@ public:
     /// forgotten, and root_closed() says so until it is asked for again.
     void closed_root(RootId root);
     [[nodiscard]] bool root_closed(RootId root) const;
+
+    /// Popups, tooltips and drag previews that don't fit inside their
+    /// window are drawn in OS popup windows of their own, past its edge
+    /// (RootKind::Popup and Tooltip), for a program that opens them; by
+    /// default they are moved inside it.
+    void set_popups_leave_window(bool leave) { popups_leave_window_ = leave; }
 
     /// Where the root being drawn records its shapes.
     [[nodiscard]] DrawList& draw_list();
@@ -598,6 +617,9 @@ private:
         glm::vec2 cursor{0.0f};
         // A press on it brings it to the front.
         bool raise{true};
+        // Drawn in an OS popup window of its own, among what the window
+        // it was begun in holds: end_panel() goes back to that one.
+        bool outside{false};
         std::vector<Primitive> primitives;
         std::vector<Hit> hits;
     };
@@ -745,6 +767,10 @@ private:
     // begin_panel() for a panel whose id is made; `modal` blocks what is
     // beneath it.
     void begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal = false);
+    // A fitting popup, tooltip or drag preview that doesn't fit inside the
+    // window being drawn, begun in an OS popup window of its own once the
+    // program has opened it: true when it was.
+    bool begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
     // Ends the innermost panel's or region's area, keeping what it held for
     // scrolling; returns that.
     glm::vec2 end_area();
@@ -799,6 +825,13 @@ private:
     // The windows the program closed, its user asking, until asked for
     // again.
     std::vector<RootId> closed_roots_;
+    // Popups that leave their window go into OS popup windows; the window
+    // each such panel is in, by its id; and those asked for this frame and
+    // last, the last frame's not asked for again closed as this one ends.
+    bool popups_leave_window_{false};
+    std::unordered_map<Id, RootId> outside_;
+    std::vector<RootId> outside_now_;
+    std::vector<RootId> outside_last_;
 
     IdStack ids_;
     Storage storage_;

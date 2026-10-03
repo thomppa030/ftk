@@ -50,7 +50,10 @@ AppWindow::AppWindow(std::unique_ptr<Window> window, std::unique_ptr<gpu::Device
                      std::unique_ptr<gpu::Swapchain> swapchain, std::unique_ptr<gpu::UiRenderer> ui_renderer,
                      gpu::Clear clear)
     : window_(std::move(window)), device_(std::move(device)), swapchain_(std::move(swapchain)),
-      ui_renderer_(std::move(ui_renderer)), clear_(clear) {}
+      ui_renderer_(std::move(ui_renderer)), clear_(clear) {
+    // It opens the OS popup windows a popup past the window's edge asks for.
+    ui_.set_popups_leave_window(true);
+}
 
 AppWindow::~AppWindow() {
     device_->wait_idle();
@@ -174,7 +177,6 @@ Result<> AppWindow::keep_windows(const ui::core::FrameOutput& out) {
         ui_.forget_root(root);
     }
     for (const ui::core::RootRequest& request : out.open) {
-        if (std::ranges::contains(extras_, request.root, &Extra::root)) continue;
         // In points, as the platform sizes and places windows; beside the
         // window it was asked near, as near as the platform lets it.
         const Window* near = window_.get();
@@ -187,16 +189,32 @@ Result<> AppWindow::keep_windows(const ui::core::FrameOutput& out) {
             density = extra.window->pixel_density();
         }
         const float points = scale / density;
+        const glm::uvec2 size{static_cast<uint32_t>(std::max(request.size.x * points, 1.0f)),
+                              static_cast<uint32_t>(std::max(request.size.y * points, 1.0f))};
+        // A popup is placed against the window it came from, on every
+        // platform; another window on the desktop, where the platform lets
+        // it.
+        const bool popup = request.kind != ui::core::RootKind::Window;
+        const glm::ivec2 offset{request.at * points};
+        const glm::ivec2 at = popup ? offset : near->position() + offset;
+
+        // Open already: a popup asked again, moved or sized as it is now.
+        if (const auto open = std::ranges::find(extras_, request.root, &Extra::root); open != extras_.end()) {
+            if (open->asked.at != request.at) open->window->set_position(at);
+            if (open->asked.size != request.size) open->window->set_size(size);
+            open->asked = request;
+            continue;
+        }
         try {
-            auto window = std::make_unique<Window>(request.title,
-                                                   static_cast<uint32_t>(std::max(request.size.x * points, 1.0f)),
-                                                   static_cast<uint32_t>(std::max(request.size.y * points, 1.0f)),
-                                                   *window_);
-            window->set_position(near->position() + glm::ivec2(request.at * points));
+            auto window = popup ? std::make_unique<Window>(*near, at, size.x, size.y,
+                                                           request.kind == ui::core::RootKind::Tooltip)
+                                : std::make_unique<Window>(request.title, size.x, size.y, *window_);
+            if (!popup) window->set_position(at);
             auto swapchain = gpu::Swapchain::create(*device_, *window);
             if (!swapchain) return make_error(swapchain.error());
             auto input = std::make_unique<UiInput>(*window, ui_, request.root);
             extras_.push_back({.root = request.root,
+                               .asked = request,
                                .window = std::move(window),
                                .swapchain = std::move(*swapchain),
                                .input = std::move(input)});

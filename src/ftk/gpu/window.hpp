@@ -24,6 +24,11 @@ public:
     /// A window of `parent`'s: a panel torn out of it. The window manager
     /// keeps it with its parent, over it, and a tiling one floats it.
     Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent);
+    /// A popup of `parent`'s, `offset` points from its top-left, `width` by
+    /// `height` points: a menu past its parent's edge, or with `tooltip` a
+    /// tooltip, which takes no input. Placed against its parent on every
+    /// platform, Wayland too, and tiled by no window manager.
+    Window(const Window& parent, glm::ivec2 offset, uint32_t width, uint32_t height, bool tooltip);
     ~Window();
 
     Window(const Window&) = delete;
@@ -53,6 +58,8 @@ public:
     /// (Wayland keeps both to itself).
     [[nodiscard]] glm::ivec2 position() const;
     void set_position(glm::ivec2 at);
+    /// Sizes it, in points: a popup grown or shrunk with what it shows.
+    void set_size(glm::uvec2 size);
 
     /// Hide the cursor and let it move without bound, so only its motion is
     /// reported, or give it back.
@@ -92,6 +99,9 @@ public:
 private:
     /// The two above, `parent` null for a window of the program's own.
     Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent);
+    /// Takes `made` as its SDL window: its size, and a place among the open
+    /// windows.
+    void adopt(SDL_Window* made);
 
     /// Hand one event to the window it belongs to, or to every window.
     static void dispatch(const SDL_Event& event);

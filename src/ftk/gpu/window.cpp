@@ -109,7 +109,26 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height, const Wi
         }
         SDL_ShowWindow(window_);
     }
+    adopt(window_);
+}
 
+Window::Window(const Window& parent, glm::ivec2 offset, uint32_t width, uint32_t height, bool tooltip) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        throw sdl_failure("Failed to initialise SDL video");
+    }
+    window_ = SDL_CreatePopupWindow(parent.window_, offset.x, offset.y, static_cast<int>(width), static_cast<int>(height),
+                                    SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY
+                                        | (tooltip ? SDL_WINDOW_TOOLTIP : SDL_WINDOW_POPUP_MENU));
+    if (window_ == nullptr) {
+        auto failure = sdl_failure("Failed to create a popup window");
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        throw failure;
+    }
+    adopt(window_);
+}
+
+void Window::adopt(SDL_Window* made) {
+    window_ = made;
     int pixel_width = 0;
     int pixel_height = 0;
     SDL_GetWindowSizeInPixels(window_, &pixel_width, &pixel_height);
@@ -230,6 +249,10 @@ glm::ivec2 Window::position() const {
 
 void Window::set_position(glm::ivec2 at) {
     SDL_SetWindowPosition(window_, at.x, at.y);
+}
+
+void Window::set_size(glm::uvec2 size) {
+    SDL_SetWindowSize(window_, static_cast<int>(size.x), static_cast<int>(size.y));
 }
 
 void Window::set_cursor_captured(bool captured) {

@@ -50,8 +50,12 @@ void UiHarness::step(int count) {
             ui_.end_root();
         }
         output_ = &ui_.end_frame();
+        // Asked for again, a window is moved and sized as asked.
         for (const core::RootRequest& opened : output_->open) {
-            if (std::ranges::none_of(windows_, [&](const auto& window) { return window.root == opened.root; })) {
+            const auto known = std::ranges::find(windows_, opened.root, &core::RootRequest::root);
+            if (known != windows_.end()) {
+                *known = opened;
+            } else {
                 windows_.push_back(opened);
             }
         }

@@ -43,6 +43,72 @@ bool drawn(const UiHarness& h, ftk::ui::Color colour) {
 
 } // namespace
 
+TEST_CASE("A popup past its window's edge goes into an OS popup window of its own", "[ui-core][layers]") {
+    UiHarness h;
+    h.ui().set_popups_leave_window(true);
+    bool open = true;
+    bool hovered = false;
+    glm::vec2 at{100.0f, 100.0f};
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        if (!open) return;
+        ui.begin_panel("menu", {.min = at, .max = at}, {.layer = core::Layer::Popup, .fit = true});
+        hovered = widget(h, "entry", {200.0f, 24.0f}).hovered;
+        ui.end_panel();
+    });
+    // Inside the window, it stays there.
+    h.step(4);
+    CHECK(h.windows().empty());
+
+    // Near the right edge, wider than the room left: a window of its own,
+    // as big as it is, where it was asked to be.
+    at = {700.0f, 100.0f};
+    h.step(4);
+    REQUIRE(h.windows().size() == 1);
+    const core::RootRequest popup = h.windows()[0];
+    CHECK(popup.kind == core::RootKind::Popup);
+    CHECK(popup.near == UiHarness::WINDOW);
+    CHECK(popup.at == glm::vec2{700.0f, 100.0f});
+    CHECK(popup.size == glm::vec2{216.0f, 40.0f});
+    // Drawn there, it takes the pointer there.
+    h.send({.kind = PointerEvent::Kind::Move, .root = popup.root, .sample = {.position = {20.0f, 20.0f}}});
+    h.step(2);
+    CHECK(hovered);
+
+    // Gone, its window closes.
+    open = false;
+    h.step(2);
+    CHECK(h.windows().empty());
+}
+
+TEST_CASE("A popup whose OS window the platform closes closes with it", "[ui-core][layers]") {
+    UiHarness h;
+    h.ui().set_popups_leave_window(true);
+    const Id menu = h.ui().id("menu");
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        if (!ui.begin_popup(menu)) return;
+        (void)widget(h, "entry", {200.0f, 24.0f});
+        ui.end_popup();
+    });
+    h.ui().open_popup(menu, {700.0f, 100.0f});
+    h.step(4);
+    REQUIRE(h.windows().size() == 1);
+
+    // As Wayland dismisses a popup: the popup closes, and isn't asked for
+    // again.
+    h.close_window(h.windows()[0].root);
+    h.step(4);
+    CHECK_FALSE(h.ui().popup_open(menu));
+    CHECK(h.windows().empty());
+
+    // Opened again, it has a window again.
+    h.ui().open_popup(menu, {700.0f, 100.0f});
+    h.step(4);
+    CHECK(h.ui().popup_open(menu));
+    CHECK(h.windows().size() == 1);
+}
+
 TEST_CASE("A panel brought to the front takes the pointer where it overlaps the others", "[ui-core][layers]") {
     UiHarness h;
     bool raise = false;

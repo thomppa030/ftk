@@ -116,6 +116,9 @@ private:
     /// context, its swapchain, and its input.
     struct Extra {
         ui::core::RootId root{0};
+        /// What it was last asked to be, to move and size it when that
+        /// changes.
+        ui::core::RootRequest asked{};
         std::unique_ptr<Window> window;
         std::unique_ptr<gpu::Swapchain> swapchain;
         std::unique_ptr<UiInput> input;
