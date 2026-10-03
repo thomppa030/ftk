@@ -675,4 +675,8 @@ void set_current(Context* context) {
     current_context = context;
 }
 
+bool has_current() {
+    return current_context != nullptr;
+}
+
 } // namespace ftk::ui::core

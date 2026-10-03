@@ -1,19 +1,19 @@
 #pragma once
 
 // A program's main window on ftk's own UI core: the window, the GPU device,
-// its swapchain, the core's context and what draws it, and the loop that
-// runs them. The loop draws only when there is a reason: it sleeps until
-// input arrives or the last frame's deadline comes (decision 9 of the UI
-// core plan), and the platform's pens, fingers, keys and text reach the
-// core as themselves. The windows the UI asks for, a panel torn out into
-// one of its own, it opens beside the main one, each a root of the one
-// context with a swapchain of its own (decision 20). Programs on the kit's
-// ImGui implementation use ImGuiAppWindow until they move over.
+// its swapchain, the UI layer over them, and the loop that runs them. The
+// loop draws only when there is a reason: it sleeps until input arrives or
+// the last frame's deadline comes (decision 9 of the UI core plan), and the
+// platform's pens, fingers, keys and text reach the core as themselves. The
+// windows the UI asks for, a panel torn out into one of its own or a popup
+// past the edge, the layer opens beside the main one (decision 20). A program
+// that runs its own loop uses a UiLayer itself.
 //
 //     auto app = ftk::AppWindow::create({.title = "Tool"});
 //     if (!app) return fail(app.error());
 //     auto ran = (*app)->run({.ui = [&](ui::core::Context& ui, glm::vec2 size) { page.draw(ui, size); }});
 
+#include "ftk/app/ui_layer.hpp"
 #include "ftk/base/result.hpp"
 #include "ftk/gpu/clear.hpp"
 #include "ftk/gpu/device.hpp"
@@ -31,7 +31,6 @@
 namespace ftk {
 
 class Window;
-class UiInput;
 
 namespace gpu {
 class Swapchain;
@@ -72,7 +71,7 @@ struct Shot {
 
 class AppWindow {
 public:
-    /// The window, opened, with its device, swapchain and what draws the UI.
+    /// The window, opened, with its device, swapchain and UI layer.
     /// @return them, or why one could not be made (the platform, the GPU or
     ///         the driver refused)
     [[nodiscard]] static Result<std::unique_ptr<AppWindow>> create(const AppWindowDesc& desc);
@@ -104,54 +103,25 @@ public:
     [[nodiscard]] gpu::Swapchain& swapchain() const { return *swapchain_; }
     /// The UI core's context, which a program adds its fonts to, and what
     /// draws it.
-    [[nodiscard]] ui::core::Context& ui() { return ui_; }
-    [[nodiscard]] gpu::UiRenderer& ui_renderer() const { return *ui_renderer_; }
+    [[nodiscard]] ui::core::Context& ui() { return layer_->context(); }
+    [[nodiscard]] gpu::UiRenderer& ui_renderer() const { return layer_->renderer(); }
+    [[nodiscard]] UiLayer& layer() const { return *layer_; }
 
 private:
     AppWindow(std::unique_ptr<Window> window, std::unique_ptr<gpu::Device> device,
-              std::unique_ptr<gpu::Swapchain> swapchain, std::unique_ptr<gpu::UiRenderer> ui_renderer,
-              gpu::Clear clear);
+              std::unique_ptr<gpu::Swapchain> swapchain, gpu::Clear clear);
 
-    /// An OS window the UI asked for, beside the main one: a root of the
-    /// context, its swapchain, and its input.
-    struct Extra {
-        ui::core::RootId root{0};
-        /// What it was last asked to be, to move and size it when that
-        /// changes.
-        ui::core::RootRequest asked{};
-        std::unique_ptr<Window> window;
-        std::unique_ptr<gpu::Swapchain> swapchain;
-        std::unique_ptr<UiInput> input;
-    };
-
-    /// One frame: the UI over every window, then each window's acquire,
-    /// draw and present. A window whose swapchain cannot take a frame, while
-    /// it is being rebuilt, misses it.
+    /// One frame: the UI over every window, then the main window's acquire,
+    /// draw and present, and the other windows'. A window whose swapchain
+    /// cannot take a frame, while it is being rebuilt, misses it.
     Result<> draw_frame(const AppFrame& frame);
-    /// The root `root` of `out` drawn into `swapchain`, as a frame of the
-    /// GPU's of its own.
-    Result<> show(gpu::Swapchain& swapchain, ui::core::RootId root, const ui::core::FrameOutput& out);
-    /// A frame of the UI core: the window's root, `pixels` big at `scale`,
-    /// and then the other windows' roots.
-    const ui::core::FrameOutput& draw_ui(const UiDraw& ui, glm::uvec2 pixels, float scale);
-    /// Opens and closes the windows the last frame asked for, and closes
-    /// those their user closed, telling the UI.
-    Result<> keep_windows(const ui::core::FrameOutput& out);
-    /// The clear colour as the UI's canvas takes it: sRGB values.
-    [[nodiscard]] ui::Color background() const;
 
-    // Destroyed from the bottom up: the renderer and the swapchain before the
+    // Destroyed from the bottom up: the layer and the swapchain before the
     // device, the device before the window.
     std::unique_ptr<Window> window_;
     std::unique_ptr<gpu::Device> device_;
     std::unique_ptr<gpu::Swapchain> swapchain_;
-    std::unique_ptr<gpu::UiRenderer> ui_renderer_;
-    gpu::Clear clear_;
-    ui::core::Context ui_;
-    // What the last frame drew and asked for; none when it was skipped.
-    const ui::core::FrameOutput* last_ui_{nullptr};
-    // The other windows, gone before the context and the device.
-    std::vector<Extra> extras_;
+    std::unique_ptr<UiLayer> layer_;
 };
 
 } // namespace ftk

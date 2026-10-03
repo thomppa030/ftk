@@ -193,8 +193,9 @@ void UiRenderer::render(CommandList& cmd, const TextureView& target, glm::uvec2 
             slot = used++;
             slot_of[slot] = p.texture;
             Batch& batch = batches.back();
+            // A picture whose texture is gone shows as the blank.
             const auto found = pictures_.find(data.textures[p.texture].id);
-            if (found != pictures_.end()) {
+            if (found != pictures_.end() && device_->info(found->second.view.texture).format != Format::undefined) {
                 const UiPicture& picture = found->second.picture;
                 batch.views[slot] = found->second.view;
                 batch.samplers[slot] = picture.sampler.valid() ? picture.sampler : linear_;

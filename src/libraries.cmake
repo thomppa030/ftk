@@ -597,12 +597,14 @@ ftk_library(app
         ftk/app/command_history.cpp
         ftk/app/document_history.cpp
         ftk/app/ui_input.cpp
+        ftk/app/ui_layer.cpp
     HEADERS
         ftk/app/app_window.hpp
         ftk/app/command.hpp
         ftk/app/command_history.hpp
         ftk/app/document_history.hpp
         ftk/app/ui_input.hpp
+        ftk/app/ui_layer.hpp
     LINKS
         PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::text ftk::ui-core
         PRIVATE SDL3::SDL3

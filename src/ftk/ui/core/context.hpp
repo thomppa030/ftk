@@ -923,5 +923,7 @@ private:
 /// The context the UI is drawn with: the one set last. Set before drawing.
 [[nodiscard]] Context& current();
 void set_current(Context* context);
+/// Whether one is set.
+[[nodiscard]] bool has_current();
 
 } // namespace ftk::ui::core
