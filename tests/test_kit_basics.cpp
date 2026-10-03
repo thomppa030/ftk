@@ -554,6 +554,41 @@ TEST_CASE("Drawing in a window again lands in it, and a window is given focus", 
     CHECK_FALSE(focused);
 }
 
+TEST_CASE("A window shown again comes forward over the ones that overlap it", "[ui][kit]") {
+    KitHarness h;
+    bool show_browser = true;
+    bool over_browser = false;
+    bool over_graph = false;
+    h.set_ui([&] {
+        if (show_browser) {
+            ui::next_window_place({100.0f, 100.0f}, {300.0f, 200.0f});
+            if (auto panel = ui::Panel("", "Browser", {.remembered = false})) {
+                (void)ui::hit_area("##browser", {280.0f, 160.0f});
+                over_browser = ui::item_hovered();
+            }
+        }
+        ui::next_window_place({200.0f, 150.0f}, {300.0f, 200.0f});
+        if (auto panel = ui::Panel("", "Graph", {.remembered = false})) {
+            (void)ui::hit_area("##graph", {280.0f, 160.0f});
+            over_graph = ui::item_hovered();
+        }
+    });
+    // The one opened last is in front where they overlap.
+    h.step(3);
+    h.move_to({300.0f, 250.0f});
+    h.step(2);
+    CHECK(over_graph);
+    CHECK_FALSE(over_browser);
+
+    // Closed and opened again, the browser is.
+    show_browser = false;
+    h.step(2);
+    show_browser = true;
+    h.step(3);
+    CHECK(over_browser);
+    CHECK_FALSE(over_graph);
+}
+
 TEST_CASE("A claimed key is still read by its shortcut", "[ui][kit]") {
     KitHarness h;
     bool snapped = false;

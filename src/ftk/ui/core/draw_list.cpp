@@ -14,9 +14,10 @@ namespace ftk::ui::core {
 namespace {
 
 // The radii (top-left, top-right, bottom-right, bottom-left) that round
-// `corners` by `rounding`, no more than half the rectangle's shorter side.
+// `corners` by `rounding`, no more than half the rectangle's shorter side;
+// none for a rectangle turned inside out.
 glm::vec4 radii(glm::vec2 min, glm::vec2 max, float rounding, RoundCorners corners) {
-    const float r = std::clamp(rounding, 0.0f, 0.5f * std::min(max.x - min.x, max.y - min.y));
+    const float r = std::clamp(rounding, 0.0f, std::max(0.5f * std::min(max.x - min.x, max.y - min.y), 0.0f));
     switch (corners) {
     case RoundCorners::All: return {r, r, r, r};
     case RoundCorners::Top: return {r, r, 0.0f, 0.0f};

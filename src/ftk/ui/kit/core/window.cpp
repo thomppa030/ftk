@@ -35,6 +35,9 @@ void scrollbar(Window& window, Id id) {
     const Style& style = kit().style;
     const core::Rect& rect = window.rect;
     const core::Rect track{.min = {rect.max.x - style.scrollbar_size, rect.min.y + window.bar}, .max = rect.max};
+    // A window no taller than its title bar, as one is before it has its
+    // size, has no room for one.
+    if (track.height() <= 0.0f || track.width() <= 0.0f) return;
     const float visible = track.height();
     const float grab = std::max(visible * visible / (visible + room), style.scrollbar_size * 2.0f);
     const float travel = std::max(track.height() - grab, 1.0f);
@@ -187,6 +190,9 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     window.rect = context.panel_rect();
     const core::Rect& rect = window.rect;
 
+    // Over the windows brought forward while it was away, as ImGui brings
+    // forward a window that appears.
+    if (appearing && options.to_front) context.bring_to_front(id);
     if ((appearing && options.nav_focus) || (any_button_pressed() && context.area_or_inner_under_pointer())) {
         k.focused_window = id;
     }
