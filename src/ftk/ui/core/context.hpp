@@ -80,11 +80,38 @@ struct FrameOutput {
     NextFrame next{};
 };
 
+/// The layers of a window, bottom to top (decision 22 of the UI core plan).
+/// A panel begun inside a higher one is in that one's layer at least: a
+/// menu opened from a dialog is over the dialog.
+enum class Layer : uint8_t {
+    Base,
+    /// Menus and pickers: closed by a press outside them or Escape.
+    Popup,
+    /// Dialogs: nothing beneath them takes the pointers.
+    Modal,
+    /// Tooltips and drag previews take no pointers.
+    Tooltip,
+    DragPreview,
+};
+
 struct PanelOptions {
     /// Between the panel's edges and what it holds.
     glm::vec2 padding{8.0f, 8.0f};
     /// What it holds scrolls when it doesn't fit.
     bool scroll{true};
+    Layer layer{Layer::Base};
+    /// As big as what it held last frame, from the rectangle's top-left,
+    /// and moved to stay inside the window: a popup, a tooltip. Shown for
+    /// the first time it has no size yet, so it is hidden for that frame
+    /// and asks for the next.
+    bool fit{false};
+};
+
+/// What a drag carries to where it is let go.
+struct Drop {
+    Payload payload{};
+    /// Let go here this frame; before that it is only over the target.
+    bool delivered{false};
 };
 
 /// What a widget takes from the pointers.
@@ -218,6 +245,55 @@ public:
     /// them.
     void begin_panel(std::string_view name, Rect rect, const PanelOptions& options = {});
     void end_panel();
+    /// The panel being drawn, where it is this frame (a fitting one sized
+    /// by what it held last frame): to draw its background. The root's
+    /// rectangle outside any panel.
+    [[nodiscard]] Rect panel_rect() const;
+
+    /// Popups, open from the call until closed: by close_popup(), a press
+    /// outside them and the popups opened from them, Escape (the topmost),
+    /// or a frame that doesn't draw them. Opened at the pointer, or at `at`.
+    void open_popup(Id id);
+    void open_popup(Id id, glm::vec2 at);
+    [[nodiscard]] bool popup_open(Id id) const;
+    [[nodiscard]] bool any_popup_open() const { return !popups_.empty(); }
+    void close_popup(Id id);
+    /// Draws the popup `id` when it is open, returning whether it is; then
+    /// end_popup(). It fits what it holds.
+    bool begin_popup(Id id, PanelOptions options = {.layer = Layer::Popup, .fit = true});
+    void end_popup() { end_panel(); }
+
+    /// A dialog: a panel in the modal layer, with nothing beneath it in the
+    /// window taking the pointers while it shows.
+    void begin_modal(std::string_view name, Rect rect, PanelOptions options = {});
+    void end_modal() { end_panel(); }
+
+    /// The widget last passed to interact() should show its tooltip now:
+    /// the mouse has rested on it for the delay, or a finger long-pressed
+    /// it. Until then the frame asks to be woken when it would be.
+    [[nodiscard]] bool tooltip_due();
+    /// A tooltip at the pointer, fitting what it holds, until end_tooltip().
+    /// The last begun in a frame is the one shown.
+    void begin_tooltip();
+    void end_tooltip() { end_panel(); }
+
+    /// The widget last passed to interact() is dragged far enough to carry
+    /// something: true while it is, for carry() and a preview.
+    bool drag_source();
+    /// What the drag carries: `size` bytes of `type`, copied.
+    void carry(std::string_view type, const void* data, std::size_t size);
+    /// Something is being dragged, and of what type.
+    [[nodiscard]] bool dragging() const { return drag_.active; }
+    [[nodiscard]] std::string_view drag_type() const { return drag_.type; }
+    /// What of `type` is dragged over the widget last passed to interact(),
+    /// or over `rect` in the panel being drawn: offered while it is over,
+    /// delivered on the frame it is let go there. The payload is good until
+    /// the drag ends.
+    [[nodiscard]] std::optional<Drop> drop_target(std::string_view type);
+    [[nodiscard]] std::optional<Drop> drop_target(Rect rect, std::string_view type);
+    /// What is dragged, drawn at the pointer, until end_drag_preview().
+    void begin_drag_preview();
+    void end_drag_preview() { end_panel(); }
 
     /// A part of what is drawn now that scrolls on its own, `size` big at
     /// the cursor (a width or height of FILL reaches the edge, one below
@@ -366,11 +442,37 @@ private:
     struct Panel {
         Id id{0};
         Rect rect{};
-        // Drawn over the panels of lower order.
+        Layer layer{Layer::Base};
+        // Drawn over the panels of its layer of lower order.
         uint32_t order{0};
         uint64_t frame{0};
+        // What it held last frame, for a panel that fits it; not shown this
+        // frame, having nothing to fit yet.
+        glm::vec2 content{0.0f};
+        bool measured{false};
+        bool hidden{false};
         std::vector<Primitive> primitives;
         std::vector<Hit> hits;
+    };
+    // An open popup, and where it opened.
+    struct OpenPopup {
+        Id id{0};
+        RootId root{0};
+        glm::vec2 at{0.0f};
+        uint64_t opened{0};
+        uint64_t drawn{0};
+    };
+    // What is being dragged, by which pointer, from which widget.
+    struct Drag {
+        bool active{false};
+        // Its source said so this frame; it ended this frame.
+        bool seen{false};
+        bool ended{false};
+        Id source{0};
+        PointerType pointer_type{PointerType::Mouse};
+        PointerId pointer{0};
+        std::string type;
+        std::vector<std::byte> data;
     };
     // What is kept for an OS window from frame to frame.
     struct Root {
@@ -428,8 +530,10 @@ private:
     // A pointer, and what the core keeps of it besides what it shows.
     struct Tracked {
         Pointer pointer;
-        // On top under it, and where its press was, by last frame's hits.
+        // On top under it and the panel that is in, and where its press
+        // was, by last frame's hits.
         Id top{0};
+        Id top_panel{0};
         Id press_top{0};
         // The widget holding it, by which button, since which frame.
         Id holder{0};
@@ -473,9 +577,19 @@ private:
     };
 
     Panel& panel(Id id);
+    // begin_panel() for a panel whose id is made; `modal` blocks what is
+    // beneath it.
+    void begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal = false);
     // Ends the innermost panel's or region's area, keeping what it held for
-    // scrolling.
-    void end_area();
+    // scrolling; returns that.
+    glm::vec2 end_area();
+    // Closes the popups from `index` up the stack.
+    void close_popups_from(std::size_t index);
+    // At the frame's end: popups not drawn, Escape, the drag's end, and
+    // the widget the mouse rests on.
+    void settle_layers();
+    // The pointer the drag is by, if it is still there.
+    [[nodiscard]] const Tracked* drag_pointer() const;
     // Begins a scrolling area's frame: the wheel's turn if it is the one
     // under the mouse, and a step towards where it is going.
     void scroll_area(Id id, Scroll& scroll);
@@ -513,6 +627,17 @@ private:
     Layout layout_;
 
     std::vector<Area> areas_;
+    // The panels being drawn, innermost last.
+    std::vector<Panel*> panel_stack_;
+    // Where a tooltip's or a drag preview's widgets go: nowhere.
+    std::vector<Hit> no_hits_;
+    std::vector<OpenPopup> popups_;
+    Drag drag_;
+    // The widget the mouse rests on and since when, and the one hovered
+    // this frame.
+    Id hover_id_{0};
+    double hover_since_{0.0};
+    Id hover_next_{0};
     std::unordered_map<Id, Scroll> scrolls_;
     std::unordered_map<Id, KeptContainer> containers_;
     std::vector<OpenContainer> open_containers_;
@@ -532,8 +657,9 @@ private:
     // The scrolling area the wheel turns this frame, and by how much.
     Id wheel_area_{0};
     glm::vec2 wheel_{0.0f};
-    // Some pointer went down this frame.
+    // Some pointer went down this frame; where a pointer was last.
     bool any_press_{false};
+    glm::vec2 last_pointer_position_{0.0f};
 
     Keyboard keyboard_;
     std::vector<KeyEvent> key_events_;

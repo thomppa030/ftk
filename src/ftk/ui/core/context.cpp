@@ -38,6 +38,8 @@ void Context::begin_frame(double time) {
     last_widget_ = 0;
     last_interaction_ = {};
     any_hovered_ = false;
+    hover_next_ = 0;
+    drag_.seen = false;
     disabled_.clear();
     text_.begin_frame();
     take_input();
@@ -79,6 +81,7 @@ void Context::begin_root(RootId root, glm::vec2 size, float scale) {
     root_->base_hits.clear();
     root_->areas_next.clear();
     hit_targets_.assign(1, &root_->base_hits);
+    panel_stack_.clear();
     layout_.reset();
     layout_.begin_area({.min = {0.0f, 0.0f}, .max = size});
     areas_.clear();
@@ -105,13 +108,16 @@ void Context::end_root() {
         ids_.clear();
     }
 
-    // The panels drawn this frame go over the root's own shapes, in order,
-    // and so do the places their widgets take the pointers.
+    // The panels drawn this frame go over the root's own shapes, layer by
+    // layer and in order within one, and so do the places their widgets
+    // take the pointers. One with nothing to fit yet waits a frame.
     std::vector<Panel*> drawn;
     for (const auto& panel : root_->panels) {
-        if (panel->frame == frame_) drawn.push_back(panel.get());
+        if (panel->frame == frame_ && !panel->hidden) drawn.push_back(panel.get());
     }
-    std::ranges::sort(drawn, {}, &Panel::order);
+    std::ranges::sort(drawn, [](const Panel* a, const Panel* b) {
+        return a->layer != b->layer ? a->layer < b->layer : a->order < b->order;
+    });
     root_->hits = root_->base_hits;
     for (const Panel* panel : drawn) {
         root_->draw.primitives.insert(root_->draw.primitives.end(), panel->primitives.begin(), panel->primitives.end());
@@ -170,19 +176,47 @@ Id Context::current_panel() const {
 }
 
 void Context::begin_panel(std::string_view name, Rect rect, const PanelOptions& options) {
+    begin_panel_id(ids_.id(name), rect, options);
+}
+
+void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal) {
     assert(root_ != nullptr && "UI: a panel begun outside a window");
-    const Id id = ids_.id(name);
     const Id parent_area = current_area();
     Panel& shown = panel(id);
+    // In its parent's layer at least, so it is drawn over its parent.
+    shown.layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
+    shown.hidden = false;
+    if (options.fit) {
+        if (shown.measured) {
+            rect.max = rect.min + shown.content + 2.0f * options.padding;
+        } else {
+            shown.hidden = true;
+            request_frame();
+        }
+        // Inside the window, moved back from its right and bottom edges.
+        const glm::vec2 size = rect.size();
+        const glm::vec2 over = glm::max(rect.max - root_->size, glm::vec2{0.0f});
+        rect.min = glm::max(rect.min - over, glm::vec2{0.0f});
+        rect.max = rect.min + size;
+    }
     shown.rect = rect;
     shown.frame = frame_;
+    panel_stack_.push_back(&shown);
     root_->list.push_target(shown.primitives);
     root_->list.push_clip(rect.min, rect.max);
     shown.hits.clear();
-    hit_targets_.push_back(&shown.hits);
-    // The panel itself, under its widgets: what is beneath it isn't reached
-    // through it.
-    shown.hits.push_back({.id = id, .rect = rect.intersect({.min = {0.0f, 0.0f}, .max = root_->size}), .panel = id, .area = id});
+    const Rect window{.min = {0.0f, 0.0f}, .max = root_->size};
+    if (shown.layer >= Layer::Tooltip) {
+        // Tooltips and drag previews take no pointers.
+        no_hits_.clear();
+        hit_targets_.push_back(&no_hits_);
+    } else {
+        hit_targets_.push_back(&shown.hits);
+        // A dialog covers the whole window beneath it; any panel covers
+        // its own rectangle, under its widgets.
+        if (modal) shown.hits.push_back({.id = id, .rect = window, .panel = id, .area = id});
+        shown.hits.push_back({.id = id, .rect = rect.intersect(window), .panel = id, .area = id});
+    }
     // Its items' ids under its own, whatever it was begun inside.
     ids_.push_id(id);
     Scroll& scroll = scrolls_[id];
@@ -198,11 +232,22 @@ void Context::end_panel() {
         FTK_CORE_ERROR("UI: a panel ended inside a region, or never began");
         return;
     }
-    end_area();
+    const glm::vec2 content = end_area();
     ids_.pop();
     root_->list.pop_clip();
     root_->list.pop_target();
     hit_targets_.pop_back();
+    // What it held, for fitting it next frame; a change is drawn then.
+    Panel& ended = *panel_stack_.back();
+    panel_stack_.pop_back();
+    if (ended.measured && ended.content != content) request_frame();
+    ended.content = content;
+    ended.measured = true;
+}
+
+Rect Context::panel_rect() const {
+    if (!panel_stack_.empty()) return panel_stack_.back()->rect;
+    return {.min = {0.0f, 0.0f}, .max = root_ != nullptr ? root_->size : glm::vec2{0.0f}};
 }
 
 void Context::begin_region(std::string_view name, glm::vec2 size) {
@@ -251,11 +296,11 @@ void Context::scroll_area(Id id, Scroll& scroll) {
     }
 }
 
-void Context::end_area() {
+glm::vec2 Context::end_area() {
     const Area area = areas_.back();
     areas_.pop_back();
     const glm::vec2 content = layout_.end_area();
-    if (!area.scrolls) return;
+    if (!area.scrolls) return content;
     Scroll& scroll = scrolls_[area.id];
     scroll.content = content;
     scroll.visible = area.visible.size();
@@ -270,6 +315,7 @@ void Context::end_area() {
         link.room = room;
         link.offset = scroll.target;
     }
+    return content;
 }
 
 glm::vec2 Context::scroll() const {
@@ -339,6 +385,7 @@ const FrameOutput& Context::end_frame() {
         FTK_CORE_ERROR("UI: the frame ended inside window {}", root_->id);
         end_root();
     }
+    settle_layers();
     navigate();
     in_frame_ = false;
     // A deadline already reached is no reason to sleep.

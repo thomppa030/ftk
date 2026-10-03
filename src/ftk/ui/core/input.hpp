@@ -139,6 +139,9 @@ struct PointerStyle {
     double long_press_time{0.5};
     /// The longest fingers may be down for their lifting to be a tap.
     double tap_time{0.3};
+    /// How long the mouse rests on a widget before its tooltip shows
+    /// (sheet 5).
+    double tooltip_delay{0.15};
 };
 
 /// A pointer as the frame sees it.

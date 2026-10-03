@@ -68,6 +68,7 @@ void Context::apply(const PointerEvent& event) {
         p.now = event.sample;
         p.samples.push_back(event.sample);
     };
+    if (event.kind != PointerEvent::Kind::Leave) last_pointer_position_ = event.sample.position;
     const uint8_t bit = button_bit(event.button);
     const std::size_t b = index(event.button);
     switch (event.kind) {
@@ -116,6 +117,8 @@ void Context::apply(const PointerEvent& event) {
 }
 
 void Context::take_input() {
+    // A drag that ended last frame is over.
+    if (drag_.ended) drag_ = Drag{};
     // What the last frame let go of is free again, and so is what was held
     // by a widget that wasn't drawn, or by a palm; lifted fingers are
     // forgotten.
@@ -161,17 +164,27 @@ void Context::take_input() {
         if (p.type == PointerType::Pen && p.present) kept.pen_near = true;
         const Hit* top = p.present ? top_hit(kept.hits, p.now.position) : nullptr;
         tracked.top = top != nullptr ? top->id : 0;
+        tracked.top_panel = top != nullptr ? top->panel : 0;
         if (p.pressed != 0) {
             const glm::vec2 at = p.press_position[index(first_button(p.pressed))];
             // Gestures measure a finger that came down this frame from there.
             if (tracked.holder == 0) tracked.frame_start = at;
             const Hit* pressed = top_hit(kept.hits, at);
             tracked.press_top = pressed != nullptr ? pressed->id : 0;
+            const Id panel_pressed = pressed != nullptr ? pressed->panel : 0;
             // A press brings the panel it lands in to the front.
-            if (pressed != nullptr && pressed->panel != 0) {
+            if (panel_pressed != 0) {
                 for (const auto& panel : kept.panels) {
-                    if (panel->id == pressed->panel) panel->order = kept.next_order++;
+                    if (panel->id == panel_pressed) panel->order = kept.next_order++;
                 }
+            }
+            // It closes the popups it isn't in: those over the one it is in,
+            // or every one of the window when it is in none.
+            const auto in_popup = std::ranges::find(popups_, panel_pressed, &OpenPopup::id);
+            if (in_popup != popups_.end()) {
+                close_popups_from(static_cast<std::size_t>(in_popup - popups_.begin()) + 1);
+            } else {
+                std::erase_if(popups_, [&](const OpenPopup& open) { return open.root == p.root; });
             }
         }
         // The wheel turns the innermost area under the mouse that can still
@@ -328,6 +341,7 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
     in.stroke = in.held && !in.cancelled && (!finger || (!sense.pen_only && most_touches < 2));
 
     any_hovered_ = any_hovered_ || in.hovered;
+    if (in.hovered) hover_next_ = id;
     last_interaction_ = in;
     return in;
 }
