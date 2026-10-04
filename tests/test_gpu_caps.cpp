@@ -24,6 +24,12 @@ TEST_CASE("What a GPU lacks of what a program requires is named", "[gpu][caps]")
     CHECK(missing[2] == "ray queries");
 }
 
+TEST_CASE("A GPU without block compression is named short of it", "[gpu][caps]") {
+    CHECK(missing_caps(Caps{.block_compression = true}, Caps{.block_compression = true}).empty());
+    CHECK(missing_caps(Caps{}, Caps{.block_compression = true}) ==
+          std::vector<std::string>{"block-compressed textures (BC4 to BC7)"});
+}
+
 TEST_CASE("A limit is met by any GPU that reaches it", "[gpu][caps]") {
     const Caps gpu{.mesh_shaders = true, .mesh_max_output_vertices = 256, .mesh_max_output_primitives = 256};
     CHECK(missing_caps(gpu, Caps{.mesh_shaders = true, .mesh_max_output_vertices = 256}).empty());

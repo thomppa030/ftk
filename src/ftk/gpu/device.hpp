@@ -49,6 +49,9 @@ struct Caps {
     /// Whether the GPU builds acceleration structures and traces them with
     /// ray queries. Without it none can be made.
     bool ray_queries{false};
+    /// Whether the GPU samples the block-compressed formats, BC4 to BC7.
+    /// Without it no texture of one can be made.
+    bool block_compression{false};
 };
 
 /// What `caps` falls short of in `required`, one phrase each ("mesh shaders",
@@ -104,7 +107,9 @@ public:
     [[nodiscard]] Result<Owned<Buffer>> create(const BufferDesc& desc);
 
     /// A texture as described, holding `desc.initial` before the next frame
-    /// when one is given.
+    /// when one is given. A block-compressed one is a 2D texture, array or
+    /// cube with one sample, only sampled, on a GPU with
+    /// `Caps::block_compression`.
     /// @return the texture, or the reason it could not be made (the message
     ///         names it).
     [[nodiscard]] Result<Owned<Texture>> create(const TextureDesc& desc);

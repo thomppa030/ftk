@@ -35,7 +35,8 @@ struct TextureUploadDesc {
     /// What it is used as afterwards.
     AccessSet after{Access::sampled_fragment};
     /// Fills every mip after the first from it, filtered. The write is then
-    /// to the whole of mip 0.
+    /// to the whole of mip 0. A block-compressed texture's mips are each
+    /// written instead.
     bool generate_mips{false};
 };
 
@@ -78,8 +79,10 @@ public:
 
     /// Copies `bytes`, texels packed row after row, then slice after slice
     /// and layer after layer, into `region` of `dst`: a view of one mip and
-    /// the layers it writes. A write that does not fit is reported and not
-    /// made.
+    /// the layers it writes. A block-compressed texture takes rows of 4 × 4
+    /// blocks, and its region starts and ends on a block, or at the mip's
+    /// edge (`packed_size` gives the bytes). A write that does not fit is
+    /// reported and not made.
     void to_texture(const TextureView& dst, const TextureRegion& region,
                     std::span<const std::byte> bytes, const TextureUploadDesc& desc = {});
 

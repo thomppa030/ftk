@@ -78,13 +78,27 @@ TEST_CASE("A clear writes without reading what was there", "[gpu][access]") {
     CHECK_FALSE(access_is_read(Access::clear));
 }
 
-TEST_CASE("Every format copied through a buffer has a texel size", "[gpu][format]") {
-    for (int i = 1; i <= static_cast<int>(Format::d32_float_s8_uint); ++i) {
+TEST_CASE("Every format copied through a buffer has a texel size or a block size", "[gpu][format]") {
+    for (int i = 1; i <= static_cast<int>(Format::bc7_srgb); ++i) {
         const auto format = static_cast<Format>(i);
         INFO("format " << i);
-        CHECK((texel_size(format) == 0) == (format == Format::d32_float_s8_uint));
+        CHECK((texel_size(format) == 0) == (format == Format::d32_float_s8_uint || is_block_compressed(format)));
+        CHECK((block_size(format) != 0) == is_block_compressed(format));
+        CHECK((packed_size(format, 4, 4) == 0) == (format == Format::d32_float_s8_uint));
     }
     CHECK(texel_size(Format::rgba8_unorm) == 4);
     CHECK(texel_size(Format::rgba16_float) == 8);
     CHECK(texel_size(Format::rgba32_float) == 16);
+}
+
+TEST_CASE("A block-compressed format is sized by whole 4 by 4 blocks", "[gpu][format]") {
+    CHECK(packed_size(Format::bc7_srgb, 2048, 2048) == 2048ULL * 2048);
+    CHECK(packed_size(Format::bc4_unorm, 2048, 2048) == 2048ULL * 2048 / 2);
+    // A mip under a block, and an edge that ends part way through one.
+    CHECK(packed_size(Format::bc5_unorm, 2, 1) == 16);
+    CHECK(packed_size(Format::bc7_unorm, 6, 9) == 16 * 2 * 3);
+    CHECK(packed_size(Format::bc6h_ufloat, 4, 4, 3) == 16 * 3);
+    CHECK(packed_size(Format::rgba8_unorm, 6, 9) == 4 * 6 * 9);
+    CHECK(kind(Format::bc6h_ufloat) == FormatKind::color);
+    CHECK_FALSE(is_block_compressed(Format::rgba8_srgb));
 }

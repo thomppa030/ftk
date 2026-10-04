@@ -29,6 +29,14 @@ enum class Format : uint8_t {
     rgba32_float,
     d32_float,
     d32_float_s8_uint,
+    // Block-compressed: 4 × 4 texels a block, written whole from the CPU and
+    // only ever sampled. Every desktop GPU and Apple silicon samples them
+    // (`Caps::block_compression`).
+    bc4_unorm,    // one channel
+    bc5_unorm,    // two channels
+    bc6h_ufloat,  // colour above 1, no alpha
+    bc7_unorm,    // colour with alpha
+    bc7_srgb,
 };
 
 /// What a format's texels hold: which parts of the texture a view reaches, and
@@ -71,18 +79,60 @@ enum class FormatKind : uint8_t {
         case Format::rgba16_float:
         case Format::r32_float:
         case Format::rgba32_float:
+        case Format::bc4_unorm:
+        case Format::bc5_unorm:
+        case Format::bc6h_ufloat:
+        case Format::bc7_unorm:
+        case Format::bc7_srgb:
             return FormatKind::color;
     }
     return FormatKind::none;
 }
 
+/// Whether `format` stores 4 × 4 blocks of texels rather than texels: a
+/// texture of it is only sampled, and its mips are written, never filtered
+/// down on the GPU.
+[[nodiscard]] constexpr bool is_block_compressed(Format format) noexcept {
+    switch (format) {
+        case Format::bc4_unorm:
+        case Format::bc5_unorm:
+        case Format::bc6h_ufloat:
+        case Format::bc7_unorm:
+        case Format::bc7_srgb:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/// Bytes of one 4 × 4 block of a block-compressed `format`; 0 for any other.
+[[nodiscard]] constexpr uint32_t block_size(Format format) noexcept {
+    switch (format) {
+        case Format::bc4_unorm:
+            return 8;
+        case Format::bc5_unorm:
+        case Format::bc6h_ufloat:
+        case Format::bc7_unorm:
+        case Format::bc7_srgb:
+            return 16;
+        default:
+            return 0;
+    }
+}
+
 /// Bytes of one texel of `format` as it is copied to or from a buffer; 0 for
-/// `Format::undefined` and for depth with stencil, which is copied an aspect
-/// at a time.
+/// `Format::undefined`, for depth with stencil, which is copied an aspect at a
+/// time, and for the block-compressed formats, which are sized by the block
+/// (`packed_size`).
 [[nodiscard]] constexpr uint32_t texel_size(Format format) noexcept {
     switch (format) {
         case Format::undefined:
         case Format::d32_float_s8_uint:
+        case Format::bc4_unorm:
+        case Format::bc5_unorm:
+        case Format::bc6h_ufloat:
+        case Format::bc7_unorm:
+        case Format::bc7_srgb:
             return 0;
         case Format::r8_unorm:
             return 1;
@@ -109,6 +159,18 @@ enum class FormatKind : uint8_t {
             return 16;
     }
     return 0;
+}
+
+/// Bytes of a `width` × `height` × `depth` box of `format` packed as a buffer
+/// holds it, row after row: whole blocks for a block-compressed format, a part
+/// block at the box's edge taking a whole one. 0 for a format with no texel
+/// size that is not block-compressed.
+[[nodiscard]] constexpr uint64_t packed_size(Format format, uint32_t width, uint32_t height,
+                                             uint32_t depth = 1) noexcept {
+    if (is_block_compressed(format)) {
+        return uint64_t{block_size(format)} * ((width + 3) / 4) * ((height + 3) / 4) * depth;
+    }
+    return uint64_t{texel_size(format)} * width * height * depth;
 }
 
 /// A vertex attribute's format, kept apart from `Format` as Metal keeps its

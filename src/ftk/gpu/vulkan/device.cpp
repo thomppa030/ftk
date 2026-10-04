@@ -206,6 +206,7 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
         TracyVkContextName(profiler, context_name.c_str(), static_cast<uint16_t>(context_name.size()));
     }
 #endif
+    caps.block_compression = vk.block_compression_supported();
     caps.ray_queries = vk.ray_tracing_supported();
     if (caps.ray_queries) {
         create_acceleration = vk.create_accel_struct_fn();
@@ -511,6 +512,17 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     if (!layers_fit) {
         return make_error(described("Texture", desc.name) + " asks for " + std::to_string(desc.layers) +
                           " layers but is not a 2D array");
+    }
+    if (is_block_compressed(desc.format)) {
+        if (!self.caps.block_compression) {
+            return make_error(described("Texture", desc.name) +
+                              " is block-compressed, which this GPU does not sample");
+        }
+        if (desc.use != TextureUse::sampled || desc.samples != Samples::x1 ||
+            desc.kind == TextureKind::tex3d) {
+            return make_error(described("Texture", desc.name) +
+                              " is block-compressed, so it is a 2D texture, array or cube that is only sampled");
+        }
     }
 
     TextureInfo info;

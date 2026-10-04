@@ -186,6 +186,9 @@ Result<const TextureRecord*> mip_chain(Device::Impl& device, Texture texture, Qu
     if (kind(record->info.format) != FormatKind::color) {
         return make_error("only a colour texture read as floats is filtered down");
     }
+    if (is_block_compressed(record->info.format)) {
+        return make_error("a block-compressed texture's mips are written, not filtered down");
+    }
     VkFormatProperties properties{};
     vkGetPhysicalDeviceFormatProperties(device.foundation.physical_device(),
                                         vulkan::to_vk(record->info.format), &properties);

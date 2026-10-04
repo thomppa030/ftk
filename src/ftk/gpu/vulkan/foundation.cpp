@@ -325,6 +325,8 @@ void Foundation::create_logical_device() {
     features.multiDrawIndirect = VK_TRUE;
     features.drawIndirectFirstInstance = VK_TRUE;
     features.independentBlend = VK_TRUE;
+    features.textureCompressionBC = supported.textureCompressionBC;
+    block_compression_supported_ = supported.textureCompressionBC == VK_TRUE;
 
     // Vulkan 1.1 shader draw parameters (for gl_BaseInstance)
     VkPhysicalDeviceVulkan11Features features_11{};

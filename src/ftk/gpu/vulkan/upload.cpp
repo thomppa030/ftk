@@ -52,8 +52,8 @@ void Upload::to_texture(const TextureView& dst, const TextureRegion& region,
         report(*device_, "a texture is written one mip at a time");
         return;
     }
-    const uint32_t texel = texel_size(view.format);
-    if (texel == 0) {
+    const bool blocks = is_block_compressed(view.format);
+    if (texel_size(view.format) == 0 && !blocks) {
         report(*device_, "the texture's format is not written from the CPU");
         return;
     }
@@ -74,7 +74,21 @@ void Upload::to_texture(const TextureView& dst, const TextureRegion& region,
         report(*device_, "mips are filled from the whole of mip 0");
         return;
     }
-    const uint64_t needed = uint64_t{texel} * box.width * box.height * box.depth * view.layer_count;
+    if (blocks) {
+        if (desc.generate_mips) {
+            report(*device_, "a block-compressed texture's mips are written, not filtered down");
+            return;
+        }
+        // A part block only sits at the mip's right or bottom edge.
+        const bool on_blocks = box.x % 4 == 0 && box.y % 4 == 0 &&
+                               (box.width % 4 == 0 || box.x + box.width == mip_width) &&
+                               (box.height % 4 == 0 || box.y + box.height == mip_height);
+        if (!on_blocks) {
+            report(*device_, "a block-compressed region starts and ends on whole blocks");
+            return;
+        }
+    }
+    const uint64_t needed = packed_size(view.format, box.width, box.height, box.depth) * view.layer_count;
     if (bytes.size() != needed) {
         report(*device_, "the region takes " + std::to_string(needed) + " bytes, " +
                              std::to_string(bytes.size()) + " were given");

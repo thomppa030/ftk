@@ -30,6 +30,9 @@ std::vector<std::string> missing_caps(const Caps& caps, const Caps& required) {
     if (required.ray_queries && !caps.ray_queries) {
         missing.emplace_back("ray queries");
     }
+    if (required.block_compression && !caps.block_compression) {
+        missing.emplace_back("block-compressed textures (BC4 to BC7)");
+    }
     return missing;
 }
 

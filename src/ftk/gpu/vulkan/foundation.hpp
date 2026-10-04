@@ -114,6 +114,8 @@ public:
     [[nodiscard]] SwapchainSupport query_swapchain_support(VkSurfaceKHR surface) const;
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
+    /// True when the GPU samples BC4 to BC7, which is then enabled.
+    [[nodiscard]] bool block_compression_supported() const { return block_compression_supported_; }
     /// Per-workgroup output ceiling a mesh shader may declare via
     /// `layout(..., max_vertices = N, max_primitives = M) out;`. Geometry
     /// generated in-shader must size its patches against these.
@@ -195,6 +197,7 @@ private:
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};
 
     bool device_fault_supported_{false};
+    bool block_compression_supported_{false};
 
     bool ray_tracing_supported_{false};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
