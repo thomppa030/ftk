@@ -27,34 +27,16 @@ bool any_button_pressed() {
 }
 
 // The window's scrollbar down its right edge, while what it holds is
-// taller than it: its grab dragged scrolls it.
-void scrollbar(Window& window, Id id) {
+// taller than it. A window no taller than its title bar, as one is before
+// it has its size, has no room for one.
+void scrollbar(const Window& window, Id id) {
     core::Context& context = ui();
-    const float room = context.scroll_max().y;
-    if (room <= 0.0f) return;
-    const Style& style = kit().style;
     const core::Rect& rect = window.rect;
-    const core::Rect track{.min = {rect.max.x - style.scrollbar_size, rect.min.y + window.bar}, .max = rect.max};
-    // A window no taller than its title bar, as one is before it has its
-    // size, has no room for one.
-    if (track.height() <= 0.0f || track.width() <= 0.0f) return;
-    const float visible = track.height();
-    const float grab = std::max(visible * visible / (visible + room), style.scrollbar_size * 2.0f);
-    const float travel = std::max(track.height() - grab, 1.0f);
-    const float offset = context.scroll().y;
-    const core::Rect thumb{.min = {track.min.x, track.min.y + travel * offset / room},
-                           .max = {track.max.x, track.min.y + travel * offset / room + grab}};
-    const core::Interaction in = context.interact(core::hash_label("#SCROLLY", id), thumb, {.beneath = true});
-    if (in.pressed) window.grab_from = offset;
-    if (in.held) {
-        const float moved = (in.position.y - in.press_position.y) / travel * room;
-        context.set_scroll({context.scroll().x, std::clamp(window.grab_from + moved, 0.0f, room)});
+    const core::Rect track{.min = {rect.max.x - kit().style.scrollbar_size, rect.min.y + window.bar}, .max = rect.max};
+    float offset = context.scroll().y;
+    if (scrollbar_at(core::hash_label("#SCROLLY", id), track, offset, track.height(), context.scroll_max().y)) {
+        context.set_scroll({context.scroll().x, offset});
     }
-    core::DrawList& dl = context.draw_list();
-    dl.rect_filled(track.min, track.max, faded(theme::surface_sunken() * glm::vec4{1.0f, 1.0f, 1.0f, 0.5f}));
-    const Color colour = in.held ? theme::surface_active() : (in.hovered ? theme::surface_hover() : theme::surface_raised());
-    dl.rect_filled(thumb.min + glm::vec2{2.0f, 2.0f}, thumb.max - glm::vec2{2.0f, 2.0f}, faded(colour),
-                   style.scrollbar_size * 0.5f);
 }
 
 // A window docked in a leaf of a dockspace: the leaf, its tabs across the

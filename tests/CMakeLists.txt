@@ -116,6 +116,7 @@ add_executable(ftk-kit-tests
     test_pages.cpp
     test_plate.cpp
     test_rail.cpp
+    test_scrollbar.cpp
     test_search.cpp
     test_sections.cpp
     test_slot.cpp

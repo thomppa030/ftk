@@ -12,6 +12,7 @@
 #include "ftk/ui/kit/edit.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/input.hpp"
+#include "ftk/ui/kit/scrollbar.hpp"
 #include "ftk/ui/kit/table.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
@@ -22,6 +23,7 @@
 
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -266,8 +268,6 @@ struct Window {
     /// Its padding and title bar, as it began this frame.
     glm::vec2 padding{0.0f};
     float bar{0.0f};
-    /// Where its scrollbar's grab was pressed, as a share of what scrolls.
-    float grab_from{0.0f};
     /// The dock node it is docked in, or 0 while it floats.
     Id dock{0};
     /// It shows this frame: false while docked behind another tab or in a
@@ -448,6 +448,10 @@ void draw_frame(core::Rect rect, const core::Interaction& in, bool active);
 core::Interaction place(Id id, core::Rect rect, core::Sense sense = {});
 /// Makes `rect` the item just drawn, one that takes nothing.
 void place_still(core::Rect rect);
+
+/// The kit's vertical scrollbar (ftk/ui/kit/scrollbar.hpp) under `id`,
+/// filling `track`: what a window's own scrollbar draws with.
+bool scrollbar_at(Id id, core::Rect track, float& offset, float visible, float room, std::span<const ScrollMark> marks = {});
 
 /// Whether `rect` lies wholly outside the clip, so nothing drawn in it shows.
 [[nodiscard]] bool out_of_clip(core::Rect rect);

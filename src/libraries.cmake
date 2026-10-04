@@ -373,6 +373,7 @@ ftk_library(ui-kit
         ftk/ui/kit/row.hpp
         ftk/ui/kit/save_bar.hpp
         ftk/ui/kit/scope.hpp
+        ftk/ui/kit/scrollbar.hpp
         ftk/ui/kit/search.hpp
         ftk/ui/kit/section.hpp
         ftk/ui/kit/selectable.hpp
@@ -443,6 +444,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/row.cpp
         ftk/ui/kit/core/save_bar.cpp
         ftk/ui/kit/core/scope.cpp
+        ftk/ui/kit/core/scrollbar.cpp
         ftk/ui/kit/core/search.cpp
         ftk/ui/kit/core/section.cpp
         ftk/ui/kit/core/selectable.cpp
