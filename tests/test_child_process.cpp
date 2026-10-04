@@ -1,5 +1,6 @@
 #include "ftk/platform/child_process.hpp"
 #include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -136,3 +137,16 @@ TEST_CASE("A program's own standard streams pass bytes as they are, line breaks 
     REQUIRE(child->wait() == 0);
 }
 
+TEST_CASE("A program is found where starting it would find it", "[platform][child]") {
+    const std::filesystem::path helper = FTK_TEST_CHILD;
+    REQUIRE(ftk::platform::find_program(helper.string()) == helper);
+    REQUIRE_FALSE(ftk::platform::find_program(helper.string() + "-gone").has_value());
+    REQUIRE_FALSE(ftk::platform::find_program("ftk-no-such-program-anywhere").has_value());
+    REQUIRE_FALSE(ftk::platform::find_program("").has_value());
+    // A name alone, along the PATH, as every system has one.
+#ifdef _WIN32
+    REQUIRE(ftk::platform::find_program("cmd").has_value());
+#else
+    REQUIRE(ftk::platform::find_program("sh").has_value());
+#endif
+}

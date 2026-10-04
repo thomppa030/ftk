@@ -67,6 +67,33 @@ std::filesystem::path state_dir() {
     return known_folder(FOLDERID_LocalAppData);
 }
 
+std::optional<std::filesystem::path> find_program(std::string_view program) {
+    if (program.empty()) return std::nullopt;
+    const std::filesystem::path given(
+        std::u8string_view(reinterpret_cast<const char8_t*>(program.data()), program.size()));
+    // What CreateProcess adds to a name without an extension, and all it adds.
+    const bool bare = !given.has_extension();
+    if (given.has_parent_path()) {
+        std::filesystem::path path = given;
+        if (bare) path += L".exe";
+        std::error_code error;
+        return std::filesystem::is_regular_file(path, error) ? std::optional(path) : std::nullopt;
+    }
+    // Where CreateProcess looks: the program's own folder, the current one,
+    // the system's, then the PATH.
+    std::wstring found(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length = SearchPathW(nullptr, given.c_str(), bare ? L".exe" : nullptr,
+                                         static_cast<DWORD>(found.size()), found.data(), nullptr);
+        if (length == 0) return std::nullopt;
+        if (length < found.size()) {
+            found.resize(length);
+            return std::filesystem::path(found);
+        }
+        found.resize(length);
+    }
+}
+
 int run_command(const std::string& cmd, std::string& output) {
     output.clear();
     // _popen is the MSVC equivalent of POSIX popen

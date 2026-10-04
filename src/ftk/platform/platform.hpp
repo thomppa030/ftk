@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -35,6 +36,13 @@ inline constexpr const char* EXE_EXT = "";
 /// setting, such as unsaved work kept against a crash: $XDG_STATE_HOME,
 /// else ~/.local/state, on Linux; %LOCALAPPDATA% on Windows. Not made here.
 [[nodiscard]] std::filesystem::path state_dir();
+
+/// The file the program a command names is, found as starting the command
+/// would find it: the path itself when `program` names a folder, else the
+/// first match along the PATH. On Windows, also where Windows looks before
+/// the PATH, with `.exe` added to a name without an extension. Nothing when
+/// there is none.
+[[nodiscard]] std::optional<std::filesystem::path> find_program(std::string_view program);
 
 /// Runs a shell command, captures stdout+stderr. Returns exit code.
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);

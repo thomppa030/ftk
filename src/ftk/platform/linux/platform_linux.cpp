@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +50,30 @@ std::filesystem::path config_dir() {
 
 std::filesystem::path state_dir() {
     return xdg_dir("XDG_STATE_HOME", ".local/state");
+}
+
+std::optional<std::filesystem::path> find_program(std::string_view program) {
+    const auto runnable = [](const std::filesystem::path& path) {
+        std::error_code error;
+        return std::filesystem::is_regular_file(path, error) && ::access(path.c_str(), X_OK) == 0;
+    };
+    if (program.empty()) return std::nullopt;
+    if (program.find('/') != std::string_view::npos) {
+        const std::filesystem::path path(program);
+        return runnable(path) ? std::optional(path) : std::nullopt;
+    }
+    // Without a PATH, the folders execvp() looks in then.
+    const char* set = std::getenv("PATH");
+    const std::string_view folders = set != nullptr ? set : "/bin:/usr/bin";
+    for (std::size_t start = 0; start <= folders.size();) {
+        const std::size_t end = std::min(folders.find(':', start), folders.size());
+        const std::string_view folder = folders.substr(start, end - start);
+        // An empty entry is the current folder.
+        const std::filesystem::path path = std::filesystem::path(folder.empty() ? "." : folder) / program;
+        if (runnable(path)) return path;
+        start = end + 1;
+    }
+    return std::nullopt;
 }
 
 int run_command(const std::string& cmd, std::string& output) {
