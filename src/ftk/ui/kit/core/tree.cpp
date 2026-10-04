@@ -133,12 +133,12 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     const float twisty_x = min.x + ROW_PAD + static_cast<float>(spec.depth) * indent();
     if (in.clicked) {
         const float pointer = in.press_position.x;
-        if (spec.has_children && pointer >= twisty_x && pointer < twisty_x + twisty()) {
+        const bool on_chevron = pointer >= twisty_x && pointer < twisty_x + twisty();
+        if (spec.has_children && (on_chevron || spec.fold_on_click)) {
             open = !open;
             store_bool(open_id, open);
-        } else {
-            result.clicked = true;
         }
+        result.clicked = !(spec.has_children && on_chevron);
     }
     result.double_clicked = hovered && in.double_clicked;
 

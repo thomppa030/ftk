@@ -81,6 +81,10 @@ struct TreeRowSpec {
     bool force_open{false};
     /// Whether the row is open before the user first folds or unfolds it.
     bool starts_open{true};
+    /// A press anywhere on the row folds or unfolds it, as on a file tree's
+    /// folder, and still counts as a click; otherwise only the chevron
+    /// folds.
+    bool fold_on_click{false};
     /// The owner's rename, drawn in this row when it holds `key`.
     RenameBox* rename{nullptr};
     std::uint32_t key{0};

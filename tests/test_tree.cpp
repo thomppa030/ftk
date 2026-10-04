@@ -70,6 +70,32 @@ TEST_CASE("A tree row is 24 px, selects on a click and folds from its chevron", 
     CHECK_FALSE(t.child_drawn);
 }
 
+TEST_CASE("A row that folds on a click folds from anywhere on it, and is clicked", "[ui][kit]") {
+    KitHarness h;
+    int clicks = 0;
+    bool child_drawn = false;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##files")) {
+            const auto folder = ui::tree_row({.id = "scripts", .name = "scripts", .has_children = true,
+                                              .starts_open = false, .fold_on_click = true});
+            h.mark("folder");
+            if (folder.clicked) ++clicks;
+            child_drawn = folder.open;
+            if (folder.open) (void)ui::tree_row({.id = "coin", .name = "coin.cpp", .depth = 1});
+        }
+    });
+    h.step(2);
+    REQUIRE_FALSE(child_drawn);
+    const auto folder = h.rect("folder");
+    h.drag({folder.min.x + 80.0f, folder.centre().y}, {folder.min.x + 80.0f, folder.centre().y});
+    h.step();
+    CHECK(child_drawn);
+    CHECK(clicks == 1);
+    h.drag({folder.min.x + 80.0f, folder.centre().y}, {folder.min.x + 80.0f, folder.centre().y});
+    h.step();
+    CHECK_FALSE(child_drawn);
+}
+
 TEST_CASE("A search opens a folded row without unfolding it for good", "[ui][kit]") {
     SmallTree t;
     const glm::vec2 min = t.h.rect("folder").min;
