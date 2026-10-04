@@ -119,3 +119,13 @@ TEST_CASE("A command line reads back on Windows as the arguments it was made fro
     REQUIRE(ftk::platform::detail::command_line<char>(args) ==
             "prog \"a b\" \"\" \"x\\\"y\" c:\\dir\\ \"ends in\\\\\" \"a\\\\\\\\\\\"b\"");
 }
+
+TEST_CASE("A program's own standard streams pass bytes as they are, line breaks and all", "[platform][child]") {
+    auto child = start_helper({"stdio"});
+    const std::string bytes = "Content-Length: 2\r\n\r\n{}\n\x01\xff";
+    REQUIRE(child->write(bytes).has_value());
+    child->close_input();
+    REQUIRE(read_all(*child) == bytes);
+    REQUIRE(child->wait() == 0);
+}
+

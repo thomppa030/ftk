@@ -1,5 +1,7 @@
 #include "ftk/platform/child_process.hpp"
 
+#include "ftk/platform/linux/pipes.hpp"
+
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -40,15 +42,6 @@ std::string reason(int error) {
 // signal ended it.
 int code_of(int status) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
-Result<std::size_t> read_from(int fd, std::span<char> into) {
-    if (fd < 0) return std::size_t{0};
-    for (;;) {
-        const ssize_t got = ::read(fd, into.data(), into.size());
-        if (got >= 0) return static_cast<std::size_t>(got);
-        if (errno != EINTR) return make_error(std::format("can't read from the child: {}", reason(errno)));
-    }
 }
 
 // A pipe both of whose ends close as a program is run, so no child keeps
@@ -154,39 +147,7 @@ ChildProcess::~ChildProcess() {
 }
 
 Result<> ChildProcess::write(std::string_view bytes) {
-    if (impl_->input < 0) return make_error("the child's input is closed");
-    // Writing to a pipe no one reads raises SIGPIPE, which would end this
-    // program: it is held back on this thread while writing, and taken
-    // away if the write raised it.
-    sigset_t pipe_signal;
-    sigset_t before;
-    ::sigemptyset(&pipe_signal);
-    ::sigaddset(&pipe_signal, SIGPIPE);
-    ::pthread_sigmask(SIG_BLOCK, &pipe_signal, &before);
-    sigset_t pending;
-    ::sigpending(&pending);
-    const bool already_pending = ::sigismember(&pending, SIGPIPE) == 1;
-
-    Result<> result{};
-    while (!bytes.empty()) {
-        const ssize_t wrote = ::write(impl_->input, bytes.data(), bytes.size());
-        if (wrote < 0) {
-            if (errno == EINTR) continue;
-            result = make_error(std::format("can't write to the child: {}", reason(errno)));
-            break;
-        }
-        bytes.remove_prefix(static_cast<std::size_t>(wrote));
-    }
-
-    if (!already_pending) {
-        ::sigpending(&pending);
-        if (::sigismember(&pending, SIGPIPE) == 1) {
-            const timespec now{};
-            ::sigtimedwait(&pipe_signal, nullptr, &now);
-        }
-    }
-    ::pthread_sigmask(SIG_SETMASK, &before, nullptr);
-    return result;
+    return detail::write_all(impl_->input, bytes, "the child's input");
 }
 
 void ChildProcess::close_input() {
@@ -194,11 +155,11 @@ void ChildProcess::close_input() {
 }
 
 Result<std::size_t> ChildProcess::read(std::span<char> into) {
-    return read_from(impl_->output, into);
+    return detail::read_some(impl_->output, into, "the child's output");
 }
 
 Result<std::size_t> ChildProcess::read_errors(std::span<char> into) {
-    return read_from(impl_->errors, into);
+    return detail::read_some(impl_->errors, into, "the child's errors");
 }
 
 std::optional<int> ChildProcess::exit_code() {

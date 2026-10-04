@@ -1,5 +1,7 @@
 #include "ftk/platform/platform.hpp"
 
+#include "ftk/platform/linux/pipes.hpp"
+
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -109,6 +111,14 @@ Result<> exec_replace(const std::vector<std::string>& args) {
     execvp(argv[0], const_cast<char* const*>(argv.data()));
     // execvp only returns on failure
     return make_error("exec_replace: execvp failed");
+}
+
+Result<std::size_t> read_standard_input(std::span<char> into) {
+    return detail::read_some(STDIN_FILENO, into, "standard input");
+}
+
+Result<> write_standard_output(std::string_view bytes) {
+    return detail::write_all(STDOUT_FILENO, bytes, "standard output");
 }
 
 Result<> open_path(const std::filesystem::path& path) {

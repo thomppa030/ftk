@@ -7,9 +7,15 @@
 //     folder      writes the folder it runs in
 //     args ...    writes each argument after "args", a zero byte after each
 //     wait        reads its input until it ends
+//     stdio       copies its input to its output through the platform's own
+//                 standard streams, byte for byte
 //
-// It writes no line breaks, which Windows would change on the way out.
+// It writes no line breaks, which Windows would change on the way out
+// through the C library; stdio's bytes pass as they are.
 
+#include "ftk/platform/platform.hpp"
+
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +35,13 @@ int main(int argc, char** argv) {
         std::fputs(std::filesystem::current_path().string().c_str(), stdout);
     } else if (does == "args") {
         for (int i = 2; i < argc; ++i) std::fwrite(argv[i], 1, std::strlen(argv[i]) + 1, stdout);
+    } else if (does == "stdio") {
+        std::array<char, 64> buffer{};
+        for (;;) {
+            const auto got = ftk::platform::read_standard_input(buffer);
+            if (!got || *got == 0) break;
+            if (!ftk::platform::write_standard_output(std::string_view(buffer.data(), *got))) return 3;
+        }
     } else if (does == "wait") {
         while (std::getchar() != EOF) {
         }

@@ -2,9 +2,12 @@
 
 #include "ftk/base/result.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ftk::platform {
@@ -43,6 +46,17 @@ Result<> spawn_detached(const std::vector<std::string>& args);
 /// Replace the current process with a new executable.
 /// args[0] is the executable path. Does not return on success.
 Result<> exec_replace(const std::vector<std::string>& args);
+
+/// Waits for what comes on this program's standard input and reads it into
+/// `into`, as bytes, whatever the system would make of them as text: for a
+/// program talked to through its standard streams, as a language server
+/// is. @return how many bytes, none once the input has ended, or why it
+///         couldn't be read
+[[nodiscard]] Result<std::size_t> read_standard_input(std::span<char> into);
+
+/// Writes all of `bytes` to this program's standard output as they are,
+/// past any buffering. @return nothing, or an error once no one reads it
+[[nodiscard]] Result<> write_standard_output(std::string_view bytes);
 
 /// Open a file or directory with the system default handler.
 /// (xdg-open on Linux, ShellExecuteA on Windows)

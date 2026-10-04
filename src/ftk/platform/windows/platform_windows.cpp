@@ -1,6 +1,7 @@
 #include "ftk/platform/platform.hpp"
 
 #include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/windows/pipes.hpp"
 
 #ifndef _WIN32
 #error "This file should only be compiled on Windows"
@@ -135,6 +136,14 @@ Result<> exec_replace(const std::vector<std::string>& args) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     ExitProcess(exit_code);
+}
+
+Result<std::size_t> read_standard_input(std::span<char> into) {
+    return detail::read_some(GetStdHandle(STD_INPUT_HANDLE), into, "standard input");
+}
+
+Result<> write_standard_output(std::string_view bytes) {
+    return detail::write_all(GetStdHandle(STD_OUTPUT_HANDLE), bytes, "standard output");
 }
 
 Result<> open_path(const std::filesystem::path& path) {

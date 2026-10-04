@@ -52,6 +52,8 @@ ftk_library(math
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(FTK_PLATFORM_SOURCES
         ftk/platform/linux/child_process_linux.cpp
+        ftk/platform/linux/pipes.cpp
+        ftk/platform/linux/pipes.hpp
         ftk/platform/linux/platform_linux.cpp
         ftk/platform/linux/file_watcher_linux.cpp
         ftk/platform/linux/shared_library_linux.cpp
@@ -61,6 +63,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(FTK_PLATFORM_SOURCES
         ftk/platform/windows/child_process_windows.cpp
+        ftk/platform/windows/pipes.cpp
+        ftk/platform/windows/pipes.hpp
         ftk/platform/windows/platform_windows.cpp
         ftk/platform/windows/file_watcher_windows.cpp
         ftk/platform/windows/shared_library_windows.cpp

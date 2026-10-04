@@ -1,6 +1,7 @@
 #include "ftk/platform/child_process.hpp"
 
 #include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/windows/pipes.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -40,32 +41,6 @@ std::wstring wide(std::string_view utf8) {
     std::wstring out(static_cast<std::size_t>(size), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), out.data(), size);
     return out;
-}
-
-std::string reason(DWORD error) {
-    wchar_t* text = nullptr;
-    const DWORD length = FormatMessageW(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, error, 0,
-        reinterpret_cast<wchar_t*>(&text), 0, nullptr);
-    std::string out = std::format("error {}", error);
-    if (length > 0 && text != nullptr) {
-        const int size = WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
-        out.assign(static_cast<std::size_t>(size), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(length), out.data(), size, nullptr, nullptr);
-        while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == '.')) out.pop_back();
-    }
-    if (text != nullptr) LocalFree(text);
-    return out;
-}
-
-Result<std::size_t> read_from(HANDLE pipe, std::span<char> into) {
-    if (pipe == nullptr) return std::size_t{0};
-    DWORD got = 0;
-    if (ReadFile(pipe, into.data(), static_cast<DWORD>(into.size()), &got, nullptr)) return std::size_t{got};
-    const DWORD error = GetLastError();
-    // The child closed its end, or ended: the end of what it writes.
-    if (error == ERROR_BROKEN_PIPE) return std::size_t{0};
-    return make_error(std::format("can't read from the child: {}", reason(error)));
 }
 
 // A pipe whose end `kept` stays with this program, never handed to a
@@ -119,7 +94,7 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(std::span<const std::s
     if (!made) {
         const DWORD error = GetLastError();
         close_all();
-        return make_error(std::format("can't make pipes for {}: {}", args[0], reason(error)));
+        return make_error(std::format("can't make pipes for {}: {}", args[0], detail::reason(error)));
     }
 
     // Only the child's three handles go to it, whatever else this program
@@ -134,7 +109,7 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(std::span<const std::s
                                    nullptr)) {
         const DWORD error = GetLastError();
         close_all();
-        return make_error(std::format("can't hand {} its pipes: {}", args[0], reason(error)));
+        return make_error(std::format("can't hand {} its pipes: {}", args[0], detail::reason(error)));
     }
 
     STARTUPINFOEXW info{};
@@ -163,7 +138,7 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(std::span<const std::s
     close_handle(errors_write);
     if (!ran) {
         close_all();
-        return make_error(std::format("can't run {}: {}", args[0], reason(failure)));
+        return make_error(std::format("can't run {}: {}", args[0], detail::reason(failure)));
     }
     CloseHandle(started.hThread);
 
@@ -185,15 +160,7 @@ ChildProcess::~ChildProcess() {
 }
 
 Result<> ChildProcess::write(std::string_view bytes) {
-    if (impl_->input == nullptr) return make_error("the child's input is closed");
-    while (!bytes.empty()) {
-        DWORD wrote = 0;
-        if (!WriteFile(impl_->input, bytes.data(), static_cast<DWORD>(bytes.size()), &wrote, nullptr)) {
-            return make_error(std::format("can't write to the child: {}", reason(GetLastError())));
-        }
-        bytes.remove_prefix(wrote);
-    }
-    return {};
+    return detail::write_all(impl_->input, bytes, "the child's input");
 }
 
 void ChildProcess::close_input() {
@@ -201,11 +168,11 @@ void ChildProcess::close_input() {
 }
 
 Result<std::size_t> ChildProcess::read(std::span<char> into) {
-    return read_from(impl_->output, into);
+    return detail::read_some(impl_->output, into, "the child's output");
 }
 
 Result<std::size_t> ChildProcess::read_errors(std::span<char> into) {
-    return read_from(impl_->errors, into);
+    return detail::read_some(impl_->errors, into, "the child's errors");
 }
 
 std::optional<int> ChildProcess::exit_code() {
