@@ -2,13 +2,16 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tree.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <optional>
 #include <string>
+#include <utility>
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
@@ -203,4 +206,46 @@ TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     h.step(2);
     CHECK_FALSE(folded_open);
     CHECK(default_open);
+}
+
+TEST_CASE("Rows in view draws only the rows its region shows, and the region scrolls over them all", "[ui][kit]") {
+    KitHarness h;
+    constexpr std::size_t COUNT = 1000;
+    constexpr float SHOWN = 5.0f;
+    std::optional<std::size_t> reveal;
+    std::size_t first = 0;
+    std::size_t drawn = 0;
+    float scroll_max = 0.0f;
+    h.set_ui([&] {
+        if (auto list = ui::Region("##list", {200.0f, SHOWN * theme::TREE_ROW})) {
+            if (auto tree = ui::Tree("##rows")) {
+                const ui::RowsInView rows(COUNT, std::exchange(reveal, std::nullopt));
+                first = rows.first();
+                drawn = 0;
+                for (std::size_t i = rows.first(); i < rows.end(); ++i) {
+                    const std::string id = std::to_string(i);
+                    (void)ui::tree_row({.id = id.c_str(), .name = id});
+                    ++drawn;
+                }
+            }
+            scroll_max = ui::scroll_max_y();
+        }
+        // The region, where it is on screen.
+        h.mark("list");
+    });
+    h.step(2);
+    CHECK(first == 0);
+    CHECK(drawn <= static_cast<std::size_t>(SHOWN) + 1);
+    // The room of every row, less the screenful shown.
+    CHECK(scroll_max >= (static_cast<float>(COUNT) - SHOWN) * theme::TREE_ROW);
+
+    // A row far down, revealed, is drawn wholly inside the region.
+    reveal = 500;
+    h.step(3);
+    REQUIRE(first <= 500);
+    REQUIRE(500 < first + drawn);
+    const auto* row = h.find("500", ftk::ui::core::Role::TreeItem);
+    REQUIRE(row != nullptr);
+    CHECK(row->rect.min.y >= h.rect("list").min.y);
+    CHECK(row->rect.max.y <= h.rect("list").max.y);
 }
