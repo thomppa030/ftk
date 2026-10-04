@@ -64,3 +64,50 @@ TEST_CASE("A press on a plate's button leaves the keyboard where it was", "[ui][
     CHECK(clicked == 1);
     CHECK(text == "abc");
 }
+
+TEST_CASE("A card hangs under its anchor inside its view, and takes the pointer over what it covers", "[ui][kit][plate]") {
+    KitHarness h;
+    int under = 0;
+    int clicked = 0;
+    const glm::vec2 view_min{20.0f, 20.0f};
+    const glm::vec2 view_max{620.0f, 420.0f};
+    h.set_ui([&] {
+        ui::core::Context& context = ui::core::current();
+        const auto in = context.interact(context.id("##view"), {.min = view_min, .max = view_max},
+                                         {.beneath = true, .overlap = true});
+        under += in.pressed ? 1 : 0;
+        // A word near the view's right edge: the card is pushed back in.
+        if (auto card = ui::Card("##card", {.view_min = view_min, .view_max = view_max,
+                                            .anchor_min = {580.0f, 100.0f}, .anchor_max = {600.0f, 120.0f},
+                                            .width = 200.0f, .padding = {12.0f, 10.0f}})) {
+            if (ui::button("Go")) ++clicked;
+            h.mark("go");
+        }
+    });
+    h.step(2);
+
+    const ui::core::Rect go = h.rect("go");
+    CHECK(go.min.y > 120.0f);
+    CHECK(go.min.x >= view_max.x - ui::PLATE_INSET - 200.0f + 12.0f - 0.5f);
+    h.click("go");
+    CHECK(clicked == 1);
+    // Its padding beside the button, then the view clear of it.
+    h.click_at({go.max.x + 30.0f, go.centre().y});
+    CHECK(under == 0);
+    h.click_at({view_min.x + 40.0f, view_max.y - 40.0f});
+    CHECK(under == 1);
+}
+
+TEST_CASE("A card with no room under its anchor hangs over it", "[ui][kit][plate]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto card = ui::Card("##card", {.view_min = {0.0f, 0.0f}, .view_max = {600.0f, 420.0f},
+                                            .anchor_min = {100.0f, 390.0f}, .anchor_max = {140.0f, 410.0f},
+                                            .width = 200.0f, .padding = {12.0f, 10.0f}})) {
+            (void)ui::button("Go");
+            h.mark("go");
+        }
+    });
+    h.step(3);
+    CHECK(h.rect("go").max.y < 390.0f);
+}
