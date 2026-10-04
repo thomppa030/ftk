@@ -31,8 +31,10 @@ Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace 
 
     // It takes the pointer over all of it, beneath what it holds: placed
     // first, letting what follows go over it. As tall as it was last frame,
-    // which is how tall it is but on the frame it opens.
+    // which is how tall it is but on the frame it opens. A press on it, or
+    // on a button it holds, leaves the keyboard where it is.
     const core::Rect area{.min = min_, .max = min_ + glm::vec2{width, stored_float(height_id_, 0.0f)}};
+    ++kit().keeps_keyboard;
     kit().next.allow_overlap = true;
     (void)place(context.id("##plate"), area, {.left = true, .right = true, .middle = true});
 
@@ -48,6 +50,7 @@ Plate::~Plate() {
     core::Context& context = ui();
     const core::Rect held = context.layout().end_group();
     pop_style();
+    --kit().keeps_keyboard;
 
     // Its surface, drawn once what it holds is and put beneath that.
     const glm::vec2 max{min_.x + width_, held.max.y + PAD};

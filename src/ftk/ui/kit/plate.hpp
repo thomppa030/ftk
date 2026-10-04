@@ -2,7 +2,9 @@
 
 // A plate floating over a view (sheet 39): find over the top right of a code
 // view, go to line at its top centre. It holds kit items laid out in rows,
-// takes the pointer everywhere over it, and moves nothing it covers. What it
+// takes the pointer everywhere over it, and moves nothing it covers. A press
+// on it, or on a button it holds, leaves the keyboard where it is: a find
+// field goes on taking the typing past a click on Replace. What it
 // floats over must let it: kit items do, and a widget of its own lets it by
 // taking the pointer with core::Sense{.beneath = true, .overlap = true}.
 //

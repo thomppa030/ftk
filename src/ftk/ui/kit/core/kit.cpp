@@ -161,6 +161,7 @@ core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
     Kit& k = kit();
     sense.beneath = true;
     sense.overlap = k.next.allow_overlap;
+    sense.keeps_keyboard = sense.keeps_keyboard || k.keeps_keyboard > 0;
     keep_line_drop(k, std::abs(rect.height() - frame_height()) < 0.5f);
     k.next = {};
     const core::Interaction in = ui().interact(id, rect, sense);

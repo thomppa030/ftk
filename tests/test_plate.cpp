@@ -3,6 +3,9 @@
 #include "ftk/ui/core/context.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/plate.hpp"
+#include "ftk/ui/kit/text_field.hpp"
+
+#include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -39,4 +42,25 @@ TEST_CASE("A plate takes the pointer over what it floats on, and its items over 
     CHECK(go.min.x > view_max.x - ui::PLATE_INSET - 200.0f);
     CHECK(go.max.x < view_max.x - ui::PLATE_INSET);
     CHECK(go.min.y > view_min.y + ui::PLATE_INSET);
+}
+
+TEST_CASE("A press on a plate's button leaves the keyboard where it was", "[ui][kit][plate]") {
+    KitHarness h;
+    std::string text;
+    int clicked = 0;
+    h.set_ui([&] {
+        (void)ui::text_entry("##text", text);
+        h.mark("text");
+        if (auto plate = ui::Plate("##plate", {0.0f, 100.0f}, {600.0f, 400.0f}, ui::PlatePlace::TopCenter, 200.0f)) {
+            if (ui::button("Go")) ++clicked;
+            h.mark("go");
+        }
+    });
+    h.step(2);
+    h.click("text");
+    h.type("ab");
+    h.click("go");
+    h.type("c");
+    CHECK(clicked == 1);
+    CHECK(text == "abc");
 }

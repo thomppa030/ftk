@@ -44,7 +44,8 @@ struct FindField {
 };
 
 /// The find field, as wide as the item width: the query, written as it is
-/// typed, and `toggles` inside the field's end, each flipped by a click.
+/// typed, and `toggles` inside the field's end, each flipped by a click that
+/// leaves the keyboard in the field.
 FindField find_field(const char* id, std::string& query, FindToggles& toggles, FindFieldOptions options = {});
 
 /// What a replace field did this frame.

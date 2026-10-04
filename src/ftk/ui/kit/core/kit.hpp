@@ -338,6 +338,9 @@ public:
     /// drawn: a field's padding once the line holds a field or was set
     /// level with one, as ImGui keeps a line's text offset.
     float line_drop{0.0f};
+    /// While above zero, a press on what is placed leaves the keyboard
+    /// where it is (core::Sense::keeps_keyboard): on a plate.
+    int keeps_keyboard{0};
     NextItem next{};
     NextWindow next_window{};
     /// The colours text is drawn in, the innermost last; the theme's text

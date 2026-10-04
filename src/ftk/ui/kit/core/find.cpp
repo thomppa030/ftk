@@ -38,7 +38,8 @@ constexpr Toggle TOGGLES[] = {
 bool inner_toggle(const Toggle& toggle, core::Rect rect, bool on) {
     core::Context& context = ui();
     const Id id = context.id(toggle.id);
-    const core::Interaction in = place(id, rect);
+    // A click leaves the keyboard in the field.
+    const core::Interaction in = place(id, rect, {.keeps_keyboard = true});
     context.semantics(id, core::Role::Toggle, toggle.tooltip, {}, {.checked = on}, rect);
     item_tooltip(toggle.tooltip);
 

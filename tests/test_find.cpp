@@ -120,3 +120,16 @@ TEST_CASE("A replace field replaces on Enter, keeping the keyboard, and closes o
     CHECK(closed == 1);
     CHECK(replacement == "strip");
 }
+
+TEST_CASE("A click on a find field's toggle leaves the keyboard in the field", "[ui][kit][find]") {
+    KitHarness h;
+    FindSample find;
+    h.set_ui([&] { find.draw(h); });
+    h.step(2);
+    h.click("field");
+    h.type("ba");
+    h.click_at(h.find("Match case", ftk::ui::core::Role::Toggle)->rect.centre());
+    h.type("nd");
+    CHECK(find.query == "band");
+    CHECK(find.toggles.match_case);
+}
