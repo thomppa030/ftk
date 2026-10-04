@@ -298,7 +298,7 @@ void KitGallery::find_sample() {
         const float replace_width = text_size(replace_label).x + 2.0f * frame_padding().x;
         const float all_width = text_size("Replace all").x + 2.0f * frame_padding().x;
         next_width(plate.inner_width() - replace_width - all_width - 2.0f * gap);
-        (void)text_entry("##replace", replace_, {.hint = "Replace"});
+        (void)replace_field("##replace", replace_);
         same_line();
         (void)action(icon::replace, "Replace");
         same_line();

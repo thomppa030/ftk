@@ -95,4 +95,15 @@ FindField find_field(const char* id, std::string& query, FindToggles& toggles, F
     return out;
 }
 
+ReplaceField replace_field(const char* id, std::string& replacement, FindFieldOptions options) {
+    core::Context& context = ui();
+    const Id replacement_id = context.id(id);
+    if (options.focus) context.set_focus(replacement_id);
+    const core::Rect rect = context.layout().next({item_width(), frame_height()});
+    const TextInput in = text_input(replacement_id, rect, replacement,
+                                    {.hint = options.hint, .escape = EscapeDoes::Keep, .enter_keeps = true});
+    context.semantics(replacement_id, core::Role::TextField, shown(id), replacement);
+    return {.changed = in.changed, .replace = in.entered, .closed = in.escaped};
+}
+
 } // namespace ftk::ui

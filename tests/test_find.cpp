@@ -97,3 +97,26 @@ TEST_CASE("The toggles inside a find field flip at a click", "[ui][kit][find]") 
     h.step();
     CHECK(h.find("Regular expression", ui::core::Role::Toggle)->state.checked);
 }
+
+TEST_CASE("A replace field replaces on Enter, keeping the keyboard, and closes on Escape", "[ui][kit][find]") {
+    KitHarness h;
+    std::string replacement;
+    int replaced = 0;
+    int closed = 0;
+    h.set_ui([&] {
+        ui::next_width(300.0f);
+        const ui::ReplaceField field = ui::replace_field("##replace", replacement);
+        h.mark("field");
+        replaced += field.replace ? 1 : 0;
+        closed += field.closed ? 1 : 0;
+    });
+    h.step(2);
+    h.click("field");
+    h.type("strip");
+    h.press(ui::Key::Enter);
+    h.press(ui::Key::Enter);
+    CHECK(replaced == 2);
+    h.press(ui::Key::Escape);
+    CHECK(closed == 1);
+    CHECK(replacement == "strip");
+}
