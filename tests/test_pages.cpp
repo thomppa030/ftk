@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/save_bar.hpp"
 #include "ftk/ui/kit/section.hpp"
+#include "ftk/ui/kit/text.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -105,4 +106,17 @@ TEST_CASE("The save bar offers Save and Revert only while there are unsaved chan
     h.step();
     h.click_at(save);
     CHECK(last == ui::SaveAction::Save);
+}
+
+TEST_CASE("A note bar takes the save bar's room, so a footer left for one fits either", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::note_bar(ui::icon::folder, "Kept on this machine");
+        h.mark("bar");
+        ui::text("after");
+        h.mark("after");
+    });
+    h.step(2);
+    CHECK(h.rect("bar").height() == ui::save_bar_height());
+    CHECK(h.rect("after").min.y >= h.rect("bar").max.y);
 }

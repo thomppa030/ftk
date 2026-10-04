@@ -64,4 +64,17 @@ SaveAction save_bar(bool unsaved, const char* saves) {
     return action;
 }
 
+void note_bar(const char* icon, const char* text) {
+    core::DrawList& dl = ui().draw_list();
+    const glm::vec2 min = cursor();
+    const float width = space_left().x;
+    dl.rect_filled(min, {min.x + width, min.y + 1.0f}, faded(theme::border()));
+
+    const float x = min.x + theme::GAP_L;
+    const float y = min.y + (BAR_HEIGHT - line_height()) * 0.5f;
+    draw_text({x, y}, theme::text_disabled(), icon);
+    draw_text({x + measure(icon).x + theme::GAP_M, y}, theme::text_secondary(), text);
+    reserve({width, BAR_HEIGHT});
+}
+
 } // namespace ftk::ui
