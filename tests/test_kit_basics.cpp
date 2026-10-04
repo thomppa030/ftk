@@ -737,3 +737,23 @@ TEST_CASE("A notice strip says what wants an answer and gives the answer clicked
     h.click_at(load->rect.centre());
     CHECK(chosen == std::optional<std::size_t>{1});
 }
+
+TEST_CASE("A region that resizes keeps the width its right edge is dragged to", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto left = ui::Region("##left", {200.0f, 300.0f}, {.resize_x = true})) {}
+        h.mark("left");
+        ui::same_line(0.0f);
+        if (auto right = ui::Region("##right", {0.0f, 300.0f})) {}
+    });
+    h.step(2);
+    const auto left = h.rect("left");
+    REQUIRE(left.width() == 200.0f);
+    h.drag({left.max.x, left.centre().y}, {left.max.x + 80.0f, left.centre().y});
+    h.step(2);
+    CHECK(h.rect("left").width() == 280.0f);
+    // Not narrower than a handful of pixels.
+    h.drag({h.rect("left").max.x, left.centre().y}, {left.min.x - 100.0f, left.centre().y});
+    h.step(2);
+    CHECK(h.rect("left").width() == 60.0f);
+}

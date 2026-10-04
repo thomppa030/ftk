@@ -8,13 +8,16 @@
 //     ui::same_line();
 //     if (auto grid = ui::Region("##grid")) draw_grid();
 
+#include "ftk/ui/types.hpp"
+
 #include <glm/vec2.hpp>
 
 namespace ftk::ui {
 
 struct RegionOptions {
     bool border{false};
-    /// Its right edge can be dragged to make it wider or narrower.
+    /// Its right edge can be dragged to make it wider or narrower: `size`'s
+    /// width is where it starts, and it keeps the width it is left at.
     bool resize_x{false};
     /// A scrollbar across its bottom when its lines are wider than it.
     bool scroll_x{false};
@@ -38,6 +41,11 @@ public:
 
 private:
     bool visible_{false};
+    // Its right edge's drag: the region's width kept under this id, and
+    // where the region was, for the handle placed once it has ended.
+    Id width_id_{0};
+    glm::vec2 min_{0.0f};
+    glm::vec2 max_{0.0f};
 };
 
 } // namespace ftk::ui
