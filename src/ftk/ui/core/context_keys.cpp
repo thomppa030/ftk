@@ -163,8 +163,8 @@ void Context::set_text_input_area(Rect area) {
 void Context::navigate() {
     const Id before = focused_;
     // Its widget wasn't drawn; or a press landed somewhere that didn't take
-    // the keyboard.
-    if (focused_ != 0 && (!focus_seen_ || (any_press_ && !focus_given_))) focused_ = 0;
+    // the keyboard and doesn't leave it be.
+    if (focused_ != 0 && (!focus_seen_ || (any_press_ && !focus_given_ && !press_kept_keyboard_))) focused_ = 0;
 
     const auto usable = [&](Key key) { return key_repeated(key) && !key_claimed(key); };
     const auto at = std::ranges::find(focus_order_, focused_, &Focusable::id);

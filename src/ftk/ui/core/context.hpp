@@ -178,6 +178,10 @@ struct Sense {
     /// With beneath: the widgets placed after it go over it, as an item
     /// that allows overlap lets them.
     bool overlap{false};
+    /// A press on it leaves the keyboard where it is, rather than taking it
+    /// from the widget that has it: a find bar's buttons, which act on the
+    /// field being typed in.
+    bool keeps_keyboard{false};
 };
 
 struct RegionOptions {
@@ -896,6 +900,9 @@ private:
     // or by set_focus().
     bool focus_seen_{false};
     bool focus_given_{false};
+    // A press this frame landed on a widget that leaves the keyboard where
+    // it is.
+    bool press_kept_keyboard_{false};
     std::vector<Focusable> focus_order_;
     std::vector<std::pair<Id, Axis>> focus_scopes_;
 

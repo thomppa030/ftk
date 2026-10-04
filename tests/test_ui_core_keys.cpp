@@ -148,6 +148,31 @@ TEST_CASE("A press gives a widget the keyboard, and a press elsewhere takes it a
     CHECK_FALSE(typing);
 }
 
+TEST_CASE("A press on a widget that keeps the keyboard leaves it where it is", "[ui-core][keys]") {
+    UiHarness h;
+    core::Focus a;
+    int pressed = 0;
+    h.set_ui([&] {
+        a = field(h, "a", {.text = true});
+        core::Context& ui = h.ui();
+        const core::Interaction in =
+            ui.interact(ui.id("button"), ui.layout().next({120.0f, 24.0f}), {.keeps_keyboard = true});
+        h.mark("button");
+        pressed += in.pressed ? 1 : 0;
+    });
+    h.step();
+    h.click("a");
+    REQUIRE(a.focused);
+    h.click("button");
+    h.step();
+    CHECK(pressed == 1);
+    CHECK(a.focused);
+
+    // A press on nothing that takes it still takes it away.
+    h.click_at({700.0f, 500.0f});
+    CHECK(h.ui().focused() == 0);
+}
+
 TEST_CASE("Tab moves the keyboard in the order drawn, round, unless claimed", "[ui-core][keys]") {
     UiHarness h;
     core::Focus first;

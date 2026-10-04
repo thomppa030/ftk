@@ -297,6 +297,7 @@ Interaction Context::interact(Id id, Rect rect, Sense sense) {
             tracked.held_since = frame_;
             tracked.dragging = false;
             tracked.long_pressed = false;
+            press_kept_keyboard_ = press_kept_keyboard_ || sense.keeps_keyboard;
         }
         if (tracked.holder == id) {
             tracked.holder_seen = true;

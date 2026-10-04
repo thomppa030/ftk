@@ -57,6 +57,7 @@ void Context::begin_frame(double time) {
     if (told_focused_.size() > 4) told_focused_.erase(told_focused_.begin(), told_focused_.end() - 2);
     focus_seen_ = false;
     focus_given_ = false;
+    press_kept_keyboard_ = false;
     focus_order_.clear();
     focus_scopes_.clear();
     if (frame_ % KEEP_FRAMES == 0) sweep();
