@@ -16,6 +16,7 @@ FetchContent_GetProperties(Catch2)
 # --- Unit tests ---
 # The kit's tests are ftk-kit-tests, below.
 add_executable(ftk-tests
+    test_child_process.cpp
     test_color_space.cpp
     test_command_group.cpp
     test_delegate.cpp
@@ -76,6 +77,11 @@ ftk_compile_shaders(ftk-tests "${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${CMAKE_CUR
 target_compile_definitions(ftk-tests PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 # The text tests read ftk's own fonts.
 target_compile_definitions(ftk-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
+# The child process tests run a program of their own as the child.
+add_executable(ftk-test-child child_helper.cpp)
+ftk_target_defaults(ftk-test-child)
+add_dependencies(ftk-tests ftk-test-child)
+target_compile_definitions(ftk-tests PRIVATE FTK_TEST_CHILD="$<TARGET_FILE:ftk-test-child>")
 ftk_target_defaults(ftk-tests)
 ftk_delay_load_vulkan(ftk-tests)
 # Keeps only the shared libraries something references. The backend the
