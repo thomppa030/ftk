@@ -114,11 +114,14 @@ Focus Context::focusable(Id id, const FocusOptions& options) {
     Focus focus;
     focus.focused = focused_ == id;
     const auto told = std::ranges::find(told_focused_, id);
+    const auto lapsed = std::ranges::find(lapsed_focus_, id);
+    const bool was_lapsed = lapsed != lapsed_focus_.end();
+    if (was_lapsed) lapsed_focus_.erase(lapsed);
     if (focus.focused) {
         focus_seen_ = true;
         focused_text_ = options.text;
-        focus.gained = told == told_focused_.end();
-        if (focus.gained) told_focused_.push_back(id);
+        focus.gained = told == told_focused_.end() || was_lapsed;
+        if (told == told_focused_.end()) told_focused_.push_back(id);
     } else if (told != told_focused_.end()) {
         focus.lost = true;
         told_focused_.erase(told);
@@ -210,6 +213,14 @@ void Context::navigate() {
     if (focused_ != before) {
         focused_text_ = false;
         request_frame();
+    }
+    // Widgets told they had the keyboard, which went elsewhere while they
+    // weren't drawn.
+    for (const Id told : told_focused_) {
+        if (told != focused_ && !std::ranges::contains(focus_order_, told, &Focusable::id) &&
+            !std::ranges::contains(lapsed_focus_, told)) {
+            lapsed_focus_.push_back(told);
+        }
     }
 }
 

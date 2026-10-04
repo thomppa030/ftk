@@ -340,3 +340,41 @@ TEST_CASE("A key pressed with modifiers lets them go as it comes up", "[ui-core]
     CHECK_FALSE(seen.ctrl);
     CHECK(seen.shift);
 }
+
+TEST_CASE("A widget the keyboard left while it wasn't drawn gains it afresh when given it back", "[ui-core][keys]") {
+    UiHarness h;
+    core::Focus a;
+    core::Focus b;
+    bool show_a = true;
+    Id a_id = 0;
+    h.set_ui([&] {
+        a_id = h.ui().id("a");
+        if (show_a) a = field(h, "a", {.text = true});
+        b = field(h, "b", {.text = true});
+    });
+    h.step();
+    h.click("a");
+    h.step();
+    REQUIRE(a.focused);
+
+    // Gone, as a closed dialog's field is, while the keyboard goes to b.
+    show_a = false;
+    h.step();
+    h.click("b");
+    h.step();
+    REQUIRE(b.focused);
+
+    // Given back before it is drawn without it: it gains it, though it was
+    // never told it lost it.
+    show_a = true;
+    h.set_ui([&] {
+        h.ui().set_focus(a_id);
+        a = field(h, "a", {.text = true});
+        b = field(h, "b", {.text = true});
+    });
+    h.step();
+    CHECK(a.focused);
+    CHECK(a.gained);
+    h.step();
+    CHECK_FALSE(a.gained);
+}

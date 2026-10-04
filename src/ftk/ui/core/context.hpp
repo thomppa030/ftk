@@ -896,6 +896,10 @@ private:
     // it: one, or two in the frame it moves from one drawn earlier to one
     // drawn later.
     std::vector<Id> told_focused_;
+    // Of those, the ones the keyboard left while they weren't drawn, as a
+    // dialog's field when the dialog closes: given it back before they are
+    // drawn without it, they are told they gained it afresh.
+    std::vector<Id> lapsed_focus_;
     // Its widget was drawn this frame; it was given this frame, by a press
     // or by set_focus().
     bool focus_seen_{false};

@@ -55,6 +55,7 @@ void Context::begin_frame(double time) {
     if (input) request_frame();
     // Told it had the keyboard, then never drawn again: nothing to tell.
     if (told_focused_.size() > 4) told_focused_.erase(told_focused_.begin(), told_focused_.end() - 2);
+    std::erase_if(lapsed_focus_, [this](Id id) { return !std::ranges::contains(told_focused_, id); });
     focus_seen_ = false;
     focus_given_ = false;
     press_kept_keyboard_ = false;

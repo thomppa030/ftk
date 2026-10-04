@@ -215,3 +215,20 @@ TEST_CASE("A dialog hangs from the point it is opened at", "[ui][kit]") {
     CHECK(top_left.x + width * 0.5f == 400.0f);
     CHECK(top_left.y == 80.0f);
 }
+
+TEST_CASE("A prompt opened again after a cancel takes typing afresh", "[ui][kit]") {
+    KitHarness h;
+    Prompt prompt;
+    h.set_ui([&] { prompt.draw(); });
+    h.step(2);
+    h.type("x");
+    REQUIRE(prompt.name == "x");
+    h.press(ui::Key::Escape);
+    h.step(2);
+    REQUIRE(prompt.answer == ui::DialogAnswer::Cancel);
+    // Its name emptied before it opens again, as a prompt's is.
+    prompt = Prompt{};
+    h.step(2);
+    h.type("y");
+    REQUIRE(prompt.name == "y");
+}
