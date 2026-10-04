@@ -64,8 +64,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         ftk/platform/windows/shared_library_windows.cpp
         ftk/platform/windows/system_fonts_windows.cpp
     )
-    # DirectWrite, for the system's fallback fonts.
-    set(FTK_PLATFORM_LINKS dwrite)
+    # DirectWrite, for the system's fallback fonts; the shell and COM, for its known folders.
+    set(FTK_PLATFORM_LINKS dwrite shell32 ole32)
 else()
     message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()

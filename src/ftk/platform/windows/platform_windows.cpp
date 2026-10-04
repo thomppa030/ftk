@@ -12,6 +12,7 @@
 #endif
 #include <Windows.h>
 
+#include <ShlObj.h>
 #include <shellapi.h>
 
 #include <array>
@@ -48,6 +49,27 @@ std::filesystem::path executable_path() {
 
 std::uint32_t process_id() {
     return static_cast<std::uint32_t>(GetCurrentProcessId());
+}
+
+namespace {
+
+// The known folder `id`, or the temporary folder when Windows has none.
+std::filesystem::path known_folder(REFKNOWNFOLDERID id) {
+    PWSTR found = nullptr;
+    std::filesystem::path path = std::filesystem::temp_directory_path();
+    if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &found))) path = found;
+    CoTaskMemFree(found);
+    return path;
+}
+
+} // namespace
+
+std::filesystem::path config_dir() {
+    return known_folder(FOLDERID_RoamingAppData);
+}
+
+std::filesystem::path state_dir() {
+    return known_folder(FOLDERID_LocalAppData);
 }
 
 int run_command(const std::string& cmd, std::string& output) {

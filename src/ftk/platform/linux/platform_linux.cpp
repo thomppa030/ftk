@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 
@@ -24,6 +25,28 @@ std::filesystem::path executable_path() {
 
 std::uint32_t process_id() {
     return static_cast<std::uint32_t>(::getpid());
+}
+
+namespace {
+
+// $`variable` when it is set and not empty, else `fallback` under the home
+// folder, else the temporary folder.
+std::filesystem::path xdg_dir(const char* variable, const char* fallback) {
+    if (const char* set = std::getenv(variable); set != nullptr && set[0] != '\0') return set;
+    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        return std::filesystem::path(home) / fallback;
+    }
+    return std::filesystem::temp_directory_path();
+}
+
+} // namespace
+
+std::filesystem::path config_dir() {
+    return xdg_dir("XDG_CONFIG_HOME", ".config");
+}
+
+std::filesystem::path state_dir() {
+    return xdg_dir("XDG_STATE_HOME", ".local/state");
 }
 
 int run_command(const std::string& cmd, std::string& output) {

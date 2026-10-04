@@ -23,6 +23,16 @@ inline constexpr const char* EXE_EXT = "";
 /// concurrently running processes, so it can key per-process scratch names.
 [[nodiscard]] std::uint32_t process_id();
 
+/// Where programs keep this user's settings on this machine, a folder of
+/// their own inside it: $XDG_CONFIG_HOME, else ~/.config, on Linux;
+/// %APPDATA% on Windows. Not made here.
+[[nodiscard]] std::filesystem::path config_dir();
+
+/// Where programs keep what they must not lose between runs that is no
+/// setting, such as unsaved work kept against a crash: $XDG_STATE_HOME,
+/// else ~/.local/state, on Linux; %LOCALAPPDATA% on Windows. Not made here.
+[[nodiscard]] std::filesystem::path state_dir();
+
 /// Runs a shell command, captures stdout+stderr. Returns exit code.
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);
 
