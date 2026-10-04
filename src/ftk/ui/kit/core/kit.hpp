@@ -534,6 +534,9 @@ void end_popup();
 struct TabFace {
     std::string_view label{};
     Color ink{};
+    /// An icon before the label, in its own colour.
+    const char* icon{nullptr};
+    Color icon_ink{};
     bool front{false};
     /// It has a ×, shown while it is in front or under the mouse.
     bool closable{false};

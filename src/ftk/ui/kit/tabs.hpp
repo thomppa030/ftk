@@ -80,8 +80,13 @@ private:
 };
 
 struct DocumentTab {
-    /// Its name, which is also its id.
+    /// Its name, which is also its id; what follows "##" is part of the id
+    /// and isn't shown, for two documents of one name.
     const char* label{""};
+    /// Its kind's icon from ui::icon before the name, tinted in `hue`; in
+    /// the secondary text colour without one.
+    const char* icon{nullptr};
+    std::optional<theme::Hue> hue{};
     /// It has a × to close it; not one that is always open.
     bool closable{true};
     /// It has edits not saved: a dot shows in place of the × until the

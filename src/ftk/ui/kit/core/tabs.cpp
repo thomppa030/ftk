@@ -107,7 +107,12 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     float text_right = rect.max.x - style.frame_padding.x;
     if (dot_shown || close_shown) text_right -= button * (dot_shown || face.front ? 0.9f : 1.0f);
     dl.push_clip(rect.min, {text_right, rect.max.y});
-    draw_text(rect.min + style.frame_padding, face.ink, face.label);
+    glm::vec2 text_at = rect.min + style.frame_padding;
+    if (face.icon != nullptr) {
+        draw_text(text_at, faded(face.icon_ink), face.icon);
+        text_at.x += measure(face.icon).x + style.item_inner_spacing.x;
+    }
+    draw_text(text_at, face.ink, face.label);
     dl.pop_clip();
     if (dot_shown) {
         dl.circle_filled(button_at + glm::vec2{button * 0.5f}, button * 0.2f, faded(UNSAVED));
@@ -276,7 +281,9 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         bar.tabs.push_back({.id = id});
         at = std::prev(bar.tabs.end());
     }
-    at->width = tab_width(tab.label, tab.closable || tab.unsaved);
+    const std::string_view label = shown(tab.label);
+    at->width = tab_width(label, tab.closable || tab.unsaved);
+    if (tab.icon != nullptr) at->width += measure(tab.icon).x + k.style.item_inner_spacing.x;
     at->seen = true;
     float x = bar.rect.min.x;
     for (auto before = bar.tabs.begin(); before != at; ++before) x += before->width + spacing;
@@ -285,8 +292,10 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     if (tab.select || bar.front == 0) bar.front = id;
     const core::Rect rect{.min = {x, bar.rect.min.y}, .max = {x + at->width, bar.rect.max.y}};
     const DrawnTab drawn = draw_tab(id, rect,
-                                    {.label = tab.label,
+                                    {.label = label,
                                      .ink = corekit::text_colour(),
+                                     .icon = tab.icon,
+                                     .icon_ink = tab.hue ? theme::hue(*tab.hue) : theme::text_secondary(),
                                      .front = bar.front == id,
                                      .closable = tab.closable,
                                      .unsaved = tab.unsaved,

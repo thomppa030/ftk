@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/field.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -15,6 +16,7 @@
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
+namespace theme = ftk::theme;
 
 TEST_CASE("A foldable section opens and closes and remembers", "[ui][kit]") {
     KitHarness h;
@@ -150,6 +152,26 @@ TEST_CASE("Document tabs say which is in front, come forward when asked and clos
     CHECK(closed[1]);
     CHECK_FALSE(closed[0]);
     CHECK_FALSE(closed[2]);
+}
+
+TEST_CASE("Document tabs of one name are told apart by what follows ##, which isn't shown", "[ui][kit]") {
+    KitHarness h;
+    std::array<bool, 2> front{};
+    h.set_ui([&] {
+        if (auto tabs = ui::DocumentTabs("##docs")) {
+            front[0] = ui::document_tab({.label = "main.cpp##game", .icon = ui::icon::file, .hue = theme::Hue::slate}).front;
+            h.mark("game");
+            front[1] = ui::document_tab({.label = "main.cpp##tools", .icon = ui::icon::file}).front;
+            h.mark("tools");
+        }
+    });
+    h.step(2);
+    std::size_t named = 0;
+    for (const ui::core::SemanticNode& node : h.ui().semantics()) named += node.role == ui::core::Role::Tab && node.label == "main.cpp";
+    CHECK(named == 2);
+    h.click("tools");
+    h.step();
+    CHECK(front == std::array<bool, 2>{false, true});
 }
 
 TEST_CASE("The context bar takes the top of the work area, as tall as a tab and its room", "[ui][kit]") {
