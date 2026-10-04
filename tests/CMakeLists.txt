@@ -31,6 +31,7 @@ add_executable(ftk-tests
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
     test_handle_pool.cpp
+    test_jsonrpc.cpp
     test_log.cpp
     test_shader_compiler.cpp
     test_shader_diagnostic.cpp
@@ -61,6 +62,7 @@ target_link_libraries(ftk-tests PRIVATE
     ftk::app
     ftk::framegraph
     ftk::image
+    ftk::jsonrpc
     ftk::math
     ftk::platform
     ftk::shader
@@ -158,6 +160,7 @@ endfunction()
 ftk_library_link_check(base)
 ftk_library_link_check(math)
 ftk_library_link_check(platform)
+ftk_library_link_check(jsonrpc)
 ftk_library_link_check(framegraph)
 ftk_delay_load_vulkan(ftk-link-framegraph)
 ftk_library_link_check(shader)

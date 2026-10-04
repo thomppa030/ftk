@@ -17,6 +17,7 @@ library it does not link; the build checks that.
 | `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
 | `ftk::math` | Colour space conversions and keyed curves |
 | `ftk::platform` | Paths, processes and their pipes, the program's own standard streams, file watching and shared libraries, one backend per OS |
+| `ftk::jsonrpc` | JSON-RPC as the language server protocol carries it: messages framed by length, a peer talking over two byte streams |
 | `ftk::gpu` | The GPU interface and the window; its Vulkan backend, `src/ftk/gpu/vulkan/`, is the only code that names Vulkan |
 | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
 | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, with glslc's errors read back |

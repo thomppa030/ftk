@@ -91,6 +91,23 @@ ftk_library(platform
         PRIVATE ${CMAKE_DL_LIBS} ${FTK_PLATFORM_LINKS}
 )
 
+# ftk-jsonrpc is JSON-RPC as the language server protocol carries it:
+# messages framed by their length, and a peer that talks over a pair of byte
+# streams, a thread each way. A client of a language server and a language
+# server both talk through it.
+find_package(Threads REQUIRED)
+ftk_library(jsonrpc
+    SOURCES
+        ftk/jsonrpc/frames.cpp
+        ftk/jsonrpc/peer.cpp
+    HEADERS
+        ftk/jsonrpc/frames.hpp
+        ftk/jsonrpc/peer.hpp
+    LINKS
+        PUBLIC ftk::base nlohmann_json::nlohmann_json
+        PRIVATE Threads::Threads
+)
+
 # The Vulkan backend's code, in whichever target holds it: Vulkan and VMA for
 # that target alone, so nothing outside the backend can include them. VMA's
 # headers warn under our flags and come in as system headers.
