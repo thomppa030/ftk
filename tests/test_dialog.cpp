@@ -143,6 +143,41 @@ TEST_CASE("Quitting lists everything unsaved and saves only what stays ticked", 
     CHECK_FALSE(items[1].save);
 }
 
+TEST_CASE("Recovering counts what stays ticked; Discard and Esc answer otherwise", "[ui][kit]") {
+    KitHarness h;
+    std::vector<ui::UnsavedItem> items{{.name = "coin.cpp"}, {.name = "toon.fjsl"}};
+    bool open_now = true;
+    ui::RecoverAnswer answer = ui::RecoverAnswer::None;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##recover");
+            open_now = false;
+        }
+        const auto given = ui::recover_dialog("##recover", "Recover unsaved changes", "Two files were kept", items);
+        if (given != ui::RecoverAnswer::None) answer = given;
+    });
+    h.step(3);
+    REQUIRE(h.find("Recover 2 files", ftk::ui::core::Role::Button) != nullptr);
+    items[1].save = false;
+    h.step();
+    const auto* recover = h.find("Recover 1 file", ftk::ui::core::Role::Button);
+    REQUIRE(recover != nullptr);
+    h.click_at(recover->rect.centre());
+    CHECK(answer == ui::RecoverAnswer::Recover);
+
+    open_now = true;
+    answer = ui::RecoverAnswer::None;
+    h.step(3);
+    h.click_at(h.find("Discard", ftk::ui::core::Role::Button)->rect.centre());
+    CHECK(answer == ui::RecoverAnswer::Discard);
+
+    open_now = true;
+    answer = ui::RecoverAnswer::None;
+    h.step(3);
+    h.press(ui::Key::Escape);
+    CHECK(answer == ui::RecoverAnswer::Later);
+}
+
 TEST_CASE("A dialog hangs from the point it is opened at", "[ui][kit]") {
     KitHarness h;
     bool open_now = true;

@@ -129,4 +129,16 @@ struct UnsavedItem {
 /// ticked ones. Returns the answer on the frame it is given.
 UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items);
 
+/// What to do with the unsaved work a program kept when it last ended
+/// without saving it.
+enum class RecoverAnswer { None, Recover, Discard, Later };
+
+/// Asks, as a program starts, about the unsaved work it kept when it last
+/// ended (sheet 39): `title`, `text` saying what was kept, then the kept
+/// things in a list, a checkbox each (an item's `save` ticks it to be
+/// recovered), Discard set apart on the left and "Recover N files" counting
+/// the ticked ones. Enter recovers; Esc answers Later, to be asked again at
+/// the next start. Returns the answer on the frame it is given.
+RecoverAnswer recover_dialog(const char* id, const char* title, const char* text, std::span<UnsavedItem> items);
+
 } // namespace ftk::ui

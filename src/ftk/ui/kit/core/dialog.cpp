@@ -240,10 +240,11 @@ UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text
     return unsaved_buttons("Save");
 }
 
-UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items) {
-    if (!detail::begin_dialog(id, {.title = title})) return UnsavedAnswer::None;
-    end_body();
+namespace {
 
+// The things a list dialog asks about, a checkbox each before the icon, the
+// name and the dimmed detail. Returns how many are ticked.
+int item_rows(std::span<UnsavedItem> items) {
     int ticked = 0;
     for (std::size_t i = 0; i < items.size(); ++i) {
         UnsavedItem& item = items[i];
@@ -264,8 +265,41 @@ UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<U
         }
         if (item.save) ++ticked;
     }
+    return ticked;
+}
+
+} // namespace
+
+UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items) {
+    if (!detail::begin_dialog(id, {.title = title})) return UnsavedAnswer::None;
+    end_body();
+    const int ticked = item_rows(items);
     const std::string verb = ticked == 0 ? std::string("Quit") : "Save " + std::to_string(ticked) + " and quit";
     return unsaved_buttons(verb.c_str());
+}
+
+RecoverAnswer recover_dialog(const char* id, const char* title, const char* text, std::span<UnsavedItem> items) {
+    if (!detail::begin_dialog(id, {.title = title})) return RecoverAnswer::None;
+    ui::text(text, theme::text_secondary());
+    end_body();
+    const int ticked = item_rows(items);
+
+    reserve({0.0f, theme::GAP_M});
+    RecoverAnswer answer = RecoverAnswer::None;
+    if (button("Discard", ButtonKind::GhostDanger)) answer = RecoverAnswer::Discard;
+    same_line();
+    const std::string verb = ticked == 1 ? std::string("Recover 1 file") : "Recover " + std::to_string(ticked) + " files";
+    const float verb_w = std::max(BUTTON_MIN, measure(verb).x + kit().style.frame_padding.x * 2.0f);
+    set_cursor({std::max(cursor().x, content_right() - verb_w), cursor().y});
+    {
+        Disabled off(ticked == 0);
+        if (button(verb.c_str(), ButtonKind::Primary, {verb_w, 0.0f})) answer = RecoverAnswer::Recover;
+    }
+    if (ticked > 0 && key_pressed(Key::Enter)) answer = RecoverAnswer::Recover;
+    if (key_pressed(Key::Escape)) answer = RecoverAnswer::Later;
+    if (answer != RecoverAnswer::None) close_popup();
+    corekit::end_popup();
+    return answer;
 }
 
 } // namespace ftk::ui
