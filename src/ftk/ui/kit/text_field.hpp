@@ -20,6 +20,9 @@ Edit text_field(const char* id, std::string& value);
 struct TextEntryOptions {
     /// Shown dimmed while the field is empty.
     const char* hint{nullptr};
+    /// What the field begins with before the typing, in the secondary text
+    /// colour: a prompt, such as the `:` before a line to go to.
+    const char* prompt{nullptr};
     /// The keyboard goes to the field on this draw.
     bool focus{false};
 };

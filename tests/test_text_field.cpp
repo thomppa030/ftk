@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -208,4 +209,21 @@ TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it"
     CHECK(name == "Fjords");
     CHECK(entered == 1);
     CHECK(left >= 1);
+}
+
+TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", "[ui][kit]") {
+    KitHarness h;
+    std::string line;
+    bool entered = false;
+    h.set_ui([&] {
+        ui::next_width(200.0f);
+        entered = ui::text_entry("##line", line, {.prompt = ":"}) || entered;
+        h.mark("line");
+    });
+    h.step(2);
+    h.click("line");
+    h.type("18");
+    h.press(ui::Key::Enter);
+    CHECK(line == "18");
+    CHECK(entered);
 }

@@ -3,6 +3,9 @@
 #include "ftk/ui/kit/core/text_input.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/theme.hpp"
+
+#include <cmath>
 
 namespace ftk::ui {
 
@@ -37,7 +40,15 @@ Edit text_field(const char* id, std::string& value) {
 
 bool text_entry(const char* id, std::string& value, TextEntryOptions options) {
     if (options.focus) ui().set_focus(ui().id(id));
-    return field(id, value, {.hint = options.hint}).entered;
+    if (options.prompt == nullptr) return field(id, value, {.hint = options.hint}).entered;
+
+    // The prompt sits where the text would begin, the text after it.
+    const float prompt_width = measure(options.prompt).x;
+    const bool entered = field(id, value, {.hint = options.hint, .lead = prompt_width + theme::GAP_XS}).entered;
+    const core::Rect rect = kit().item.rect;
+    const float text_y = rect.min.y + std::floor((rect.height() - text_style().size) * 0.5f);
+    draw_text({rect.min.x + kit().style.frame_padding.x, text_y}, theme::text_secondary(), options.prompt);
+    return entered;
 }
 
 Edit TextField::draw(const char* id, std::string_view value) {
