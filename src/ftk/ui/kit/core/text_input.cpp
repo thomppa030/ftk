@@ -113,8 +113,8 @@ private:
     TextEditing& s_;
 };
 
-// The keys the field takes while it has the keyboard; Enter and Escape let
-// it go.
+// The keys the field takes while it has the keyboard; Escape lets it go,
+// and Enter unless the field keeps it.
 void take_keys(Editor& editor, TextEditing& state, TextInput& out, const TextInputOptions& options) {
     core::Context& context = ui();
     const Modifiers mods = context.modifiers();
@@ -171,13 +171,18 @@ void take_keys(Editor& editor, TextEditing& state, TextInput& out, const TextInp
 
     if (context.key_pressed(Key::Enter)) {
         out.entered = true;
-        context.clear_focus();
+        if (!options.enter_keeps) context.clear_focus();
     } else if (context.key_pressed(Key::Escape)) {
-        if (options.escape_clears) {
-            if (!state.text.empty()) editor.erase(0, state.text.size());
-        } else {
+        out.escaped = true;
+        switch (options.escape) {
+        case EscapeDoes::Revert:
             state.text = state.initial;
             state.cancelled = true;
+            break;
+        case EscapeDoes::Clear:
+            if (!state.text.empty()) editor.erase(0, state.text.size());
+            break;
+        case EscapeDoes::Keep: break;
         }
         context.clear_focus();
     }
@@ -260,7 +265,8 @@ TextInput text_input(Id id, core::Rect rect, std::string& value, const TextInput
     // The frame, and the text scrolled to keep the caret in sight.
     draw_frame(rect, in, editing);
     core::DrawList& dl = context.draw_list();
-    const core::Rect inside{.min = {origin_x, rect.min.y}, .max = {rect.max.x - style.frame_padding.x, rect.max.y}};
+    const core::Rect inside{.min = {origin_x, rect.min.y},
+                            .max = {rect.max.x - style.frame_padding.x - options.trail, rect.max.y}};
     dl.push_clip(inside.min, inside.max);
     if (editing) {
         TextEditing& state = k.editing;

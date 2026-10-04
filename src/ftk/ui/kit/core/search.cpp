@@ -64,7 +64,7 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     kit().next.allow_overlap = true;
     const core::Rect rect = context.layout().next({width, height});
     const TextInput in = text_input(query_id, rect, query,
-                                    {.hint = hint, .lead = icon_w + theme::GAP_S + theme::GAP_XS, .escape_clears = true});
+                                    {.hint = hint, .lead = icon_w + theme::GAP_S + theme::GAP_XS, .escape = EscapeDoes::Clear});
     context.semantics(query_id, core::Role::TextField, shown(id), query);
     bool changed = in.changed;
     const bool editing = kit().item.focused;

@@ -10,9 +10,21 @@
 
 #include "ftk/ui/kit/core/kit.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace ftk::ui::corekit {
+
+/// What Escape does to a text box's text; the box lets the keyboard go
+/// either way.
+enum class EscapeDoes : uint8_t {
+    /// Puts it back as it was when the box took the keyboard.
+    Revert,
+    /// Empties it: a search.
+    Clear,
+    /// Leaves it as typed: a find, which Escape closes.
+    Keep,
+};
 
 struct TextInputOptions {
     /// Shown dimmed while the text is empty.
@@ -21,16 +33,24 @@ struct TextInputOptions {
     bool select_all{false};
     /// Room left of the text, past the frame's padding: an icon's.
     float lead{0.0f};
-    /// Escape empties it rather than putting the text back: a search.
-    bool escape_clears{false};
+    /// Room right of the text, before the frame's padding: buttons inside
+    /// the box's end.
+    float trail{0.0f};
+    EscapeDoes escape{EscapeDoes::Revert};
+    /// Enter leaves the keyboard with the box: a find, where Enter goes on
+    /// to the next match.
+    bool enter_keeps{false};
 };
 
 /// What a text box did this frame.
 struct TextInput {
     /// The text changed this frame, and `value` with it.
     bool changed{false};
-    /// Enter was pressed in it; it lets the keyboard go.
+    /// Enter was pressed in it; it lets the keyboard go unless asked to
+    /// keep it.
     bool entered{false};
+    /// Escape was pressed in it; it lets the keyboard go.
+    bool escaped{false};
     /// It took the keyboard this frame, or lost it: left, entered or
     /// cancelled.
     bool activated{false};
