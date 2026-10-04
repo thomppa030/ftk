@@ -232,3 +232,46 @@ TEST_CASE("A prompt opened again after a cancel takes typing afresh", "[ui][kit]
     h.type("y");
     REQUIRE(prompt.name == "y");
 }
+
+TEST_CASE("A prompt answered gives the keyboard back to what had it as it opened", "[ui][kit]") {
+    KitHarness h;
+    // A widget that takes the keyboard when pressed and keeps what is typed
+    // while it has it, as a code view does.
+    std::string typed;
+    bool asking = false;
+    Prompt prompt;
+    h.set_ui([&] {
+        ui::core::Context& context = ui::core::current();
+        const ui::Id id = context.id("##typing");
+        const ui::core::Rect rect{.min = {10.0f, 10.0f}, .max = {200.0f, 40.0f}};
+        (void)context.interact(id, rect, {});
+        if (context.focusable(id, {.text = true}).focused) typed += context.typed();
+        if (asking) prompt.draw();
+    });
+    h.step(2);
+    h.click_at({100.0f, 25.0f});
+    h.type("a");
+    REQUIRE(typed == "a");
+
+    // The prompt takes the keyboard; Escape answers it, and typing goes on
+    // where it was.
+    asking = true;
+    h.step(2);
+    h.type("x");
+    REQUIRE(prompt.name == "x");
+    h.press(ui::Key::Escape);
+    h.step(2);
+    REQUIRE(prompt.answer == ui::DialogAnswer::Cancel);
+    h.type("b");
+    REQUIRE(typed == "ab");
+
+    // The same once Enter confirms.
+    prompt = Prompt{};
+    h.step(2);
+    h.type("y");
+    h.press(ui::Key::Enter);
+    h.step(2);
+    REQUIRE(prompt.answer == ui::DialogAnswer::Confirm);
+    h.type("c");
+    REQUIRE(typed == "abc");
+}

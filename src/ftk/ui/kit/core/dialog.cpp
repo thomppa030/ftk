@@ -100,9 +100,13 @@ bool detail::begin_dialog(const char* id, const DialogSpec& spec) {
         store_bool(seen, false);
         return false;
     }
-    // The first frame it is drawn since it opened, for what takes the focus.
+    // The first frame it is drawn since it opened, for what takes the focus;
+    // and what had the keyboard then, before anything in it took it.
     k.dialog_appearing = !stored_bool(seen);
     store_bool(seen, true);
+    const Id keyboard = core::hash_label("#KEYBOARD", popup);
+    if (k.dialog_appearing) store_int(keyboard, static_cast<int>(context.focused()));
+    k.dialog_keyboard = static_cast<Id>(stored_int(keyboard));
 
     // It hangs from an edge: square at the top, rounded below.
     const core::Rect rect = context.panel_rect();
@@ -139,7 +143,11 @@ DialogAnswer detail::end_dialog(const DialogSpec& spec, const DialogButtons& but
         }
     }
     if (key_pressed(Key::Escape)) answer = DialogAnswer::Cancel;
-    if (answer != DialogAnswer::None) close_popup();
+    if (answer != DialogAnswer::None) {
+        close_popup();
+        // Answered, it gives the keyboard back to what had it.
+        if (kit().dialog_keyboard != 0) ui().set_focus(kit().dialog_keyboard);
+    }
     corekit::end_popup();
     return answer;
 }

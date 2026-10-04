@@ -397,6 +397,9 @@ public:
     Id bar_menu_shown_next{0};
     /// The dialog being drawn shows for the first time since it opened.
     bool dialog_appearing{false};
+    /// What had the keyboard when the dialog being drawn appeared, which
+    /// it gives back once answered.
+    Id dialog_keyboard{0};
     std::unordered_map<Id, TableState> tables{};
     /// The tables being drawn, innermost last.
     std::vector<Id> table_stack{};
