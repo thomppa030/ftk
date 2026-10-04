@@ -10,6 +10,7 @@
   "surface_grabbed": "#4E5058",
   "border": "#0E0E10",
   "backdrop": "#000000 45%",
+  "shadow": "#000000 45%",
 
   "text": "#E5E6EA",
   "text_secondary": "#AEB1B6",

@@ -36,6 +36,7 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::surface_grabbed, "surface_grabbed"},
     {Token::border, "border"},
     {Token::backdrop, "backdrop"},
+    {Token::shadow, "shadow"},
     {Token::text, "text"},
     {Token::text_secondary, "text_secondary"},
     {Token::text_disabled, "text_disabled"},

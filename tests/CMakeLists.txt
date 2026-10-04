@@ -113,6 +113,7 @@ add_executable(ftk-kit-tests
     test_menu.cpp
     test_node_graph.cpp
     test_pages.cpp
+    test_plate.cpp
     test_rail.cpp
     test_search.cpp
     test_sections.cpp

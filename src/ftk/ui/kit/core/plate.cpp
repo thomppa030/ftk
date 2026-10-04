@@ -1,0 +1,71 @@
+#include "ftk/ui/kit/plate.hpp"
+
+#include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/state.hpp"
+
+#include <cmath>
+
+namespace ftk::ui {
+
+using namespace corekit;
+
+namespace {
+constexpr float PAD = 6.0f;       // inside the plate
+constexpr float ITEM_GAP = 4.0f;  // between its items along a row
+constexpr float ROW_GAP = 6.0f;   // between its rows
+constexpr float ROUNDING = 6.0f;
+// Its shadow falls this far below it, fading out over the softness.
+constexpr float SHADOW_DROP = 6.0f;
+constexpr float SHADOW_SOFTNESS = 18.0f;
+} // namespace
+
+Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace where, float width) : width_(width) {
+    core::Context& context = ui();
+    context.ids().push(id);
+    height_id_ = context.id("##height");
+    cursor_ = cursor();
+    const float x = where == PlatePlace::TopRight ? view_max.x - PLATE_INSET - width
+                                                  : (view_min.x + view_max.x - width) * 0.5f;
+    min_ = {std::round(x), view_min.y + PLATE_INSET};
+
+    // It takes the pointer over all of it, beneath what it holds: placed
+    // first, letting what follows go over it. As tall as it was last frame,
+    // which is how tall it is but on the frame it opens.
+    const core::Rect area{.min = min_, .max = min_ + glm::vec2{width, stored_float(height_id_, 0.0f)}};
+    kit().next.allow_overlap = true;
+    (void)place(context.id("##plate"), area, {.left = true, .right = true, .middle = true});
+
+    mark_ = context.draw_list().mark();
+    Style style = kit().style;
+    style.item_spacing = {ITEM_GAP, ROW_GAP};
+    push_style(style);
+    set_cursor(min_ + glm::vec2{PAD});
+    context.layout().begin_group();
+}
+
+Plate::~Plate() {
+    core::Context& context = ui();
+    const core::Rect held = context.layout().end_group();
+    pop_style();
+
+    // Its surface, drawn once what it holds is and put beneath that.
+    const glm::vec2 max{min_.x + width_, held.max.y + PAD};
+    core::DrawList& dl = context.draw_list();
+    const std::size_t split = dl.mark();
+    const glm::vec2 drop{0.0f, SHADOW_DROP};
+    dl.shadow(min_ + drop, max + drop, faded(theme::shadow()), ROUNDING, SHADOW_SOFTNESS);
+    dl.rect_filled(min_, max, faded(theme::surface_sunken()), ROUNDING);
+    dl.rect(min_, max, faded(theme::surface_raised()), ROUNDING);
+    dl.put_under(mark_, split);
+
+    store_float(height_id_, max.y - min_.y);
+    set_cursor(cursor_);
+    context.ids().pop();
+}
+
+float Plate::inner_width() const {
+    return width_ - 2.0f * PAD;
+}
+
+} // namespace ftk::ui

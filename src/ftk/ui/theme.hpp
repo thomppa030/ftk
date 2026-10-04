@@ -27,7 +27,7 @@ namespace ftk::theme {
 /// The tokens, each named in a palette as it is here.
 enum class Token : uint8_t {
     surface_sunken, surface_base, surface_raised, surface_hover, surface_active, surface_highest,
-    surface_inset, surface_between, surface_grabbed, border, backdrop,
+    surface_inset, surface_between, surface_grabbed, border, backdrop, shadow,
     text, text_secondary, text_disabled, text_on_accent,
     accent, accent_hov, accent_dim, accent_bright, selection, selection_secondary, drop_fits,
     toggle_on,
@@ -118,6 +118,8 @@ inline ui::Color surface_grabbed() { return palette()[Token::surface_grabbed]; }
 inline ui::Color border() { return palette()[Token::border]; }
 /// Darkens the editor behind a dialog.
 inline ui::Color backdrop() { return palette()[Token::backdrop]; }
+/// The shade a plate floating over what it covers casts.
+inline ui::Color shadow() { return palette()[Token::shadow]; }
 
 // Text in three tiers. Disabled is only for what is switched off; hints,
 // units, paths, empty states and headings are secondary.
