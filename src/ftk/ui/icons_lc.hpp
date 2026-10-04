@@ -178,4 +178,9 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LOCATE             "\xee\x87\x9a"  // U+E1DA
 #define ICON_LC_FLASK_CONICAL      "\xee\x83\x95"  // U+E0D5
 #define ICON_LC_BOX_SELECT         "\xee\x87\x8b"  // U+E1CB
+
+#define ICON_LC_CASE_SENSITIVE     "\xee\x8f\x99"  // U+E3D9
+#define ICON_LC_WHOLE_WORD         "\xee\x8f\x9f"  // U+E3DF
+#define ICON_LC_REGEX              "\xee\x87\xbc"  // U+E1FC
+#define ICON_LC_REPLACE            "\xee\x8f\x9b"  // U+E3DB
 // NOLINTEND(cppcoreguidelines-macro-usage)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/kit/find.hpp"
 #include "ftk/ui/kit/node_graph.hpp"
 #include "ftk/ui/kit/tree.hpp"
 
@@ -34,6 +35,7 @@ private:
     void rows();
     void fields();
     Edit choices();
+    void find_sample();
     void blocks();
     void feedback();
     void lists();
@@ -48,6 +50,10 @@ private:
     // Values for the sample controls to edit.
     std::string name_{"Crate"};
     std::string query_{"cra"};
+    // The find plate's sample: a query, its toggles and a replacement.
+    std::string find_query_{"band"};
+    FindToggles find_toggles_{.whole_word = true};
+    std::string replace_;
     std::vector<std::string> tree_names_{"Harbour", "Sun", "Main Camera", "Docks", "Crate",
                                          "Barrel", "Crane", "Hook", "Fog Bank"};
     std::size_t tree_selected_{4};

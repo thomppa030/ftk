@@ -40,6 +40,14 @@ inline constexpr const char* texture = ICON_LC_IMAGE;
 inline constexpr const char* audio   = ICON_LC_AUDIO_LINES;
 inline constexpr const char* font    = ICON_LC_TYPE;
 
+// Finding in text (ftk/ui/kit/find.hpp)
+inline constexpr const char* match_case     = ICON_LC_CASE_SENSITIVE;
+inline constexpr const char* whole_word     = ICON_LC_WHOLE_WORD;
+inline constexpr const char* regex          = ICON_LC_REGEX;
+inline constexpr const char* previous_match = ICON_LC_ARROW_UP;
+inline constexpr const char* next_match     = ICON_LC_ARROW_DOWN;
+inline constexpr const char* replace        = ICON_LC_REPLACE;
+
 // Menus, folding and dropdowns
 inline constexpr const char* checked     = ICON_LC_CHECK;
 inline constexpr const char* inherited   = ICON_LC_CORNER_DOWN_RIGHT;  // a value that comes from elsewhere

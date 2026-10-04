@@ -102,6 +102,7 @@ add_executable(ftk-kit-tests
     test_dialog.cpp
     test_edit_record.cpp
     test_fields.cpp
+    test_find.cpp
     test_grouped_picker.cpp
     test_kit.cpp
     test_kit_basics.cpp

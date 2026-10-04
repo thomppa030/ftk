@@ -15,6 +15,7 @@
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/plate.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -261,7 +262,49 @@ void KitGallery::fields() {
         edit |= choices();
         if (edit.committed) ++commits_;
         hint(std::format("Edits committed: {}", commits_).c_str());
+        subheading("Find");
+        find_sample();
     }
+}
+
+void KitGallery::find_sample() {
+    // A stand-in for the code a find plate floats over, the plate at its top
+    // right: the find row, then the replace row.
+    const glm::vec2 view_min = cursor();
+    const glm::vec2 view_size{std::min(space_left().x, 560.0f), 96.0f};
+    DrawList::window().rect_filled(view_min, view_min + view_size, theme::surface_base(), 3.0f);
+    reserve(view_size);
+    const glm::vec2 after = cursor();
+
+    if (auto plate = Plate("##gallery_find", view_min, view_min + view_size, PlatePlace::TopRight, 420.0f)) {
+        const char* count = "3 of 12";
+        const float gap = item_spacing().x;
+        const float count_width = std::max(text_size(count).x, 52.0f);
+        next_width(plate.inner_width() - count_width - 3.0f * (frame_height() + gap) - gap);
+        (void)find_field("##query", find_query_, find_toggles_);
+        same_line();
+        const glm::vec2 at = cursor();
+        DrawList::window().text({at.x + (count_width - text_size(count).x) * 0.5f, at.y + frame_padding().y},
+                                theme::text_secondary(), count);
+        reserve({count_width, frame_height()});
+        same_line();
+        (void)icon_button("##previous", icon::previous_match, "Previous match (Shift Enter)");
+        same_line();
+        (void)icon_button("##next", icon::next_match, "Next match (Enter)");
+        same_line();
+        (void)icon_button("##close", icon::clear, "Close (Esc)");
+
+        const std::string replace_label = std::string(icon::replace) + "  Replace";
+        const float replace_width = text_size(replace_label).x + 2.0f * frame_padding().x;
+        const float all_width = text_size("Replace all").x + 2.0f * frame_padding().x;
+        next_width(plate.inner_width() - replace_width - all_width - 2.0f * gap);
+        (void)text_entry("##replace", replace_, {.hint = "Replace"});
+        same_line();
+        (void)action(icon::replace, "Replace");
+        same_line();
+        (void)button("Replace all", ButtonKind::Ghost);
+    }
+    set_cursor(after);
 }
 
 Edit KitGallery::choices() {
