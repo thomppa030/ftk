@@ -19,6 +19,20 @@ using namespace corekit;
 
 namespace {
 
+// A state dot's width.
+constexpr float STATE_DOT = 7.0f;
+
+// The colour a tone reads in.
+Color tone_colour(StatusTone tone) {
+    switch (tone) {
+        case StatusTone::Success: return theme::success();
+        case StatusTone::Warning: return theme::warning();
+        case StatusTone::Error: return theme::error();
+        case StatusTone::Plain: break;
+    }
+    return theme::text_secondary();
+}
+
 // Where text `height` tall sits on the bar's line, centred in its height.
 float line_y(float height) {
     return window_pos().y + (theme::STATUS_BAR - height) * 0.5f;
@@ -104,6 +118,22 @@ void status_item(const char* icon, std::string_view text, bool unsaved) {
     if (unsaved && item_hovered()) tooltip("Unsaved changes");
 }
 
+void status_note(std::string_view text, std::string_view where) {
+    same_line();
+    const float pad = theme::GAP_M;
+    const glm::vec2 start = cursor();
+    float x = start.x + pad;
+    draw_text({x, line_y(line_height())}, theme::text_secondary(), text);
+    x += measure(text).x;
+    if (!where.empty()) {
+        const FontScope mono(theme::mono_font(), theme::SMALL_TEXT);
+        x += theme::GAP_S;
+        draw_text({x, line_y(line_height())}, theme::text_disabled(), where);
+        x += measure(where).x;
+    }
+    reserve({x + pad - start.x, theme::STATUS_BAR});
+}
+
 void status_rule() {
     same_line();
     const glm::vec2 start = cursor();
@@ -115,9 +145,7 @@ void status_rule() {
 
 void status_pill(const char* icon, const char* text, StatusTone tone) {
     same_line();
-    const Color colour = tone == StatusTone::Success ? theme::success()
-                       : tone == StatusTone::Warning ? theme::warning()
-                                                     : theme::text_secondary();
+    const Color colour = tone_colour(tone);
     const float pad = theme::GAP_M;
     const float inner = 7.0f;
     const float height = 18.0f;
@@ -136,6 +164,20 @@ void status_pill(const char* icon, const char* text, StatusTone tone) {
     draw_text({min.x + inner, text_y}, colour, icon);
     draw_text({min.x + inner + icon_w + theme::GAP_S, text_y}, colour, text);
     reserve({pad + width + pad, theme::STATUS_BAR});
+}
+
+void status_state(StatusTone tone, std::string_view name, std::string_view tip) {
+    same_line();
+    const float pad = theme::GAP_M;
+    const glm::vec2 start = cursor();
+    float x = start.x + pad;
+    ui().draw_list().circle_filled({x + STATE_DOT * 0.5f, start.y + theme::STATUS_BAR * 0.5f}, STATE_DOT * 0.5f,
+                                   faded(tone_colour(tone)));
+    x += STATE_DOT + theme::GAP_S;
+    draw_text({x, line_y(line_height())}, theme::text_secondary(), name);
+    x += measure(name).x;
+    reserve({x + pad - start.x, theme::STATUS_BAR});
+    if (!tip.empty() && item_hovered()) tooltip(tip);
 }
 
 bool status_button(const char* icon, const char* label, const char* shortcut, bool open) {

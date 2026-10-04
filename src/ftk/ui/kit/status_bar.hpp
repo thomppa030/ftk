@@ -41,15 +41,24 @@ private:
 /// after it when `unsaved`.
 void status_item(const char* icon, std::string_view text, bool unsaved = false);
 
+/// A message and where it is from: `text`, then `where` ("coin.cpp:26")
+/// small in the mono face and the disabled colour.
+void status_note(std::string_view text, std::string_view where);
+
 /// A thin rule between groups of items.
 void status_rule();
 
-/// How a pill reads: plain, or in a state's colour.
-enum class StatusTone { Plain, Success, Warning };
+/// How a pill or a state reads: plain, or in a state's colour.
+enum class StatusTone { Plain, Success, Warning, Error };
 
 /// A state that matters at a glance (Playing, Paused), in a small rounded
 /// pill tinted by `tone`.
 void status_pill(const char* icon, const char* text, StatusTone tone);
+
+/// Something the program runs and how it is (a language server: running,
+/// starting, stopped): a dot in `tone`'s colour, then its `name`. Hovered,
+/// `tip` says more.
+void status_state(StatusTone tone, std::string_view name, std::string_view tip = {});
 
 /// A button on the bar that opens something (the content browser): a ghost
 /// button with its icon, label and, after it, its shortcut as a dim hint.

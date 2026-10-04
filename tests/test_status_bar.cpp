@@ -41,3 +41,39 @@ TEST_CASE("Items after right() end against the status bar's right edge", "[ui][k
     CHECK(h.rect("left").min.x < 20.0f);
     CHECK_THAT(h.rect("right").max.x, Catch::Matchers::WithinAbs(h.size().x - ftk::theme::GAP_S, 1.0));
 }
+
+TEST_CASE("A state shows as a dot in its tone's colour, and a note says where it is from", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_note("use of undeclared identifier", "coin.cpp:26");
+            h.mark("note");
+            bar.right();
+            ui::status_state(ui::StatusTone::Error, "clangd", "clangd stopped");
+            h.mark("state");
+        }
+    });
+    h.step(3);
+    // The dot, in the error colour, at the state's left.
+    bool dot = false;
+    const uint32_t error = ftk::ui::core::pack_colour(ftk::theme::error());
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (p.colour == error && h.rect("state").contains((p.min + p.max) * 0.5f)) dot = true;
+        }
+    }
+    CHECK(dot);
+    // The note's place is drawn after its text, in the disabled colour.
+    bool where = false;
+    const uint32_t disabled = ftk::ui::core::pack_colour(ftk::theme::text_disabled());
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (p.colour == disabled && h.rect("note").contains((p.min + p.max) * 0.5f)) where = true;
+        }
+    }
+    CHECK(where);
+    // Hovered, the state says more.
+    h.hover("state");
+    h.step(60);
+    CHECK(h.tooltip().has_value());
+}
