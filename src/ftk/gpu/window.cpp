@@ -71,6 +71,13 @@ bool belongs_to_a_window(Uint32 type) {
     }
 }
 
+// The event wake() sends, registered once: no window takes it, so it only
+// ends a wait. Zero when SDL has none left to give.
+Uint32 wake_event() {
+    static const Uint32 type = SDL_RegisterEvents(1);
+    return type;
+}
+
 std::runtime_error sdl_failure(std::string_view what) {
     return std::runtime_error{std::string{what} + ": " + SDL_GetError()};
 }
@@ -171,6 +178,15 @@ void Window::wait_events_for(double seconds) {
         dispatch(event);
     }
     poll_events();
+}
+
+void Window::wake() {
+    const Uint32 type = wake_event();
+    if (type == 0) return;
+    SDL_Event event{};
+    event.type = type;
+    // Safe from any thread; it does nothing before SDL's events start.
+    SDL_PushEvent(&event);
 }
 
 float Window::pixel_density() const {

@@ -52,6 +52,10 @@ public:
     /// The same, giving up after `seconds`: for a loop that has something to
     /// do by then even without an event, such as a tooltip coming due.
     void wait_events_for(double seconds);
+    /// Ends a wait for events as an event would, from any thread: for work
+    /// done on another thread that the next frame should show, such as an
+    /// answer from a language server. No window takes the event it sends.
+    static void wake();
     void set_title(std::string_view title);
     /// Where its top-left is on the desktop, in points, and puts it there:
     /// as far as the platform lets a program know and place its windows
