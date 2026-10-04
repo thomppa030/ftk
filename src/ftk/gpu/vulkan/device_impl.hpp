@@ -232,7 +232,7 @@ struct Device::Impl {
 
     /// The pipeline layout for what `layout` binds and takes, with the shared
     /// layouts `shared` at the sets they fit, made the first time a pipeline
-    /// declares it and shared after.
+    /// declares it and shared after. Any thread may ask.
     [[nodiscard]] Result<LayoutInfo> pipeline_layout(const ShaderLayout& layout,
                                                      std::span<const SharedLayout> shared);
 
@@ -273,6 +273,8 @@ struct Device::Impl {
     /// mistake recorded every frame is read once.
     void report_once(const std::string& message);
 
+    /// A pipeline the driver has compiled, in no pool yet. Any thread may
+    /// build one.
     [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
     [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
 
@@ -335,9 +337,11 @@ struct Device::Impl {
     /// the device's own, destroyed with it.
     TransientMemory transient;
     /// Set and pipeline layouts by what they hold, so pipelines declaring the
-    /// same share one. Destroyed with the device.
+    /// same share one. Destroyed with the device. Pipelines are built on any
+    /// thread, so the maps are read and filled under `layouts_mutex`.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
     std::unordered_map<std::string, VkPipelineLayout> pipeline_layouts;
+    std::mutex layouts_mutex;
     /// Labels debuggers show around a zone, loaded where debug utils are;
     /// null elsewhere.
     PFN_vkCmdBeginDebugUtilsLabelEXT begin_label{nullptr};

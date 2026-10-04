@@ -73,8 +73,10 @@ using ShaderLocator = std::function<std::string(const std::string& relative)>;
 /// The GPU: what makes buffers, textures, samplers and pipelines and destroys
 /// them once the GPU is done with them.
 ///
-/// Creating and releasing belong to one thread, the one that submits frames;
-/// any thread may look up what exists (views and samplers included).
+/// Creating and releasing belong to one thread, the one that submits frames,
+/// but for building a pipeline (`build()`), which any thread may do, several
+/// at once; handing the build to the device (`adopt()`) is that thread's
+/// again. Any thread may look up what exists (views and samplers included).
 ///
 /// The backend's state lives in `Impl`, which only the backend defines.
 class Device {
@@ -184,6 +186,19 @@ public:
     /// @return the pipeline, or why it could not be made (the message names it
     ///         and the shaders).
     [[nodiscard]] Result<Owned<GraphicsPipeline>> create(const GraphicsPipelineDesc& desc);
+
+    /// What `create()` makes, compiled by the driver but not yet the
+    /// device's: the costly half, which any thread may do, several at once
+    /// (see `PipelineBuild`).
+    /// @return the build, or why it could not be made, as `create()` says.
+    [[nodiscard]] Result<ComputePipelineBuild> build(const ComputePipelineDesc& desc);
+    [[nodiscard]] Result<GraphicsPipelineBuild> build(const GraphicsPipelineDesc& desc);
+
+    /// Hands a build to the device, on the thread that submits frames: the
+    /// pipeline `create()` would have made. A build already adopted gives an
+    /// empty `Owned`.
+    [[nodiscard]] Owned<ComputePipeline> adopt(ComputePipelineBuild&& built);
+    [[nodiscard]] Owned<GraphicsPipeline> adopt(GraphicsPipelineBuild&& built);
 
     /// Rebuilds a pipeline from `desc` in place, for hot reload: the handle
     /// stays valid and the old pipeline is released once the GPU is done
