@@ -325,3 +325,18 @@ TEST_CASE("A text widget that lets the keyboard go on Enter was still typing as 
     h.step();
     CHECK_FALSE(as_begun);
 }
+
+TEST_CASE("A key pressed with modifiers lets them go as it comes up", "[ui-core][keys]") {
+    UiHarness h;
+    ftk::ui::Modifiers seen{};
+    h.set_ui([&] { seen = h.ui().modifiers(); });
+    h.step();
+    h.press(Key::S, {.ctrl = true});
+    CHECK_FALSE(seen.ctrl);
+
+    // What hold() holds stays down.
+    h.hold({.shift = true});
+    h.press(Key::S, {.ctrl = true});
+    CHECK_FALSE(seen.ctrl);
+    CHECK(seen.shift);
+}

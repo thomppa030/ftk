@@ -117,7 +117,8 @@ public:
 
     /// Types UTF-8 text into whatever has the keyboard.
     void type(std::string_view text);
-    /// Presses and releases `key` with `modifiers` held, a frame each.
+    /// Presses and releases `key` with `modifiers` held, a frame each; the
+    /// modifiers come up with the key, but for what hold() holds.
     void press(ui::Key key, ui::Modifiers modifiers = {});
     /// Holds `modifiers` down from the next frame, over the clicks, drags and
     /// keys that follow, until the next hold(); hold({}) lets them go.

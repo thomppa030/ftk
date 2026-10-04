@@ -132,6 +132,9 @@ void UiHarness::press(ui::Key key, ui::Modifiers modifiers) {
     send({.kind = core::KeyEvent::Kind::Down, .key = key, .modifiers = held});
     step();
     send({.kind = core::KeyEvent::Kind::Up, .key = key, .modifiers = held});
+    // The modifiers pressed for the key come up after it, as a keyboard
+    // reports them, leaving what hold() holds.
+    if (held != held_) send({.kind = core::KeyEvent::Kind::Modifiers, .modifiers = held_});
     step();
 }
 
