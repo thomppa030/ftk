@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
+#include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
@@ -18,6 +19,8 @@
 #include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <optional>
 
 #include <algorithm>
 #include <array>
@@ -719,4 +722,18 @@ TEST_CASE("The item just drawn is the same after a tooltip shows for it", "[ui][
     REQUIRE(h.tooltip().has_value());
     CHECK(hovered_after);
     CHECK(min_after == h.rect("bake").min);
+}
+
+TEST_CASE("A notice strip says what wants an answer and gives the answer clicked", "[ui][kit]") {
+    KitHarness h;
+    std::optional<std::size_t> chosen;
+    h.set_ui([&] {
+        const char* answers[] = {"Keep mine", "Load from disk"};
+        if (const auto answer = ui::notice_strip(ui::Severity::Warning, "toon.fjsl changed on disk", answers)) chosen = answer;
+    });
+    h.step(2);
+    const auto* load = h.find("Load from disk", ftk::ui::core::Role::Button);
+    REQUIRE(load != nullptr);
+    h.click_at(load->rect.centre());
+    CHECK(chosen == std::optional<std::size_t>{1});
 }

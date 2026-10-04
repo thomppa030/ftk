@@ -4,6 +4,10 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstddef>
+#include <optional>
+#include <span>
+
 // How the editor tells you something that isn't a value.
 
 namespace ftk::ui {
@@ -30,6 +34,14 @@ bool status(Severity severity, const char* text, const char* action_icon, const 
 /// means "this is broken".
 bool callout(Severity severity, const char* title, const char* text,
              const char* action_icon = nullptr, const char* action = nullptr);
+
+/// A strip across the top of what it is about, tinted in the severity's
+/// colour with a line of it along its bottom: something about all of it
+/// that wants an answer, such as a file changed on disk while it has
+/// unsaved changes here (sheet 39). The icon and `text`, then a secondary
+/// button for each of `answers` at its right end. Returns the index of the
+/// answer clicked.
+std::optional<std::size_t> notice_strip(Severity severity, const char* text, std::span<const char* const> answers);
 
 /// The unsaved mark: a small dot in the text colour, centred on `centre`,
 /// the same on the tab, the header, the status bar and a footer.

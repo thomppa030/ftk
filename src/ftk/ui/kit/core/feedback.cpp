@@ -26,6 +26,11 @@ constexpr float CALLOUT_PAD_X = 10.0f;
 constexpr float CALLOUT_PAD_Y = 8.0f;
 constexpr float CALLOUT_ROUNDING = 4.0f;
 constexpr float CALLOUT_TINT = 0.10f;
+// A notice strip: its padding, its tint and the line along its bottom.
+constexpr float NOTICE_PAD_X = 10.0f;
+constexpr float NOTICE_PAD_Y = 6.0f;
+constexpr float NOTICE_TINT = 0.10f;
+constexpr float NOTICE_LINE = 0.35f;
 // The explanation wraps at about thirty characters' width, so it reads as
 // a short paragraph under the title rather than one long line.
 constexpr float EMPTY_TEXT_WIDTH = 220.0f;
@@ -107,6 +112,44 @@ bool status(Severity severity, const char* text, const char* action_icon, const 
     set_cursor({start.x, std::max(text_bottom, cursor().y)});
     reserve({0.0f, 0.0f});
     return clicked;
+}
+
+std::optional<std::size_t> notice_strip(Severity severity, const char* text, std::span<const char* const> answers) {
+    core::Context& context = ui();
+    const Style& style = kit().style;
+    const Color colour = colour_of(severity);
+    const glm::vec2 origin = cursor();
+    const float width = space_left().x;
+    const float height = frame_height() + 2.0f * NOTICE_PAD_Y;
+
+    core::DrawList& dl = context.draw_list();
+    Color tint = colour;
+    tint.a *= NOTICE_TINT;
+    dl.rect_filled(origin, {origin.x + width, origin.y + height}, faded(tint));
+    Color line = colour;
+    line.a *= NOTICE_LINE;
+    dl.rect_filled({origin.x, origin.y + height - 1.0f}, {origin.x + width, origin.y + height}, faded(line));
+
+    // The answers at the right end, the text in what is left before them.
+    float answers_width = 0.0f;
+    for (const char* answer : answers) answers_width += measure(answer).x + style.frame_padding.x * 2.0f + theme::GAP_S;
+    const char* glyph = glyph_of(severity);
+    set_cursor({origin.x + NOTICE_PAD_X, origin.y + NOTICE_PAD_Y});
+    align_text_to_frame();
+    ui::text(glyph, colour);
+    same_line(theme::GAP_S + theme::GAP_XS);
+    const float text_room = width - NOTICE_PAD_X * 2.0f - answers_width - measure(glyph).x - theme::GAP_M;
+    ui::text(ellipsized(text, std::max(text_room, 0.0f)));
+
+    std::optional<std::size_t> chosen;
+    set_cursor({origin.x + width - NOTICE_PAD_X - answers_width + theme::GAP_S, origin.y + NOTICE_PAD_Y});
+    for (std::size_t i = 0; i < answers.size(); ++i) {
+        if (i > 0) same_line(theme::GAP_S);
+        if (button(answers[i])) chosen = i;
+    }
+    set_cursor({origin.x, origin.y + height});
+    reserve({0.0f, 0.0f});
+    return chosen;
 }
 
 bool callout(Severity severity, const char* title, const char* text, const char* action_icon,
