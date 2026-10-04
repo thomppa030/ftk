@@ -22,12 +22,14 @@ SharedLibrary::~SharedLibrary() {
 
 SharedLibrary::SharedLibrary(SharedLibrary&& other) noexcept
     : handle_{std::exchange(other.handle_, nullptr)}
+    , kept_{std::exchange(other.kept_, false)}
     , error_{std::move(other.error_)} {}
 
 SharedLibrary& SharedLibrary::operator=(SharedLibrary&& other) noexcept {
     if (this != &other) {
         unload();
         handle_ = std::exchange(other.handle_, nullptr);
+        kept_ = std::exchange(other.kept_, false);
         error_ = std::move(other.error_);
     }
     return *this;
@@ -48,8 +50,9 @@ bool SharedLibrary::load(const std::filesystem::path& path) {
 
 void SharedLibrary::unload() {
     if (handle_) {
-        FreeLibrary(static_cast<HMODULE>(handle_));
+        if (!kept_) FreeLibrary(static_cast<HMODULE>(handle_));
         handle_ = nullptr;
+        kept_ = false;
     }
 }
 

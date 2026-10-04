@@ -27,8 +27,14 @@ public:
     /// Load a shared library from the given path.
     [[nodiscard]] bool load(const std::filesystem::path& path);
 
-    /// Unload the library.
+    /// Unload the library; one kept loaded is only let go of.
     void unload();
+
+    /// Leaves the library loaded until the process ends: neither unload()
+    /// nor the destructor unloads it. For a library holding state as long
+    /// as the process does, which unloading at exit would leave allocated
+    /// with nothing pointing at it.
+    void keep_loaded() { kept_ = true; }
 
     /// Resolve a symbol by name. Returns nullptr if not found.
     [[nodiscard]] void* symbol(const char* name) const;
@@ -46,6 +52,7 @@ public:
 
 private:
     void* handle_{nullptr};
+    bool kept_{false};
     std::string error_;
 };
 

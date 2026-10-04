@@ -78,7 +78,12 @@ struct Fontconfig {
         find(pattern_get_charset, "FcPatternGetCharSet");
         if (!found) return false;
         config = init_load_config_and_fonts();
-        return config != nullptr;
+        if (config == nullptr) return false;
+        // fontconfig keeps what it reads for as long as the process runs,
+        // pointed at from its own globals; unloading it at exit would leave
+        // that allocated with nothing pointing at it.
+        library.keep_loaded();
+        return true;
     }
 };
 
