@@ -33,6 +33,15 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_FOLDER_PLUS          "\xee\x83\x99"  // U+E0D9
 #define ICON_LC_HAMMER               "\xee\x83\xac"  // U+E0EC
 #define ICON_LC_HARD_DRIVE           "\xee\x83\xad"  // U+E0ED
+#define ICON_LC_FUNCTION_SQUARE      "\xee\x88\xad"  // U+E22D
+#define ICON_LC_VARIABLE             "\xee\x91\xb3"  // U+E473
+#define ICON_LC_LIST                 "\xee\x84\x86"  // U+E106
+#define ICON_LC_LIST_ORDERED         "\xee\x87\x91"  // U+E1D1
+#define ICON_LC_PI                   "\xee\x91\xb2"  // U+E472
+#define ICON_LC_KEY_ROUND            "\xee\x92\xa3"  // U+E4A3
+#define ICON_LC_TEXT_QUOTE           "\xee\x92\x9e"  // U+E49E
+#define ICON_LC_AT_SIGN              "\xee\x81\x8e"  // U+E04E
+#define ICON_LC_PARENTHESES          "\xee\x91\x84"  // U+E444
 #define ICON_LC_IMAGES               "\xee\x97\x84"  // U+E5C4
 #define ICON_LC_IMPORT               "\xee\x88\xaf"  // U+E22F
 #define ICON_LC_LAYOUT_GRID          "\xee\x83\xbf"  // U+E0FF
