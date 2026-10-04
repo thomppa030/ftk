@@ -2,12 +2,12 @@
 
 #include "ftk/text/detail/face_impl.hpp"
 
-#include <algorithm>
 #include <atomic>
+#include <filesystem>
 #include <format>
 #include <fstream>
-#include <iterator>
 #include <mutex>
+#include <system_error>
 
 namespace ftk::text {
 
@@ -48,9 +48,13 @@ Face::~Face() {
 Result<std::shared_ptr<const Face>> Face::load(const std::filesystem::path& path, uint32_t index) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return make_error(std::format("can't open the font {}", path.string()));
-    std::vector<std::byte> data;
-    std::transform(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>(),
-                   std::back_inserter(data), [](char c) { return static_cast<std::byte>(c); });
+    // Read whole, in one go: a fallback font can run to tens of megabytes.
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) return make_error(std::format("can't read the font {}: {}", path.string(), error.message()));
+    std::vector<std::byte> data(static_cast<std::size_t>(size));
+    file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    if (!file) return make_error(std::format("can't read the font {}", path.string()));
     return load(std::move(data), index, path.string());
 }
 
