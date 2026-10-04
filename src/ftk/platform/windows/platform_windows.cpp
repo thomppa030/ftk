@@ -1,5 +1,7 @@
 #include "ftk/platform/platform.hpp"
 
+#include "ftk/platform/detail/command_line.hpp"
+
 #ifndef _WIN32
 #error "This file should only be compiled on Windows"
 #endif
@@ -22,18 +24,10 @@
 namespace ftk::platform {
 namespace {
 
-/// CreateProcess takes one mutable command line rather than an argv array, so
-/// arguments are joined and any containing a space is quoted.
+/// CreateProcess takes one mutable command line rather than an argv array:
+/// the arguments joined so the child reads each back as it was given.
 std::string join_args(const std::vector<std::string>& args) {
-    std::string cmd_line;
-    for (size_t i = 0; i < args.size(); ++i) {
-        if (i > 0) cmd_line += ' ';
-        bool needs_quotes = args[i].find(' ') != std::string::npos;
-        if (needs_quotes) cmd_line += '"';
-        cmd_line += args[i];
-        if (needs_quotes) cmd_line += '"';
-    }
-    return cmd_line;
+    return detail::command_line<char>(args);
 }
 
 } // namespace
