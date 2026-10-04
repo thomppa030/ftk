@@ -31,7 +31,12 @@ void init(const Options& options) {
     // lets go of the first set before registering the new one.
     for (const char* name : {"CORE", "GFX", "APP"}) spdlog::drop(name);
 
-    auto terminal_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    spdlog::sink_ptr terminal_sink;
+    if (options.to_standard_error) {
+        terminal_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    } else {
+        terminal_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    }
     terminal_sink->set_pattern(options.pattern);
 
     s_core = std::make_shared<spdlog::logger>("CORE", terminal_sink);

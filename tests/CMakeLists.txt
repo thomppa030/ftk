@@ -81,7 +81,7 @@ target_compile_definitions(ftk-tests PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURREN
 target_compile_definitions(ftk-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
 # The child process tests run a program of their own as the child.
 add_executable(ftk-test-child child_helper.cpp)
-target_link_libraries(ftk-test-child PRIVATE ftk::platform)
+target_link_libraries(ftk-test-child PRIVATE ftk::base ftk::platform)
 ftk_target_defaults(ftk-test-child)
 add_dependencies(ftk-tests ftk-test-child)
 target_compile_definitions(ftk-tests PRIVATE FTK_TEST_CHILD="$<TARGET_FILE:ftk-test-child>")

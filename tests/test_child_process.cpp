@@ -120,6 +120,13 @@ TEST_CASE("A command line reads back on Windows as the arguments it was made fro
             "prog \"a b\" \"\" \"x\\\"y\" c:\\dir\\ \"ends in\\\\\" \"a\\\\\\\\\\\"b\"");
 }
 
+TEST_CASE("A program's log can keep to standard error, leaving its output to the program", "[platform][child][log]") {
+    auto child = start_helper({"log"}, {.errors = ChildErrors::Kept});
+    REQUIRE(read_all(*child) == "said");
+    REQUIRE(read_all(*child, true).find("logged") != std::string::npos);
+    REQUIRE(child->wait() == 0);
+}
+
 TEST_CASE("A program's own standard streams pass bytes as they are, line breaks and all", "[platform][child]") {
     auto child = start_helper({"stdio"});
     const std::string bytes = "Content-Length: 2\r\n\r\n{}\n\x01\xff";

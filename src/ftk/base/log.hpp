@@ -15,6 +15,10 @@ struct Options {
     std::optional<spdlog::level::level_enum> level{};
     /// How the terminal shows a line, in spdlog's pattern syntax.
     std::string pattern{"%^[%T.%e] [%n] [%l]%$ %v"};
+    /// The terminal's lines go to standard error rather than standard
+    /// output: for a program whose standard output carries something else,
+    /// as a language server's carries its messages.
+    bool to_standard_error{false};
 };
 
 /// Creates the CORE/GFX/APP loggers, writing to the terminal. Called again,

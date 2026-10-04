@@ -9,10 +9,13 @@
 //     wait        reads its input until it ends
 //     stdio       copies its input to its output through the platform's own
 //                 standard streams, byte for byte
+//     log         logs "logged" with its log on standard error, then writes
+//                 "said" to its output
 //
 // It writes no line breaks, which Windows would change on the way out
 // through the C library; stdio's bytes pass as they are.
 
+#include "ftk/base/log.hpp"
 #include "ftk/platform/platform.hpp"
 
 #include <array>
@@ -42,6 +45,11 @@ int main(int argc, char** argv) {
             if (!got || *got == 0) break;
             if (!ftk::platform::write_standard_output(std::string_view(buffer.data(), *got))) return 3;
         }
+    } else if (does == "log") {
+        ftk::log::init({.level = spdlog::level::warn, .pattern = "%v", .to_standard_error = true});
+        FTK_CORE_WARN("logged");
+        ftk::log::shutdown();
+        if (!ftk::platform::write_standard_output("said")) return 3;
     } else if (does == "wait") {
         while (std::getchar() != EOF) {
         }
