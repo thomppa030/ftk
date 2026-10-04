@@ -1,5 +1,7 @@
 #include "ftk/gpu/vulkan/device_impl.hpp"
 
+#include "ftk/base/profiler.hpp"
+
 #include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/vulkan/translate.hpp"
 
@@ -381,12 +383,16 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
 // ── Device ──────────────────────────────────────────────────────────────
 
 Result<Owned<ComputePipeline>> Device::create(const ComputePipelineDesc& desc) {
+    FTK_PROFILE_SCOPE_N("create_compute_pipeline");
+    FTK_PROFILE_SCOPE_VIEW(desc.name);
     auto record = impl_->build(desc);
     if (!record) return std::unexpected(record.error());
     return Owned<ComputePipeline>(*this, impl_->compute_pipelines.emplace(std::move(*record)));
 }
 
 Result<Owned<GraphicsPipeline>> Device::create(const GraphicsPipelineDesc& desc) {
+    FTK_PROFILE_SCOPE_N("create_graphics_pipeline");
+    FTK_PROFILE_SCOPE_VIEW(desc.name);
     auto record = impl_->build(desc);
     if (!record) return std::unexpected(record.error());
     return Owned<GraphicsPipeline>(*this, impl_->graphics_pipelines.emplace(std::move(*record)));
