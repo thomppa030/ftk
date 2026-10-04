@@ -85,6 +85,8 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::code_bracket, "code_bracket"},
     {Token::code_error_line, "code_error_line"},
     {Token::code_warning_line, "code_warning_line"},
+    {Token::code_error_text, "code_error_text"},
+    {Token::code_warning_text, "code_warning_text"},
 };
 static_assert(std::size(TOKEN_NAMES) == static_cast<std::size_t>(Token::count));
 

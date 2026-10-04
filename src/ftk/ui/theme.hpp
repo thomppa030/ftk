@@ -39,7 +39,7 @@ enum class Token : uint8_t {
     code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
     code_punctuation, code_member, code_builtin,
     code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
-    code_error_line, code_warning_line,
+    code_error_line, code_warning_line, code_error_text, code_warning_text,
     count,
 };
 
@@ -205,7 +205,9 @@ inline ui::Color code_builtin()     { return palette()[Token::code_builtin]; }
 
 // Around the code: the caret's line, indent guides (the cursor's block
 // brighter), the other uses of the word at the cursor, the bracket paired
-// with the one at it, and the tint of a line with an error or a warning.
+// with the one at it, the tint of a line with an error or a warning, and
+// that problem's message after the line, a step lighter than its colour
+// to read on the tint (sheet 39, G1).
 inline ui::Color code_current_line()        { return palette()[Token::code_current_line]; }
 inline ui::Color code_indent_guide()        { return palette()[Token::code_indent_guide]; }
 inline ui::Color code_indent_guide_active() { return palette()[Token::code_indent_guide_active]; }
@@ -213,6 +215,8 @@ inline ui::Color code_occurrence()          { return palette()[Token::code_occur
 inline ui::Color code_bracket()             { return palette()[Token::code_bracket]; }
 inline ui::Color code_error_line()          { return palette()[Token::code_error_line]; }
 inline ui::Color code_warning_line()        { return palette()[Token::code_warning_line]; }
+inline ui::Color code_error_text()          { return palette()[Token::code_error_text]; }
+inline ui::Color code_warning_text()        { return palette()[Token::code_warning_text]; }
 
 // ── Metrics ─────────────────────────────────────────────────────────────
 

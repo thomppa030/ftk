@@ -92,5 +92,7 @@
   "code_occurrence": "#34363C",
   "code_bracket": "#5A5D66",
   "code_error_line": "#E66E68 7%",
-  "code_warning_line": "#DEC358 6%"
+  "code_warning_line": "#DEC358 6%",
+  "code_error_text": "#E98C87",
+  "code_warning_text": "#E3CF7B"
 }
