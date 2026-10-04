@@ -1,6 +1,7 @@
 # What ftk's libraries need, fetched whether ftk is built on its own or as
-# part of a program: windowing, maths, logging, JSON, stb, FreeType and
-# HarfBuzz for text, Vulkan with VMA, and Tracy when it is switched on.
+# part of a program: windowing, maths, logging, JSON, stb, CMP_Core for block
+# compression, FreeType and HarfBuzz for text, Vulkan with VMA, and Tracy when
+# it is switched on.
 # Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
@@ -117,7 +118,21 @@ FetchContent_Declare(
     SOURCE_SUBDIR  no-cmake-here
 )
 
-FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz)
+# CMP_Core, the core of AMD's Compressonator, encodes and decodes BC4 to BC7
+# (ftk-image). Consumed as plain sources: its own CMake reaches into the rest
+# of Compressonator and asks GCC for a CPU it no longer knows, so only the
+# four encoders ftk uses are compiled, into ftk-cmp-core in src/libraries.cmake.
+# The release's archive rather than its repository, since the patch step
+# (cmake/CmpCoreQuiet.cmake) edits a file that a later update would trip over.
+FetchContent_Declare(
+    compressonator
+    URL            https://github.com/GPUOpen-Tools/compressonator/archive/refs/tags/V4.5.52.tar.gz
+    URL_HASH       SHA256=3a55094045838a6fa19185a6ac869f1265568907587a80bfcaaa3b25aca0e567
+    PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/CmpCoreQuiet.cmake
+    SOURCE_SUBDIR  no-cmake-here
+)
+
+FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz compressonator)
 
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)

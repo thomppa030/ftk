@@ -1,12 +1,15 @@
 // Links ftk-image alone and whole (tests/CMakeLists.txt), so it builds only if
 // everything in the library finds what it needs in the library and its own
-// dependencies. Running it writes a small image to memory, reads it back and
-// scales it.
+// dependencies. Running it writes a small image to memory, reads it back,
+// scales it, and encodes it to BC7 and back.
+
+#include "ftk/image/block_encoder.hpp"
 
 #include <stb_image.h>
 #include <stb_image_resize2.h>
 #include <stb_image_write.h>
 
+#include <cstddef>
 #include <vector>
 
 namespace {
@@ -37,8 +40,13 @@ int main() {
     const unsigned char* scaled =
         stbir_resize_uint8_linear(pixels, 2, 2, 0, resized, 4, 4, 0, STBIR_RGBA);
 
+    const ftk::image::BlockEncoder encoder(ftk::image::BlockFormat::bc7, 0.5f);
+    std::vector<std::byte> blocks(ftk::image::encoded_size(ftk::image::BlockFormat::bc7, 2, 2));
+    const bool encoded = encoder.encode(ftk::image::Rgba8Image{pixels, 2, 2}, 0, 1, blocks);
+    const bool round_trip = ftk::image::decode(ftk::image::BlockFormat::bc7, blocks, 2, 2).size() == sizeof(pixels);
+
     const bool ran = written != 0 && decoded != nullptr && width == 2 && height == 2 &&
-                     scaled != nullptr;
+                     scaled != nullptr && encoded && round_trip;
     stbi_image_free(decoded);
     return ran ? 0 : 1;
 }

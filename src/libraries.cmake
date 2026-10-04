@@ -258,14 +258,40 @@ ftk_library(shader
         PUBLIC ftk::base ftk::platform
 )
 
+# ftk-cmp-core is CMP_Core's BC4, BC5, BC6H and BC7 encoders as AMD ships
+# them, with their warnings off. Only ftk-image's block encoder includes it:
+# its names are in no namespace.
+add_library(ftk-cmp-core STATIC
+    ${compressonator_SOURCE_DIR}/cmp_core/shaders/bc4_encode_kernel.cpp
+    ${compressonator_SOURCE_DIR}/cmp_core/shaders/bc5_encode_kernel.cpp
+    ${compressonator_SOURCE_DIR}/cmp_core/shaders/bc6_encode_kernel.cpp
+    ${compressonator_SOURCE_DIR}/cmp_core/shaders/bc7_encode_kernel.cpp
+)
+target_include_directories(ftk-cmp-core SYSTEM PUBLIC
+    ${compressonator_SOURCE_DIR}/cmp_core/source
+    ${compressonator_SOURCE_DIR}/cmp_core/shaders
+)
+if(MSVC)
+    target_compile_options(ftk-cmp-core PRIVATE /w)
+else()
+    target_compile_options(ftk-cmp-core PRIVATE -w)
+endif()
+add_library(ftk::cmp-core ALIAS ftk-cmp-core)
+
 # ftk-image loads, saves and scales images: stb's reader, writer and resizer,
 # compiled once for everything that uses them, with stb's headers handed on
-# as system headers.
+# as system headers. It also encodes images to the block-compressed formats
+# through CMP_Core, which it keeps to itself.
 ftk_library(image
     SOURCES
+        ftk/image/block_encoder.cpp
         ftk/image/stb_image.cpp
         ftk/image/stb_image_resize.cpp
         ftk/image/stb_image_write.cpp
+    HEADERS
+        ftk/image/block_encoder.hpp
+    LINKS
+        PRIVATE ftk::cmp-core
 )
 target_include_directories(ftk-image SYSTEM PUBLIC ${stb_SOURCE_DIR})
 if(NOT MSVC)

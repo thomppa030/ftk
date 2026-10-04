@@ -16,6 +16,7 @@ FetchContent_GetProperties(Catch2)
 # --- Unit tests ---
 # The kit's tests are ftk-kit-tests, below.
 add_executable(ftk-tests
+    test_block_encoder.cpp
     test_child_process.cpp
     test_color_space.cpp
     test_command_group.cpp

@@ -21,7 +21,7 @@ library it does not link; the build checks that.
 | `ftk::gpu` | The GPU interface and the window; its Vulkan backend, `src/ftk/gpu/vulkan/`, is the only code that names Vulkan |
 | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
 | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, with glslc's errors read back |
-| `ftk::image` | Image loading, saving and resizing (stb) |
+| `ftk::image` | Image loading, saving and resizing (stb), and encoding to BC4, BC5, BC6H and BC7 (CMP_Core) |
 | `ftk::text` | Font faces, fallback chains, shaping and glyph rasterising (FreeType, HarfBuzz) |
 | `ftk::ui-core` | The immediate-mode UI: ids and kept state, layout, input, OS windows and popups, draw lists; no GPU code |
 | `ftk::ui-kit` | The kit's headers, the editor theme and its icons |
