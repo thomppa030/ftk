@@ -1,3 +1,4 @@
+#include "ftk/jsonrpc/documents.hpp"
 #include "ftk/jsonrpc/frames.hpp"
 #include "ftk/jsonrpc/peer.hpp"
 
@@ -6,6 +7,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -193,4 +195,37 @@ TEST_CASE("A peer stopped writes what it queued, then sends nothing more", "[jso
         });
     }
     REQUIRE(heard == std::vector<std::string>{"last"});
+}
+
+TEST_CASE("A path is a file URI with its odd bytes encoded, and back", "[jsonrpc]") {
+    using ftk::jsonrpc::path_of;
+    using ftk::jsonrpc::uri_of;
+    namespace fs = std::filesystem;
+#ifdef _WIN32
+    const fs::path path = "C:\\games\\my game\\coin #2.cpp";
+    REQUIRE(uri_of(path) == "file:///C%3A/games/my%20game/coin%20%232.cpp");
+#else
+    const fs::path path = "/home/kay/my game/coin #2.cpp";
+    REQUIRE(uri_of(path) == "file:///home/kay/my%20game/coin%20%232.cpp");
+#endif
+    REQUIRE(path_of(uri_of(path)) == path);
+    REQUIRE(path_of(uri_of(fs::path(u8"/games/m\u00fcnze.cpp").make_preferred())) ==
+            fs::path(u8"/games/m\u00fcnze.cpp").make_preferred());
+    REQUIRE_FALSE(path_of("https://example.com/a.cpp").has_value());
+    REQUIRE_FALSE(path_of("file://server/share/a.cpp").has_value());
+}
+
+TEST_CASE("Positions count along a line in UTF-8 bytes or UTF-16 units", "[jsonrpc]") {
+    using ftk::jsonrpc::byte_at;
+    using ftk::jsonrpc::Encoding;
+    using ftk::jsonrpc::units_at;
+    // An e with an accent is two bytes and one unit; a coin, four bytes and
+    // two units.
+    const std::string line = "a\xC3\xA9\xF0\x9F\xAA\x99z";
+    REQUIRE(units_at(line, 3, Encoding::Utf16) == 2);
+    REQUIRE(units_at(line, 7, Encoding::Utf16) == 4);
+    REQUIRE(byte_at(line, 4, Encoding::Utf16) == 7);
+    REQUIRE(byte_at(line, 5, Encoding::Utf16) == 8);
+    REQUIRE(byte_at(line, 99, Encoding::Utf16) == line.size());
+    REQUIRE(units_at(line, 7, Encoding::Utf8) == 7);
 }

@@ -2,6 +2,7 @@
 // if everything in the library finds what it needs in the library and its
 // own dependencies. Running it frames a message and reads it back.
 
+#include "ftk/jsonrpc/documents.hpp"
 #include "ftk/jsonrpc/frames.hpp"
 #include "ftk/jsonrpc/peer.hpp"
 
@@ -11,5 +12,6 @@ int main() {
     const auto body = frames.next();
     // A peer with no streams ends at once.
     { const ftk::jsonrpc::Peer peer({}); }
-    return body && *body == "{}" ? 0 : 1;
+    const bool named = ftk::jsonrpc::path_of(ftk::jsonrpc::uri_of("/a b")).has_value();
+    return body && *body == "{}" && named ? 0 : 1;
 }

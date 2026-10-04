@@ -93,14 +93,17 @@ ftk_library(platform
 
 # ftk-jsonrpc is JSON-RPC as the language server protocol carries it:
 # messages framed by their length, and a peer that talks over a pair of byte
-# streams, a thread each way. A client of a language server and a language
-# server both talk through it.
+# streams, a thread each way; and how the protocol names a document and counts
+# along its lines. A client of a language server and a language server both
+# talk through it.
 find_package(Threads REQUIRED)
 ftk_library(jsonrpc
     SOURCES
+        ftk/jsonrpc/documents.cpp
         ftk/jsonrpc/frames.cpp
         ftk/jsonrpc/peer.cpp
     HEADERS
+        ftk/jsonrpc/documents.hpp
         ftk/jsonrpc/frames.hpp
         ftk/jsonrpc/peer.hpp
     LINKS
