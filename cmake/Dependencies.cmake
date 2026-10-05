@@ -1,7 +1,7 @@
 # What ftk's libraries need, fetched whether ftk is built on its own or as
-# part of a program: windowing, maths, logging, JSON, stb, CMP_Core for block
-# compression, FreeType and HarfBuzz for text, Vulkan with VMA, and Tracy when
-# it is switched on.
+# part of a program: windowing, maths, logging, JSON, stb, zstd, CMP_Core for
+# block compression, FreeType and HarfBuzz for text, Vulkan with VMA, and Tracy
+# when it is switched on.
 # Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
@@ -132,7 +132,27 @@ FetchContent_Declare(
     SOURCE_SUBDIR  no-cmake-here
 )
 
-FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz compressonator)
+# zstd compresses and decompresses bytes (ftk-base's compression.hpp). Built
+# from its own CMake as a static library and nothing else: no programs, no
+# dictionary builder, no frames from before 1.0, and no threads of its own,
+# since a program spreads work over its own pool.
+set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_DICTBUILDER OFF CACHE BOOL "" FORCE)
+set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
+set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    zstd
+    URL            https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+    URL_HASH       SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+    SOURCE_SUBDIR  build/cmake
+    EXCLUDE_FROM_ALL
+)
+
+FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz compressonator zstd)
 
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)

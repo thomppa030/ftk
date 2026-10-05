@@ -6,11 +6,13 @@
 # profiler, and the string and UTF-8 helpers.
 ftk_library(base
     SOURCES
+        ftk/base/compression.cpp
         ftk/base/log.cpp
         ftk/base/range_allocator.cpp
         ftk/base/split_jobs.cpp
         ftk/base/thread_pool.cpp
     HEADERS
+        ftk/base/compression.hpp
         ftk/base/delegate.hpp
         ftk/base/handle.hpp
         ftk/base/handle_pool.hpp
@@ -25,6 +27,7 @@ ftk_library(base
         ftk/base/utf8.hpp
     LINKS
         PUBLIC spdlog::spdlog
+        PRIVATE libzstd_static
 )
 # Profiler zones compile in wherever ftk/base/profiler.hpp is included, so a
 # Tracy build passes the switch and the client on to everything linking base.

@@ -14,7 +14,7 @@ library it does not link; the build checks that.
 
 | Library | What it holds |
 |---|---|
-| `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers |
+| `ftk::base` | The log, results, delegates, handles, the thread pool, the profiler, string and UTF-8 helpers, compression (zstd) |
 | `ftk::math` | Colour space conversions and keyed curves |
 | `ftk::platform` | Paths, processes and their pipes, the program's own standard streams, file watching and shared libraries, one backend per OS |
 | `ftk::jsonrpc` | JSON-RPC as the language server protocol carries it: messages framed by length, a peer talking over two byte streams, file URIs and positions along a line |
