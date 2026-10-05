@@ -11,6 +11,13 @@ enum class Edge : uint8_t {
     clamp, ///< the edge texel again, for an image that ends there
 };
 
+/// What a filter finds past the edges across an image and past those down
+/// it: a panorama wraps around across and ends at the top and bottom.
+struct Edges {
+    Edge across{Edge::wrap};
+    Edge down{Edge::wrap};
+};
+
 /// An image of float texels, `channels` to a texel, packed row after row.
 struct FloatImage {
     std::vector<float> texels{};
@@ -26,6 +33,11 @@ struct FloatImage {
 /// texel's weights add up to one, so a flat image stays exactly as it was.
 /// Channels are filtered as they are: an image in sRGB should be made linear
 /// first.
-[[nodiscard]] FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edge edge);
+[[nodiscard]] FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edges edges);
+
+/// resize() with the same edge on every side.
+[[nodiscard]] inline FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edge edge) {
+    return resize(image, width, height, Edges{.across = edge, .down = edge});
+}
 
 } // namespace ftk::image

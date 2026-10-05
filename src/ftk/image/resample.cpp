@@ -86,7 +86,7 @@ Taps taps_for(uint32_t from, uint32_t to, Edge edge) {
 
 } // namespace
 
-FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edge edge) {
+FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edges edges) {
     width = std::max(width, 1U);
     height = std::max(height, 1U);
     const uint32_t channels = image.channels;
@@ -97,7 +97,7 @@ FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edge
 
     // Across first, into an image as wide as the result and as tall as the
     // source; then down.
-    const Taps across = taps_for(image.width, width, edge);
+    const Taps across = taps_for(image.width, width, edges.across);
     std::vector<float> wide(size_t{width} * image.height * channels, 0.0f);
     for (uint32_t y = 0; y < image.height; ++y) {
         const float* row = image.texels.data() + size_t{y} * image.width * channels;
@@ -112,7 +112,7 @@ FloatImage resize(const FloatImage& image, uint32_t width, uint32_t height, Edge
         }
     }
 
-    const Taps down = taps_for(image.height, height, edge);
+    const Taps down = taps_for(image.height, height, edges.down);
     FloatImage result{.texels = std::vector<float>(size_t{width} * height * channels, 0.0f),
                       .width = width,
                       .height = height,

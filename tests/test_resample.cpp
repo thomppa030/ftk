@@ -66,6 +66,16 @@ TEST_CASE("Past the edge, a tiling texture wraps and an image ends", "[image][re
     CHECK(at(clamped, 3, 2) == 0.0f);
 }
 
+TEST_CASE("A panorama wraps around across and ends at the top and bottom", "[image][resample]") {
+    const Edges panorama{.across = Edge::wrap, .down = Edge::clamp};
+    // The last column sees a bright first column round the back.
+    const FloatImage column = filled(8, 8, 1, [](uint32_t x, uint32_t, uint32_t) { return x == 0 ? 1.0f : 0.0f; });
+    CHECK(at(resize(column, 4, 4, panorama), 3, 2) > 0.05f);
+    // The last row does not see a bright first row.
+    const FloatImage row = filled(8, 8, 1, [](uint32_t, uint32_t y, uint32_t) { return y == 0 ? 1.0f : 0.0f; });
+    CHECK(at(resize(row, 4, 4, panorama), 2, 3) == 0.0f);
+}
+
 TEST_CASE("Halving keeps more of a fine pattern than a box filter", "[image][resample]") {
     // Stripes eight texels apart, placed so the halved texels, centred
     // between source texels 2i and 2i + 1, land on their crests. Averaging

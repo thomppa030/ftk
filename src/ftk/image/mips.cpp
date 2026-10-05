@@ -116,7 +116,7 @@ std::vector<FloatImage> make_mips(const FloatImage& image, const MipOptions& opt
     // applied once.
     FloatImage filtered = to_filtered(image, options.content);
     while (filtered.width > 1 || filtered.height > 1) {
-        filtered = resize(filtered, std::max(filtered.width / 2, 1U), std::max(filtered.height / 2, 1U), options.edge);
+        filtered = resize(filtered, std::max(filtered.width / 2, 1U), std::max(filtered.height / 2, 1U), options.edges);
         if (options.content == MipContent::normal_map) normalize_normals(filtered);
         FloatImage mip = to_stored(filtered, options.content);
         if (cutout) keep_coverage(mip, *alpha, *cutout, target);

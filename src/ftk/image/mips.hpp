@@ -23,7 +23,7 @@ enum class MipContent : uint8_t {
 
 struct MipOptions {
     MipContent content{MipContent::srgb_color};
-    Edge edge{Edge::wrap};
+    Edges edges{};
     /// For a cutout, the alpha under which its surface is cut away. Each
     /// mip's alpha is then scaled so the share of texels at or above it stays
     /// what it is in the image, and the cutout keeps its coverage at a
