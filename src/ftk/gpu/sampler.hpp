@@ -49,8 +49,12 @@ struct SamplerDesc {
     Filter filter{Filter::linear};
     /// Filtering between mip levels.
     Filter mip_filter{Filter::linear};
-    /// Addressing on every axis.
+    /// Addressing on every axis, or across alone when `address_down` is set.
     Address address{Address::repeat};
+    /// Addressing down the texture where it differs from across: a panorama
+    /// wraps around and stops at its poles. Set to `address`, it is the same
+    /// sampler as unset.
+    std::optional<Address> address_down{};
     /// Anisotropic filtering up to this many samples, capped at what the device
     /// allows; 0 or 1 is none.
     float max_anisotropy{0.0f};

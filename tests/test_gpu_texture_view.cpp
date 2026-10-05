@@ -102,3 +102,8 @@ TEST_CASE("equal sampler descriptions are the same sampler", "[gpu][sampler]") {
     b.compare = Compare::less_equal;
     CHECK_FALSE(a == b);
 }
+
+TEST_CASE("a sampler addressed down apart from across is a sampler of its own", "[gpu][sampler]") {
+    const SamplerDesc panorama{.address = Address::repeat, .address_down = Address::clamp};
+    CHECK_FALSE(panorama == SamplerDesc{.address = Address::repeat});
+}

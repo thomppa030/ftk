@@ -608,7 +608,12 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     return Owned<Texture>(*this, texture);
 }
 
-Sampler Device::sampler(const SamplerDesc& desc) {
+Sampler Device::sampler(const SamplerDesc& asked) {
+    // Addressing down that matches across is none of its own, so both
+    // spellings find the same sampler.
+    SamplerDesc desc = asked;
+    if (desc.address_down == desc.address) desc.address_down.reset();
+
     Impl& self = *impl_;
     std::lock_guard lock(self.samplers_mutex);
     for (const auto& [known, sampler] : self.sampler_by_desc) {
@@ -621,7 +626,7 @@ Sampler Device::sampler(const SamplerDesc& desc) {
     create_info.minFilter = vulkan::to_vk(desc.filter);
     create_info.mipmapMode = vulkan::to_vk_mipmap(desc.mip_filter);
     create_info.addressModeU = vulkan::to_vk(desc.address);
-    create_info.addressModeV = create_info.addressModeU;
+    create_info.addressModeV = vulkan::to_vk(desc.address_down.value_or(desc.address));
     create_info.addressModeW = create_info.addressModeU;
     create_info.anisotropyEnable = desc.max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
     create_info.maxAnisotropy = std::min(desc.max_anisotropy, self.max_anisotropy);
