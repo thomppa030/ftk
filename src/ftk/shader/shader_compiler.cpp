@@ -1,5 +1,6 @@
 #include "ftk/shader/shader_compiler.hpp"
 
+#include "ftk/base/hash.hpp"
 #include "ftk/base/log.hpp"
 #include "ftk/base/profiler.hpp"
 #include "ftk/platform/platform.hpp"
@@ -18,20 +19,6 @@ namespace ftk {
 
 namespace {
 
-// FNV-1a. Not std::hash: that is unspecified and free to differ between
-// runs and standard libraries, which is fine for a lookup table and fatal
-// for a key written to disk and read back by a later build.
-constexpr uint64_t FNV_OFFSET = 1469598103934665603ULL;
-constexpr uint64_t FNV_PRIME = 1099511628211ULL;
-
-uint64_t hash_bytes(std::string_view bytes, uint64_t seed = FNV_OFFSET) {
-    uint64_t h = seed;
-    for (unsigned char c : bytes) {
-        h ^= c;
-        h *= FNV_PRIME;
-    }
-    return h;
-}
 
 std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -62,11 +49,11 @@ constexpr std::string_view OPTIMIZE_FLAGS = " -O -g";
 uint64_t key_of(uint64_t include_hash, std::string_view source, const ShaderCompiler::Job& job,
                 uint32_t generator_version) {
     uint64_t key = include_hash;
-    key = hash_bytes(source, key);
-    for (const auto& define : job.defines) key = hash_bytes(define, key);
-    key = hash_bytes(job.stage, key);
-    if (job.optimize) key = hash_bytes(OPTIMIZE_FLAGS, key);
-    key = hash_bytes(std::string_view{reinterpret_cast<const char*>(&generator_version),
+    key = fnv1a64(source, key);
+    for (const auto& define : job.defines) key = fnv1a64(define, key);
+    key = fnv1a64(job.stage, key);
+    if (job.optimize) key = fnv1a64(OPTIMIZE_FLAGS, key);
+    key = fnv1a64(std::string_view{reinterpret_cast<const char*>(&generator_version),
                                       sizeof(generator_version)}, key);
     return key;
 }
@@ -97,7 +84,7 @@ void ShaderCompiler::rehash_includes() {
     // it. A directory that does not exist adds nothing, so a list in which
     // only one exists hashes as that one alone would, and what is cached under
     // that key stays good.
-    uint64_t h = FNV_OFFSET;
+    uint64_t h = FNV1A_OFFSET;
     for (const auto& dir : include_dirs_) {
         const std::filesystem::path root = dir;
         std::error_code ec;
@@ -109,8 +96,8 @@ void ShaderCompiler::rehash_includes() {
         }
         std::sort(includes.begin(), includes.end());
         for (const auto& path : includes) {
-            h = hash_bytes(path.lexically_relative(root).generic_string(), h);
-            h = hash_bytes(read_file(path.string()), h);
+            h = fnv1a64(path.lexically_relative(root).generic_string(), h);
+            h = fnv1a64(read_file(path.string()), h);
         }
     }
     include_hash_ = h;

@@ -33,6 +33,7 @@ add_executable(ftk-tests
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
     test_half.cpp
+    test_hash.cpp
     test_handle_pool.cpp
     test_jsonrpc.cpp
     test_log.cpp

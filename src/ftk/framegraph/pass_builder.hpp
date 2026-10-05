@@ -5,6 +5,7 @@
 #include "ftk/gpu/buffer.hpp"
 #include "ftk/gpu/texture.hpp"
 #include "ftk/framegraph/resource_desc.hpp"
+#include "ftk/base/hash.hpp"
 
 #include <glm/vec2.hpp>
 #include <string>
@@ -62,12 +63,7 @@ struct BufferImport {
 /// well-known so collisions among the handful of names in play are
 /// astronomically unlikely.
 constexpr uint64_t fg_name_hash(std::string_view s) noexcept {
-    uint64_t h = 14695981039346656037ULL;
-    for (unsigned char b : s) {
-        h ^= static_cast<uint64_t>(b);
-        h *= 1099511628211ULL;
-    }
-    return h;
+    return fnv1a64(s);
 }
 
 /// How a texture a pass exports is tracked; the fields are `ImportedImage`'s.

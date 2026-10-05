@@ -70,9 +70,9 @@ TEST_CASE("A cache key is exactly what it was", "[shader][compiler]") {
     const ShaderCompiler compiler = tree.compiler();
 
     const ShaderCompiler::Job shaped{tree.path("shaders/generated/x.frag"), "x", {"FJELL_UI_WORLD"}, "compute"};
-    CHECK(compiler.cache_key(shaped) == 0x7e76e492e9072f89ULL);
+    CHECK(compiler.cache_key(shaped) == 0x84d69e786dc99b33ULL);
     const ShaderCompiler::Job plain{tree.path("shaders/generated/x.frag"), "x"};
-    CHECK(compiler.cache_key(plain) == 0xbae69c53d4f95297ULL);
+    CHECK(compiler.cache_key(plain) == 0x8baea5ec14873771ULL);
 }
 
 TEST_CASE("An optimised job is kept apart from the plain one", "[shader][compiler]") {

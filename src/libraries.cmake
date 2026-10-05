@@ -15,6 +15,7 @@ ftk_library(base
         ftk/base/compression.hpp
         ftk/base/delegate.hpp
         ftk/base/handle.hpp
+        ftk/base/hash.hpp
         ftk/base/handle_pool.hpp
         ftk/base/range_allocator.hpp
         ftk/base/split_jobs.hpp
