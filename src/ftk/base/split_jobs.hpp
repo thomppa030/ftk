@@ -65,6 +65,12 @@ public:
     /// what is about to go.
     void wait_for_workers();
 
+    /// Blocks until every worker half submitted so far is done, then drops
+    /// every step unrun, destroying what each holds here and now. For a
+    /// teardown: what the jobs work with goes next, and what a finished one
+    /// made must go while what it needs to go still exists.
+    void discard();
+
     /// Jobs submitted and not yet run on the owning thread.
     [[nodiscard]] std::size_t pending() const { return working_.size() + ready_.size(); }
 
