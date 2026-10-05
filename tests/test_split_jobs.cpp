@@ -2,7 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -108,4 +110,25 @@ TEST_CASE("a step posted on the owning thread runs behind those already waiting"
     CHECK(jobs.pending() == 2);
     CHECK(jobs.run(UNLIMITED) == 2);
     CHECK(order == std::vector<int>{1, 2});
+}
+
+TEST_CASE("discarding waits for the worker halves and drops their steps unrun", "[base][split_jobs]") {
+    ftk::ThreadPool pool(2);
+    SplitJobs jobs(pool);
+    std::atomic<bool> worked{false};
+    bool ran = false;
+    auto held = std::make_shared<int>(0);
+    const std::weak_ptr<int> watch = held;
+    jobs.submit([&worked, &ran, held = std::move(held)]() mutable {
+        std::this_thread::sleep_for(20ms);
+        worked = true;
+        return OwnerStep{[&ran, held = std::move(held)] { ran = true; }, 0};
+    });
+    jobs.post(OwnerStep{[&ran] { ran = true; }, 0});
+    jobs.discard();
+    CHECK(worked);
+    CHECK_FALSE(ran);
+    CHECK(watch.expired());
+    CHECK(jobs.pending() == 0);
+    CHECK(jobs.run(UNLIMITED) == 0);
 }

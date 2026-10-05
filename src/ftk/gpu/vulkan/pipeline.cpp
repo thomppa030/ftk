@@ -1,5 +1,7 @@
 #include "ftk/gpu/vulkan/device_impl.hpp"
 
+#include "ftk/base/profiler.hpp"
+
 #include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/vulkan/translate.hpp"
 
@@ -98,6 +100,8 @@ Result<Device::Impl::LayoutInfo> Device::Impl::pipeline_layout(const ShaderLayou
     auto shared_sets = place_shared(layout, named);
     if (!shared_sets) return std::unexpected(shared_sets.error());
     for (size_t i = 0; i < shared.size(); ++i) info.shared_sets.emplace_back(shared[i], (*shared_sets)[i]);
+
+    const std::lock_guard lock(layouts_mutex);
 
     // One set layout per set up to the highest the shaders use; a set they
     // skip is an empty layout.
@@ -378,18 +382,83 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     return record;
 }
 
+// ── PipelineBuild ───────────────────────────────────────────────────────
+
+template <typename H>
+struct PipelineBuild<H>::Impl {
+    Device::Impl::PipelineRecord record;
+    VkDevice device{VK_NULL_HANDLE};
+};
+
+template <typename H>
+PipelineBuild<H>::PipelineBuild(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+template <typename H>
+PipelineBuild<H>::PipelineBuild(PipelineBuild&&) noexcept = default;
+
+template <typename H>
+PipelineBuild<H>& PipelineBuild<H>::operator=(PipelineBuild&& other) noexcept {
+    if (this != &other) {
+        // What this held goes as `dropped` does.
+        const PipelineBuild dropped(std::move(*this));
+        impl_ = std::move(other.impl_);
+    }
+    return *this;
+}
+
+template <typename H>
+PipelineBuild<H>::~PipelineBuild() {
+    // Never adopted, so no frame used it.
+    if (impl_ && impl_->record.pipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(impl_->device, impl_->record.pipeline, nullptr);
+    }
+}
+
+template class PipelineBuild<ComputePipeline>;
+template class PipelineBuild<GraphicsPipeline>;
+
 // ── Device ──────────────────────────────────────────────────────────────
 
-Result<Owned<ComputePipeline>> Device::create(const ComputePipelineDesc& desc) {
+Result<ComputePipelineBuild> Device::build(const ComputePipelineDesc& desc) {
+    FTK_PROFILE_SCOPE_N("build_compute_pipeline");
+    FTK_PROFILE_SCOPE_VIEW(desc.name);
     auto record = impl_->build(desc);
     if (!record) return std::unexpected(record.error());
-    return Owned<ComputePipeline>(*this, impl_->compute_pipelines.emplace(std::move(*record)));
+    return ComputePipelineBuild(std::make_unique<ComputePipelineBuild::Impl>(
+        ComputePipelineBuild::Impl{.record = std::move(*record), .device = impl_->device}));
+}
+
+Result<GraphicsPipelineBuild> Device::build(const GraphicsPipelineDesc& desc) {
+    FTK_PROFILE_SCOPE_N("build_graphics_pipeline");
+    FTK_PROFILE_SCOPE_VIEW(desc.name);
+    auto record = impl_->build(desc);
+    if (!record) return std::unexpected(record.error());
+    return GraphicsPipelineBuild(std::make_unique<GraphicsPipelineBuild::Impl>(
+        GraphicsPipelineBuild::Impl{.record = std::move(*record), .device = impl_->device}));
+}
+
+Owned<ComputePipeline> Device::adopt(ComputePipelineBuild&& built) {
+    const std::unique_ptr<ComputePipelineBuild::Impl> taken = std::move(built.impl_);
+    if (!taken) return {};
+    return Owned<ComputePipeline>(*this, impl_->compute_pipelines.emplace(std::move(taken->record)));
+}
+
+Owned<GraphicsPipeline> Device::adopt(GraphicsPipelineBuild&& built) {
+    const std::unique_ptr<GraphicsPipelineBuild::Impl> taken = std::move(built.impl_);
+    if (!taken) return {};
+    return Owned<GraphicsPipeline>(*this, impl_->graphics_pipelines.emplace(std::move(taken->record)));
+}
+
+Result<Owned<ComputePipeline>> Device::create(const ComputePipelineDesc& desc) {
+    auto built = build(desc);
+    if (!built) return std::unexpected(built.error());
+    return adopt(std::move(*built));
 }
 
 Result<Owned<GraphicsPipeline>> Device::create(const GraphicsPipelineDesc& desc) {
-    auto record = impl_->build(desc);
-    if (!record) return std::unexpected(record.error());
-    return Owned<GraphicsPipeline>(*this, impl_->graphics_pipelines.emplace(std::move(*record)));
+    auto built = build(desc);
+    if (!built) return std::unexpected(built.error());
+    return adopt(std::move(*built));
 }
 
 namespace {

@@ -198,9 +198,11 @@ struct Device::Impl {
     Impl(Window& window, const DeviceDesc& desc);
     ~Impl();
 
-    /// Writes the pipeline cache to its file and destroys it; nothing
-    /// without one.
-    void save_pipeline_cache();
+    /// Writes the pipeline cache to its file when it holds more than the
+    /// file does; nothing without one. Any thread may call it.
+    void write_pipeline_cache();
+    /// Writes the pipeline cache and destroys it.
+    void close_pipeline_cache();
 
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -232,7 +234,7 @@ struct Device::Impl {
 
     /// The pipeline layout for what `layout` binds and takes, with the shared
     /// layouts `shared` at the sets they fit, made the first time a pipeline
-    /// declares it and shared after.
+    /// declares it and shared after. Any thread may ask.
     [[nodiscard]] Result<LayoutInfo> pipeline_layout(const ShaderLayout& layout,
                                                      std::span<const SharedLayout> shared);
 
@@ -273,6 +275,8 @@ struct Device::Impl {
     /// mistake recorded every frame is read once.
     void report_once(const std::string& message);
 
+    /// A pipeline the driver has compiled, in no pool yet. Any thread may
+    /// build one.
     [[nodiscard]] Result<PipelineRecord> build(const ComputePipelineDesc& desc);
     [[nodiscard]] Result<PipelineRecord> build(const GraphicsPipelineDesc& desc);
 
@@ -335,9 +339,11 @@ struct Device::Impl {
     /// the device's own, destroyed with it.
     TransientMemory transient;
     /// Set and pipeline layouts by what they hold, so pipelines declaring the
-    /// same share one. Destroyed with the device.
+    /// same share one. Destroyed with the device. Pipelines are built on any
+    /// thread, so the maps are read and filled under `layouts_mutex`.
     std::unordered_map<std::string, VkDescriptorSetLayout> set_layouts;
     std::unordered_map<std::string, VkPipelineLayout> pipeline_layouts;
+    std::mutex layouts_mutex;
     /// Labels debuggers show around a zone, loaded where debug utils are;
     /// null elsewhere.
     PFN_vkCmdBeginDebugUtilsLabelEXT begin_label{nullptr};
@@ -403,6 +409,10 @@ struct Device::Impl {
     /// `pipeline_cache_file`; null without one.
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     std::filesystem::path pipeline_cache_file;
+    /// One write of the cache at a time, from whichever thread, and the size
+    /// of what the file holds: the cache as loaded until it is written.
+    std::mutex pipeline_cache_mutex;
+    size_t pipeline_cache_written{0};
     ShaderLocator locator;
     Caps caps;
     std::string name;

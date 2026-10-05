@@ -6,6 +6,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -147,7 +148,16 @@ public:
     // Device-loss diagnostics. Call after a VK_ERROR_DEVICE_LOST; if
     // VK_EXT_device_fault is supported, queries and logs the faulting
     // address ranges + vendor info to pin the GPU op that lost the device.
+    // Logged for the first call that sees the loss, `context` naming it;
+    // later calls add nothing. Any thread may call it.
     void dump_device_fault(const char* context) const;
+    /// Throws as vk_check() does; a lost device is reported first
+    /// (dump_device_fault()). For every call that can be the first to see
+    /// the device lost: submits, waits, timeline reads.
+    void check(VkResult result, const std::string& msg) const;
+    /// Whether a call has seen the device lost. Nothing sent to it runs or
+    /// finishes again.
+    [[nodiscard]] bool lost() const { return lost_.load(); }
 
     /// What every buffer and image the device makes is allocated from.
     [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
@@ -198,6 +208,7 @@ private:
 
     bool device_fault_supported_{false};
     bool block_compression_supported_{false};
+    mutable std::atomic<bool> lost_{false};
 
     bool ray_tracing_supported_{false};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};

@@ -7,6 +7,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -253,5 +254,45 @@ struct GraphicsPipelineDesc {
     /// Shown by debuggers and in error messages; not kept.
     std::string_view name{};
 };
+
+/// A pipeline the driver has compiled that is not yet the device's: what
+/// `Device::build()` makes on any thread, several at once, for
+/// `Device::adopt()` to hand the device on the thread that submits frames.
+/// Compiling is what a pipeline costs, so a program builds the ones it is
+/// about to draw with on its workers and adopts them between frames. One
+/// dropped without being adopted is destroyed at once, since no frame ever
+/// used it; every build is adopted or dropped before its device goes.
+///
+/// @code
+/// // On a worker:
+/// auto built = device.build(gpu::GraphicsPipelineDesc{...});
+/// // Later, on the thread that submits frames:
+/// if (built) pipeline_ = device.adopt(std::move(*built));
+/// @endcode
+template <typename H>
+class PipelineBuild {
+public:
+    /// The backend's state, which the backend defines.
+    struct Impl;
+
+    explicit PipelineBuild(std::unique_ptr<Impl> impl);
+    ~PipelineBuild();
+
+    PipelineBuild(PipelineBuild&&) noexcept;
+    PipelineBuild& operator=(PipelineBuild&&) noexcept;
+    PipelineBuild(const PipelineBuild&) = delete;
+    PipelineBuild& operator=(const PipelineBuild&) = delete;
+
+private:
+    friend class Device;
+    std::unique_ptr<Impl> impl_;
+};
+
+using ComputePipelineBuild = PipelineBuild<ComputePipeline>;
+using GraphicsPipelineBuild = PipelineBuild<GraphicsPipeline>;
+
+// Defined, for these two, by the backend.
+extern template class PipelineBuild<ComputePipeline>;
+extern template class PipelineBuild<GraphicsPipeline>;
 
 } // namespace ftk::gpu

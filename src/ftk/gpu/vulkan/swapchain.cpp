@@ -277,6 +277,7 @@ std::optional<SwapchainImage> Swapchain::acquire(Frame& frame) {
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         impl_->rebuild();
     } else {
+        if (result == VK_ERROR_DEVICE_LOST) device.foundation.dump_device_fault("swapchain acquire");
         device.report_once(failed("The swapchain could not acquire an image", result));
     }
     return std::nullopt;
@@ -306,6 +307,7 @@ Result<> Swapchain::present(Frame& frame, const SwapchainImage& image) {
         impl_->rebuild();
         return {};
     }
+    if (result == VK_ERROR_DEVICE_LOST) impl_->foundation.dump_device_fault("present");
     if (result != VK_SUCCESS) return make_error(failed("The window refused a frame", result));
     return {};
 }

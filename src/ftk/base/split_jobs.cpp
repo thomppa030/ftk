@@ -29,6 +29,11 @@ void SplitJobs::wait_for_workers() {
     take_finished();
 }
 
+void SplitJobs::discard() {
+    wait_for_workers();
+    ready_.clear();
+}
+
 std::size_t SplitJobs::run(const FrameBudget& budget, const std::function<Clock::time_point()>& now) {
     take_finished();
 

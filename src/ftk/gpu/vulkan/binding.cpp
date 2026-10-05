@@ -185,8 +185,8 @@ Result<> update_shared(Device::Impl& self, Device::Impl::GroupRecord& record,
     const uint64_t bound = record.state->bound.load(std::memory_order_relaxed);
     if (bound != Device::Impl::SharedGroupState::NEVER_BOUND) {
         uint64_t finished = 0;
-        vk_check(vkGetSemaphoreCounterValue(self.device, self.frame_timeline, &finished),
-                 "Failed to read the frame timeline");
+        self.foundation.check(vkGetSemaphoreCounterValue(self.device, self.frame_timeline, &finished),
+                              "Failed to read the frame timeline");
         if (bound > finished) return write_version(self, record, shared, *changes);
     }
     // An emptied element keeps its old descriptor in place, which no shader

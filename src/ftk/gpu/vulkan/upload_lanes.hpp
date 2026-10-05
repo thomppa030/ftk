@@ -171,6 +171,7 @@ private:
     void reclaim_completed();
     [[nodiscard]] uint64_t completed_value(LaneIndex lane) const;
 
+    const Foundation& foundation_;
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     // Points into the foundation's stable family array.

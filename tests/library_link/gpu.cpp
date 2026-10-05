@@ -1,10 +1,11 @@
 // Links ftk-gpu alone and whole (tests/CMakeLists.txt), so it builds only
 // if everything in the library finds what it needs in the library and its own
 // dependencies. Running it opens a window, brings a device up and makes a
-// buffer, a texture with a view, a sampler, pipelines, bind groups and
-// transient memory through the GPU interface, and records a dispatch, copies,
-// clears and draws through command lists, two of them at once on two threads,
-// and acceleration structure builds and a ray query where the GPU has them,
+// buffer, a texture with a view, a sampler, pipelines (some built on four
+// threads at once), bind groups and transient memory through the GPU
+// interface, and records a dispatch, copies, clears and draws through command
+// lists, two of them at once on two threads, and acceleration structure
+// builds and a ray query where the GPU has them,
 // which takes a GPU and a display: it is run by hand, not as a test. It uses
 // the interface alone, as a program outside Fjell would, and counts what the
 // device refuses by the errors it logs.
@@ -21,9 +22,12 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <span>
 #include <string>
+#include <system_error>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -130,6 +134,86 @@ int main() {
             const ftk::gpu::ComputePipeline handle = *compute;
             const auto rebuilt = device.recreate(handle, {.shader = "pipeline.comp"});
             pipelines = pipelines && rebuilt.has_value() && device.layout(handle).push_size == 16;
+        }
+
+        // Pipelines built on four threads at once, filling the device's
+        // layouts as they go, and adopted here; one adopted twice, which the
+        // second time gives nothing, and one dropped without being adopted.
+        // A fifth thread writes the driver's pipeline cache meanwhile: the
+        // file is whole once they are done, and written again only when the
+        // cache has grown.
+        {
+            const std::filesystem::path cache_file =
+                std::filesystem::temp_directory_path() / "ftk_link_gpu_pipeline_cache.bin";
+            std::filesystem::path cache_partial = cache_file;
+            cache_partial += ".partial";
+            std::filesystem::remove(cache_file);
+            device.set_pipeline_cache_file(cache_file);
+            std::atomic<bool> building{true};
+            constexpr int THREADS = 4;
+            constexpr int EACH = 8;
+            std::array<std::vector<ftk::gpu::ComputePipelineBuild>, THREADS> computes;
+            std::array<std::vector<ftk::gpu::GraphicsPipelineBuild>, THREADS> draws;
+            std::atomic<int> refused{0};
+            // What the second shader's pipelines should take, made here.
+            auto reference = device.create(ftk::gpu::ComputePipelineDesc{.shader = "commands.comp"});
+            std::vector<std::thread> workers;
+            for (int t = 0; t < THREADS; ++t) {
+                workers.emplace_back([&, t] {
+                    for (int i = 0; i < EACH; ++i) {
+                        auto built_compute = device.build(ftk::gpu::ComputePipelineDesc{
+                            .shader = (t % 2 == 0) ? "pipeline.comp" : "commands.comp", .name = "link_built"});
+                        auto built_draw = device.build(ftk::gpu::GraphicsPipelineDesc{
+                            .vertex = "reflect.vert",
+                            .fragment = "reflect.frag",
+                            .color = {{ftk::gpu::Format::rgba8_unorm, ftk::gpu::Blend::alpha}},
+                            .name = "link_built",
+                        });
+                        if (built_compute) computes[t].push_back(std::move(*built_compute)); else ++refused;
+                        if (built_draw) draws[t].push_back(std::move(*built_draw)); else ++refused;
+                    }
+                });
+            }
+            std::thread saver([&] {
+                while (building) device.save_pipeline_cache();
+            });
+            for (std::thread& worker : workers) worker.join();
+            building = false;
+            saver.join();
+            device.save_pipeline_cache();
+            std::error_code missing;
+            const auto written = std::filesystem::last_write_time(cache_file, missing);
+            const bool cache_whole = !missing && std::filesystem::file_size(cache_file) > 0 &&
+                                     !std::filesystem::exists(cache_partial);
+            device.save_pipeline_cache();
+            const bool cache_kept = !missing && std::filesystem::last_write_time(cache_file) == written;
+            std::filesystem::remove(cache_file);
+            if (!cache_whole) std::fprintf(stderr, "the pipeline cache written beside building was not whole\n");
+            if (!cache_kept) std::fprintf(stderr, "the pipeline cache was written again with nothing new in it\n");
+
+            std::vector<ftk::gpu::Owned<ftk::gpu::ComputePipeline>> adopted_computes;
+            std::vector<ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>> adopted_draws;
+            bool whole = refused == 0 && reference.has_value();
+            for (int t = 0; t < THREADS; ++t) {
+                const uint32_t push = (t % 2 == 0) ? 16 : (reference ? device.layout(*reference).push_size : 0);
+                for (ftk::gpu::ComputePipelineBuild& built : computes[t]) {
+                    auto adopted = device.adopt(std::move(built));
+                    whole = whole && adopted && device.layout(adopted).push_size == push;
+                    adopted_computes.push_back(std::move(adopted));
+                }
+                for (ftk::gpu::GraphicsPipelineBuild& built : draws[t]) {
+                    auto adopted = device.adopt(std::move(built));
+                    whole = whole && adopted;
+                    adopted_draws.push_back(std::move(adopted));
+                }
+            }
+            const bool twice_empty = !device.adopt(std::move(computes[0][0]));
+            { auto dropped = device.build(ftk::gpu::ComputePipelineDesc{.shader = "pipeline.comp"}); }
+            const bool built_ok = whole && twice_empty && cache_whole && cache_kept &&
+                                  adopted_computes.size() == THREADS * EACH &&
+                                  adopted_draws.size() == THREADS * EACH;
+            if (!built_ok) std::fprintf(stderr, "pipelines built on other threads failed\n");
+            pipelines = pipelines && built_ok;
         }
 
         // A frame's memory: two slices in one frame slot, the same ones again
