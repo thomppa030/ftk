@@ -363,6 +363,7 @@ VkImageView Device::Impl::image_view(const TextureView& view) {
     create_info.image = record->image;
     create_info.viewType = vulkan::to_vk(key.kind);
     create_info.format = vulkan::to_vk(key.format);
+    create_info.components = vulkan::to_vk(key.swizzle);
     create_info.subresourceRange = {vulkan::view_aspect(key.format), key.base_mip, key.mip_count,
                                     key.base_layer, key.layer_count};
     VkImageView made{VK_NULL_HANDLE};
@@ -553,6 +554,11 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
         }
     }
 
+    if (desc.swizzle != Swizzle{} && desc.use != TextureUse::sampled) {
+        return make_error(described("Texture", desc.name) +
+                          " reads its channels from others, so it is only sampled");
+    }
+
     TextureInfo info;
     info.kind = desc.kind;
     info.format = desc.format;
@@ -565,6 +571,7 @@ Result<Owned<Texture>> Device::create(const TextureDesc& desc) {
     info.mips = desc.mips;
     info.samples = desc.samples;
     info.use = desc.use;
+    info.swizzle = desc.swizzle;
 
     VkImageCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;

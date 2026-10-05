@@ -50,6 +50,34 @@ enum class Queues : uint8_t {
 ///     .name = "cloud_shadow",
 /// });
 /// @endcode
+/// Where a channel a shader reads comes from: one of the texture's own, or a
+/// constant.
+enum class ChannelSource : uint8_t {
+    r,
+    g,
+    b,
+    a,
+    zero,
+    one,
+};
+
+/// The channel or constant each channel a shader reads is taken from; as
+/// stored unless told otherwise.
+struct Swizzle {
+    ChannelSource r{ChannelSource::r};
+    ChannelSource g{ChannelSource::g};
+    ChannelSource b{ChannelSource::b};
+    ChannelSource a{ChannelSource::a};
+
+    /// One channel read as grey: its red in red, green and blue, and an
+    /// alpha of one.
+    [[nodiscard]] static constexpr Swizzle grey() {
+        return {ChannelSource::r, ChannelSource::r, ChannelSource::r, ChannelSource::one};
+    }
+
+    bool operator==(const Swizzle&) const = default;
+};
+
 struct TextureDesc {
     TextureKind kind{TextureKind::tex2d};
     Format format{Format::undefined};
@@ -64,6 +92,9 @@ struct TextureDesc {
     Samples samples{Samples::x1};
     TextureUses use{};
     Queues queues{Queues::graphics};
+    /// How shaders read its channels, which only a texture that is only
+    /// sampled may change: a one-channel texture read as grey.
+    Swizzle swizzle{};
     /// What the texture holds before anything writes it. Cleared on the device's
     /// upload lane, which runs before the next frame, after which the texture
     /// is ready to be sampled, or, without `TextureUse::sampled`, read and
@@ -85,6 +116,7 @@ struct TextureInfo {
     uint32_t mips{1};
     Samples samples{Samples::x1};
     TextureUses use{};
+    Swizzle swizzle{};
 };
 
 /// How a shader sees a view. `automatic` follows the texture and the range:
@@ -164,6 +196,8 @@ struct ResolvedView {
     uint32_t layer_count{1};
     ViewKind kind{ViewKind::tex2d};
     Format format{Format::undefined};
+    /// The texture's own: every view of it reads its channels alike.
+    Swizzle swizzle{};
 
     bool operator==(const ResolvedView&) const = default;
 };
@@ -179,6 +213,7 @@ struct ResolvedView {
     out.layer_count = view.layer_count == TextureView::REST ? info.layers - view.base_layer
                                                             : view.layer_count;
     out.format = view.format == Format::undefined ? info.format : view.format;
+    out.swizzle = info.swizzle;
 
     const bool whole = view.base_layer == 0 && view.layer_count == TextureView::REST;
     if (view.kind != ViewKind::automatic) {

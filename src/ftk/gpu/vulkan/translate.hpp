@@ -58,6 +58,7 @@ namespace ftk::gpu::vulkan {
 [[nodiscard]] VkSamplerMipmapMode to_vk_mipmap(Filter filter);
 
 [[nodiscard]] VkSamplerAddressMode to_vk(Address address);
+[[nodiscard]] VkComponentMapping to_vk(const Swizzle& swizzle);
 [[nodiscard]] VkBorderColor to_vk(Border border);
 [[nodiscard]] VkCompareOp to_vk(Compare compare);
 

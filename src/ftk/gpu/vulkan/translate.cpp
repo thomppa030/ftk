@@ -177,6 +177,26 @@ VkSamplerMipmapMode to_vk_mipmap(Filter filter) {
     return VK_SAMPLER_MIPMAP_MODE_LINEAR;
 }
 
+namespace {
+
+VkComponentSwizzle component(ChannelSource source) {
+    switch (source) {
+        case ChannelSource::r:    return VK_COMPONENT_SWIZZLE_R;
+        case ChannelSource::g:    return VK_COMPONENT_SWIZZLE_G;
+        case ChannelSource::b:    return VK_COMPONENT_SWIZZLE_B;
+        case ChannelSource::a:    return VK_COMPONENT_SWIZZLE_A;
+        case ChannelSource::zero: return VK_COMPONENT_SWIZZLE_ZERO;
+        case ChannelSource::one:  return VK_COMPONENT_SWIZZLE_ONE;
+    }
+    return VK_COMPONENT_SWIZZLE_IDENTITY;
+}
+
+} // namespace
+
+VkComponentMapping to_vk(const Swizzle& swizzle) {
+    return {component(swizzle.r), component(swizzle.g), component(swizzle.b), component(swizzle.a)};
+}
+
 VkSamplerAddressMode to_vk(Address address) {
     switch (address) {
         case Address::repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;

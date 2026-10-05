@@ -107,3 +107,12 @@ TEST_CASE("a sampler addressed down apart from across is a sampler of its own", 
     const SamplerDesc panorama{.address = Address::repeat, .address_down = Address::clamp};
     CHECK_FALSE(panorama == SamplerDesc{.address = Address::repeat});
 }
+
+TEST_CASE("every view of a texture reads its channels as the texture was made to", "[gpu][view]") {
+    TextureInfo grey = made(TextureKind::tex2d, 1, 5);
+    grey.swizzle = Swizzle::grey();
+    CHECK(resolve(TEX, grey).swizzle == Swizzle::grey());
+    CHECK(resolve(mip(TEX, 3), grey).swizzle == Swizzle::grey());
+    CHECK(resolve(TEX, made(TextureKind::tex2d, 1, 5)).swizzle == Swizzle{});
+    CHECK_FALSE(Swizzle::grey() == Swizzle{});
+}
