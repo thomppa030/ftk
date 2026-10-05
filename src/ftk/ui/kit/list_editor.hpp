@@ -113,10 +113,10 @@ void card_summary(const char* text);
 /// reordering are each a finished edit.
 template <typename T, typename DrawItem, typename Make>
 Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
-                 const char* empty_text, DrawItem&& draw_item, Make&& make) {
+                 const char* empty_text, ListOptions options, DrawItem&& draw_item, Make&& make) {
     Edit edit;
     std::optional<std::size_t> remove;
-    ListEditor list(id, items.size());
+    ListEditor list(id, items.size(), options);
     for (std::size_t i = 0; i < items.size(); ++i) {
         if (!list.begin_item(i)) continue;
         edit |= draw_item(items[i], i);
@@ -147,11 +147,19 @@ Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
     return edit;
 }
 
+/// The same, a list as ListOptions makes it by default.
+template <typename T, typename DrawItem, typename Make>
+Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
+                 const char* empty_text, DrawItem&& draw_item, Make&& make) {
+    return list_editor(id, items, add_label, empty_text, ListOptions{}, std::forward<DrawItem>(draw_item),
+                       std::forward<Make>(make));
+}
+
 /// The same, adding a default-made item.
 template <typename T, typename DrawItem>
 Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
                  const char* empty_text, DrawItem&& draw_item) {
-    return list_editor(id, items, add_label, empty_text, std::forward<DrawItem>(draw_item),
+    return list_editor(id, items, add_label, empty_text, ListOptions{}, std::forward<DrawItem>(draw_item),
                        [] { return T{}; });
 }
 
