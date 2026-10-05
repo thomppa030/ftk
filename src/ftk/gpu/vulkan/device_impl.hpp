@@ -198,9 +198,11 @@ struct Device::Impl {
     Impl(Window& window, const DeviceDesc& desc);
     ~Impl();
 
-    /// Writes the pipeline cache to its file and destroys it; nothing
-    /// without one.
-    void save_pipeline_cache();
+    /// Writes the pipeline cache to its file when it holds more than the
+    /// file does; nothing without one. Any thread may call it.
+    void write_pipeline_cache();
+    /// Writes the pipeline cache and destroys it.
+    void close_pipeline_cache();
 
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -407,6 +409,10 @@ struct Device::Impl {
     /// `pipeline_cache_file`; null without one.
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     std::filesystem::path pipeline_cache_file;
+    /// One write of the cache at a time, from whichever thread, and the size
+    /// of what the file holds: the cache as loaded until it is written.
+    std::mutex pipeline_cache_mutex;
+    size_t pipeline_cache_written{0};
     ShaderLocator locator;
     Caps caps;
     std::string name;

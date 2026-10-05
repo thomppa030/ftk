@@ -250,6 +250,13 @@ public:
     /// device writes it back when it goes. Without one nothing is kept
     /// between runs. A file that does not read starts empty.
     void set_pipeline_cache_file(const std::filesystem::path& file);
+    /// Writes what the device has learned building pipelines to that file,
+    /// when it has learned more since the file was written; nothing without
+    /// one. Any thread may call it, pipelines being built meanwhile, and it
+    /// takes as long as reading the driver's cache and writing tens of
+    /// megabytes do, so not the frame thread. The file is replaced whole: a
+    /// run that ends during the write leaves the last one.
+    void save_pipeline_cache();
 
     /// Starts the next frame: waits until the GPU has finished the frame
     /// that last used its slot, frees that slot's lists and one-frame

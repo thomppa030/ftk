@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <exception>
 #include <format>
+#include <filesystem>
 #include <fstream>
 #include <span>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace ftk::gpu {
@@ -125,20 +127,45 @@ uint64_t transient_alignment(VkPhysicalDevice physical_device) {
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
-void Device::Impl::save_pipeline_cache() {
-    if (pipeline_cache == VK_NULL_HANDLE) return;
+void Device::Impl::write_pipeline_cache() {
+    std::scoped_lock lock(pipeline_cache_mutex);
+    if (pipeline_cache == VK_NULL_HANDLE || pipeline_cache_file.empty()) return;
+    // The cache only grows, so a size the file already holds is what it holds.
     size_t size = 0;
-    if (vkGetPipelineCacheData(device, pipeline_cache, &size, nullptr) == VK_SUCCESS && size > 0) {
-        std::vector<char> data(size);
-        if (vkGetPipelineCacheData(device, pipeline_cache, &size, data.data()) == VK_SUCCESS) {
-            std::ofstream file(pipeline_cache_file, std::ios::binary | std::ios::trunc);
-            if (file.is_open()) {
-                file.write(data.data(), static_cast<std::streamsize>(size));
-                FTK_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
-            }
+    if (vkGetPipelineCacheData(device, pipeline_cache, &size, nullptr) != VK_SUCCESS) return;
+    if (size == 0 || size == pipeline_cache_written) return;
+    std::vector<char> data(size);
+    // Pipelines built meanwhile may have grown it past `size`: what fits is
+    // a whole cache of its own, and the rest is written next time.
+    const VkResult got = vkGetPipelineCacheData(device, pipeline_cache, &size, data.data());
+    if (got != VK_SUCCESS && got != VK_INCOMPLETE) return;
+
+    // Written beside the file and moved over it, so a run that ends during
+    // the write leaves the last whole cache.
+    std::filesystem::path partial = pipeline_cache_file;
+    partial += ".partial";
+    {
+        std::ofstream file(partial, std::ios::binary | std::ios::trunc);
+        file.write(data.data(), static_cast<std::streamsize>(size));
+        if (!file) {
+            FTK_GFX_WARN("Pipeline cache could not be written to {}", partial.string());
+            return;
         }
     }
-    vkDestroyPipelineCache(device, pipeline_cache, nullptr);
+    std::error_code error;
+    std::filesystem::rename(partial, pipeline_cache_file, error);
+    if (error) {
+        FTK_GFX_WARN("Pipeline cache could not replace {}: {}", pipeline_cache_file.string(), error.message());
+        return;
+    }
+    pipeline_cache_written = size;
+    FTK_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
+}
+
+void Device::Impl::close_pipeline_cache() {
+    write_pipeline_cache();
+    std::scoped_lock lock(pipeline_cache_mutex);
+    if (pipeline_cache != VK_NULL_HANDLE) vkDestroyPipelineCache(device, pipeline_cache, nullptr);
     pipeline_cache = VK_NULL_HANDLE;
 }
 
@@ -263,7 +290,7 @@ Device::Impl::~Impl() {
     if (profiler != nullptr) TracyVkDestroy(profiler);
     vkDestroyCommandPool(device, profiler_pool, nullptr);
 #endif
-    save_pipeline_cache();
+    close_pipeline_cache();
     // The GPU is idle, so what is still held is destroyed now: first what was released and
     // waits for frames, then the device's own buffers, then anything never
     // released by an owner that outlived the device.
@@ -666,7 +693,7 @@ uint32_t Device::generation(Buffer buffer) const {
 
 void Device::set_pipeline_cache_file(const std::filesystem::path& file) {
     Impl& self = *impl_;
-    self.save_pipeline_cache();
+    self.close_pipeline_cache();
     self.pipeline_cache_file = file;
 
     std::vector<char> data;
@@ -688,6 +715,16 @@ void Device::set_pipeline_cache_file(const std::filesystem::path& file) {
         vk_check(vkCreatePipelineCache(self.device, &info, nullptr, &self.pipeline_cache),
                  "Failed to create a pipeline cache");
     }
+    // What the file holds, as the driver writes it back: a run that builds
+    // nothing new writes nothing.
+    size_t loaded = 0;
+    if (vkGetPipelineCacheData(self.device, self.pipeline_cache, &loaded, nullptr) == VK_SUCCESS) {
+        self.pipeline_cache_written = loaded;
+    }
+}
+
+void Device::save_pipeline_cache() {
+    impl_->write_pipeline_cache();
 }
 
 void Device::set_shader_locator(ShaderLocator locator) {

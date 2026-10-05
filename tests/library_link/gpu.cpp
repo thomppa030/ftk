@@ -22,8 +22,10 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <span>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -137,7 +139,17 @@ int main() {
         // Pipelines built on four threads at once, filling the device's
         // layouts as they go, and adopted here; one adopted twice, which the
         // second time gives nothing, and one dropped without being adopted.
+        // A fifth thread writes the driver's pipeline cache meanwhile: the
+        // file is whole once they are done, and written again only when the
+        // cache has grown.
         {
+            const std::filesystem::path cache_file =
+                std::filesystem::temp_directory_path() / "ftk_link_gpu_pipeline_cache.bin";
+            std::filesystem::path cache_partial = cache_file;
+            cache_partial += ".partial";
+            std::filesystem::remove(cache_file);
+            device.set_pipeline_cache_file(cache_file);
+            std::atomic<bool> building{true};
             constexpr int THREADS = 4;
             constexpr int EACH = 8;
             std::array<std::vector<ftk::gpu::ComputePipelineBuild>, THREADS> computes;
@@ -162,7 +174,22 @@ int main() {
                     }
                 });
             }
+            std::thread saver([&] {
+                while (building) device.save_pipeline_cache();
+            });
             for (std::thread& worker : workers) worker.join();
+            building = false;
+            saver.join();
+            device.save_pipeline_cache();
+            std::error_code missing;
+            const auto written = std::filesystem::last_write_time(cache_file, missing);
+            const bool cache_whole = !missing && std::filesystem::file_size(cache_file) > 0 &&
+                                     !std::filesystem::exists(cache_partial);
+            device.save_pipeline_cache();
+            const bool cache_kept = !missing && std::filesystem::last_write_time(cache_file) == written;
+            std::filesystem::remove(cache_file);
+            if (!cache_whole) std::fprintf(stderr, "the pipeline cache written beside building was not whole\n");
+            if (!cache_kept) std::fprintf(stderr, "the pipeline cache was written again with nothing new in it\n");
 
             std::vector<ftk::gpu::Owned<ftk::gpu::ComputePipeline>> adopted_computes;
             std::vector<ftk::gpu::Owned<ftk::gpu::GraphicsPipeline>> adopted_draws;
@@ -182,7 +209,7 @@ int main() {
             }
             const bool twice_empty = !device.adopt(std::move(computes[0][0]));
             { auto dropped = device.build(ftk::gpu::ComputePipelineDesc{.shader = "pipeline.comp"}); }
-            const bool built_ok = whole && twice_empty &&
+            const bool built_ok = whole && twice_empty && cache_whole && cache_kept &&
                                   adopted_computes.size() == THREADS * EACH &&
                                   adopted_draws.size() == THREADS * EACH;
             if (!built_ok) std::fprintf(stderr, "pipelines built on other threads failed\n");
