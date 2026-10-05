@@ -662,7 +662,7 @@ void Foundation::check(VkResult result, const std::string& msg) const {
 }
 
 void Foundation::dump_device_fault(const char* context) const {
-    if (device_fault_reported_.exchange(true)) return;
+    if (lost_.exchange(true)) return;
     if (!device_fault_supported_) {
         FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
                            "cannot query faulting op", context);

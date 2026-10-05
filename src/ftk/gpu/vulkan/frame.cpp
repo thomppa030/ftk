@@ -350,6 +350,9 @@ Result<> Device::end_frame(Frame& frame) {
 }
 
 void Device::wait_idle() {
+    // A lost device is idle: nothing sent to it runs or finishes again, and
+    // teardown goes on past it.
+    if (impl_->foundation.lost()) return;
     impl_->foundation.lanes().wait_all();
     impl_->foundation.check(vkDeviceWaitIdle(impl_->device), "Failed to wait for the device to go idle");
 }

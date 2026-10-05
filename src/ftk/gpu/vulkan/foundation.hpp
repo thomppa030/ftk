@@ -153,6 +153,9 @@ public:
     /// (dump_device_fault()). For every call that can be the first to see
     /// the device lost: submits, waits, timeline reads.
     void check(VkResult result, const std::string& msg) const;
+    /// Whether a call has seen the device lost. Nothing sent to it runs or
+    /// finishes again.
+    [[nodiscard]] bool lost() const { return lost_.load(); }
 
     /// What every buffer and image the device makes is allocated from.
     [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
@@ -202,7 +205,7 @@ private:
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};
 
     bool device_fault_supported_{false};
-    mutable std::atomic<bool> device_fault_reported_{false};
+    mutable std::atomic<bool> lost_{false};
 
     bool ray_tracing_supported_{false};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};

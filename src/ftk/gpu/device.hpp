@@ -288,7 +288,8 @@ public:
     /// Sends the uploads not yet sent and waits until the GPU has finished
     /// everything sent to it. What is released waits for the frames that may
     /// use it on its own; this is for teardown, and for code that has yet to
-    /// rely on that.
+    /// rely on that. Returns at once once the device is lost, which nothing
+    /// runs on again.
     void wait_idle();
 
     /// Where data from the CPU goes into buffers and textures, landing before
