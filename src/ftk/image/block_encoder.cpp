@@ -1,14 +1,13 @@
 #include "ftk/image/block_encoder.hpp"
 
+#include "ftk/math/half.hpp"
+
 // cmp_core.h names NULL without including what defines it.
 #include <cstddef>
 #include <cmp_core.h>
 
 #include <algorithm>
 #include <array>
-#include <bit>
-#include <cmath>
-#include <limits>
 #include <utility>
 
 namespace ftk::image {
@@ -36,42 +35,11 @@ uint32_t blocks_across(uint32_t width) {
     return (width + BLOCK - 1) / BLOCK;
 }
 
-// The unsigned half nearest `value`, rounding to even, for BC6H: below 0 and
-// NaN are 0, and what is past the largest half is the largest half.
-uint16_t to_half(float value) {
+// The half BC6H stores for `value`: unsigned and finite, so below 0 and NaN
+// are 0 and what is past the largest half is the largest half.
+uint16_t to_unsigned_half(float value) {
     if (!(value > 0.0f)) return 0;
-    constexpr float LARGEST = 65504.0f;
-    if (value >= LARGEST) return 0x7BFF;
-    const auto bits = std::bit_cast<uint32_t>(value);
-    const int32_t exponent = static_cast<int32_t>((bits >> 23) & 0xFFU) - 127 + 15;
-    uint32_t mantissa = bits & 0x7FFFFFU;
-    if (exponent <= 0) {
-        // Under the smallest normal half: a subnormal, or 0.
-        if (exponent < -10) return 0;
-        mantissa |= 0x800000U;
-        const auto shift = static_cast<uint32_t>(14 - exponent);
-        uint32_t half = mantissa >> shift;
-        const uint32_t rest = mantissa & ((1U << shift) - 1U);
-        const uint32_t halfway = 1U << (shift - 1U);
-        if (rest > halfway || (rest == halfway && (half & 1U) != 0)) ++half;
-        return static_cast<uint16_t>(half);
-    }
-    uint32_t half = (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13);
-    const uint32_t rest = mantissa & 0x1FFFU;
-    if (rest > 0x1000U || (rest == 0x1000U && (half & 1U) != 0)) ++half;
-    return static_cast<uint16_t>(half);
-}
-
-float from_half(uint16_t half) {
-    const uint32_t exponent = (half >> 10) & 0x1FU;
-    const uint32_t mantissa = half & 0x3FFU;
-    const float sign = (half & 0x8000U) != 0 ? -1.0f : 1.0f;
-    if (exponent == 0) return sign * std::ldexp(static_cast<float>(mantissa), -24);
-    if (exponent == 31) {
-        return mantissa != 0 ? std::numeric_limits<float>::quiet_NaN()
-                             : sign * std::numeric_limits<float>::infinity();
-    }
-    return sign * std::ldexp(static_cast<float>(mantissa | 0x400U), static_cast<int>(exponent) - 25);
+    return half::from_float(std::min(value, half::LARGEST));
 }
 
 // Whether `rows` rows of blocks from `first_row` lie in an image of
@@ -221,9 +189,9 @@ bool BlockEncoder::encode(const RgbaFloatImage& image, uint32_t first_row, uint3
                 for (uint32_t i = 0; i < BLOCK; ++i) {
                     const float* texel = texels + source_of(image.width, image.height, bx, by, i, j);
                     const size_t at = (size_t{j} * BLOCK + i) * 3;
-                    rgb[at] = to_half(texel[0]);
-                    rgb[at + 1] = to_half(texel[1]);
-                    rgb[at + 2] = to_half(texel[2]);
+                    rgb[at] = to_unsigned_half(texel[0]);
+                    rgb[at + 1] = to_unsigned_half(texel[1]);
+                    rgb[at + 2] = to_unsigned_half(texel[2]);
                 }
             }
             CompressBlockBC6(rgb.data(), BLOCK * 3, block_at(blocks, format_, image.width, bx, by), options_);
@@ -291,9 +259,9 @@ std::vector<float> decode_hdr(std::span<const std::byte> blocks, uint32_t width,
                 for (uint32_t i = 0; i < BLOCK && bx * BLOCK + i < width; ++i) {
                     const size_t at = (size_t{j} * BLOCK + i) * 3;
                     float* texel = texels.data() + ((size_t{by} * BLOCK + j) * width + bx * BLOCK + i) * 4;
-                    texel[0] = from_half(rgb[at]);
-                    texel[1] = from_half(rgb[at + 1]);
-                    texel[2] = from_half(rgb[at + 2]);
+                    texel[0] = half::to_float(rgb[at]);
+                    texel[1] = half::to_float(rgb[at + 1]);
+                    texel[2] = half::to_float(rgb[at + 2]);
                     texel[3] = 1.0f;
                 }
             }

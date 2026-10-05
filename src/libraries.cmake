@@ -45,9 +45,11 @@ endif()
 ftk_library(math
     SOURCES
         ftk/math/curve.cpp
+        ftk/math/half.cpp
     HEADERS
         ftk/math/color_space.hpp
         ftk/math/curve.hpp
+        ftk/math/half.hpp
     LINKS
         PUBLIC glm::glm nlohmann_json::nlohmann_json
 )
