@@ -70,6 +70,24 @@ TEST_CASE("BC7 keeps a smooth gradient within a few levels", "[image][blocks]") 
     CHECK(largest_difference(texels, decoded, {3}) <= 1);
 }
 
+TEST_CASE("BC7 keeps three flat colours laid out as one of its three-subset shapes", "[image][blocks]") {
+    // BC7's first three-subset partition, pixel by pixel in rows: the
+    // modes that split a block in three represent it exactly but for their
+    // endpoints' five bits, so each colour comes back within half a step of
+    // 255 / 31. An encoder reading the wrong shapes cannot.
+    constexpr int SHAPE[16] = {0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 1, 2, 2, 2, 2};
+    constexpr uint8_t COLOURS[3][3] = {{200, 40, 40}, {40, 200, 40}, {40, 40, 200}};
+    std::vector<uint8_t> texels(16 * 4);
+    for (int i = 0; i < 16; ++i) {
+        for (int channel = 0; channel < 3; ++channel) texels[i * 4 + channel] = COLOURS[SHAPE[i]][channel];
+        texels[i * 4 + 3] = 255;
+    }
+    const BlockEncoder encoder(BlockFormat::bc7, 0.5f);
+    const std::vector<uint8_t> decoded = decode(BlockFormat::bc7, encode_all(encoder, {texels, 4, 4}), 4, 4);
+    REQUIRE(decoded.size() == texels.size());
+    CHECK(largest_difference(texels, decoded, {0, 1, 2}) <= 4);
+}
+
 TEST_CASE("BC4 keeps red and BC5 red and green", "[image][blocks]") {
     const std::vector<uint8_t> texels = gradient(32, 32);
 

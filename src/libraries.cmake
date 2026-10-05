@@ -277,6 +277,11 @@ target_include_directories(ftk-cmp-core SYSTEM PUBLIC
     ${compressonator_SOURCE_DIR}/cmp_core/source
     ${compressonator_SOURCE_DIR}/cmp_core/shaders
 )
+# The BC6H and BC7 kernels each define get_partition_subset(int, int, int),
+# with different meanings. Linked together, one stands for both, and BC7
+# then splits its blocks by BC6H's shapes. BC6H's is given a name of its own.
+set_source_files_properties(${compressonator_SOURCE_DIR}/cmp_core/shaders/bc6_encode_kernel.cpp
+    PROPERTIES COMPILE_DEFINITIONS "get_partition_subset=bc6_get_partition_subset")
 if(MSVC)
     target_compile_options(ftk-cmp-core PRIVATE /w)
 else()
