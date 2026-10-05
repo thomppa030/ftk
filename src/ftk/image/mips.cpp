@@ -104,6 +104,15 @@ float alpha_coverage(const FloatImage& image, float cutoff) {
     return coverage_at(image, *alpha, cutoff, 1.0f);
 }
 
+FloatImage shrink(const FloatImage& image, uint32_t width, uint32_t height, const MipOptions& options) {
+    FloatImage filtered = resize(to_filtered(image, options.content), width, height, options.edges);
+    if (options.content == MipContent::normal_map) normalize_normals(filtered);
+    FloatImage out = to_stored(std::move(filtered), options.content);
+    const std::optional<uint32_t> alpha = alpha_channel(image.channels);
+    if (alpha && options.cutout) keep_coverage(out, *alpha, *options.cutout, alpha_coverage(image, *options.cutout));
+    return out;
+}
+
 std::vector<FloatImage> make_mips(const FloatImage& image, const MipOptions& options) {
     std::vector<FloatImage> mips;
     if (image.width == 0 || image.height == 0) return mips;

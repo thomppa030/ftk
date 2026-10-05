@@ -38,6 +38,11 @@ struct MipOptions {
 /// map's vectors unit length. Empty for an image of 1 × 1.
 [[nodiscard]] std::vector<FloatImage> make_mips(const FloatImage& image, const MipOptions& options);
 
+/// `image` made `width` × `height` the way its mips are made: colour in
+/// linear light, normals unit length again, a cutout's coverage kept. For a
+/// texture brought under a largest size, by any ratio.
+[[nodiscard]] FloatImage shrink(const FloatImage& image, uint32_t width, uint32_t height, const MipOptions& options);
+
 /// The share of `image`'s texels whose alpha is at or above `cutoff`.
 [[nodiscard]] float alpha_coverage(const FloatImage& image, float cutoff);
 

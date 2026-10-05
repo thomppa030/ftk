@@ -137,6 +137,25 @@ TEST_CASE("A cutout keeps its coverage in every mip", "[image][mips]") {
     CHECK(thinned);
 }
 
+TEST_CASE("Shrinking by any ratio treats an image as its mips do", "[image][mips]") {
+    // A checker brought from 16 to 8 darkens no more than its first mip.
+    const FloatImage colour = shrink(checker(16), 8, 8, {.content = MipContent::srgb_color});
+    REQUIRE((colour.width == 8 && colour.height == 8));
+    CHECK(std::abs(colour.texels[0] - 0.73536f) < 1e-4f);
+
+    // By an uneven ratio a flat image stays flat.
+    FloatImage flat{.texels = std::vector<float>(size_t{12} * 12 * 4, 0.3f), .width = 12, .height = 12};
+    const FloatImage five = shrink(flat, 5, 5, {.content = MipContent::linear});
+    for (const float value : five.texels) CHECK(std::abs(value - 0.3f) < 1e-5f);
+
+    // A cutout brought to a third keeps its coverage.
+    const FloatImage image = leaves(64);
+    const FloatImage third = shrink(image, 21, 21, {.content = MipContent::srgb_color, .cutout = 0.5f});
+    const float target = alpha_coverage(image, 0.5f);
+    CHECK(alpha_coverage(third, 0.5f) >= target);
+    CHECK(alpha_coverage(third, 0.5f) <= target + 2.0f / (21.0f * 21.0f));
+}
+
 TEST_CASE("An image without alpha is all covered", "[image][mips]") {
     FloatImage rgb{.texels = std::vector<float>(size_t{4} * 4 * 3, 0.0f), .width = 4, .height = 4, .channels = 3};
     CHECK(alpha_coverage(rgb, 0.5f) == 1.0f);
