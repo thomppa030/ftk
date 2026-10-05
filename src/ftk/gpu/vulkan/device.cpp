@@ -490,6 +490,7 @@ Result<> Device::Impl::bind_pages(BufferRecord& record, uint64_t target) {
     if (result == VK_SUCCESS) result = vkResetFences(device, 1, &sparse_fence);
     if (result == VK_SUCCESS) result = vkQueueBindSparse(sparse_queue, 1, &bind_info, sparse_fence);
     if (result == VK_SUCCESS) result = vkWaitForFences(device, 1, &sparse_fence, VK_TRUE, UINT64_MAX);
+    if (result == VK_ERROR_DEVICE_LOST) foundation.dump_device_fault("sparse binding");
     if (result != VK_SUCCESS) {
         vmaFreeMemoryPages(allocator, 1, &memory);
         return make_error("Failed to bind memory to " + described("buffer", record.name) +

@@ -188,8 +188,8 @@ Frame& Device::begin_frame() {
         wait.semaphoreCount = 1;
         wait.pSemaphores = &self.frame_timeline;
         wait.pValues = &done;
-        vk_check(vkWaitSemaphores(self.device, &wait, std::numeric_limits<uint64_t>::max()),
-                 "Failed to wait for a frame to finish");
+        self.foundation.check(vkWaitSemaphores(self.device, &wait, std::numeric_limits<uint64_t>::max()),
+                              "Failed to wait for a frame to finish");
     }
 
     if (!self.frames[slot]) {
@@ -351,13 +351,13 @@ Result<> Device::end_frame(Frame& frame) {
 
 void Device::wait_idle() {
     impl_->foundation.lanes().wait_all();
-    vk_check(vkDeviceWaitIdle(impl_->device), "Failed to wait for the device to go idle");
+    impl_->foundation.check(vkDeviceWaitIdle(impl_->device), "Failed to wait for the device to go idle");
 }
 
 uint64_t Device::finished_frame() const {
     uint64_t value = 0;
-    vk_check(vkGetSemaphoreCounterValue(impl_->device, impl_->frame_timeline, &value),
-             "Failed to read the frame timeline");
+    impl_->foundation.check(vkGetSemaphoreCounterValue(impl_->device, impl_->frame_timeline, &value),
+                            "Failed to read the frame timeline");
     return value;
 }
 

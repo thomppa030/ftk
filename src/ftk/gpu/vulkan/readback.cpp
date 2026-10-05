@@ -109,7 +109,9 @@ void Readback::wait() {
         info.semaphoreCount = 1;
         info.pSemaphores = &self.frame_timeline;
         info.pValues = &impl_->frame;
-        if (vkWaitSemaphores(self.device, &info, std::numeric_limits<uint64_t>::max()) != VK_SUCCESS) {
+        const VkResult waited = vkWaitSemaphores(self.device, &info, std::numeric_limits<uint64_t>::max());
+        if (waited == VK_ERROR_DEVICE_LOST) self.foundation.dump_device_fault("readback wait");
+        if (waited != VK_SUCCESS) {
             self.report_once("Waiting for a readback's frame failed");
             return;
         }

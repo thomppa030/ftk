@@ -31,7 +31,8 @@ UploadLanes::Staging::~Staging() {
 }
 
 UploadLanes::UploadLanes(Foundation& foundation)
-    : device_{foundation.handle()}
+    : foundation_{foundation}
+    , device_{foundation.handle()}
     , allocator_{foundation.allocator()}
     , sharing_families_{foundation.upload_sharing_families()} {
     lanes_[IMAGE].queue = foundation.graphics_queue();
@@ -145,7 +146,7 @@ void UploadLanes::wait_image(uint64_t value) {
     wait.semaphoreCount = 1;
     wait.pSemaphores = &lanes_[IMAGE].timeline;
     wait.pValues = &value;
-    vk_check(vkWaitSemaphores(device_, &wait, UINT64_MAX), "Failed waiting for the image lane");
+    foundation_.check(vkWaitSemaphores(device_, &wait, UINT64_MAX), "Failed waiting for the image lane");
 }
 
 VkCommandBuffer UploadLanes::lane_cb(LaneIndex lane) {
@@ -230,8 +231,8 @@ StagingSlice UploadLanes::acquire_staging(LaneIndex lane, VkDeviceSize size) {
         wait.semaphoreCount = 1;
         wait.pSemaphores = &lanes_[oldest.lane].timeline;
         wait.pValues = &*oldest.batch_value;
-        vk_check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
-                 "Failed waiting for staging ring space");
+        foundation_.check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
+                          "Failed waiting for staging ring space");
     }
 
     StagingSlice slice{ring_->buffer, head_, static_cast<uint8_t*>(ring_->mapped) + head_};
@@ -274,8 +275,8 @@ void UploadLanes::flush_lane(LaneIndex lane) {
     submit.pCommandBufferInfos = &cmd_info;
     submit.signalSemaphoreInfoCount = 1;
     submit.pSignalSemaphoreInfos = &signal;
-    vk_check(vkQueueSubmit2(lanes_[lane].queue, 1, &submit, VK_NULL_HANDLE),
-             "Failed to submit upload batch");
+    foundation_.check(vkQueueSubmit2(lanes_[lane].queue, 1, &submit, VK_NULL_HANDLE),
+                      "Failed to submit upload batch");
 
     *open.value = value;
     lanes_[lane].in_flight.push_back(std::move(open));
@@ -297,16 +298,16 @@ void UploadLanes::wait_all() {
         wait.semaphoreCount = 1;
         wait.pSemaphores = &lane.timeline;
         wait.pValues = &lane.submitted_value;
-        vk_check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
-                 "Failed waiting for uploads");
+        foundation_.check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
+                          "Failed waiting for uploads");
     }
     reclaim_completed();
 }
 
 uint64_t UploadLanes::completed_value(LaneIndex lane) const {
     uint64_t value = 0;
-    vk_check(vkGetSemaphoreCounterValue(device_, lanes_[lane].timeline, &value),
-             "Failed to query upload timeline");
+    foundation_.check(vkGetSemaphoreCounterValue(device_, lanes_[lane].timeline, &value),
+                      "Failed to query upload timeline");
     return value;
 }
 

@@ -656,7 +656,13 @@ std::vector<const char*> Foundation::get_required_extensions() const {
     return extensions;
 }
 
+void Foundation::check(VkResult result, const std::string& msg) const {
+    if (result == VK_ERROR_DEVICE_LOST) dump_device_fault(msg.c_str());
+    vk_check(result, msg);
+}
+
 void Foundation::dump_device_fault(const char* context) const {
+    if (device_fault_reported_.exchange(true)) return;
     if (!device_fault_supported_) {
         FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
                            "cannot query faulting op", context);
