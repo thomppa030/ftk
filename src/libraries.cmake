@@ -288,11 +288,13 @@ add_library(ftk::cmp-core ALIAS ftk-cmp-core)
 ftk_library(image
     SOURCES
         ftk/image/block_encoder.cpp
+        ftk/image/resample.cpp
         ftk/image/stb_image.cpp
         ftk/image/stb_image_resize.cpp
         ftk/image/stb_image_write.cpp
     HEADERS
         ftk/image/block_encoder.hpp
+        ftk/image/resample.hpp
     LINKS
         PRIVATE ftk::cmp-core
 )
