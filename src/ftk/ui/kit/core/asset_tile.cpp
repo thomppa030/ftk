@@ -6,10 +6,12 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <tuple>
 
 namespace ftk::ui {
@@ -22,6 +24,9 @@ namespace {
 // around them and between picture and name, and the corners.
 constexpr float TILE_WIDTH = 96.0f;
 constexpr float PICTURE = 80.0f;
+// The badge on the picture's corner, 18 px across, a little over its edges.
+constexpr float BADGE_RADIUS = 9.0f;
+constexpr float BADGE_OVERHANG = 3.0f;
 constexpr float ICON = 40.0f;
 constexpr float PAD_TOP = 8.0f;
 constexpr float PAD_SIDE = 4.0f;
@@ -74,7 +79,13 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     result.clicked = in.clicked;
     result.double_clicked = hovered && in.double_clicked;
     // Not while something is being dragged, whose preview this would replace.
-    if (hovered && !renaming && !context.dragging()) item_tooltip(spec.name);
+    if (hovered && !renaming && !context.dragging()) {
+        if (spec.note.empty()) {
+            item_tooltip(spec.name);
+        } else {
+            item_tooltip(std::string(spec.name) + "\n" + std::string(spec.note));
+        }
+    }
 
     core::DrawList& dl = context.draw_list();
     if (spec.selected) {
@@ -97,6 +108,21 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
             const glm::vec2 icon = measure(spec.icon);
             draw_text({std::floor(pic_min.x + (PICTURE - icon.x) * 0.5f), std::floor(pic_min.y + (PICTURE - icon.y) * 0.5f)},
                       colour, spec.icon);
+        }
+    }
+
+    // The badge, round on the picture's top-right corner.
+    if (spec.badge != TileBadge::none) {
+        const glm::vec2 centre{pic_max.x - BADGE_RADIUS + BADGE_OVERHANG, pic_min.y + BADGE_RADIUS - BADGE_OVERHANG};
+        if (spec.badge == TileBadge::busy) {
+            dl.circle_filled(centre, BADGE_RADIUS, theme::surface_raised());
+            dl.circle(centre, BADGE_RADIUS, theme::border());
+            spinner(DrawList::window(), centre, BADGE_RADIUS - 4.0f, static_cast<float>(seconds()));
+        } else {
+            dl.circle_filled(centre, BADGE_RADIUS, theme::error());
+            const glm::vec2 mark = measure("!");
+            draw_text({std::floor(centre.x - mark.x * 0.5f), std::floor(centre.y - mark.y * 0.5f)},
+                      theme::text_on_danger(), "!");
         }
     }
 

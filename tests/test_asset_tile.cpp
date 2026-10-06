@@ -64,3 +64,43 @@ TEST_CASE("A tile keeps its clicks from a background drawn behind the grid after
     CHECK(tile_clicks == 1);
     CHECK(background_clicks == 0);
 }
+
+TEST_CASE("A tile's badge marks work going on or failed, and its note joins the tooltip", "[ui][kit]") {
+    KitHarness h;
+    ui::TileBadge badge = ui::TileBadge::busy;
+    std::string_view note;
+    h.set_ui([&] {
+        (void)ui::asset_tile({.id = "1", .name = "brick.fjtex", .icon = "*", .badge = badge, .note = note});
+        h.mark("tile");
+    });
+    h.step(2);
+    const auto drawn_in = [&](ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        const ui::core::Rect tile = h.rect("tile");
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                const glm::vec2 centre = (p.min + p.max) * 0.5f;
+                if (p.colour == packed && tile.contains(centre) && centre.x > tile.min.x + 60.0f && centre.y < tile.min.y + 30.0f) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    // Busy: the spinner's arc in the accent, at the picture's top right.
+    CHECK(drawn_in(ftk::theme::accent()));
+    CHECK_FALSE(drawn_in(ftk::theme::error()));
+
+    badge = ui::TileBadge::failed;
+    h.step(2);
+    CHECK(drawn_in(ftk::theme::error()));
+
+    h.hover("tile");
+    h.step(60);
+    REQUIRE(h.tooltip().has_value());
+    const float one_line = h.tooltip()->height();
+    note = "the image is missing";
+    h.step(2);
+    REQUIRE(h.tooltip().has_value());
+    CHECK(h.tooltip()->height() > one_line);
+}

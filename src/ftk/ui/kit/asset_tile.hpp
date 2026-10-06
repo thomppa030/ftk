@@ -19,6 +19,11 @@
 
 namespace ftk::ui {
 
+/// A round mark on the top-right corner of a tile's picture: work going on
+/// for the file (a spinner), or work that failed (the error fill with an
+/// exclamation mark).
+enum class TileBadge : uint8_t { none, busy, failed };
+
 struct AssetTileSpec {
     /// Unique among the grid's tiles; also the tile's id.
     const char* id{""};
@@ -38,6 +43,9 @@ struct AssetTileSpec {
     /// The owner's rename, drawn in this tile when it holds `key`.
     RenameBox* rename{nullptr};
     std::uint32_t key{0};
+    TileBadge badge{TileBadge::none};
+    /// Said under the name in the tooltip: why the badge is there.
+    std::string_view note{};
 };
 
 struct AssetTileResult {
