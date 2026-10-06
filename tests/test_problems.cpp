@@ -152,3 +152,19 @@ TEST_CASE("Sources report from several threads at once", "[problems]") {
     REQUIRE(list.counts().errors == THREADS);
     REQUIRE(list.counts().warnings == THREADS);
 }
+
+TEST_CASE("Where a problem is reads as its file's name, line and column", "[problems]") {
+    Problem problem{.message = "Unknown property", .file = "/project/ui/hud.fjss", .line = 12, .column = 5};
+    CHECK(short_where(problem) == "hud.fjss:12:5");
+    CHECK(full_where(problem) == "/project/ui/hud.fjss:12:5");
+
+    problem.column = 0;
+    CHECK(short_where(problem) == "hud.fjss:12");
+    // A column without a line says nothing.
+    problem.line = 0;
+    problem.column = 5;
+    CHECK(short_where(problem) == "hud.fjss");
+    problem.file.clear();
+    CHECK(short_where(problem).empty());
+    CHECK(full_where(problem).empty());
+}

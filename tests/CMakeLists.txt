@@ -118,6 +118,7 @@ add_executable(ftk-kit-tests
     test_canvas.cpp
     test_choices.cpp
     test_component_block.cpp
+    test_console.cpp
     test_curve_editor.cpp
     test_dialog.cpp
     test_edit_record.cpp
@@ -149,8 +150,16 @@ add_executable(ftk-kit-tests
     test_tree.cpp
 )
 target_link_libraries(ftk-kit-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)
+# The console's tests draw the editor's console, which ftk-app-editor holds
+# beside what needs a GPU: as in ftk-tests, nothing here calls the GPU, and
+# the Vulkan loader is kept out of the way where it can be.
+target_link_libraries(ftk-kit-tests PRIVATE ftk::app-editor)
 target_compile_definitions(ftk-kit-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
 ftk_target_defaults(ftk-kit-tests)
+ftk_delay_load_vulkan(ftk-kit-tests)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(ftk-kit-tests PRIVATE LINKER:--as-needed)
+endif()
 catch_discover_tests(ftk-kit-tests TEST_PREFIX "kit: ")
 
 # --- Library link checks ---

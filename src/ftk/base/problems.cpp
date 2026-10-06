@@ -1,8 +1,30 @@
 #include "ftk/base/problems.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <format>
 
 namespace ftk {
+
+namespace {
+
+std::string with_line(std::string where, const Problem& problem) {
+    if (problem.line > 0) where += std::format(":{}", problem.line);
+    if (problem.line > 0 && problem.column > 0) where += std::format(":{}", problem.column);
+    return where;
+}
+
+} // namespace
+
+std::string short_where(const Problem& problem) {
+    if (problem.file.empty()) return {};
+    return with_line(std::filesystem::path(problem.file).filename().string(), problem);
+}
+
+std::string full_where(const Problem& problem) {
+    if (problem.file.empty()) return {};
+    return with_line(problem.file, problem);
+}
 
 void ProblemList::report(std::string_view source, std::vector<Problem> problems) {
     std::lock_guard lock(mutex_);

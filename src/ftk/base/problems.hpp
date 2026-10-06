@@ -45,6 +45,14 @@ struct Problem {
     bool operator==(const Problem&) const = default;
 };
 
+/// Where `problem` is as a list shows it: the file's name, then the line and
+/// column ("hud.fjss:12:5"); empty for a problem in no file.
+[[nodiscard]] std::string short_where(const Problem& problem);
+
+/// The same with the file's whole path, to tell two files of one name apart
+/// or to copy.
+[[nodiscard]] std::string full_where(const Problem& problem);
+
 /// A problem on the list: who reported it and when it arrived.
 struct ListedProblem {
     Problem problem{};
