@@ -303,11 +303,17 @@ void canvas_playhead(DrawList dl, float x, float top, float bottom, bool head) {
 void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLook look) {
     const Color state = selected ? theme::accent() : hot ? theme::text() : theme::text_secondary();
     const float r = look.radius;
+    // The edge lies under the handle, half its width showing round it.
+    constexpr float EDGE = 1.5f;
     if (look.shape == HandleShape::Diamond) {
         const glm::vec2 a{at.x, at.y - r};
         const glm::vec2 b{at.x + r, at.y};
         const glm::vec2 c{at.x, at.y + r};
         const glm::vec2 d{at.x - r, at.y};
+        if (look.edged) {
+            const float e = r + EDGE;
+            dl.quad_filled({at.x, at.y - e}, {at.x + e, at.y}, {at.x, at.y + e}, {at.x - e, at.y}, theme::border());
+        }
         if (look.fill != nullptr) {
             dl.quad_filled(a, b, c, d, *look.fill);
             dl.quad(a, b, c, d, state, selected ? 2.0f : 1.5f);
@@ -315,9 +321,11 @@ void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLoo
             dl.quad_filled(a, b, c, d, state);
         }
     } else if (look.fill != nullptr) {
+        if (look.edged) dl.circle_filled(at, r + EDGE, theme::border());
         dl.circle_filled(at, r, *look.fill);
         dl.circle(at, r, state, selected ? 2.0f : 1.5f);
     } else {
+        if (look.edged) dl.circle_filled(at, r + EDGE, theme::border());
         dl.circle_filled(at, r, state);
     }
     if (hot && !selected) dl.circle(at, r + 3.0f, theme::text_secondary());

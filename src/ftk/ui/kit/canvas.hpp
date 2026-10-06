@@ -163,6 +163,9 @@ struct HandleLook {
     /// The handle's own colour (a gradient stop's): the state then shows
     /// in its outline.
     const Color* fill{nullptr};
+    /// A dark edge round it, for a handle drawn over a picture rather than
+    /// a canvas's flat ground (sheet 44: a spline's points in a viewport).
+    bool edged{false};
 };
 
 /// A point the mouse can take: at rest in the secondary text colour,
