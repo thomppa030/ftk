@@ -127,6 +127,16 @@ void status_item(const char* icon, std::string_view text, bool unsaved) {
     if (unsaved && item_hovered()) tooltip("Unsaved changes");
 }
 
+void status_figure(std::string_view text, std::string_view widest) {
+    same_line();
+    const float pad = theme::GAP_M;
+    const glm::vec2 start = cursor();
+    const float text_w = measure(text).x;
+    const float width = std::max(measure(widest).x, text_w);
+    draw_text({start.x + pad + width - text_w, line_y(line_height())}, theme::text_secondary(), text);
+    reserve({pad + width + pad, theme::STATUS_BAR});
+}
+
 void status_busy(std::string_view text) {
     same_line();
     const float pad = theme::GAP_M;

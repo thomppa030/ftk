@@ -41,6 +41,12 @@ private:
 /// after it when `unsaved`.
 void status_item(const char* icon, std::string_view text, bool unsaved = false);
 
+/// A figure that changes as the program runs (the frame time), in a place as
+/// wide as `widest` would be, its text against the right of it, so what sits
+/// beside it holds still while it changes. A text wider than `widest` widens
+/// it.
+void status_figure(std::string_view text, std::string_view widest);
+
 /// Work going on in the background ("Baking 37 textures"): a small spinner
 /// where an item's icon would be, then `text`.
 void status_busy(std::string_view text);

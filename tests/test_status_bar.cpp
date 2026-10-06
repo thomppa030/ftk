@@ -6,6 +6,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <string>
+
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
@@ -101,4 +103,31 @@ TEST_CASE("Work in the background shows its spinner before what it is", "[ui][ki
     }
     CHECK(spinner);
     CHECK(h.rect("busy").max.x - h.rect("busy").min.x > 100.0f);
+}
+
+TEST_CASE("A figure keeps its width as it changes, so the items beside it hold still", "[ui][kit]") {
+    KitHarness h;
+    std::string time = "6.94 ms";
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            bar.right();
+            ui::status_item(nullptr, "3 errors");
+            h.mark("before");
+            ui::status_figure(time, "000.00 ms");
+            h.mark("figure");
+        }
+    });
+    h.step(3);
+    const float before = h.rect("before").min.x;
+    const float width = h.rect("figure").max.x - h.rect("figure").min.x;
+
+    time = "116.94 ms";
+    h.step(3);
+    CHECK_THAT(h.rect("before").min.x, Catch::Matchers::WithinAbs(before, 0.5));
+    CHECK_THAT(h.rect("figure").max.x - h.rect("figure").min.x, Catch::Matchers::WithinAbs(width, 0.5));
+
+    // Wider than its widest, it widens.
+    time = "10116.94 ms";
+    h.step(3);
+    CHECK(h.rect("figure").max.x - h.rect("figure").min.x > width + 1.0f);
 }
