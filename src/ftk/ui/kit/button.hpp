@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ftk/ui/kit/feedback.hpp"
+
 #include <glm/vec2.hpp>
 
 namespace ftk::ui {
@@ -57,5 +59,10 @@ bool mode_button(const char* id, const char* icon, const char* label, bool alert
 
 /// The same toggle with a text label, sized to fit it.
 bool toggle(const char* label, bool on, const char* tooltip);
+
+/// A toggle over a list of problems that shows or hides one severity: the
+/// severity's icon in its colour, then how many there are. Returns true
+/// when clicked; the caller flips it.
+bool severity_toggle(Severity severity, int count, bool on);
 
 } // namespace ftk::ui

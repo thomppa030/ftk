@@ -64,6 +64,13 @@ void status_pill(const char* icon, const char* text, StatusTone tone);
 /// `tip` says more.
 void status_state(StatusTone tone, std::string_view name, std::string_view tip = {});
 
+/// What is broken (sheet 15): the errors' icon and count in the error
+/// colour, the warnings' in the warning colour, then the newest problem's
+/// sentence and, small in the mono face, where it is. All one button, which
+/// opens the list of them; nothing when there are none. Returns true when
+/// clicked.
+bool status_problems(int errors, int warnings, std::string_view newest, std::string_view where);
+
 /// A button on the bar that opens something (the content browser): a ghost
 /// button with its icon, label and, after it, its shortcut as a dim hint.
 /// Washed in the selection colour while what it opens is `open`. Returns

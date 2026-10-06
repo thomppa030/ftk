@@ -18,6 +18,8 @@ inline constexpr const char* revert  = ICON_LC_UNDO_2;
 inline constexpr const char* search  = ICON_LC_SEARCH;
 inline constexpr const char* reorder = ICON_LC_GRIP_VERTICAL;
 inline constexpr const char* follow  = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep the newest line in view
+inline constexpr const char* open    = ICON_LC_EXTERNAL_LINK;  // in what edits it
+inline constexpr const char* copy    = ICON_LC_COPY;
 
 // The app's own panels
 inline constexpr const char* console = ICON_LC_TERMINAL;

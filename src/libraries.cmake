@@ -456,6 +456,7 @@ ftk_library(ui-kit
         ftk/ui/kit/popup.hpp
         ftk/ui/kit/panel.hpp
         ftk/ui/kit/plate.hpp
+        ftk/ui/kit/problem_row.hpp
         ftk/ui/kit/row.hpp
         ftk/ui/kit/save_bar.hpp
         ftk/ui/kit/scope.hpp
@@ -528,6 +529,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/plate.cpp
         ftk/ui/kit/core/plot.cpp
         ftk/ui/kit/core/popup.cpp
+        ftk/ui/kit/core/problem_row.cpp
         ftk/ui/kit/core/rail.cpp
         ftk/ui/kit/core/region.cpp
         ftk/ui/kit/core/row.cpp

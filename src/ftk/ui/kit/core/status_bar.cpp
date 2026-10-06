@@ -3,6 +3,7 @@
 #include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace ftk::ui {
 
@@ -23,6 +25,11 @@ namespace {
 
 // A state dot's width.
 constexpr float STATE_DOT = 7.0f;
+
+// How wide the newest problem's sentence may grow before it is cut, and the
+// space between a count's icon and its number.
+constexpr float NEWEST_WIDTH = 280.0f;
+constexpr float COUNT_GAP = theme::GAP_S;
 
 // The colour a tone reads in.
 Color tone_colour(StatusTone tone) {
@@ -195,6 +202,62 @@ void status_state(StatusTone tone, std::string_view name, std::string_view tip) 
     x += measure(name).x;
     reserve({x + pad - start.x, theme::STATUS_BAR});
     if (!tip.empty() && item_hovered()) tooltip(tip);
+}
+
+bool status_problems(int errors, int warnings, std::string_view newest, std::string_view where) {
+    if (errors <= 0 && warnings <= 0) return false;
+    core::Context& context = ui();
+    same_line();
+    const float inner = theme::GAP_M;
+    const float height = 20.0f;
+    const glm::vec2 start = cursor();
+    const float top = start.y + (theme::STATUS_BAR - height) * 0.5f;
+
+    const std::string error_count = std::to_string(errors);
+    const std::string warning_count = std::to_string(warnings);
+    const float error_w = measure(icon::error).x + COUNT_GAP + measure(error_count).x;
+    const float warning_w = measure(icon::warning).x + COUNT_GAP + measure(warning_count).x;
+    const std::string sentence = ellipsized(newest, NEWEST_WIDTH);
+    const float sentence_w = sentence.empty() ? 0.0f : theme::GAP_M + measure(sentence).x;
+    float where_w = 0.0f;
+    if (!sentence.empty() && !where.empty()) {
+        const FontScope mono(theme::mono_font(), theme::SMALL_TEXT);
+        where_w = theme::GAP_S + measure(where).x;
+    }
+    const float width = inner + error_w + theme::GAP_M + warning_w + sentence_w + where_w + inner;
+
+    // As the Content button: the bar's whole height is the item, its wash
+    // the shorter pill inside.
+    const core::Rect rect = context.layout().next({width + theme::GAP_S, theme::STATUS_BAR});
+    const Id id = context.id("##status_problems");
+    const core::Interaction in = place(id, rect);
+    context.semantics(id, core::Role::Button, "Problems");
+    const glm::vec2 min{start.x, top};
+    const glm::vec2 max{start.x + width, top + height};
+    if (in.hovered) ui().draw_list().rect_filled(min, max, faded(theme::surface_hover()), 4.0f);
+
+    const float text_y = line_y(line_height());
+    float x = min.x + inner;
+    draw_text({x, text_y}, theme::error(), icon::error);
+    x += measure(icon::error).x + COUNT_GAP;
+    draw_text({x, text_y}, theme::error(), error_count);
+    x += measure(error_count).x + theme::GAP_M;
+    draw_text({x, text_y}, theme::warning(), icon::warning);
+    x += measure(icon::warning).x + COUNT_GAP;
+    draw_text({x, text_y}, theme::warning(), warning_count);
+    x += measure(warning_count).x;
+    if (!sentence.empty()) {
+        x += theme::GAP_M;
+        draw_text({x, text_y}, in.hovered ? theme::text() : theme::text_secondary(), sentence);
+        x += measure(sentence).x;
+        if (!where.empty()) {
+            const FontScope mono(theme::mono_font(), theme::SMALL_TEXT);
+            x += theme::GAP_S;
+            draw_text({x, line_y(line_height())}, theme::text_disabled(), where);
+        }
+    }
+    if (in.hovered && sentence != newest) item_tooltip(newest);
+    return in.clicked;
 }
 
 bool status_button(const char* icon, const char* label, const char* shortcut, bool open) {

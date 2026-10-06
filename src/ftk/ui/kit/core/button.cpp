@@ -101,6 +101,9 @@ bool draw_icon(const char* id, const char* icon, const char* tip, const Look& lo
 // The space between a mode button's icon, label and chevron.
 constexpr float MODE_GAP = theme::GAP_S + 2.0f;
 
+// The space between a severity toggle's icon and its count.
+constexpr float SEVERITY_GAP = theme::GAP_S + 1.0f;
+
 } // namespace
 
 bool button(const char* label, ButtonKind kind, glm::vec2 size) {
@@ -141,6 +144,31 @@ bool toggle(const char* label, bool on, const char* tooltip) {
     const bool clicked = draw(label, toggle_look(on), {0.0f, 0.0f}, kit().style.frame_padding);
     if (tooltip != nullptr) item_tooltip(tooltip);
     return clicked;
+}
+
+bool severity_toggle(Severity severity, int count, bool on) {
+    core::Context& context = ui();
+    const bool errors = severity == Severity::Error;
+    const char* glyph = errors ? icon::error : icon::warning;
+    const std::string number = std::to_string(count);
+    const glm::vec2 padding = kit().style.frame_padding;
+    const float glyph_w = measure(glyph).x;
+    const float number_w = measure(number).x;
+    const core::Rect rect =
+        context.layout().next({padding.x + glyph_w + SEVERITY_GAP + number_w + padding.x, frame_height()});
+    const Id id = context.id(errors ? "##errors" : "##warnings");
+    const core::Interaction in = place(id, rect);
+    context.semantics(id, core::Role::Toggle, errors ? "Errors" : "Warnings", {}, {.checked = on});
+
+    const Look look = toggle_look(on);
+    const Color fill = in.held ? look.active : (in.hovered ? look.hover : look.fill);
+    core::DrawList& dl = context.draw_list();
+    if (fill.a > 0.0f) dl.rect_filled(rect.min, rect.max, faded(fill), kit().style.frame_rounding);
+    const float y = rect.min.y + padding.y;
+    draw_text({rect.min.x + padding.x, y}, errors ? theme::error() : theme::warning(), glyph);
+    draw_text({rect.min.x + padding.x + glyph_w + SEVERITY_GAP, y}, in.hovered ? look.text_hover : look.text, number);
+    item_tooltip(errors ? "Show errors" : "Show warnings");
+    return in.clicked;
 }
 
 float mode_button_width(const char* icon, const char* label) {

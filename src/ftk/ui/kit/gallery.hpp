@@ -81,6 +81,9 @@ private:
     glm::vec4 tint_{0.61f, 0.78f, 0.91f, 1.0f};
     const char* removed_{nullptr};  // the sample block whose trash was clicked last
     int empty_clicks_{0};
+    bool show_errors_{true};
+    bool show_warnings_{true};
+    std::size_t problem_selected_{0};
     std::vector<glm::vec3> points_{{0.5f, 0.0f, 0.5f}, {-0.5f, 0.0f, 0.5f}, {0.0f, 0.2f, -0.6f}};
     std::vector<std::string> names_{"idle", "walk", "run_cycle_fast"};
     std::vector<float> events_;

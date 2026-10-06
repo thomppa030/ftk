@@ -17,6 +17,7 @@
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/plate.hpp"
 #include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/kit/problem_row.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -572,6 +573,34 @@ void KitGallery::feedback() {
             }
         }
         if (empty_clicks_ > 0) hint(std::format("Action clicked {} times", empty_clicks_).c_str());
+
+        subheading("Problems");
+        struct Sample {
+            Severity severity;
+            const char* message;
+            const char* meanwhile;
+            const char* where;
+        };
+        static constexpr Sample SAMPLES[] = {
+            {Severity::Error, "'foam_bias' : undeclared identifier", "It draws with the last version that compiled",
+             "sea.fjsl:41"},
+            {Severity::Error, "'albedo' : wrong operand types", "", "sea.fjsl:58"},
+            {Severity::Error, "Font didn't bake: file not found", "", "Title.fjfont"},
+            {Severity::Warning, "Unknown property 'text-shadow'", "", "hud.fjss:12:5"},
+            {Severity::Warning, "Texture not found: rock_n.png", "Falls back to a flat normal", "cliff.fjmat"},
+        };
+        if (severity_toggle(Severity::Error, 3, show_errors_)) show_errors_ = !show_errors_;
+        same_line();
+        if (severity_toggle(Severity::Warning, 2, show_warnings_)) show_warnings_ = !show_warnings_;
+        for (std::size_t i = 0; i < std::size(SAMPLES); ++i) {
+            const Sample& sample = SAMPLES[i];
+            if (!(sample.severity == Severity::Error ? show_errors_ : show_warnings_)) continue;
+            const std::string id = std::format("##problem{}", i);
+            const ProblemRowResult result = problem_row({.id = id.c_str(), .severity = sample.severity,
+                                                         .message = sample.message, .meanwhile = sample.meanwhile,
+                                                         .where = sample.where, .selected = i == problem_selected_});
+            if (result.clicked) problem_selected_ = i;
+        }
     }
 }
 

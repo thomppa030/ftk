@@ -136,6 +136,7 @@ add_executable(ftk-kit-tests
     test_pages.cpp
     test_picture_strip.cpp
     test_plate.cpp
+    test_problem_row.cpp
     test_rail.cpp
     test_scrollbar.cpp
     test_search.cpp
