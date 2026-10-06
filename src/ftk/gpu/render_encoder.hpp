@@ -147,12 +147,6 @@ struct DrawMeshTasksArgs {
 };
 static_assert(sizeof(DrawMeshTasksArgs) == 12);
 
-/// The task workgroups every GPU with mesh shaders launches for one draw:
-/// at least this many along each axis, and at least
-/// `MESH_TASK_GROUPS_TOTAL` in all. A draw asking for more is not run.
-inline constexpr uint32_t MESH_TASK_GROUPS_PER_AXIS = 65535;
-inline constexpr uint32_t MESH_TASK_GROUPS_TOTAL = 1U << 22;
-
 /// The size of an index.
 enum class IndexType : uint8_t {
     u16,
