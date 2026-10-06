@@ -25,6 +25,7 @@ constexpr const char* PAYLOAD = "TEST_ITEM";
 struct SlotUnderTest {
     KitHarness h;
     std::string held;
+    std::string kept;
     std::string dragged;
     int clicks{0};
     int clears{0};
@@ -48,7 +49,7 @@ struct SlotUnderTest {
             if (slot.clicked()) ++clicks;
             if (const ui::Payload* dropped = slot.dropped()) held = static_cast<const char*>(dropped->data);
             std::string text = held.empty() ? "None" : held;
-            if (slot.finish({.text = text}, held.empty(), {})) {
+            if (slot.finish({.text = text}, held.empty(), {}, kept)) {
                 held.clear();
                 ++clears;
             }
@@ -92,6 +93,16 @@ TEST_CASE("A slot's clear button empties it, and does nothing while it is empty"
     t.h.click("clear");
     CHECK(t.clears == 1);
     CHECK(t.held.empty());
+}
+
+TEST_CASE("A slot that must hold something cannot be cleared", "[ui][slot]") {
+    SlotUnderTest t;
+    t.held = "goblin";
+    t.kept = "It always holds a goblin";
+    t.h.step();
+    t.h.click("clear");
+    CHECK(t.clears == 0);
+    CHECK(t.held == "goblin");
 }
 
 TEST_CASE("A built-in reads as the kind its slot takes, by name, and is never missing", "[ui][slot]") {

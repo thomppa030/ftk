@@ -103,7 +103,7 @@ Slot::Slot(const char* payload, const Judge& judge) {
     }
 }
 
-bool Slot::finish(SlotFace face, bool empty, std::string_view problem) {
+bool Slot::finish(SlotFace face, bool empty, std::string_view problem, std::string_view kept) {
     face.drop = drop_;
     face.hovered = hovered_;
     draw_slot_face(min_, max_, face);
@@ -111,8 +111,9 @@ bool Slot::finish(SlotFace face, bool empty, std::string_view problem) {
     same_line(kit().style.item_inner_spacing.x);
     bool cleared = false;
     {
-        Disabled off(empty);
-        cleared = icon_button("##clear", icon::clear, empty ? "Nothing to clear" : "Clear", ButtonKind::GhostDanger);
+        Disabled off(empty || !kept.empty());
+        const std::string tooltip = !kept.empty() ? std::string(kept) : empty ? "Nothing to clear" : "Clear";
+        cleared = icon_button("##clear", icon::clear, tooltip.c_str(), ButtonKind::GhostDanger);
     }
     if (!problem.empty()) status(Severity::Error, std::string(problem).c_str());
     return cleared;

@@ -86,8 +86,10 @@ public:
     /// Draws the face over the field, then the clear button, disabled while
     /// `empty`, then `problem` under the field when there is one. The face's
     /// drop and hover state are filled in here. Returns true when the clear
-    /// button was pressed.
-    bool finish(SlotFace face, bool empty, std::string_view problem);
+    /// button was pressed. A slot that must always hold something says why
+    /// in `kept`, and its clear button stays disabled with that as its
+    /// tooltip.
+    bool finish(SlotFace face, bool empty, std::string_view problem, std::string_view kept = {});
 
 private:
     glm::vec2 min_{};
