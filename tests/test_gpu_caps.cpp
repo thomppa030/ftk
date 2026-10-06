@@ -30,6 +30,12 @@ TEST_CASE("A GPU without block compression is named short of it", "[gpu][caps]")
           std::vector<std::string>{"block-compressed textures (BC4 to BC7)"});
 }
 
+TEST_CASE("A GPU that cannot leave a colour target unbound is named short of it", "[gpu][caps]") {
+    CHECK(missing_caps(Caps{.unbound_targets = true}, Caps{.unbound_targets = true}).empty());
+    CHECK(missing_caps(Caps{}, Caps{.unbound_targets = true}) ==
+          std::vector<std::string>{"colour targets left unbound while pipelines draw to them"});
+}
+
 TEST_CASE("A limit is met by any GPU that reaches it", "[gpu][caps]") {
     const Caps gpu{.mesh_shaders = true, .mesh_max_output_vertices = 256, .mesh_max_output_primitives = 256};
     CHECK(missing_caps(gpu, Caps{.mesh_shaders = true, .mesh_max_output_vertices = 256}).empty());

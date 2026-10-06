@@ -234,6 +234,7 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
     }
 #endif
     caps.block_compression = vk.block_compression_supported();
+    caps.unbound_targets = vk.unbound_targets_supported();
     caps.ray_queries = vk.ray_tracing_supported();
     if (caps.ray_queries) {
         create_acceleration = vk.create_accel_struct_fn();

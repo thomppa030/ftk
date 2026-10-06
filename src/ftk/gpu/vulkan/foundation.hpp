@@ -139,6 +139,9 @@ public:
     /// this device; the ray traced passes trace from compute shaders. False
     /// leaves every ray traced pass off and DDGI on its SDF trace.
     [[nodiscard]] bool ray_tracing_supported() const { return ray_tracing_supported_; }
+    /// Whether a pipeline that names a format for a colour target may draw
+    /// while that target is unbound (VK_EXT_dynamic_rendering_unused_attachments).
+    [[nodiscard]] bool unbound_targets_supported() const { return unbound_targets_supported_; }
     [[nodiscard]] PFN_vkCreateAccelerationStructureKHR create_accel_struct_fn() const { return pfn_create_accel_struct_; }
     [[nodiscard]] PFN_vkDestroyAccelerationStructureKHR destroy_accel_struct_fn() const { return pfn_destroy_accel_struct_; }
     [[nodiscard]] PFN_vkGetAccelerationStructureBuildSizesKHR get_accel_struct_build_sizes_fn() const { return pfn_get_accel_struct_build_sizes_; }
@@ -211,6 +214,7 @@ private:
     mutable std::atomic<bool> lost_{false};
 
     bool ray_tracing_supported_{false};
+    bool unbound_targets_supported_{false};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
     PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
     PFN_vkGetAccelerationStructureBuildSizesKHR pfn_get_accel_struct_build_sizes_{nullptr};

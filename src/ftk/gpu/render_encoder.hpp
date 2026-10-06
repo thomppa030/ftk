@@ -47,6 +47,11 @@ enum class DepthResolve : uint8_t {
 
 /// A colour texture drawn to. The texture is in `Access::color_attachment`,
 /// and so is its resolve target.
+///
+/// One whose view has no texture is unbound: what a pipeline draws to it is
+/// dropped and nothing holds it, and it takes whatever format a pipeline
+/// names for it. So a view that has no use for an output its pipelines write
+/// leaves that output unbound rather than keeping a texture for it.
 struct ColorAttachment {
     TextureView view{};
     Load load{Load::load};
