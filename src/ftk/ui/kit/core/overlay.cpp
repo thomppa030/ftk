@@ -43,6 +43,20 @@ void overlay_plate(DrawList list, glm::vec2 min, glm::vec2 max) {
     list.rect_filled(min, max, overlay_plate_colour(), kit().style.frame_rounding);
 }
 
+void overlay_tag(DrawList list, glm::vec2 at, std::string_view text, std::string_view detail) {
+    constexpr float TAG_PAD_X = 7.0f;
+    constexpr float TAG_PAD_Y = 2.0f;
+    const glm::vec2 text_size = measure(text);
+    const float detail_width = detail.empty() ? 0.0f : GAP + measure(detail).x;
+    const glm::vec2 min{std::floor(at.x), std::floor(at.y - text_size.y * 0.5f - TAG_PAD_Y)};
+    const glm::vec2 max{min.x + TAG_PAD_X * 2.0f + text_size.x + detail_width, min.y + text_size.y + TAG_PAD_Y * 2.0f};
+    overlay_plate(list, min, max);
+    list.text({min.x + TAG_PAD_X, min.y + TAG_PAD_Y}, theme::text(), text);
+    if (!detail.empty()) {
+        list.text({min.x + TAG_PAD_X + text_size.x + GAP, min.y + TAG_PAD_Y}, theme::text_secondary(), detail);
+    }
+}
+
 Color overlay_plate_colour() {
     Color plate = theme::surface_sunken();
     plate.a = PLATE_ALPHA;

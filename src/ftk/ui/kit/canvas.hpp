@@ -172,6 +172,14 @@ struct HandleLook {
 /// brighter with a ring under the mouse, the accent when selected.
 void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLook look = {});
 
+/// Where a click will put a new point (sheet 44): a dashed ring in the text
+/// colour, `radius` across its middle, with a plus in it.
+void canvas_ghost_handle(DrawList dl, glm::vec2 at, float radius);
+
+/// A line a click would add, from an existing point to a ghost handle: dashed
+/// in the text colour.
+void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to);
+
 /// A number drawn inside a canvas, at `min`..`max` on screen with its text
 /// at `text_size` (sheet 31): dragged sideways it changes by `speed` a
 /// pixel (Shift finer), a double-click types one; brighter under the mouse,

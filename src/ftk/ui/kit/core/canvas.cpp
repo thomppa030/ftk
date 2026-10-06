@@ -12,11 +12,13 @@
 #include "ftk/ui/theme.hpp"
 
 #include <glm/common.hpp>
+#include <glm/geometric.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <numbers>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -329,6 +331,39 @@ void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLoo
         dl.circle_filled(at, r, state);
     }
     if (hot && !selected) dl.circle(at, r + 3.0f, theme::text_secondary());
+}
+
+void canvas_ghost_handle(DrawList dl, glm::vec2 at, float radius) {
+    // Twelve dashes round the ring, each two thirds of its step; a faint
+    // fill so the plus reads over a busy picture.
+    constexpr int DASHES = 12;
+    constexpr float DASH = 2.0f / 3.0f;
+    constexpr float THICKNESS = 1.5f;
+    const float step = 2.0f * std::numbers::pi_v<float> / static_cast<float>(DASHES);
+    Color fill = theme::text();
+    fill.a = 0.12f;
+    dl.circle_filled(at, radius, fill);
+    for (int i = 0; i < DASHES; ++i) {
+        const float a0 = step * static_cast<float>(i);
+        const float a1 = a0 + step * DASH;
+        dl.line(at + radius * glm::vec2(std::cos(a0), std::sin(a0)), at + radius * glm::vec2(std::cos(a1), std::sin(a1)),
+                theme::text(), THICKNESS);
+    }
+    const float arm = std::floor(radius * 0.5f);
+    dl.line({at.x - arm, at.y}, {at.x + arm, at.y}, theme::text(), THICKNESS);
+    dl.line({at.x, at.y - arm}, {at.x, at.y + arm}, theme::text(), THICKNESS);
+}
+
+void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to) {
+    constexpr float DASH = 5.0f;
+    constexpr float GAP = 4.0f;
+    constexpr float THICKNESS = 1.5f;
+    const float length = glm::distance(from, to);
+    if (length <= 0.0f) return;
+    const glm::vec2 along = (to - from) / length;
+    for (float s = 0.0f; s < length; s += DASH + GAP) {
+        dl.line(from + along * s, from + along * std::min(s + DASH, length), theme::text(), THICKNESS);
+    }
 }
 
 void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max) {

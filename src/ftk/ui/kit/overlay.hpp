@@ -34,6 +34,12 @@ void overlay_plate(DrawList draw_list, glm::vec2 min, glm::vec2 max);
 /// The plate under the cursor, lifted to the active surface.
 [[nodiscard]] Color overlay_plate_hovered_colour();
 
+/// A short name on the plate beside something drawn over a picture (sheets
+/// 43 and 44: the node an icon stands for, "Insert point" by a ghost point),
+/// its left edge's middle at `at`. `detail` follows in the secondary colour
+/// (the node's kind); empty leaves it out.
+void overlay_tag(DrawList draw_list, glm::vec2 at, std::string_view text, std::string_view detail = {});
+
 /// A piece of a line over a picture: words, or a key drawn as a small cap
 /// (sheet 26's key, sized to the line).
 struct OverlayPiece {
