@@ -36,7 +36,7 @@ enum class Token : uint8_t {
     grid_minor, grid_major, grid_zero,
     layout_margin, layout_padding, layout_box,
     sdf_inside_near, sdf_inside_far, sdf_outside_near, sdf_outside_far,
-    heat_none, heat_low, heat_mid, heat_high, heat_peak,
+    heat_none, heat_low, heat_mid, heat_high, heat_peak, hatch,
     code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
     code_punctuation, code_member, code_builtin,
     code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
@@ -196,6 +196,10 @@ inline ui::Color heat_mid()  { return palette()[Token::heat_mid]; }
 inline ui::Color heat_high() { return palette()[Token::heat_high]; }
 inline ui::Color heat_peak() { return palette()[Token::heat_peak]; }
 
+// The stripes over what a saving leaves out of a whole: a meter's
+// uncompressed share.
+inline ui::Color hatch() { return palette()[Token::hatch]; }
+
 /// Where along the heat ramp each of its colours stands, heat_none to
 /// heat_peak; between two, the ramp blends them.
 inline constexpr std::array<float, 5> HEAT_STOPS{0.0f, 0.25f, 0.55f, 0.8f, 1.0f};
@@ -269,6 +273,10 @@ inline constexpr float SMALL_TEXT = 13.0f;
 
 /// Text size of the values along a canvas's axes, in the mono face.
 inline constexpr float AXIS_TEXT = 12.0f;
+
+/// Text size of the figure a section is about (a texture's memory), in
+/// the bold face.
+inline constexpr float FIGURE_TEXT = 18.0f;
 
 /// Width at which tooltips wrap.
 inline constexpr float TOOLTIP_WRAP = 320.0f;

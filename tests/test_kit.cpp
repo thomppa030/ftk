@@ -10,6 +10,7 @@
 #include "ftk/ui/kit/key_cap.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/loading.hpp"
+#include "ftk/ui/kit/memory_meter.hpp"
 #include "ftk/ui/kit/overlay.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -355,6 +356,32 @@ TEST_CASE("A pill in the bottom corner grows to what it holds", "[ui][kit]") {
     CHECK(held_max.y < image_max.y);
     CHECK(held_max.y > image_max.y - 16.0f);
     CHECK(held_min.y > image_max.y - 48.0f - 16.0f);
+}
+
+TEST_CASE("A memory meter shows the level in use, and the one hovered", "[ui][kit]") {
+    KitHarness h;
+    std::size_t shown = 99;
+    const ui::MeterLevel levels[] = {{"High", 4000}, {"Medium", 1000}, {"Low", 250}};
+    h.set_ui([&] {
+        shown = ui::memory_meter("##memory", {.whole = 16000,
+                                              .whole_name = "uncompressed",
+                                              .levels = levels,
+                                              .in_use = 1,
+                                              .in_use_note = "the project's level",
+                                              .in_use_tag = "project"});
+        h.mark("last");
+    });
+    h.step(2);
+    CHECK(shown == 1);
+
+    // The last thing drawn is Low's cost, on Low's place on the line.
+    h.move_to(h.rect("last").centre());
+    h.step(2);
+    CHECK(shown == 2);
+
+    h.move_to({1.0f, 1.0f});
+    h.step(2);
+    CHECK(shown == 1);
 }
 
 TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") {

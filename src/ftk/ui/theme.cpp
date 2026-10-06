@@ -74,6 +74,7 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::heat_mid, "heat_mid"},
     {Token::heat_high, "heat_high"},
     {Token::heat_peak, "heat_peak"},
+    {Token::hatch, "hatch"},
     {Token::code_keyword, "code_keyword"},
     {Token::code_type, "code_type"},
     {Token::code_function, "code_function"},
