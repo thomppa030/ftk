@@ -52,6 +52,11 @@ struct Caps {
     /// Whether the GPU samples the block-compressed formats, BC4 to BC7.
     /// Without it no texture of one can be made.
     bool block_compression{false};
+    /// Whether a pipeline that names a format for a colour target may draw
+    /// while the render scope leaves that target unbound, its writes dropped.
+    /// Without it a pipeline drawing into an unbound target names no format
+    /// for it.
+    bool unbound_targets{false};
 };
 
 /// What `caps` falls short of in `required`, one phrase each ("mesh shaders",

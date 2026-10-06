@@ -7,17 +7,30 @@
 
 #include <SDL3/SDL_vulkan.h>
 
+#include <algorithm>
 #include <cstring>
+#include <string_view>
 #include <set>
 #include <stdexcept>
 
 namespace ftk::gpu::vulkan {
+
+// Messages the layers send about what is meant: a fragment shader writing an
+// output into a colour target the render scope leaves unbound, which is how a
+// view leaves out an output it has no use for (Caps::unbound_targets).
+constexpr std::string_view EXPECTED_MESSAGES[] = {
+    "Undefined-Value-ShaderOutputNotConsumed-DynamicRendering",
+};
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
     VkDebugUtilsMessageTypeFlagsEXT /*type*/,
     const VkDebugUtilsMessengerCallbackDataEXT* data,
     void* /*user_data*/) {
+    if (data->pMessageIdName != nullptr &&
+        std::ranges::find(EXPECTED_MESSAGES, std::string_view(data->pMessageIdName)) != std::end(EXPECTED_MESSAGES)) {
+        return VK_FALSE;
+    }
     switch (severity) {
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
         FTK_GFX_TRACE("Validation: {}", data->pMessage);
@@ -249,6 +262,28 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
         FTK_GFX_INFO("VK_EXT_device_fault not available");
     }
 
+    // VK_EXT_dynamic_rendering_unused_attachments: a pipeline that names a
+    // format for a colour target may draw while that target is unbound, its
+    // writes dropped. Optional; without it such a pipeline names no format.
+    const bool unused_ext_present = std::ranges::any_of(available_exts, [](const VkExtensionProperties& ext) {
+        return std::strcmp(ext.extensionName, VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME) == 0;
+    });
+    if (unused_ext_present) {
+        VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused_features{};
+        unused_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT;
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &unused_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+        unbound_targets_supported_ = unused_features.dynamicRenderingUnusedAttachments == VK_TRUE;
+    }
+    if (unbound_targets_supported_) {
+        device_extensions_.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
+        FTK_GFX_INFO("Unbound colour targets supported");
+    } else {
+        FTK_GFX_INFO("No unbound colour targets on this GPU");
+    }
+
     // Probe for VK_KHR_acceleration_structure + VK_KHR_ray_query
     bool has_accel_struct = false;
     bool has_deferred_ops = false;
@@ -394,6 +429,14 @@ void Foundation::create_logical_device() {
 
         // bufferDeviceAddress is required for acceleration structures
         features_12.bufferDeviceAddress = VK_TRUE;
+    }
+
+    VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused_features{};
+    if (unbound_targets_supported_) {
+        unused_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT;
+        unused_features.dynamicRenderingUnusedAttachments = VK_TRUE;
+        unused_features.pNext = chain_tail;
+        chain_tail = &unused_features;
     }
 
     VkPhysicalDeviceFaultFeaturesEXT fault_features{};

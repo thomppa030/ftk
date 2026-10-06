@@ -33,6 +33,9 @@ std::vector<std::string> missing_caps(const Caps& caps, const Caps& required) {
     if (required.block_compression && !caps.block_compression) {
         missing.emplace_back("block-compressed textures (BC4 to BC7)");
     }
+    if (required.unbound_targets && !caps.unbound_targets) {
+        missing.emplace_back("colour targets left unbound while pipelines draw to them");
+    }
     return missing;
 }
 

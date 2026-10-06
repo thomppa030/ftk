@@ -15,7 +15,7 @@ struct ReadbackDesc {
     TextureRegion region{};
     /// The size the box is scaled to on the way, linearly filtered; 0 is the
     /// box's own size. Shrinking by more than about half aliases: scale the
-    /// rest on the CPU.
+    /// rest on the CPU. A texture of whole numbers is never scaled.
     uint32_t width{0};
     uint32_t height{0};
     /// What the texture is used as around the read, which the read waits for
@@ -23,8 +23,10 @@ struct ReadbackDesc {
     AccessSet use{Access::sampled_fragment};
 };
 
-/// A texture's texels on their way to the CPU as 8-bit RGBA, sRGB-encoded,
-/// row after row. From `Device::read_back`, it reads what the GPU was given
+/// A texture's texels on their way to the CPU, row after row: a colour
+/// texture's as 8-bit RGBA, sRGB-encoded, and one of whole numbers (a uint
+/// format) as it holds them, texel for texel, which no filtering or
+/// encoding could keep. From `Device::read_back`, it reads what the GPU was given
 /// to do before, and is sent with the next frame's uploads, or at `wait()`;
 /// dropping it waits for the GPU to finish with it. From
 /// `CommandList::read_back`, it reads what the frame's list recorded before
@@ -59,10 +61,13 @@ public:
     /// sent: before then it is reported and nothing waits.
     void wait();
 
-    /// `width() * height() * 4` bytes once ready; empty before.
+    /// `width() * height() * texel_size()` bytes once ready; empty before.
     [[nodiscard]] std::span<const uint8_t> pixels() const;
     [[nodiscard]] uint32_t width() const;
     [[nodiscard]] uint32_t height() const;
+    /// Bytes a texel takes in `pixels()`: 4 for colour, read as RGBA8, and
+    /// the texture's own for a format of whole numbers.
+    [[nodiscard]] uint32_t texel_size() const;
 
 private:
     std::unique_ptr<Impl> impl_;

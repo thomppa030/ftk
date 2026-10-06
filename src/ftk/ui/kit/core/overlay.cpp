@@ -11,6 +11,7 @@ using namespace corekit;
 
 namespace {
 constexpr float PLATE_ALPHA = 0.85f;
+constexpr float PLATE_HOVERED_ALPHA = 0.94f;
 constexpr float PAD_X = 8.0f;
 constexpr float PAD_Y = 3.0f;
 constexpr float GAP = 6.0f;       // between the icon and the words, and between pieces
@@ -39,9 +40,19 @@ void draw_key(DrawList& list, glm::vec2 pos, float width, std::string_view name)
 } // namespace
 
 void overlay_plate(DrawList list, glm::vec2 min, glm::vec2 max) {
+    list.rect_filled(min, max, overlay_plate_colour(), kit().style.frame_rounding);
+}
+
+Color overlay_plate_colour() {
     Color plate = theme::surface_sunken();
     plate.a = PLATE_ALPHA;
-    list.rect_filled(min, max, plate, kit().style.frame_rounding);
+    return plate;
+}
+
+Color overlay_plate_hovered_colour() {
+    Color plate = theme::surface_active();
+    plate.a = PLATE_HOVERED_ALPHA;
+    return plate;
 }
 
 glm::vec2 corner_note_size(const CornerNoteSpec& spec) {

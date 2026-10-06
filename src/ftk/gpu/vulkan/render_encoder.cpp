@@ -57,9 +57,14 @@ Result<Attachment> attachment(Device::Impl& device, const TextureView& view,
     return Attachment{native, resolved.format, record->info.samples};
 }
 
-// The area drawn: as given, or the first attachment's size.
+// Whether `color` is unbound: drawn to, with what is drawn dropped.
+bool unbound(const ColorAttachment& color) { return !color.view.texture.valid(); }
+
+// The area drawn: as given, or the first bound attachment's size.
 Result<VkExtent2D> area_of(Device::Impl& device, const RenderTargets& targets) {
-    const TextureView& first = !targets.color.empty() ? targets.color[0].view : targets.depth->view;
+    const auto bound = std::ranges::find_if(targets.color, [](const ColorAttachment& color) { return !unbound(color); });
+    if (bound == targets.color.end() && !targets.depth) return make_error("every target is unbound");
+    const TextureView& first = bound != targets.color.end() ? bound->view : targets.depth->view;
     const Device::Impl::TextureRecord* record = device.textures.get(first.texture);
     if (record == nullptr) return make_error("the first target no longer exists");
     const VkExtent2D size = mip_size(record->info, resolve(first, record->info).base_mip);
@@ -69,8 +74,18 @@ Result<VkExtent2D> area_of(Device::Impl& device, const RenderTargets& targets) {
 
 Result<> describe_colors(Device::Impl& device, const RenderTargets& targets, VkExtent2D area,
                          Rendering& out) {
+    bool samples_known = false;
     for (size_t i = 0; i < targets.color.size(); ++i) {
         const ColorAttachment& color = targets.color[i];
+        if (unbound(color)) {
+            // No view: writes to it are dropped, and any format a pipeline
+            // names for it matches.
+            VkRenderingAttachmentInfo& info = out.colors[i];
+            info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            info.imageView = VK_NULL_HANDLE;
+            out.color_formats[i] = Format::undefined;
+            continue;
+        }
         const std::string what = "colour target " + std::to_string(i);
         auto target = attachment(device, color.view, what, area);
         if (!target) return std::unexpected(target.error());
@@ -78,7 +93,10 @@ Result<> describe_colors(Device::Impl& device, const RenderTargets& targets, VkE
         if (format_kind != FormatKind::color && format_kind != FormatKind::color_uint) {
             return make_error(what + " is not a colour format");
         }
-        if (i == 0) out.samples = target->samples;
+        if (!samples_known) {
+            out.samples = target->samples;
+            samples_known = true;
+        }
         if (target->samples != out.samples) return make_error("the targets differ in samples");
 
         VkRenderingAttachmentInfo& info = out.colors[i];
@@ -154,7 +172,8 @@ Result<> describe(Device::Impl& device, const RenderTargets& targets, Rendering&
     if (!area) return std::unexpected(area.error());
     if (auto colors = describe_colors(device, targets, *area, out); !colors) return colors;
     if (targets.depth) {
-        auto depth = describe_depth(device, *targets.depth, *area, targets.color.empty(), out);
+        const bool first = std::ranges::all_of(targets.color, unbound);
+        auto depth = describe_depth(device, *targets.depth, *area, first, out);
         if (!depth) return depth;
     }
 
@@ -167,13 +186,22 @@ Result<> describe(Device::Impl& device, const RenderTargets& targets, Rendering&
     return {};
 }
 
-// Whether a graphics pipeline draws to what the scope's targets are.
-Result<> matches_targets(const Device::Impl::PipelineRecord& pipeline,
-                         const CommandList::Impl& list) {
+// Whether a graphics pipeline draws to what the scope's targets are. An
+// unbound target takes whatever the pipeline names for it where the device
+// allows that (Caps::unbound_targets), else only a pipeline naming nothing.
+Result<> matches_targets(const Device::Impl::PipelineRecord& pipeline, const CommandList::Impl& list,
+                         bool unbound_targets) {
     const auto& colors = pipeline.color_formats;
-    bool same = colors.size() == list.target_color_count;
-    for (size_t i = 0; same && i < colors.size(); ++i) same = colors[i] == list.target_colors[i];
-    if (!same) return make_error("draws to other colour formats than the targets are");
+    if (colors.size() != list.target_color_count) return make_error("draws to another number of colour targets");
+    for (size_t i = 0; i < colors.size(); ++i) {
+        if (colors[i] == list.target_colors[i]) continue;
+        if (list.target_colors[i] != Format::undefined) {
+            return make_error("draws to other colour formats than the targets are");
+        }
+        if (!unbound_targets) {
+            return make_error("names a format for an unbound colour target, which this GPU cannot leave unbound");
+        }
+    }
     if (pipeline.depth_format != list.target_depth) {
         return make_error("tests another depth format than the target is");
     }
@@ -231,7 +259,7 @@ void RenderEncoder::set_pipeline(GraphicsPipeline pipeline) {
     CommandList::Impl& self = list_->impl();
     const Device::Impl::PipelineRecord* record = device_->impl().graphics_pipelines.get(pipeline);
     if (record != nullptr) {
-        if (auto matches = matches_targets(*record, self); !matches) {
+        if (auto matches = matches_targets(*record, self, device_->impl().caps.unbound_targets); !matches) {
             self.pipeline = record;
             self.bound_sets = 0;
             vulkan::refuse(*device_, self, matches.error());

@@ -27,6 +27,13 @@ inline constexpr float OVERLAY_INSET = 8.0f;
 /// the frame rounding.
 void overlay_plate(DrawList draw_list, glm::vec2 min, glm::vec2 max);
 
+/// The plate's colour, for one drawn where the kit does not draw: a
+/// program's own overlay rendered into the picture (Fjell's scene icons).
+[[nodiscard]] Color overlay_plate_colour();
+
+/// The plate under the cursor, lifted to the active surface.
+[[nodiscard]] Color overlay_plate_hovered_colour();
+
 /// A piece of a line over a picture: words, or a key drawn as a small cap
 /// (sheet 26's key, sized to the line).
 struct OverlayPiece {
