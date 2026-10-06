@@ -41,6 +41,10 @@ private:
 /// after it when `unsaved`.
 void status_item(const char* icon, std::string_view text, bool unsaved = false);
 
+/// Work going on in the background ("Baking 37 textures"): a small spinner
+/// where an item's icon would be, then `text`.
+void status_busy(std::string_view text);
+
 /// A message and where it is from: `text`, then `where` ("coin.cpp:26")
 /// small in the mono face and the disabled colour.
 void status_note(std::string_view text, std::string_view where);

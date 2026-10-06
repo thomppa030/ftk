@@ -77,3 +77,28 @@ TEST_CASE("A state shows as a dot in its tone's colour, and a note says where it
     h.step(60);
     CHECK(h.tooltip().has_value());
 }
+
+TEST_CASE("Work in the background shows its spinner before what it is", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            bar.right();
+            ui::status_busy("Baking 37 textures");
+            h.mark("busy");
+        }
+    });
+    h.step(3);
+    // The spinner's arc, in the accent, at the item's left; the text after it.
+    const uint32_t accent = ftk::ui::core::pack_colour(ftk::theme::accent());
+    bool spinner = false;
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            const glm::vec2 centre = (p.min + p.max) * 0.5f;
+            if (p.colour == accent && h.rect("busy").contains(centre) && centre.x < h.rect("busy").min.x + 30.0f) {
+                spinner = true;
+            }
+        }
+    }
+    CHECK(spinner);
+    CHECK(h.rect("busy").max.x - h.rect("busy").min.x > 100.0f);
+}

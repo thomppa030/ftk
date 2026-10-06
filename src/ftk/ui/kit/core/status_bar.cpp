@@ -5,6 +5,7 @@
 #include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/loading.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
@@ -12,6 +13,7 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ftk::ui {
 
@@ -116,6 +118,21 @@ void status_item(const char* icon, std::string_view text, bool unsaved) {
     }
     reserve({x + pad - start.x, theme::STATUS_BAR});
     if (unsaved && item_hovered()) tooltip("Unsaved changes");
+}
+
+void status_busy(std::string_view text) {
+    same_line();
+    const float pad = theme::GAP_M;
+    const glm::vec2 start = cursor();
+    // The spinner takes an icon's room.
+    const float radius = std::floor(line_height() * 0.35f);
+    float x = start.x + pad;
+    spinner(DrawList::window(), {x + radius, start.y + theme::STATUS_BAR * 0.5f}, radius,
+            static_cast<float>(seconds()));
+    x += radius * 2.0f + theme::GAP_S + 1.0f;
+    draw_text({x, line_y(line_height())}, theme::text_secondary(), text);
+    x += measure(text).x;
+    reserve({x + pad - start.x, theme::STATUS_BAR});
 }
 
 void status_note(std::string_view text, std::string_view where) {
