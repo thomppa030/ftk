@@ -292,6 +292,8 @@ if(MSVC)
 else()
     target_compile_options(ftk-cmp-core PRIVATE -w)
 endif()
+# Encoding is most of a texture's bake, and a Debug build bakes too.
+ftk_target_optimised(ftk-cmp-core)
 add_library(ftk::cmp-core ALIAS ftk-cmp-core)
 
 # ftk-image loads, saves and scales images: stb's reader, writer and resizer,
@@ -314,6 +316,8 @@ ftk_library(image
         PRIVATE ftk::cmp-core ftk::math
 )
 target_include_directories(ftk-image SYSTEM PUBLIC ${stb_SOURCE_DIR})
+# Mips and image decoding are a texture bake's other work.
+ftk_target_optimised(ftk-image)
 if(NOT MSVC)
     # stb_image_resize2.h trips -Wunused-but-set-variable under some compiler
     # and flag combinations.

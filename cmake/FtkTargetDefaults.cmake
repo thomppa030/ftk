@@ -46,3 +46,19 @@ function(ftk_target_defaults target)
         endif()
     endif()
 endfunction()
+
+# Compiles <target> optimised in every configuration, Debug too: for code
+# whose speed decides how usable a Debug build is, such as the texture
+# encoders, which run several times slower unoptimised. MSVC's runtime
+# checks do not combine with optimisation, so the target goes without them.
+#
+#     ftk_target_optimised(ftk-image)
+
+function(ftk_target_optimised target)
+    if(MSVC)
+        set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_CHECKS "")
+        target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:/O2>)
+    else()
+        target_compile_options(${target} PRIVATE $<$<CONFIG:Debug>:-O2>)
+    endif()
+endfunction()
