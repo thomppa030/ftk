@@ -168,3 +168,20 @@ TEST_CASE("Where a problem is reads as its file's name, line and column", "[prob
     CHECK(short_where(problem).empty());
     CHECK(full_where(problem).empty());
 }
+
+TEST_CASE("clear_prefix takes back the sources whose keys start with it", "[problems]") {
+    ProblemList list;
+    list.report("sheet:/game/ui/hud.fjss", {warning("one")});
+    list.report("sheet:/game/ui/menus/main.fjss", {warning("two")});
+    list.report("sheet:/game/uikit.fjss", {warning("three")});
+    list.report("shader:/game/ui/water.fjsl", {error("four")});
+
+    const uint64_t before = list.revision();
+    list.clear_prefix("sheet:/game/ui/");
+    CHECK(messages(list) == std::vector<std::string>{"four", "three"});
+    CHECK(list.revision() != before);
+
+    const uint64_t after = list.revision();
+    list.clear_prefix("sheet:/nowhere/");
+    CHECK(list.revision() == after);
+}

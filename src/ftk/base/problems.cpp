@@ -71,6 +71,13 @@ void ProblemList::clear(std::string_view source) {
     report(source, {});
 }
 
+void ProblemList::clear_prefix(std::string_view prefix) {
+    std::lock_guard lock(mutex_);
+    const std::size_t before = sources_.size();
+    std::erase_if(sources_, [&](const auto& source) { return source.first.starts_with(prefix); });
+    if (sources_.size() != before) ++revision_;
+}
+
 void ProblemList::clear_all() {
     std::lock_guard lock(mutex_);
     if (sources_.empty()) return;

@@ -80,6 +80,11 @@ public:
     /// Takes back what `source` reported.
     void clear(std::string_view source);
 
+    /// Takes back what every source whose key starts with `prefix`
+    /// reported: the files of a folder that is gone, for sources keyed by
+    /// their file.
+    void clear_prefix(std::string_view prefix);
+
     /// Takes back everything: the program closed what it had open.
     void clear_all();
 
