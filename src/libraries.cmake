@@ -458,6 +458,7 @@ ftk_library(ui-kit
         ftk/ui/kit/scope.hpp
         ftk/ui/kit/scrollbar.hpp
         ftk/ui/kit/search.hpp
+        ftk/ui/kit/selection.hpp
         ftk/ui/kit/section.hpp
         ftk/ui/kit/selectable.hpp
         ftk/ui/kit/settings_file.hpp

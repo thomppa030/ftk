@@ -138,6 +138,7 @@ add_executable(ftk-kit-tests
     test_scrollbar.cpp
     test_search.cpp
     test_sections.cpp
+    test_selection.cpp
     test_slot.cpp
     test_status_bar.cpp
     test_table.cpp
