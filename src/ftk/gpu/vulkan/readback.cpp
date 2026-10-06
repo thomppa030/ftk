@@ -2,6 +2,8 @@
 
 #include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/device.hpp"
+#include "ftk/gpu/vulkan/access.hpp"
+#include "ftk/gpu/vulkan/command_list_impl.hpp"
 #include "ftk/gpu/vulkan/device_impl.hpp"
 #include "ftk/gpu/vulkan/native.hpp"
 #include "ftk/gpu/vulkan/upload_lanes.hpp"
@@ -15,8 +17,9 @@
 #include <span>
 #include <string>
 
-// Readbacks on the Vulkan device: a compute pass samples the texture into a
-// buffer the CPU maps, and a barrier hands the buffer to the host. It records
+// Readbacks on the Vulkan device: a compute pass samples a colour texture
+// into a buffer the CPU maps, or a copy takes a texture of whole numbers
+// there as it is, and a barrier hands the buffer to the host. It records
 // on the upload context's image lane, whose timeline says when it is done, or
 // into a frame's list, done with that frame.
 
@@ -51,6 +54,7 @@ struct Readback::Impl {
     uint64_t frame{0};
     uint32_t width{0};
     uint32_t height{0};
+    uint32_t texel_size{4};
     /// Finished, with what the GPU wrote visible to the CPU.
     bool done{false};
 
@@ -127,7 +131,11 @@ std::span<const uint8_t> Readback::pixels() const {
     if (!ready()) return {};
     const std::span<std::byte> bytes = impl_->device->mapped(impl_->pixels);
     return {reinterpret_cast<const uint8_t*>(bytes.data()),
-            static_cast<size_t>(impl_->width) * impl_->height * 4};
+            static_cast<size_t>(impl_->width) * impl_->height * impl_->texel_size};
+}
+
+uint32_t Readback::texel_size() const {
+    return impl_ ? impl_->texel_size : 0;
 }
 
 uint32_t Readback::width() const {
@@ -140,6 +148,40 @@ uint32_t Readback::height() const {
 
 namespace {
 
+// Records into `cmd` the copy of `box` of a texture of whole numbers, as it
+// holds them, into a buffer the CPU maps.
+Result<std::unique_ptr<Readback::Impl>> record_copy(Device& device, CommandList& cmd, const TextureView& view,
+                                                    const Device::Impl::TextureRecord& record,
+                                                    const ResolvedView& resolved, const TextureRegion& box,
+                                                    AccessSet use) {
+    auto impl = std::make_unique<Readback::Impl>();
+    impl->device = &device;
+    impl->width = box.width;
+    impl->height = box.height;
+    impl->texel_size = ftk::gpu::texel_size(resolved.format);
+    auto pixels = device.create(BufferDesc{
+        .size = packed_size(resolved.format, box.width, box.height),
+        .use = BufferUse::storage,
+        .memory = Memory::readback,
+        .name = "readback",
+    });
+    if (!pixels) return std::unexpected(pixels.error());
+    impl->pixels = std::move(*pixels);
+    const auto* buffer = device.impl().buffers.get(impl->pixels);
+    if (buffer == nullptr) return make_error("Readback: its buffer was not made");
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, resolved.base_mip, resolved.base_layer, 1};
+    region.imageOffset = {static_cast<int32_t>(box.x), static_cast<int32_t>(box.y), 0};
+    region.imageExtent = {box.width, box.height, 1};
+    cmd.barrier(view, use, Access::copy_src);
+    vkCmdCopyImageToBuffer(cmd.impl().cb, record.image, vulkan::image_scope(Access::copy_src, false).layout,
+                           buffer->buffer, 1, &region);
+    cmd.barrier(view, Access::copy_src, use);
+    cmd.barrier(BufferRange(impl->pixels), Access::copy_dst, Access::host_read);
+    return impl;
+}
+
 // Records into `cmd` the read of `view` that `desc` asks for, and makes what
 // it writes into.
 Result<std::unique_ptr<Readback::Impl>> record_read(Device& device, CommandList& cmd, const TextureView& view,
@@ -151,10 +193,12 @@ Result<std::unique_ptr<Readback::Impl>> record_read(Device& device, CommandList&
     if (resolved.mip_count != 1 || resolved.layer_count != 1) {
         return make_error("Readback: one mip of one layer is read at a time");
     }
-    if (kind(resolved.format) != FormatKind::color || record->info.kind == TextureKind::tex3d) {
-        return make_error("Readback: only a 2D colour texture read as floats is read back");
+    const FormatKind format_kind = kind(resolved.format);
+    const bool whole = format_kind == FormatKind::color_uint;
+    if ((format_kind != FormatKind::color && !whole) || record->info.kind == TextureKind::tex3d) {
+        return make_error("Readback: only a 2D colour texture is read back");
     }
-    if (!record->info.use.has(TextureUse::sampled)) {
+    if (!whole && !record->info.use.has(TextureUse::sampled)) {
         return make_error("Readback: the texture is not made to be sampled");
     }
     if (desc.use.empty()) return make_error("Readback: what the texture is used as is not given");
@@ -168,6 +212,12 @@ Result<std::unique_ptr<Readback::Impl>> record_read(Device& device, CommandList&
     }
     const uint32_t width = desc.width != 0 ? desc.width : box.width;
     const uint32_t height = desc.height != 0 ? desc.height : box.height;
+    if (whole) {
+        if (width != box.width || height != box.height) {
+            return make_error("Readback: a texture of whole numbers is read texel for texel, not scaled");
+        }
+        return record_copy(device, cmd, view, *record, resolved, box, desc.use);
+    }
 
     if (!self.read_back_pipeline.valid()) {
         auto built = self.build(ComputePipelineDesc{
