@@ -31,6 +31,10 @@ public:
 
     explicit operator bool() const { return true; }
 
+    /// The backing's top-left corner, placed by the size the pill took last
+    /// frame: for keeping clear of it.
+    [[nodiscard]] glm::vec2 min() const { return min_; }
+
 private:
     Id size_id_{0};
     Id height_id_{0};

@@ -397,6 +397,21 @@ TEST_CASE("A corner note hangs from its corner, and a key makes its line taller"
     CHECK(longer.y == words.y);
 }
 
+TEST_CASE("A corner note's size is known before it is drawn", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 told{};
+    glm::vec2 drawn{};
+    h.set_ui([&] {
+        const ftk::ui::OverlayPiece keyed[] = {{"Esc", true}, {"releases input"}};
+        const ui::CornerNoteSpec spec{.line = keyed, .ink = ftk::theme::text_secondary()};
+        told = ui::corner_note_size(spec);
+        drawn = ui::corner_note(ui::DrawList::window(), {0.0f, 0.0f}, ui::Corner::TopLeft, spec);
+    });
+    h.step(2);
+    CHECK(told.x > 0.0f);
+    CHECK(told == drawn);
+}
+
 TEST_CASE("A tag after a field is as wide as tag_width says and stays on the field's line", "[ui][kit]") {
     KitHarness h;
     glm::vec2 field_min{};

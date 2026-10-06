@@ -44,7 +44,7 @@ void overlay_plate(DrawList list, glm::vec2 min, glm::vec2 max) {
     list.rect_filled(min, max, plate, kit().style.frame_rounding);
 }
 
-glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec) {
+glm::vec2 corner_note_size(const CornerNoteSpec& spec) {
     // Keys stand a little taller than the words, so a line holding one gets
     // their height.
     bool has_key = false;
@@ -55,7 +55,14 @@ glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNo
         has_key |= spec.line[i].key;
     }
     const float pad_y = has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
-    const glm::vec2 size{std::floor(line_w + PAD_X * 2.0f), font_size() + pad_y * 2.0f};
+    return {std::floor(line_w + PAD_X * 2.0f), font_size() + pad_y * 2.0f};
+}
+
+glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec) {
+    const glm::vec2 size = corner_note_size(spec);
+    bool has_key = false;
+    for (const OverlayPiece& piece : spec.line) has_key |= piece.key;
+    const float pad_y = has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
 
     const bool right = corner == Corner::TopRight || corner == Corner::BottomRight;
     const bool bottom = corner == Corner::BottomLeft || corner == Corner::BottomRight;

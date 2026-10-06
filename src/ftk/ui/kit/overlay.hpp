@@ -51,4 +51,8 @@ struct CornerNoteSpec {
 /// size, for what is placed beside it.
 glm::vec2 corner_note(DrawList draw_list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec);
 
+/// The size corner_note() gives `spec`'s plate, for placing it clear of
+/// something before it is drawn.
+[[nodiscard]] glm::vec2 corner_note_size(const CornerNoteSpec& spec);
+
 } // namespace ftk::ui
