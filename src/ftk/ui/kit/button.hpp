@@ -65,4 +65,9 @@ bool toggle(const char* label, bool on, const char* tooltip);
 /// when clicked; the caller flips it.
 bool severity_toggle(Severity severity, int count, bool on);
 
+/// A tool that stays on, labelled as an action is ("Edit points"): its icon,
+/// then the words, in the toggle colour while `on`. A width of -1 fills the
+/// row. Returns true when clicked; the caller flips it.
+bool toggle(const char* icon, const char* label, bool on, const char* tooltip, glm::vec2 size = {0.0f, 0.0f});
+
 } // namespace ftk::ui

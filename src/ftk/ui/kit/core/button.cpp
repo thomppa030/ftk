@@ -171,6 +171,13 @@ bool severity_toggle(Severity severity, int count, bool on) {
     return in.clicked;
 }
 
+bool toggle(const char* icon, const char* label, bool on, const char* tooltip, glm::vec2 size) {
+    const std::string text = std::string(icon) + "  " + label;
+    const bool clicked = draw(text.c_str(), toggle_look(on), size, kit().style.frame_padding);
+    if (tooltip != nullptr) item_tooltip(tooltip);
+    return clicked;
+}
+
 float mode_button_width(const char* icon, const char* label) {
     const glm::vec2 padding = kit().style.frame_padding;
     return padding.x + measure(icon).x + MODE_GAP + measure(label).x + MODE_GAP + measure(icon::dropdown).x +

@@ -47,6 +47,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LAYOUT_GRID          "\xee\x83\xbf"  // U+E0FF
 #define ICON_LC_SCAN                 "\xee\x89\x97"  // U+E257
 #define ICON_LC_SHAPES               "\xee\x92\xb3"  // U+E4B3
+#define ICON_LC_SPLINE               "\xee\x8e\x8b"  // U+E38B
 #define ICON_LC_SLIDERS_HORIZONTAL "\xee\x8a\x9a"  // U+E29A
 #define ICON_LC_DATABASE           "\xee\x82\xad"  // U+E0AD
 #define ICON_LC_LIST_TREE          "\xee\x90\x88"  // U+E408
