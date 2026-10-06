@@ -170,6 +170,8 @@ struct PickedColour {
 struct NextItem {
     std::optional<float> width{};
     bool allow_overlap{false};
+    /// A field edits several things whose values differ (next_field_mixed()).
+    bool mixed{false};
     /// Text is a field's height, its line where a field's text would be.
     bool text_on_frame{false};
 };

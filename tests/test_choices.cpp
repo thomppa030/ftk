@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/choice.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -120,6 +121,54 @@ TEST_CASE("Picking the value a drop-down already has is no edit", "[ui][kit]") {
     h.click_at(popup_line(*popup, spacing, 1));
     CHECK(shape == Shape::Sphere);
     CHECK(tally.changed == 0);
+}
+
+TEST_CASE("Mixed, a drop-down sets even the value it holds", "[ui][kit]") {
+    KitHarness h;
+    Shape shape = Shape::Sphere;
+    Tally tally;
+    Spacing spacing;
+    bool mixed = true;
+    h.set_ui([&] {
+        spacing.read();
+        ui::next_width(200.0f);
+        if (mixed) ui::next_field_mixed();
+        const ui::Edit edit = ui::combo("##shape", shape, SHAPES);
+        tally.add(edit);
+        if (edit.changed) mixed = false;
+        h.mark("combo");
+    });
+    h.step(2);
+    h.click("combo");
+    const auto popup = open_popup(h);
+    REQUIRE(popup.has_value());
+    // The value the field held, picked while several differ, sets them all.
+    h.click_at(popup_line(*popup, spacing, 1));
+    CHECK(shape == Shape::Sphere);
+    CHECK(tally.changed == 1);
+    CHECK(tally.committed == 1);
+}
+
+TEST_CASE("Mixed, no segment is lit and any click sets it", "[ui][kit]") {
+    KitHarness h;
+    Body body = Body::Kinematic;
+    Tally tally;
+    h.set_ui([&] {
+        ui::next_width(300.0f);
+        ui::next_field_mixed();
+        tally.add(ui::segmented("##body", body, BODIES));
+        h.mark("control");
+    });
+    h.step(2);
+    for (const char* name : {"Static", "Dynamic", "Kinematic"}) {
+        const auto* segment = h.find(name, ftk::ui::core::Role::Button);
+        REQUIRE(segment != nullptr);
+        CHECK_FALSE(segment->state.selected);
+    }
+    const Rect control = h.rect("control");
+    h.click_at({control.min.x + control.width() * 5.0f / 6.0f, control.centre().y});
+    CHECK(body == Body::Kinematic);
+    CHECK(tally.committed == 1);
 }
 
 TEST_CASE("A segment click picks its value as one commit", "[ui][kit]") {

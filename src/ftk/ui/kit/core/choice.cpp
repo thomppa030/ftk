@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/edit_record.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -69,13 +70,16 @@ bool begin_dropdown(const char* id, std::string_view preview) {
 namespace detail {
 
 Edit combo(const char* id, int& index, std::span<const char* const> names) {
+    // Read before the field is placed, which clears what the next one is.
+    const bool mixed = kit().next.mixed;
     const bool known = index >= 0 && static_cast<std::size_t>(index) < names.size();
-    const std::string before = known ? names[static_cast<std::size_t>(index)] : "";
+    const std::string before = mixed ? MIXED : known ? names[static_cast<std::size_t>(index)] : "";
 
     Edit edit;
     if (begin_dropdown(id, before)) {
         for (std::size_t i = 0; i < names.size(); ++i) {
-            const bool selected = static_cast<int>(i) == index;
+            // Mixed, none is the value, and picking any sets every one.
+            const bool selected = !mixed && static_cast<int>(i) == index;
             if (selectable(names[i], selected) && !selected) {
                 index = static_cast<int>(i);
                 edit = {true, true};
@@ -93,11 +97,13 @@ Edit segmented(const char* id, int& index, std::span<const char* const> names) {
     Edit edit;
     if (names.empty()) return edit;
 
+    // Read before the segments are placed, which clears what the next one is.
+    const bool mixed = kit().next.mixed;
     core::Context& context = ui();
     const core::Rect rect = context.layout().next({item_width(), frame_height()});
     const float segment = segment_width(rect.width(), names.size());
     const bool known = index >= 0 && static_cast<std::size_t>(index) < names.size();
-    const std::string before = known ? names[static_cast<std::size_t>(index)] : "";
+    const std::string before = mixed ? MIXED : known ? names[static_cast<std::size_t>(index)] : "";
 
     core::DrawList& dl = context.draw_list();
     dl.rect_filled(rect.min, rect.max, faded(theme::surface_sunken()), kit().style.frame_rounding);
@@ -110,13 +116,14 @@ Edit segmented(const char* id, int& index, std::span<const char* const> names) {
                                  .max = {x + segment, rect.max.y - TRACK_PADDING}};
             IdScope entry(static_cast<int>(i));
             const Id seg_id = context.id("##segment");
-            const bool on = static_cast<int>(i) == index;
+            // Mixed, none is lit, and picking any sets every one.
+            const bool on = !mixed && static_cast<int>(i) == index;
             const core::Interaction in = place(seg_id, seg);
             if (in.clicked && !on) {
                 index = static_cast<int>(i);
                 edit = {true, true};
             }
-            const bool now_on = static_cast<int>(i) == index;
+            const bool now_on = (!mixed || edit.changed) && static_cast<int>(i) == index;
             context.semantics(seg_id, core::Role::Button, names[i], {}, {.selected = now_on});
 
             if (now_on) {

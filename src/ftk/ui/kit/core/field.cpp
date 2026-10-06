@@ -132,6 +132,7 @@ double slider_value(const Number& spec, double t) {
 Edit number_field(const char* id, double& value, const Number& spec) {
     core::Context& context = ui();
     Kit& k = kit();
+    const bool mixed = k.next.mixed;
     const core::Rect rect = context.layout().next({item_width(), frame_height()});
     const Id field_id = context.id(id);
     const Id typed_id = core::hash_label("#TYPED", field_id);
@@ -203,9 +204,11 @@ Edit number_field(const char* id, double& value, const Number& spec) {
         context.draw_list().rect_filled({x, rect.min.y + GRAB_INSET}, {x + grab, rect.max.y - GRAB_INSET},
                                         faded(colour), GRAB_ROUNDING);
     }
-    const std::string number = spec.text != nullptr ? spec.text : formatted(spec.integer ? "%.0f" : spec.format, value);
-    draw_number(rect, number, spec.text != nullptr ? Unit::None : spec.unit, spec.axis,
-                spec.text == nullptr && can_be_negative(spec.min, spec.max));
+    // Mixed, the word until it is dragged, the number from then on.
+    const char* words = mixed && !in.held && !edit.changed ? MIXED : spec.text;
+    const std::string number = words != nullptr ? words : formatted(spec.integer ? "%.0f" : spec.format, value);
+    draw_number(rect, number, words != nullptr ? Unit::None : spec.unit, spec.axis,
+                words == nullptr && can_be_negative(spec.min, spec.max));
     context.semantics(field_id, core::Role::Slider, shown(id), number);
     k.item.edited = edit.committed;
     return edit;
@@ -479,8 +482,14 @@ Edit stepper(const char* id, int& value, int min, int max, Unit unit) {
     return edit;
 }
 
+void next_field_mixed() {
+    kit().next.mixed = true;
+}
+
 Edit checkbox(const char* id, bool& value) {
-    const char* before = value ? "On" : "Off";
+    // Read before the item is placed, which clears what the next one is.
+    const bool mixed = kit().next.mixed;
+    const char* before = mixed ? MIXED : value ? "On" : "Off";
     core::Context& context = ui();
     const Style& style = kit().style;
     const float side = frame_height();
@@ -489,12 +498,22 @@ Edit checkbox(const char* id, bool& value) {
     const core::Rect rect = context.layout().next({side + label_w, side});
     const Id box_id = context.id(id);
     const core::Interaction in = place(box_id, rect);
-    if (in.clicked) value = !value;
-    context.semantics(box_id, core::Role::Toggle, label, {}, {.checked = value});
+    // Mixed, a click turns every one on.
+    if (in.clicked) value = mixed || !value;
+    const bool shows_mixed = mixed && !in.clicked;
+    context.semantics(box_id, core::Role::Toggle, label, shows_mixed ? MIXED : "",
+                      {.checked = value && !shows_mixed});
 
     const core::Rect box{.min = rect.min, .max = rect.min + glm::vec2{side, side}};
     draw_frame(box, in, false);
-    if (value) {
+    if (shows_mixed) {
+        // A dash: some on and some off.
+        const float pad = std::max(1.0f, std::floor(side / 4.0f));
+        const float thickness = std::max(std::floor(side / 7.0f), 1.0f);
+        const float y = std::floor(box.min.y + side * 0.5f - thickness * 0.5f);
+        context.draw_list().rect_filled({box.min.x + pad, y}, {box.max.x - pad, y + thickness},
+                                        faded(corekit::text_colour()));
+    } else if (value) {
         // ImGui's tick: a short stroke down and a long one up.
         const float pad = std::max(1.0f, std::floor(side / 6.0f));
         const float sz = side - pad * 2.0f;

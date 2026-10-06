@@ -110,6 +110,15 @@ public:
     InsetFields& operator=(InsetFields&&) = delete;
 };
 
+/// The next field edits several things whose values differ, such as one
+/// setting of several textures: it reads Mixed (a checkbox shows a dash, a
+/// drop-down, a number or a segmented choice the word or nothing lit) until
+/// it is set, which sets every one. A checkbox clicked while mixed turns on.
+void next_field_mixed();
+
+/// The word a field reads while what it edits differs.
+inline constexpr const char* MIXED = "Mixed";
+
 /// A value shown but not edited (a velocity, a computed size, a path), in
 /// the secondary colour on the field's line.
 void readout(const char* text);

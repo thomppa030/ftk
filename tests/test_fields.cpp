@@ -202,3 +202,48 @@ TEST_CASE("A stepper steps one at a time and stops at its end", "[ui][kit]") {
     CHECK(size == 20);
     CHECK(commits == 1);
 }
+
+TEST_CASE("Mixed, a checkbox shows a dash and a click turns every one on", "[ui][kit]") {
+    KitHarness h;
+    bool on = true;
+    bool mixed = true;
+    Tally tally;
+    h.set_ui([&] {
+        if (mixed) ui::next_field_mixed();
+        const ui::Edit edit = ui::checkbox("Cutout", on);
+        tally.add(edit);
+        if (edit.changed) mixed = false;
+        h.mark("box");
+    });
+    h.step(2);
+    const auto* box = h.find("Cutout", ftk::ui::core::Role::Toggle);
+    REQUIRE(box != nullptr);
+    CHECK(box->value == ui::MIXED);
+    CHECK_FALSE(box->state.checked);
+
+    // On already, and still on: a mixed click does not toggle.
+    h.click("box");
+    CHECK(on);
+    CHECK(tally.committed == 1);
+    h.step();
+    CHECK(h.find("Cutout", ftk::ui::core::Role::Toggle)->state.checked);
+}
+
+TEST_CASE("Mixed, a number reads the word until it is dragged", "[ui][kit]") {
+    KitHarness h;
+    float cutoff = 0.5f;
+    bool mixed = true;
+    h.set_ui([&] {
+        ui::next_width(200.0f);
+        if (mixed) ui::next_field_mixed();
+        if (ui::drag("Cutoff", cutoff, {.speed = 0.01f, .min = 0.0f, .max = 1.0f}).committed) mixed = false;
+        h.mark("cutoff");
+    });
+    h.step(2);
+    CHECK(h.find("Cutoff", ftk::ui::core::Role::Slider)->value == ui::MIXED);
+    const glm::vec2 from = h.rect("cutoff").centre();
+    h.drag(from, {from.x + 20.0f, from.y});
+    h.step();
+    CHECK(cutoff > 0.5f);
+    CHECK(h.find("Cutoff", ftk::ui::core::Role::Slider)->value != ui::MIXED);
+}
