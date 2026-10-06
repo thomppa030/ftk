@@ -10,6 +10,7 @@
 #include <stb_image_write.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -20,12 +21,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-/// An image as four bytes a pixel, row after row.
-struct Picture {
-    int width{0};
-    int height{0};
-    std::vector<uint8_t> rgba;
-};
+using Picture = IconCache::Picture;
 
 fs::path thumbnail_cache_path(const fs::path& source, const std::string& cache_folder) {
     return source.parent_path() / cache_folder / (source.stem().string() + ".thumb.png");
@@ -178,8 +174,12 @@ ui::Texture IconCache::thumbnail(const std::string& path) {
         return it->second ? ui_texture(it->second) : ui::Texture{};
     }
     if (decoding_.insert(path).second) {
-        (void)pool_.submit([inbox = inbox_, path, generation = generation_, folder = cache_folder_] {
-            Picture picture = load_thumbnail(path, folder);
+        PictureMaker make;
+        std::string extension = fs::path(path).extension().string();
+        std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (const auto maker = makers_.find(extension); maker != makers_.end()) make = maker->second;
+        (void)pool_.submit([inbox = inbox_, path, generation = generation_, folder = cache_folder_, make = std::move(make)] {
+            Picture picture = make ? make(path) : load_thumbnail(path, folder);
             std::lock_guard lock(inbox->mutex);
             inbox->decoded.push_back({path, generation, std::move(picture)});
         });
@@ -197,6 +197,7 @@ void IconCache::take_decoded() {
     for (auto& item : decoded) {
         if (item.generation != generation_) continue;
         decoding_.erase(item.path);
+        if (forgotten_.erase(item.path) > 0) continue;
         const Picture& picture = item.picture;
         thumbnails_[item.path] = picture.rgba.empty()
             ? gpu::Owned<gpu::Texture>{}
@@ -216,7 +217,17 @@ void IconCache::clear_thumbnails() {
     // done; the textures' release waits for them.
     thumbnails_.clear();
     decoding_.clear();
+    forgotten_.clear();
     ++generation_;
+}
+
+void IconCache::picture_files(std::string extension, PictureMaker make) {
+    makers_[std::move(extension)] = std::move(make);
+}
+
+void IconCache::forget_thumbnail(const std::string& path) {
+    thumbnails_.erase(path);
+    if (decoding_.contains(path)) forgotten_.insert(path);
 }
 
 } // namespace ftk

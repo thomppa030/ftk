@@ -6,11 +6,13 @@
 #include "ftk/ui/types.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace ftk {
 
@@ -26,6 +28,16 @@ class IconCache {
 public:
     /// Thumbnails fit in a square this many pixels a side.
     static constexpr int THUMBNAIL_SIZE = 80;
+
+    /// A picture of a file: RGBA8 in sRGB, row after row; empty for none.
+    struct Picture {
+        int width{0};
+        int height{0};
+        std::vector<uint8_t> rgba;
+    };
+    /// Makes the picture of a file of one kind, on the pool: one that is no
+    /// image read as one, such as a texture pictured from its bake.
+    using PictureMaker = std::function<Picture(const std::string& path)>;
 
     /// Loads every PNG in `icons_dir` as an icon named by its file, less an
     /// `icon_` prefix. Thumbnails are decoded on `pool`, and an image's is
@@ -50,6 +62,15 @@ public:
 
     /// Forgets every thumbnail, and drops what is still being decoded.
     void clear_thumbnails();
+
+    /// Files ending in `extension` (".fjtex", in small letters) are pictured
+    /// by `make` instead of being read as images, and their pictures are not
+    /// kept on disk: what `make` reads is its own cache.
+    void picture_files(std::string extension, PictureMaker make);
+
+    /// Forgets the thumbnail of the file at `path`, so the next ask makes it
+    /// again: what it pictures changed.
+    void forget_thumbnail(const std::string& path);
 
     /// The folder beside an image its thumbnail is kept in.
     [[nodiscard]] const std::string& cache_folder() const { return cache_folder_; }
@@ -93,6 +114,9 @@ private:
     /// file that did not read, so it is not asked for again.
     std::unordered_map<std::string, gpu::Owned<gpu::Texture>> thumbnails_;
     std::unordered_set<std::string> decoding_;
+    /// Being decoded when forgotten: what arrives is out of date.
+    std::unordered_set<std::string> forgotten_;
+    std::unordered_map<std::string, PictureMaker> makers_;
     /// Moves on at every clear, so a decode started before one is dropped.
     uint64_t generation_{0};
     std::shared_ptr<Inbox> inbox_;
