@@ -336,6 +336,27 @@ TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui
     CHECK(right_edge > image_max.x - 16.0f);
 }
 
+TEST_CASE("A pill in the bottom corner grows to what it holds", "[ui][kit]") {
+    KitHarness h;
+    const glm::vec2 image_min{20.0f, 30.0f};
+    const glm::vec2 image_max{420.0f, 330.0f};
+    glm::vec2 held_min{};
+    glm::vec2 held_max{};
+    h.set_ui([&] {
+        ui::ViewportPill pill("##plate", image_min, image_max, ui::PillPlace::BottomRight);
+        (void)ui::hit_area("##tall", {60.0f, 48.0f});
+        held_min = ui::item_min();
+        held_max = ui::item_max();
+    });
+    // Its size is learnt in the first frame and placed by after.
+    h.step(3);
+    CHECK(held_max.x < image_max.x);
+    CHECK(held_max.x > image_max.x - 16.0f);
+    CHECK(held_max.y < image_max.y);
+    CHECK(held_max.y > image_max.y - 16.0f);
+    CHECK(held_min.y > image_max.y - 48.0f - 16.0f);
+}
+
 TEST_CASE("A viewport window puts its picture at its very corner", "[ui][kit]") {
     KitHarness h;
     glm::vec2 window_pos{};

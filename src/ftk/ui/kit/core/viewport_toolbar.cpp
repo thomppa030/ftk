@@ -20,12 +20,16 @@ ViewportPill::ViewportPill(const char* id, glm::vec2 image_min, glm::vec2 image_
     core::Context& context = ui();
     context.ids().push(id);
     size_id_ = context.id("##size");
-    // Placed by the size its buttons took last frame, which only the right
-    // and centre places need.
-    const glm::vec2 size{stored_float(size_id_, 0.0f), frame_height() + PAD * 2.0f};
-    const float y = image_min.y + INSET;
+    height_id_ = context.id("##height");
+    // Placed by the size what it holds took last frame, which only the
+    // right, centre and bottom places need. Along the top it is a row of
+    // buttons; in the bottom corner it is as tall as what it holds.
+    const bool bottom = place == PillPlace::BottomRight;
+    const float row = frame_height() + PAD * 2.0f;
+    const glm::vec2 size{stored_float(size_id_, 0.0f), bottom ? stored_float(height_id_, row) : row};
+    const float y = bottom ? image_max.y - INSET - size.y : image_min.y + INSET;
     float x = image_min.x + INSET;
-    if (place == PillPlace::TopRight) x = image_max.x - INSET - size.x;
+    if (place == PillPlace::TopRight || bottom) x = image_max.x - INSET - size.x;
     if (place == PillPlace::TopCenter) x = (image_min.x + image_max.x - size.x) * 0.5f;
     min_ = {x, y};
 
@@ -50,6 +54,7 @@ ViewportPill::~ViewportPill() {
     place_still(held);
     pop_style();
     store_float(size_id_, held.max.x - min_.x + PAD);
+    store_float(height_id_, held.max.y - min_.y + PAD);
     context.ids().pop();
 }
 

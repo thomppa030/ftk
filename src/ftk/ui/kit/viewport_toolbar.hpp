@@ -7,7 +7,9 @@
 
 // The toolbar of a viewport (sheet 28): small dark pills floating over the
 // picture's top corners, each holding kit buttons laid out with same_line.
-// What changes the view goes here, never what changes the asset.
+// What changes the view goes here, never what changes the asset. A pill in
+// the bottom-right corner is a plate that grows to what it holds, such as a
+// texture's mips.
 //
 //     if (auto pill = ui::ViewportPill("##view", image_min, image_max, ui::PillPlace::TopRight)) {
 //         ui::mode_button(...); ui::same_line(); ui::icon_button(...);
@@ -15,7 +17,7 @@
 
 namespace ftk::ui {
 
-enum class PillPlace { TopLeft, TopCenter, TopRight };
+enum class PillPlace { TopLeft, TopCenter, TopRight, BottomRight };
 
 class ViewportPill {
 public:
@@ -31,6 +33,7 @@ public:
 
 private:
     Id size_id_{0};
+    Id height_id_{0};
     glm::vec2 min_{};
 };
 
