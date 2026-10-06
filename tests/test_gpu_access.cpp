@@ -91,6 +91,12 @@ TEST_CASE("Every format copied through a buffer has a texel size or a block size
     CHECK(texel_size(Format::rgba32_float) == 16);
 }
 
+TEST_CASE("A pair of 32-bit whole numbers is whole numbers, eight bytes a texel", "[gpu][format]") {
+    CHECK(kind(Format::rg32_uint) == FormatKind::color_uint);
+    CHECK(texel_size(Format::rg32_uint) == 8);
+    CHECK(packed_size(Format::rg32_uint, 3, 2) == 8 * 3 * 2);
+}
+
 TEST_CASE("A block-compressed format is sized by whole 4 by 4 blocks", "[gpu][format]") {
     CHECK(packed_size(Format::bc7_srgb, 2048, 2048) == 2048ULL * 2048);
     CHECK(packed_size(Format::bc4_unorm, 2048, 2048) == 2048ULL * 2048 / 2);
