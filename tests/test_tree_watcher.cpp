@@ -160,6 +160,20 @@ TEST_CASE("Folders the watcher skips are left alone, with all under them", "[pla
     CHECK(settle(watcher, 0).empty());
 }
 
+TEST_CASE("A file moved into a skipped folder is removed, a folder moved out of one added", "[platform][tree_watcher]") {
+    const Folder folder("skipped_moves");
+    fs::create_directories(folder.base / "build" / "d");
+    write(folder.base / "build" / "d" / "x.png", "image");
+    write(folder.base / "a.png", "image");
+    TreeWatcher watcher;
+    REQUIRE(watcher.watch(folder.base, [](std::string_view name) { return name == "build" || name.starts_with('.'); }));
+
+    fs::rename(folder.base / "a.png", folder.base / "build" / "a.png");
+    CHECK(settle(watcher, 1) == std::vector{removed(folder.base / "a.png")});
+    fs::rename(folder.base / "build" / "d", folder.base / "d");
+    CHECK(settle(watcher, 2) == std::vector{added(folder.base / "d", true), added(folder.base / "d" / "x.png")});
+}
+
 TEST_CASE("A file saved by renaming a written copy over it arrives once", "[platform][tree_watcher]") {
     const Folder folder("saved");
     write(folder.base / "a.png", "image");

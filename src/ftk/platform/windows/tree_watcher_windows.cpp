@@ -120,36 +120,47 @@ struct TreeWatcher::Impl {
                 const std::filesystem::path path = root / relative;
                 std::error_code ec;
                 const bool folder = std::filesystem::is_directory(path, ec);
+                const bool hidden = skipped(relative, folder);
 
-                if (!skipped(relative, folder)) {
-                    switch (info->Action) {
-                        case FILE_ACTION_ADDED:
+                switch (info->Action) {
+                    case FILE_ACTION_ADDED:
+                        if (hidden) break;
+                        events.push_back({.kind = Kind::added, .path = path, .folder = folder});
+                        if (folder) report_contents(path, events);
+                        break;
+                    case FILE_ACTION_MODIFIED:
+                        // A folder is reported modified when what is in it
+                        // changes, which its files' events tell already.
+                        if (!hidden && !folder) events.push_back({.kind = Kind::changed, .path = path});
+                        break;
+                    case FILE_ACTION_REMOVED:
+                        if (!hidden) events.push_back({.kind = Kind::removed, .path = path});
+                        break;
+                    case FILE_ACTION_RENAMED_OLD_NAME:
+                        // From a folder left alone, it arrives as new.
+                        if (hidden) {
+                            renamed_from.reset();
+                        } else {
+                            renamed_from = path;
+                        }
+                        break;
+                    case FILE_ACTION_RENAMED_NEW_NAME:
+                        if (hidden) {
+                            // Into a folder left alone: gone from the tree.
+                            if (renamed_from) {
+                                events.push_back({.kind = Kind::removed, .path = *renamed_from, .folder = folder});
+                            }
+                        } else if (renamed_from) {
+                            events.push_back(
+                                {.kind = Kind::renamed, .path = path, .from = *renamed_from, .folder = folder});
+                        } else {
                             events.push_back({.kind = Kind::added, .path = path, .folder = folder});
                             if (folder) report_contents(path, events);
-                            break;
-                        case FILE_ACTION_MODIFIED:
-                            // A folder is reported modified when what is in it
-                            // changes, which its files' events tell already.
-                            if (!folder) events.push_back({.kind = Kind::changed, .path = path});
-                            break;
-                        case FILE_ACTION_REMOVED:
-                            events.push_back({.kind = Kind::removed, .path = path});
-                            break;
-                        case FILE_ACTION_RENAMED_OLD_NAME:
-                            renamed_from = path;
-                            break;
-                        case FILE_ACTION_RENAMED_NEW_NAME:
-                            if (renamed_from) {
-                                events.push_back(
-                                    {.kind = Kind::renamed, .path = path, .from = *renamed_from, .folder = folder});
-                            } else {
-                                events.push_back({.kind = Kind::added, .path = path, .folder = folder});
-                            }
-                            renamed_from.reset();
-                            break;
-                        default:
-                            break;
-                    }
+                        }
+                        renamed_from.reset();
+                        break;
+                    default:
+                        break;
                 }
                 if (info->NextEntryOffset == 0) break;
                 at += info->NextEntryOffset;
