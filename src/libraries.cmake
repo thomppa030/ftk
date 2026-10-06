@@ -1,13 +1,14 @@
 # ftk's libraries, declared through ftk_library() (cmake/FtkLibrary.cmake).
 # Included from ftk's CMakeLists.txt. Paths are relative to src/.
 
-# ftk-base holds what any program needs before it has a window: the log,
-# results, delegates, handles and handle pools, range allocation, the thread pool, the
-# profiler, and the string and UTF-8 helpers.
+# ftk-base holds what any program needs before it has a window: the log and
+# the problem list, results, delegates, handles and handle pools, range
+# allocation, the thread pool, the profiler, and the string and UTF-8 helpers.
 ftk_library(base
     SOURCES
         ftk/base/compression.cpp
         ftk/base/log.cpp
+        ftk/base/problems.cpp
         ftk/base/range_allocator.cpp
         ftk/base/split_jobs.cpp
         ftk/base/thread_pool.cpp
@@ -21,6 +22,7 @@ ftk_library(base
         ftk/base/split_jobs.hpp
         ftk/base/small_vector.hpp
         ftk/base/log.hpp
+        ftk/base/problems.hpp
         ftk/base/profiler.hpp
         ftk/base/result.hpp
         ftk/base/string_utils.hpp
