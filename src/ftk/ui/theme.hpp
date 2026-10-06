@@ -36,6 +36,7 @@ enum class Token : uint8_t {
     grid_minor, grid_major, grid_zero,
     layout_margin, layout_padding, layout_box,
     sdf_inside_near, sdf_inside_far, sdf_outside_near, sdf_outside_far,
+    heat_none, heat_low, heat_mid, heat_high, heat_peak,
     code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
     code_punctuation, code_member, code_builtin,
     code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
@@ -185,6 +186,22 @@ inline ui::Color sdf_inside_near()  { return palette()[Token::sdf_inside_near]; 
 inline ui::Color sdf_inside_far()   { return palette()[Token::sdf_inside_far]; }
 inline ui::Color sdf_outside_near() { return palette()[Token::sdf_outside_near]; }
 inline ui::Color sdf_outside_far()  { return palette()[Token::sdf_outside_far]; }
+
+// A heat map of how far each texel moved (a texture's bake against its
+// image): unchanged black, then violet, red, amber and pale yellow at the
+// most. heat() reads the ramp between them.
+inline ui::Color heat_none() { return palette()[Token::heat_none]; }
+inline ui::Color heat_low()  { return palette()[Token::heat_low]; }
+inline ui::Color heat_mid()  { return palette()[Token::heat_mid]; }
+inline ui::Color heat_high() { return palette()[Token::heat_high]; }
+inline ui::Color heat_peak() { return palette()[Token::heat_peak]; }
+
+/// Where along the heat ramp each of its colours stands, heat_none to
+/// heat_peak; between two, the ramp blends them.
+inline constexpr std::array<float, 5> HEAT_STOPS{0.0f, 0.25f, 0.55f, 0.8f, 1.0f};
+
+/// The heat ramp at `t`, 0 none to 1 the most, clamped.
+[[nodiscard]] ui::Color heat(float t);
 
 // Code in a code editor (sheet 39, K1), coloured by what each word is, from
 // the hues. The accent is never a code colour. Plain names are text.

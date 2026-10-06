@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -68,6 +69,11 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::sdf_inside_far, "sdf_inside_far"},
     {Token::sdf_outside_near, "sdf_outside_near"},
     {Token::sdf_outside_far, "sdf_outside_far"},
+    {Token::heat_none, "heat_none"},
+    {Token::heat_low, "heat_low"},
+    {Token::heat_mid, "heat_mid"},
+    {Token::heat_high, "heat_high"},
+    {Token::heat_peak, "heat_peak"},
     {Token::code_keyword, "code_keyword"},
     {Token::code_type, "code_type"},
     {Token::code_function, "code_function"},
@@ -229,6 +235,21 @@ const Palette& palette() {
 
 void use_palette(Palette palette) {
     in_use() = std::move(palette);
+}
+
+ui::Color heat(float t) {
+    static constexpr std::array<Token, HEAT_STOPS.size()> COLOURS{Token::heat_none, Token::heat_low, Token::heat_mid,
+                                                                  Token::heat_high, Token::heat_peak};
+    t = std::clamp(t, 0.0f, 1.0f);
+    // Measured from the stop at or below, so a stop reads as its own colour.
+    for (std::size_t i = 1; i < HEAT_STOPS.size(); ++i) {
+        if (t >= HEAT_STOPS[i]) continue;
+        const float u = (t - HEAT_STOPS[i - 1]) / (HEAT_STOPS[i] - HEAT_STOPS[i - 1]);
+        const ui::Color from = palette()[COLOURS[i - 1]];
+        const ui::Color to = palette()[COLOURS[i]];
+        return from + (to - from) * u;
+    }
+    return palette()[Token::heat_peak];
 }
 
 } // namespace ftk::theme

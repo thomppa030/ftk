@@ -76,6 +76,12 @@
   "sdf_outside_near": "#D98A59",
   "sdf_outside_far": "#381F12",
 
+  "heat_none": "#111214",
+  "heat_low": "#3A2F5C",
+  "heat_mid": "#B4505A",
+  "heat_high": "#E8A35A",
+  "heat_peak": "#F6ECC8",
+
   "code_keyword": "#BD9CD2",
   "code_type": "#6FBDA5",
   "code_function": "#7DB1DD",

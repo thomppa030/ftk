@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <set>
 #include <string>
 #include <string_view>
@@ -147,4 +148,19 @@ TEST_CASE("A palette in use is what the theme's tokens read", "[ui][theme]") {
     CHECK(theme::surface_base() == Color{0.9f, 0.9f, 0.9f, 1.0f});
     CHECK(theme::hue(Hue::teal) == Color{0.1f, 0.2f, 0.3f, 1.0f});
     CHECK(theme::accent() == keep.kept[Token::accent]);
+}
+
+TEST_CASE("The heat ramp runs through its tokens and holds at its ends", "[ui][theme]") {
+    CHECK(theme::heat(0.0f) == theme::heat_none());
+    CHECK(theme::heat(0.25f) == theme::heat_low());
+    CHECK(theme::heat(0.55f) == theme::heat_mid());
+    CHECK(theme::heat(0.8f) == theme::heat_high());
+    CHECK(theme::heat(1.0f) == theme::heat_peak());
+    CHECK(theme::heat(-1.0f) == theme::heat_none());
+    CHECK(theme::heat(4.0f) == theme::heat_peak());
+
+    // Between two stops, between their colours.
+    const Color halfway = theme::heat(0.125f);
+    const Color expected = (theme::heat_none() + theme::heat_low()) * 0.5f;
+    for (int c = 0; c < 4; ++c) CHECK(std::abs(halfway[c] - expected[c]) < 1e-5f);
 }
