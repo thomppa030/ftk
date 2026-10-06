@@ -159,6 +159,11 @@ protected:
     [[nodiscard]] const std::string& saved_document() const { return saved_document_; }
     void set_saved_document(std::string text);
 
+    /// Puts `text` in as the document, as one undo step named `what`: a
+    /// file taken in after it changed on disk, so undoing it gives back
+    /// what was there as an unsaved change.
+    void take_document(const std::string& text, const std::string& what);
+
 private:
     // The document as last opened or saved, and the answer
     // has_unsaved_changes() gave, which it recomputes a few times a second

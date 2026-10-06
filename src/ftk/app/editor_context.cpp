@@ -84,6 +84,11 @@ void EditorContext::set_saved_document(std::string text) {
     unsaved_checked_at_ = -1.0;
 }
 
+void EditorContext::take_document(const std::string& text, const std::string& what) {
+    document_history_.change_to(text, what);
+    unsaved_checked_at_ = -1.0;
+}
+
 void EditorContext::document_opened() {
     saved_document_ = document();
     document_history_.opened();
