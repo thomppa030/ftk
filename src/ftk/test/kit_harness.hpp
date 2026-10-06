@@ -28,8 +28,10 @@ public:
     /// `draw` draws the frame's UI, inside the kit's plain window.
     void set_ui(std::function<void()> draw);
 
-    /// Remembers the kit's item just drawn under `name`.
+    /// Remembers the kit's item just drawn under `name`; a rect given is
+    /// remembered as it is.
     void mark(const std::string& name);
+    using UiHarness::mark;
 };
 
 } // namespace ftk::test

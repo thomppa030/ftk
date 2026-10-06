@@ -25,7 +25,8 @@ inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon
     Color icon_colour{};        ///< its hue
-    std::string name{};         ///< the file name, "crate_wood.png"
+    std::string name{};         ///< the file name, "crate_wood.png", or how many ("3 textures")
+    std::string name_tooltip{}; ///< what hovering the name says: which files, when it names several
     std::string folder{};       ///< where it lives, "Props / Crates"
     bool unsaved{false};
     std::string saves{};        ///< the files Save writes, for its tooltip

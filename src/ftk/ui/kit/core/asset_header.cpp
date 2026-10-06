@@ -68,6 +68,7 @@ AssetHeaderBar::AssetHeaderBar(const AssetHeaderSpec& spec) : spec_{spec} {
         align_text_to_frame();
         text(spec.name);
     }
+    if (!spec.name_tooltip.empty()) item_tooltip(spec.name_tooltip);
     if (!spec.folder.empty()) {
         same_line(theme::GAP_M + 2.0f);
         align_text_to_frame();

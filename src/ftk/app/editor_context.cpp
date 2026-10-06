@@ -100,6 +100,10 @@ std::string EditorContext::saved_files() const {
     return std::filesystem::path(asset_path()).filename().string();
 }
 
+std::string EditorContext::header_name() const {
+    return std::filesystem::path(asset_path()).filename().string();
+}
+
 void EditorContext::draw_header() {
     const std::filesystem::path path = asset_path();
     if (path.empty()) return;
@@ -113,7 +117,8 @@ void EditorContext::draw_header() {
     const ui::AssetHeaderSpec spec{
         .icon = kind.icon,
         .icon_colour = theme::hue(kind.hue),
-        .name = path.filename().string(),
+        .name = header_name(),
+        .name_tooltip = header_tooltip(),
         .folder = std::move(folder),
         .unsaved = has_unsaved_changes(),
         .saves = saved_files(),

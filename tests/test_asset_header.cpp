@@ -55,3 +55,24 @@ TEST_CASE("A failed save shows under the header, and Try again saves", "[ui][kit
     h.click_at({h.rect("callout_end").min.x + 40.0f, h.rect("callout_end").max.y - 12.0f});
     CHECK(last == ui::SaveAction::Save);
 }
+
+TEST_CASE("A header naming several says which they are when its name is hovered", "[ui][kit]") {
+    KitHarness h;
+    const ui::AssetHeaderSpec spec{.name = "3 textures",
+                                   .name_tooltip = "moss.fjtex\nbark.fjtex\nslate.fjtex",
+                                   .saves = "moss.fjtex, bark.fjtex and slate.fjtex"};
+    h.set_ui([&] {
+        if (auto header = ui::AssetHeaderBar(spec)) {
+            h.mark("save");
+            header.begin_actions();
+            (void)header.finish();
+        }
+    });
+    h.step(3);
+    CHECK_FALSE(h.tooltip().has_value());
+    // The name leads the strip, on Save's line.
+    const ftk::ui::core::Rect save = h.rect("save");
+    h.mark("name", {.min = {12.0f, save.min.y}, .max = {20.0f, save.max.y}});
+    h.hover("name");
+    CHECK(h.tooltip().has_value());
+}

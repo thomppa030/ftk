@@ -76,6 +76,14 @@ public:
 
     [[nodiscard]] virtual std::string asset_path() const { return {}; }
 
+    /// What the header calls what it edits: the asset's file name, or for
+    /// a context holding several, how many ("3 textures").
+    [[nodiscard]] virtual std::string header_name() const;
+
+    /// What hovering the header's name says: nothing, or for a context
+    /// holding several, which they are.
+    [[nodiscard]] virtual std::string header_tooltip() const { return {}; }
+
     // Saving. A context's document is what it saves, written as text: the
     // JSON its file holds, or for a binary file the parts the context edits.
     // Unsaved changes are the document differing from the text last opened
