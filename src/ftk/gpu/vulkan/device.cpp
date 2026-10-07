@@ -209,6 +209,7 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
     caps.mesh_shaders = vk.mesh_shader_supported();
     caps.mesh_max_output_vertices = vk.mesh_shader_max_output_vertices();
     caps.mesh_max_output_primitives = vk.mesh_shader_max_output_primitives();
+    caps.mesh_max_workgroups = vk.mesh_shader_max_workgroups();
     begin_label = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
         vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
     end_label = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(

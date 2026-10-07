@@ -36,6 +36,9 @@ struct Caps {
     /// The most vertices and primitives a mesh shader workgroup may output.
     uint32_t mesh_max_output_vertices{0};
     uint32_t mesh_max_output_primitives{0};
+    /// The most mesh workgroups one draw without a task stage may launch:
+    /// 65,535 on some GPUs, millions on others.
+    uint32_t mesh_max_workgroups{0};
     /// Bytes of push data a pipeline may take: at least 128 on every GPU,
     /// which is what every pipeline keeps to.
     uint32_t max_push_size{128};

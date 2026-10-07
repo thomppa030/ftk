@@ -263,6 +263,7 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     record.depth_format = desc.depth_format;
     record.samples = desc.samples;
     record.mesh = mesh;
+    record.task = !desc.task.empty();
     record.reads_vertices = !mesh && desc.vertex_layout.stride > 0;
 
     std::vector<VkPipelineShaderStageCreateInfo> stage_infos;

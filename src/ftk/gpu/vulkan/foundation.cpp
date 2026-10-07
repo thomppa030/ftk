@@ -239,10 +239,15 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
 
         mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
         mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
-        FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
+        // A draw launching its workgroups along X alone is held by both.
+        mesh_shader_max_workgroups_ =
+            std::min(mesh_props.maxMeshWorkGroupCount[0], mesh_props.maxMeshWorkGroupTotalCount);
+        FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims, "
+                     "{} workgroups a draw)",
                      mesh_props.maxMeshWorkGroupSize[0],
                      mesh_shader_max_output_vertices_,
-                     mesh_shader_max_output_primitives_);
+                     mesh_shader_max_output_primitives_,
+                     mesh_shader_max_workgroups_);
     } else {
         FTK_GFX_INFO("No mesh shaders on this GPU");
     }

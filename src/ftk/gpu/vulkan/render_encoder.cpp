@@ -361,6 +361,12 @@ bool mesh_ready(Device& device, CommandList::Impl& list, uint32_t max_groups) {
                        "draws mesh tasks without the most task groups a draw asks for");
         return false;
     }
+    if (!list.pipeline->task && max_groups > device.caps().mesh_max_workgroups) {
+        vulkan::refuse(device, list,
+                       "draws up to " + std::to_string(max_groups) + " mesh workgroups at once; this GPU launches " +
+                           std::to_string(device.caps().mesh_max_workgroups));
+        return false;
+    }
     return true;
 }
 

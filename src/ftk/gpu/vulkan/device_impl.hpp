@@ -98,11 +98,13 @@ struct Device::Impl {
         /// What names it in errors: "Compute pipeline 'name'".
         std::string name;
         /// A graphics pipeline's: what it draws to, whether it is a mesh
-        /// pipeline, and whether it reads a vertex buffer.
+        /// pipeline and has a task stage, and whether it reads a vertex
+        /// buffer.
         std::vector<Format> color_formats;
         Format depth_format{Format::undefined};
         Samples samples{Samples::x1};
         bool mesh{false};
+        bool task{false};
         bool reads_vertices{false};
     };
 

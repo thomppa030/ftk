@@ -234,7 +234,8 @@ public:
     /// apart. `max_groups` is the most workgroups any of them asks for, of
     /// its task stage or, without one, its mesh stage: a GPU that cannot read
     /// a mesh draw from a buffer launches that many and the stage stops past
-    /// its draw's own count.
+    /// its draw's own count. Without a task stage it may not be more than
+    /// `Caps::mesh_max_workgroups`, and the draw is refused when it is.
     void draw_mesh_tasks_indirect(BufferRange args, uint32_t draws, uint32_t stride,
                                   uint32_t max_groups);
 
