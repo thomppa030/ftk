@@ -14,13 +14,27 @@ union SDL_Event;
 
 namespace ftk {
 
+/// How a top-level window takes its size.
+enum class WindowSizing : uint8_t {
+    /// Opens at the size asked; the user and the window manager may change it.
+    resizable,
+    /// Opens at the size asked and keeps it; a tiling window manager floats
+    /// it rather than tile it. For a run measured at a known size, such as a
+    /// profiling capture.
+    fixed,
+    /// Covers the display it opens on, without borders; the size asked is
+    /// not used.
+    fullscreen,
+};
+
 /// An OS window on SDL. SDL has one event queue for the whole program, so
 /// whichever window's poll_events() runs hands every waiting event to the
 /// window it belongs to. What the GPU draws into it is the swapchain's.
 class Window {
 public:
-    /// `width` by `height` points.
-    Window(std::string_view title, uint32_t width, uint32_t height);
+    /// `width` by `height` points, sized as `sizing` says.
+    Window(std::string_view title, uint32_t width, uint32_t height,
+           WindowSizing sizing = WindowSizing::resizable);
     /// A window of `parent`'s: a panel torn out of it. The window manager
     /// keeps it with its parent, over it, and a tiling one floats it.
     Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent);
@@ -101,7 +115,8 @@ public:
 
 private:
     /// The two above, `parent` null for a window of the program's own.
-    Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent);
+    Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent,
+           WindowSizing sizing);
     /// Takes `made` as its SDL window: its size, and a place among the open
     /// windows.
     void adopt(SDL_Window* made);
