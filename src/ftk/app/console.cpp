@@ -12,6 +12,7 @@
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/problem_row.hpp"
 #include "ftk/ui/kit/region.hpp"
+#include "ftk/ui/kit/rows_in_view.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/selectable.hpp"
@@ -25,6 +26,8 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <span>
+#include <string_view>
 
 namespace ftk {
 
@@ -39,6 +42,12 @@ void attach_console() {
 ConsoleSink* console_sink() { return s_console.get(); }
 
 namespace {
+
+// What a log line shows of its message: drawn as a selectable's label, it
+// ends where an id would begin, at ##.
+std::string_view selectable_text(std::string_view message) {
+    return message.substr(0, message.find("##"));
+}
 
 // A line in its level's colour: trace and debug dimmed, warnings and
 // errors in the theme's own.
@@ -191,7 +200,26 @@ void ConsoleSink::draw_log() {
         visible.push_back(i);
     }
 
-    for (int vi = 0; vi < static_cast<int>(visible.size()); ++vi) {
+    // Where each line shown begins, from its message's size, measured once:
+    // only the lines in sight are drawn.
+    const float one_line = ui::text_size("").y;
+    const float spacing = ui::item_spacing().y;
+    std::vector<float> tops{0.0f};
+    tops.reserve(visible.size() + 1);
+    float widest = 0.0f;
+    for (const int idx : visible) {
+        LogEntry& entry = entries_[static_cast<std::size_t>(idx)];
+        if (entry.measured_line != one_line) {
+            entry.size = ui::text_size(selectable_text(entry.message));
+            entry.measured_line = one_line;
+        }
+        tops.push_back(tops.back() + entry.size.y + spacing);
+        widest = std::max(widest, entry.size.x);
+    }
+    ui::RowsInView rows{std::span<const float>(tops)};
+    for (const std::size_t row : rows.rows()) {
+        rows.at(row);
+        const int vi = static_cast<int>(row);
         int idx = visible[vi];
         const auto& entry = entries_[idx];
 
@@ -217,6 +245,14 @@ void ConsoleSink::draw_log() {
                 last_clicked_ = vi;
             }
         }
+    }
+    rows.finish();
+    // The widest message, in sight or not, is how far the log scrolls
+    // across: an empty item that wide where the last line ends.
+    if (!visible.empty()) {
+        const glm::vec2 end = ui::cursor();
+        ui::set_cursor({end.x, end.y - spacing});
+        ui::reserve({widest, 0.0f});
     }
 
     // Ctrl+C: copy selected entries to clipboard. While the search field is

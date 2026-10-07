@@ -8,6 +8,9 @@
 #include <spdlog/logger.h>
 
 #include <algorithm>
+#include <cmath>
+#include <iterator>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -71,7 +74,74 @@ std::vector<core::Rect> menu_entries(KitHarness& h) {
     return entries;
 }
 
+// A console whose log holds `count` lines, "line 0" on, every third of two
+// lines, the log shown.
+struct LogConsole {
+    KitHarness h{{900.0f, 500.0f}};
+    ftk::ProblemList list;
+    std::shared_ptr<ftk::ConsoleSink> console = std::make_shared<ftk::ConsoleSink>(list);
+
+    explicit LogConsole(int count) {
+        console->set_pattern("%v");
+        spdlog::logger logger("log test", console);
+        for (int i = 0; i < count; ++i) {
+            if (i % 3 == 2) {
+                logger.info("line {}\ncontinued", i);
+            } else {
+                logger.info("line {}", i);
+            }
+        }
+        h.set_ui([this] {
+            ui::next_window_place({0.0f, 0.0f}, {900.0f, 500.0f});
+            console->draw("Console");
+        });
+        h.step(3);
+    }
+
+    // The log lines the last frame drew, by number.
+    [[nodiscard]] std::map<int, core::Rect> drawn() {
+        std::map<int, core::Rect> lines;
+        for (const core::SemanticNode& node : h.ui().semantics()) {
+            if (node.role != core::Role::ListItem || !node.label.starts_with("line ")) continue;
+            lines[std::stoi(std::string(node.label.substr(5)))] = node.rect;
+        }
+        return lines;
+    }
+};
+
+// Each line drawn sits under the one before by the same gap, whether that
+// one is one line of text or two.
+void check_one_after_another(const std::map<int, core::Rect>& lines) {
+    REQUIRE(lines.size() > 2);
+    const float gap = std::next(lines.begin())->second.min.y - lines.begin()->second.max.y;
+    CHECK(gap >= 0.0f);
+    for (auto line = std::next(lines.begin()); line != lines.end(); ++line) {
+        const auto before = std::prev(line);
+        INFO("line " << line->first);
+        REQUIRE(line->first == before->first + 1);
+        CHECK(std::abs(line->second.min.y - before->second.max.y - gap) < 0.5f);
+    }
+}
+
 } // namespace
+
+TEST_CASE("The Console's log draws only the lines in sight, one under another", "[ui][kit][console]") {
+    LogConsole c(2000);
+    const auto lines = c.drawn();
+    CHECK(lines.contains(0));
+    CHECK(lines.size() < 60);
+    check_one_after_another(lines);
+}
+
+TEST_CASE("Scrolled to the end, the Console's log shows its last lines", "[ui][kit][console]") {
+    LogConsole c(2000);
+    c.h.wheel({450.0f, 300.0f}, -100000.0f);
+    c.h.step(60);
+    const auto lines = c.drawn();
+    CHECK(lines.contains(1999));
+    CHECK(lines.size() < 60);
+    check_one_after_another(lines);
+}
 
 TEST_CASE("The Console's problems list errors first, the newest first, with the count on the switch",
           "[ui][kit][console]") {

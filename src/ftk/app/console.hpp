@@ -2,6 +2,7 @@
 
 #include "ftk/base/problems.hpp"
 
+#include <glm/vec2.hpp>
 #include <spdlog/sinks/base_sink.h>
 
 #include <cstdint>
@@ -17,6 +18,11 @@ namespace ftk {
 struct LogEntry {
     std::string message;
     spdlog::level::level_enum level;
+    /// The message's size as the log last measured it, when a line of text
+    /// was `measured_line` tall (0 until it is first shown): kept, so the
+    /// log places a few thousand lines without measuring each one a frame.
+    glm::vec2 size{};
+    float measured_line{0.0f};
 };
 
 /// What the Console's Problems side does with a problem: the program's to
