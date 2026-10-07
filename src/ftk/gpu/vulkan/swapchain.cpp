@@ -1,5 +1,6 @@
 #include "ftk/gpu/swapchain.hpp"
 
+#include "ftk/base/log.hpp"
 #include "ftk/gpu/vulkan/device_impl.hpp"
 #include "ftk/gpu/vulkan/frame_impl.hpp"
 #include "ftk/gpu/vulkan/native.hpp"
@@ -155,6 +156,10 @@ Result<> Swapchain::Impl::build() {
     }
     format = vulkan::from_vk(surface_format->format);
     extent = info.imageExtent;
+    // The size the frame is really drawn at: the window's requested size is
+    // only a hint to the window manager, and a tiling one may give another.
+    FTK_GFX_INFO("Swapchain built: {}x{} ({})", extent.width, extent.height,
+                 info.presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox" : "fifo");
 
     vkGetSwapchainImagesKHR(dev, swapchain, &count, nullptr);
     std::vector<VkImage> images(count);
