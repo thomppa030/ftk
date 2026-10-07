@@ -458,6 +458,7 @@ ftk_library(ui-kit
         ftk/ui/kit/plate.hpp
         ftk/ui/kit/problem_row.hpp
         ftk/ui/kit/row.hpp
+        ftk/ui/kit/rows_in_view.hpp
         ftk/ui/kit/save_bar.hpp
         ftk/ui/kit/scope.hpp
         ftk/ui/kit/scrollbar.hpp
@@ -533,6 +534,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/rail.cpp
         ftk/ui/kit/core/region.cpp
         ftk/ui/kit/core/row.cpp
+        ftk/ui/kit/core/rows_in_view.cpp
         ftk/ui/kit/core/save_bar.cpp
         ftk/ui/kit/core/scope.cpp
         ftk/ui/kit/core/scrollbar.cpp

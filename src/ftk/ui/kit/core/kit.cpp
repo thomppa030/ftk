@@ -190,6 +190,10 @@ bool can_skip_row(Id row, core::Rect rect) {
     return out_of_clip(rect) && live_rows(kit()).last != row;
 }
 
+Id live_row() {
+    return live_rows(kit()).now;
+}
+
 void keep_item() {
     Kit& k = kit();
     k.items_before.push_back(k.item);

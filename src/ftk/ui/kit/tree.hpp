@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ftk/ui/kit/rows_in_view.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
 
@@ -121,35 +122,10 @@ private:
 
 TreeRowResult tree_row(const TreeRowSpec& spec);
 
-/// A long flat list of `count` rows in a tree, drawn a screenful at a time:
-/// which of them the region scrolling the tree shows, so only those are
-/// drawn, with room left for the rest, so the region scrolls as though
-/// every row were there. Made inside the Tree, before the rows, which are
-/// rows with no children, drawn in order from first() to before end().
-/// With `reveal`, the region scrolls to bring that row into view.
-///
-///     if (auto tree = ui::Tree("##hits")) {
-///         const ui::RowsInView rows(hits.size(), moved ? selected : std::nullopt);
-///         for (std::size_t i = rows.first(); i < rows.end(); ++i) ui::tree_row({...});
-///     }
-class RowsInView {
-public:
-    explicit RowsInView(std::size_t count, std::optional<std::size_t> reveal = std::nullopt);
-    ~RowsInView();
-    RowsInView(const RowsInView&) = delete;
-    RowsInView& operator=(const RowsInView&) = delete;
-    RowsInView(RowsInView&&) = delete;
-    RowsInView& operator=(RowsInView&&) = delete;
-
-    [[nodiscard]] std::size_t first() const { return first_; }
-    [[nodiscard]] std::size_t end() const { return end_; }
-
-private:
-    std::size_t count_{0};
-    std::size_t first_{0};
-    std::size_t end_{0};
-    float height_{0.0f};
-};
+/// Whether row `id` of the tree being drawn is open, as tree_row() would
+/// draw it: for an owner listing the rows its tree shows before drawing the
+/// ones in sight (RowsInView).
+[[nodiscard]] bool tree_row_open(const char* id, bool starts_open = true);
 
 /// Where, over the last row drawn, a dragged row would land: in front of it
 /// (its top quarter), after it (its bottom quarter), or into it.

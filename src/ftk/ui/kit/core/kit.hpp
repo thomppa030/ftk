@@ -466,6 +466,9 @@ bool scrollbar_at(Id id, core::Rect track, float& offset, float visible, float r
 /// pointer or the keyboard last frame, which goes on drawing what it holds
 /// wherever it is. A skipped row keeps its room and draws nothing.
 [[nodiscard]] bool can_skip_row(Id row, core::Rect rect);
+/// The row holding a pointer or the keyboard so far this frame, as
+/// row_drawn named it when it took them; zero for none yet.
+[[nodiscard]] Id live_row();
 /// How far below its line's top text placed next sits: as far as the text
 /// of the line it continues, or a field's padding when asked to sit level
 /// with one; on a line of its own, at the top.

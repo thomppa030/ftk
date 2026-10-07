@@ -218,38 +218,14 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     return result;
 }
 
-RowsInView::RowsInView(std::size_t count, std::optional<std::size_t> reveal) : count_(count), height_(row_height()) {
-    core::Context& context = ui();
-    // Where the first row goes, and the part of the region on screen.
-    const float top = cursor().y;
-    const core::Rect shown = context.area_rect();
-    if (reveal && *reveal < count) {
-        // Scrolled by as much as brings the row wholly into view, shown from
-        // the next frame on.
-        const float row_top = top + static_cast<float>(*reveal) * height_;
-        const float row_bottom = row_top + height_;
-        float by = 0.0f;
-        if (row_top < shown.min.y) {
-            by = row_top - shown.min.y;
-        } else if (row_bottom > shown.max.y) {
-            by = row_bottom - shown.max.y;
-        }
-        if (by != 0.0f) {
-            context.set_scroll(context.scroll() + glm::vec2{0.0f, by});
-            context.request_frame();
-        }
-    }
-    const auto row_at = [&](float y) {
-        const float rows = std::max((y - top) / height_, 0.0f);
-        return std::min(static_cast<std::size_t>(rows), count);
-    };
-    first_ = row_at(shown.min.y);
-    end_ = std::max(std::min(row_at(shown.max.y) + 1, count), first_);
-    if (first_ > 0) reserve({0.0f, static_cast<float>(first_) * height_});
+bool tree_row_open(const char* id, bool starts_open) {
+    IdScope scope(id);
+    return stored_bool(ui().id("##open"), starts_open);
 }
 
-RowsInView::~RowsInView() {
-    if (end_ < count_) reserve({0.0f, static_cast<float>(count_ - end_) * height_});
+RowsInView::RowsInView(std::size_t count, std::optional<std::size_t> revealed)
+    : RowsInView(count, RowPitch{.pitch = row_height()}) {
+    if (revealed) reveal(*revealed);
 }
 
 DropPlace drop_place() {

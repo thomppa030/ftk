@@ -208,6 +208,34 @@ TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     CHECK(default_open);
 }
 
+TEST_CASE("A row's fold reads before the row is drawn as the row draws it", "[ui][kit]") {
+    KitHarness h;
+    bool listed_open = false;
+    bool drawn_open = false;
+    bool listed_folded = true;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            listed_open = ui::tree_row_open("1");
+            listed_folded = ui::tree_row_open("2", false);
+            drawn_open = ui::tree_row({.id = "1", .name = "Docks", .has_children = true}).open;
+            h.mark("folder");
+            (void)ui::tree_row({.id = "2", .name = "Yard", .has_children = true, .starts_open = false});
+        }
+    });
+    h.step(2);
+    CHECK(listed_open);
+    CHECK(drawn_open);
+    CHECK_FALSE(listed_folded);
+
+    // Folded from its chevron, it reads folded from the next frame on.
+    const glm::vec2 min = h.rect("folder").min;
+    const glm::vec2 chevron{min.x + 4.0f + 7.0f, min.y + theme::TREE_ROW * 0.5f};
+    h.drag(chevron, chevron);
+    h.step();
+    CHECK_FALSE(listed_open);
+    CHECK_FALSE(drawn_open);
+}
+
 TEST_CASE("Rows in view draws only the rows its region shows, and the region scrolls over them all", "[ui][kit]") {
     KitHarness h;
     constexpr std::size_t COUNT = 1000;
