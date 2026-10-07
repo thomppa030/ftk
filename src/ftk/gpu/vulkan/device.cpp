@@ -216,9 +216,11 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
         vkGetDeviceProcAddr(device, "vkCmdEndDebugUtilsLabelEXT"));
 #ifdef FTK_ENABLE_TRACY
     // The profiler calibrates its GPU clock against the graphics queue with a
-    // command buffer of its own.
+    // command buffer of its own, which it begins more than once without
+    // resetting it, so the pool lets a begin reset it.
     VkCommandPoolCreateInfo profiler_pool_info{};
     profiler_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    profiler_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     profiler_pool_info.queueFamilyIndex = vk.queue_families().graphics.value();
     vk_check(vkCreateCommandPool(device, &profiler_pool_info, nullptr, &profiler_pool),
              "Failed to create the profiler's command pool");
