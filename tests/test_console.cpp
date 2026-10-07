@@ -172,6 +172,14 @@ TEST_CASE("Scrolled up, the Console's log stays where it is as lines arrive", "[
     CHECK(c.drawn().begin()->first == before.begin()->first);
 }
 
+TEST_CASE("A log line holding ## shows whole", "[ui][kit][console]") {
+    LogConsole c(0);
+    spdlog::logger logger("log test", c.console);
+    logger.info("Opened ##scene from the hierarchy");
+    c.h.step(2);
+    CHECK(c.h.find("Opened ##scene from the hierarchy", core::Role::ListItem) != nullptr);
+}
+
 TEST_CASE("The Console's problems list errors first, the newest first, with the count on the switch",
           "[ui][kit][console]") {
     Console c;

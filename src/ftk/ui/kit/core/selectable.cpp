@@ -11,7 +11,7 @@ using namespace corekit;
 bool selectable(const char* label, bool selected, const SelectableOptions& options) {
     core::Context& context = ui();
     core::Layout& layout = context.layout();
-    const std::string_view text = shown(label);
+    const std::string_view text = options.text.empty() ? shown(label) : options.text;
     const glm::vec2 measured = measure(text);
     // Across the room, or as wide as asked; a line of text tall, or as tall.
     // Unless asked for a width it is laid out as wide as its label, as

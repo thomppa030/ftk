@@ -27,7 +27,6 @@
 #include <filesystem>
 #include <format>
 #include <span>
-#include <string_view>
 
 namespace ftk {
 
@@ -42,12 +41,6 @@ void attach_console() {
 ConsoleSink* console_sink() { return s_console.get(); }
 
 namespace {
-
-// What a log line shows of its message: drawn as a selectable's label, it
-// ends where an id would begin, at ##.
-std::string_view selectable_text(std::string_view message) {
-    return message.substr(0, message.find("##"));
-}
 
 // A line in its level's colour: trace and debug dimmed, warnings and
 // errors in the theme's own.
@@ -210,7 +203,7 @@ void ConsoleSink::draw_log() {
     for (const int idx : visible) {
         LogEntry& entry = entries_[static_cast<std::size_t>(idx)];
         if (entry.measured_line != one_line) {
-            entry.size = ui::text_size(selectable_text(entry.message));
+            entry.size = ui::text_size(entry.message);
             entry.measured_line = one_line;
         }
         tops.push_back(tops.back() + entry.size.y + spacing);
@@ -226,7 +219,7 @@ void ConsoleSink::draw_log() {
         const ui::TextColour ink(level_colour(entry.level));
         const ui::IdScope id(idx);
         bool is_sel = selected_.contains(idx);
-        if (ui::selectable(entry.message.c_str(), is_sel, {.overlap = true})) {
+        if (ui::selectable("##line", is_sel, {.overlap = true, .text = entry.message})) {
             if (ui::modifiers().ctrl) {
                 // Toggle individual
                 if (is_sel) selected_.erase(idx);

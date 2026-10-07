@@ -347,6 +347,25 @@ TEST_CASE("A selectable is clicked and lit while selected", "[ui][kit]") {
     CHECK(picked == 2);
 }
 
+TEST_CASE("A selectable given its text shows all of it, ## and all, and is known by its label", "[ui][kit]") {
+    KitHarness h;
+    int picked = -1;
+    float cut = 0.0f;
+    h.set_ui([&] {
+        cut = ui::text_size("opened ").x;
+        for (int i = 0; i < 2; ++i) {
+            ui::IdScope id(i);
+            if (ui::selectable("##line", picked == i, {.text = "opened ##scene"})) picked = i;
+            h.mark("line" + std::to_string(i));
+        }
+    });
+    h.step(2);
+    REQUIRE(h.find("opened ##scene", ftk::ui::core::Role::ListItem) != nullptr);
+    CHECK(h.rect("line0").width() > cut);
+    h.click("line1");
+    CHECK(picked == 1);
+}
+
 TEST_CASE("A region is its own size and scrolls with the wheel unless told not to", "[ui][kit]") {
     KitHarness h;
     glm::vec2 inside{};

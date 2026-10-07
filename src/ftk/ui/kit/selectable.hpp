@@ -5,10 +5,13 @@
 // caller's to keep.
 //
 //     for (std::size_t i = 0; i < entries.size(); ++i) {
-//         if (ui::selectable(entries[i].c_str(), i == picked)) picked = i;
+//         const ui::IdScope id(static_cast<int>(i));
+//         if (ui::selectable("##entry", i == picked, {.text = entries[i]})) picked = i;
 //     }
 
 #include <glm/vec2.hpp>
+
+#include <string_view>
 
 namespace ftk::ui {
 
@@ -21,6 +24,10 @@ struct SelectableOptions {
     bool overlap{false};
     /// Its size: zero across fills the room, zero down is a line of text.
     glm::vec2 size{0.0f, 0.0f};
+    /// What it shows, as it is, when that is not the caller's own label: a
+    /// log message or a file name, which may hold ##. The label is then
+    /// only its id. Empty shows the label up to its ##.
+    std::string_view text{};
 };
 
 /// `label` (an id after ##) as a line that can be picked, lit while
