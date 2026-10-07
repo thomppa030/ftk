@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <numeric>
 #include <string>
 
 namespace ftk::ui {
@@ -60,10 +61,11 @@ void dashed_rect(core::Rect rect, Color colour) {
 
 } // namespace
 
-ListEditor::ListEditor(const char* id, std::size_t count, ListOptions options) : options_{options} {
+ListEditor::ListEditor(const char* id, std::size_t count, ListOptions options) : options_{options}, count_{count} {
     core::Context& context = ui();
     context.ids().push(id);
     list_id_ = context.id("##list");
+    closed_id_ = context.id("##closed");
     // A long list scrolls in a box of its own, so the rest of the panel
     // stays within reach.
     if (options_.max_cards > 0 && count > static_cast<std::size_t>(options_.max_cards)) {
@@ -74,11 +76,13 @@ ListEditor::ListEditor(const char* id, std::size_t count, ListOptions options) :
 }
 
 ListEditor::~ListEditor() {
-    end_scroll();
+    end_cards();
     ui().ids().pop();
 }
 
-void ListEditor::end_scroll() {
+// What follows the list goes under its last card, and outside its box.
+void ListEditor::end_cards() {
+    if (cards_) cards_->finish();
     if (!scrolling_) return;
     core::Context& context = ui();
     context.end_region();
@@ -86,10 +90,31 @@ void ListEditor::end_scroll() {
     scrolling_ = false;
 }
 
+const std::vector<std::size_t>& ListEditor::in_sight(int open) {
+    if (!options_.opens) {
+        every_.resize(count_);
+        std::iota(every_.begin(), every_.end(), std::size_t{0});
+        return every_;
+    }
+    // Until a closed card has been drawn, it is one line of fields.
+    closed_height_ = stored_float(closed_id_, frame_height() + PAD * 2.0f);
+    RowPitch pitch{.pitch = closed_height_ + theme::GAP_S};
+    if (open >= 0 && static_cast<std::size_t>(open) < count_) {
+        core::Context& context = ui();
+        context.ids().push(open);
+        pitch.odd = static_cast<std::size_t>(open);
+        pitch.odd_pitch = stored_float(context.id("##card"), closed_height_) + theme::GAP_S;
+        context.ids().pop();
+    }
+    cards_.emplace(count_, pitch);
+    return cards_->rows();
+}
+
 bool ListEditor::begin_item(std::size_t index, bool selected) {
     core::Context& context = ui();
     Kit& k = kit();
     const Style& style = k.style;
+    if (cards_) cards_->at(index);
     // A card's fields are not the row the list sits under.
     detail::set_edit_label(nullptr);
     index_ = index;
@@ -101,14 +126,17 @@ bool ListEditor::begin_item(std::size_t index, bool selected) {
     card_width_ = space_left().x;
 
     // The background goes behind the fields, whose height is only known
-    // once they are drawn: it is drawn at the height the card had last frame.
+    // once they are drawn: it is drawn at the height the card had last frame,
+    // a closed card counted as any closed card is.
     const float row_h = frame_height();
-    const float height = stored_float(card_id_, row_h + PAD * 2.0f);
+    const float unmeasured = cards_ ? closed_height_ : row_h + PAD * 2.0f;
+    const float height = cards_ && !selected ? closed_height_ : stored_float(card_id_, unmeasured);
     const glm::vec2 card_max{card_min_.x + card_width_, card_min_.y + height};
 
-    // A card out of sight is passed over at the height it had.
+    // A card out of sight is passed over at the height it had; the cards
+    // counted in sight are all drawn, the one held from out of sight too.
     core::DrawList& dl = context.draw_list();
-    if (card_max.y <= dl.clip_min().y || card_min_.y >= dl.clip_max().y) {
+    if (!cards_ && (card_max.y <= dl.clip_min().y || card_min_.y >= dl.clip_max().y)) {
         set_cursor({card_min_.x, card_max.y + theme::GAP_S - style.item_spacing.y});
         reserve({card_width_, 0.0f});
         context.ids().pop();
@@ -198,7 +226,7 @@ bool ListEditor::end_item() {
     const float row_h = frame_height();
     // At least one row tall, for the grip and the trash icon, padded both ends.
     const float height = std::max(held.y, row_h) + PAD * 2.0f;
-    store_float(card_id_, height);
+    store_float(cards_ && !selected_ ? closed_id_ : card_id_, height);
 
     // The trash icon, always there: removing is undoable.
     bool remove = false;
@@ -236,7 +264,7 @@ bool ListEditor::end_item() {
 }
 
 void ListEditor::empty(const char* text) {
-    end_scroll();
+    end_cards();
     const glm::vec2 min = cursor();
     const float width = space_left().x;
     FontScope small(Font::Current, theme::SMALL_TEXT);
@@ -271,7 +299,7 @@ void card_summary(const char* text) {
 }
 
 bool ListEditor::add_button(const char* label) {
-    end_scroll();
+    end_cards();
     const std::string text = std::string(icon::add) + "  " + label;
     return button(text.c_str(), ButtonKind::Ghost);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/edit.hpp"
+#include "ftk/ui/kit/rows_in_view.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
 
@@ -43,13 +44,25 @@ struct ListOptions {
 /// Draws the cards one at a time; list_editor() below is the usual way in.
 class ListEditor {
 public:
-    /// `count` is the number of items, to know whether they scroll.
+    /// `count` is the number of items: whether they scroll, and where the
+    /// last card ends.
     explicit ListEditor(const char* id, std::size_t count = 0, ListOptions options = {});
     ~ListEditor();
     ListEditor(const ListEditor&) = delete;
     ListEditor& operator=(const ListEditor&) = delete;
     ListEditor(ListEditor&&) = delete;
     ListEditor& operator=(ListEditor&&) = delete;
+
+    /// The indices of the cards to draw, in order, with card `open` open
+    /// (-1 for none), for the loop over the list's cards. In a list whose
+    /// cards open, each closed card is its one summary line, as tall as any
+    /// other, so where a card sits follows from its index: only the cards
+    /// in sight are given (and the one a pointer or the keyboard held on the
+    /// last frame), and those above and below them are passed over at once,
+    /// however many there are (RowsInView). A list whose cards don't open
+    /// gives every index. A list whose closed cards differ in height loops
+    /// over every index itself instead.
+    [[nodiscard]] const std::vector<std::size_t>& in_sight(int open = -1);
 
     /// Starts the card for item `index`; the item's fields follow, filling
     /// the card's width. A `selected` card is marked in the selection colour.
@@ -72,11 +85,19 @@ public:
     [[nodiscard]] std::optional<std::pair<std::size_t, std::size_t>> moved() const { return moved_; }
 
 private:
-    void end_scroll();
+    void end_cards();
 
     Id list_id_{0};
+    Id closed_id_{0};
     ListOptions options_;
+    std::size_t count_{0};
     bool scrolling_{false};
+    // Made by in_sight(): the cards are placed by count, every closed one
+    // as tall as the last drawn, the open one as tall as it was.
+    std::optional<RowsInView> cards_;
+    float closed_height_{0.0f};
+    // Every index, for a list whose cards don't open.
+    std::vector<std::size_t> every_;
     std::size_t index_{0};
     bool selected_{false};
     bool clicked_{false};
@@ -177,7 +198,7 @@ Edit selectable_list_editor(const char* id, std::vector<T>& items, int& selected
     {
         options.opens = true;
         ListEditor list(id, items.size(), options);
-        for (std::size_t i = 0; i < items.size(); ++i) {
+        for (const std::size_t i : list.in_sight(selected)) {
             const bool open = static_cast<int>(i) == selected;
             if (!list.begin_item(i, open)) continue;
             if (open) {

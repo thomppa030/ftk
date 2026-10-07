@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -190,6 +191,120 @@ TEST_CASE("Cards out of sight are not drawn", "[ui][kit]") {
     h.step();
     CHECK(drawn > 0);
     CHECK(drawn <= 10);
+}
+
+namespace {
+
+// A list of `cards` cards that open, in a box `box` cards tall (0 for none);
+// card `open_card` shows two lines of fields under its first. Its loop goes
+// through in_sight(), or with `walk` over every index, as a list whose
+// closed cards differ in height does: where the walked list puts its cards
+// is where the counted one must.
+struct OpenCards {
+    KitHarness h;
+    std::size_t count;
+    int open;
+    bool walked;
+    int max_cards;
+    // Each card drawn on the last frame, by its first line's top below the
+    // list's top.
+    std::map<std::size_t, float> drawn;
+    // How many cards the loop came to on the last frame.
+    std::size_t visited{0};
+    float top{0.0f};
+    // The Add button's top below the list's top.
+    float add{0.0f};
+
+    OpenCards(std::size_t cards, int open_card, bool walk, int box = 8)
+        : count{cards}, open{open_card}, walked{walk}, max_cards{box} {
+        h.set_ui([this] {
+            drawn.clear();
+            visited = 0;
+            top = ui::cursor().y;
+            ui::ListEditor list("##cards", count, {.reorder = false, .max_cards = max_cards, .opens = true});
+            const auto card = [&](std::size_t i) {
+                ++visited;
+                const bool is_open = open == static_cast<int>(i);
+                if (!list.begin_item(i, is_open)) return;
+                ui::text("Card");
+                drawn[i] = h.ui().layout().last_item().min.y - top;
+                if (is_open) {
+                    ui::text("Field");
+                    ui::text("Field");
+                }
+                (void)list.end_item();
+            };
+            if (walked) {
+                for (std::size_t i = 0; i < count; ++i) card(i);
+            } else {
+                for (const std::size_t i : list.in_sight(open)) card(i);
+            }
+            (void)list.add_button("Add");
+            add = h.ui().layout().last_item().min.y - top;
+        });
+        h.step(3);
+    }
+
+    // Turns the wheel over the list's first card and lets the scroll settle.
+    void scroll(float notches) {
+        h.wheel({h.size().x * 0.5f, top + 20.0f}, notches);
+        h.step(60);
+    }
+};
+
+// Where a list of 2000 cards, the fourth open, draws its cards: at the top,
+// scrolled well past the open card, and scrolled to the end.
+std::vector<std::map<std::size_t, float>> boxed_places(bool walked) {
+    OpenCards list(2000, 3, walked);
+    std::vector<std::map<std::size_t, float>> places{list.drawn};
+    list.scroll(-40.0f);
+    places.push_back(list.drawn);
+    list.scroll(-100000.0f);
+    places.push_back(list.drawn);
+    return places;
+}
+
+void check_same_places(const std::map<std::size_t, float>& walked, const std::map<std::size_t, float>& counted) {
+    REQUIRE(!counted.empty());
+    REQUIRE(counted.size() == walked.size());
+    for (const auto& [card, y] : walked) {
+        INFO("card " << card);
+        REQUIRE(counted.contains(card));
+        CHECK(std::abs(counted.at(card) - y) < 0.5f);
+    }
+}
+
+} // namespace
+
+TEST_CASE("A list whose cards open draws the cards in sight where visiting every card puts them", "[ui][kit]") {
+    const auto walked = boxed_places(true);
+    const auto counted = boxed_places(false);
+    // The open card is in sight at the top, and far above it once scrolled.
+    CHECK(counted[0].contains(3));
+    CHECK(counted[1].begin()->first > 10);
+    // Scrolled to the end, the last card shows: the box holds all of them.
+    CHECK(counted[2].contains(1999));
+    for (std::size_t i = 0; i < walked.size(); ++i) {
+        INFO("place " << i);
+        check_same_places(walked[i], counted[i]);
+    }
+}
+
+TEST_CASE("A list whose cards open comes to the cards in sight alone, however many it holds", "[ui][kit]") {
+    OpenCards list(100000, -1, false);
+    CHECK(list.visited <= 10);
+    list.scroll(-1000.0f);
+    REQUIRE(!list.drawn.empty());
+    CHECK(list.drawn.begin()->first > 100);
+    CHECK(list.visited <= 10);
+}
+
+TEST_CASE("A list whose cards open, without a box, ends where visiting every card ends it", "[ui][kit]") {
+    OpenCards walked(300, 2, true, 0);
+    OpenCards counted(300, 2, false, 0);
+    CHECK(counted.visited < 30);
+    CHECK(std::abs(counted.add - walked.add) < 0.5f);
+    check_same_places(walked.drawn, counted.drawn);
 }
 
 TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
