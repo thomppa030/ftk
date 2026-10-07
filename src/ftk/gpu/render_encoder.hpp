@@ -231,9 +231,10 @@ public:
     void draw_mesh_tasks(uint32_t x, uint32_t y, uint32_t z);
 
     /// `draws` mesh draws whose workgroup counts `args` holds, `stride` bytes
-    /// apart. `max_groups` is the most task groups any of them asks for: a
-    /// GPU that cannot read a mesh draw from a buffer launches that many and
-    /// the task shader stops past its draw's own count.
+    /// apart. `max_groups` is the most workgroups any of them asks for, of
+    /// its task stage or, without one, its mesh stage: a GPU that cannot read
+    /// a mesh draw from a buffer launches that many and the stage stops past
+    /// its draw's own count.
     void draw_mesh_tasks_indirect(BufferRange args, uint32_t draws, uint32_t stride,
                                   uint32_t max_groups);
 
