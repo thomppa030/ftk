@@ -19,7 +19,7 @@ bool button(UiHarness& h, const char* label) {
     core::Context& ui = h.ui();
     const Id id = ui.id(label);
     const core::Interaction in = ui.interact(id, ui.layout().next({100.0f, 24.0f}));
-    ui.semantics(id, Role::Button, label);
+    ui.semantics(id, Role::Button, core::shown_label(label));
     return in.clicked;
 }
 

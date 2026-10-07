@@ -401,10 +401,12 @@ public:
     void begin_drag_preview();
     void end_drag_preview() { end_panel(); }
 
-    /// Records what the widget `id` is: `role`, its shown `label` (a "##"
-    /// part is dropped) and its `value`, at `rect` or, without one, at the
-    /// last item placed. Whether it is disabled or has the keyboard is
-    /// filled in.
+    /// Records what the widget `id` is: `role`, its `label` as the widget
+    /// shows it (a widget whose label carries an id after "##" passes the
+    /// part shown, shown_label()) and its `value`, at `rect` or, without
+    /// one, at the last item placed. A name is kept whole: a node, a file or
+    /// a log line may hold "##". Whether it is disabled or has the keyboard
+    /// is filled in.
     void semantics(Id id, Role role, std::string_view label, std::string_view value = {}, SemanticState state = {});
     void semantics(Id id, Role role, std::string_view label, std::string_view value, SemanticState state, Rect rect);
     /// What the last frame recorded, in the order drawn. Good until the

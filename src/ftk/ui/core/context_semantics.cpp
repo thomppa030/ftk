@@ -16,7 +16,6 @@ void Context::semantics(Id id, Role role, std::string_view label, std::string_vi
                         Rect rect) {
     // Not shown this frame, so not there to find.
     if (hidden()) return;
-    label = shown_label(label);
     Recorded recorded;
     recorded.node = {.id = id, .role = role, .state = state, .rect = rect, .root = root_ != nullptr ? root_->id : 0};
     recorded.node.state.disabled = state.disabled || disabled();
