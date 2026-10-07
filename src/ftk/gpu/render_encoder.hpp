@@ -92,8 +92,12 @@ struct DepthAttachment {
 struct RenderTargets {
     std::vector<ColorAttachment> color{};
     std::optional<DepthAttachment> depth{};
-    /// The area drawn from the top left corner; 0 × 0 is the first
-    /// attachment's size.
+    /// The area drawn, cleared and stored: `width` × `height` pixels from
+    /// (`x`, `y`), the top left corner by default; a width or height of 0
+    /// reaches the first attachment's edge. Drawing starts with the viewport
+    /// and scissor on it, and nothing outside it is touched.
+    uint32_t x{0};
+    uint32_t y{0};
     uint32_t width{0};
     uint32_t height{0};
 };

@@ -44,12 +44,13 @@ VkExtent2D mip_size(const TextureInfo& info, uint32_t level) {
 }
 
 Result<Attachment> attachment(Device::Impl& device, const TextureView& view,
-                              const std::string& what, VkExtent2D area) {
+                              const std::string& what, VkRect2D area) {
     const Device::Impl::TextureRecord* record = device.textures.get(view.texture);
     if (record == nullptr) return make_error(what + " no longer exists");
     const ResolvedView resolved = resolve(view, record->info);
     const VkExtent2D size = mip_size(record->info, resolved.base_mip);
-    if (size.width < area.width || size.height < area.height) {
+    if (uint64_t{size.width} < uint64_t{static_cast<uint32_t>(area.offset.x)} + area.extent.width ||
+        uint64_t{size.height} < uint64_t{static_cast<uint32_t>(area.offset.y)} + area.extent.height) {
         return make_error(what + " is smaller than the area drawn");
     }
     const VkImageView native = device.image_view(view);
@@ -60,19 +61,22 @@ Result<Attachment> attachment(Device::Impl& device, const TextureView& view,
 // Whether `color` is unbound: drawn to, with what is drawn dropped.
 bool unbound(const ColorAttachment& color) { return !color.view.texture.valid(); }
 
-// The area drawn: as given, or the first bound attachment's size.
-Result<VkExtent2D> area_of(Device::Impl& device, const RenderTargets& targets) {
+// The area drawn: as given, reaching the first bound attachment's edge
+// where no size is.
+Result<VkRect2D> area_of(Device::Impl& device, const RenderTargets& targets) {
     const auto bound = std::ranges::find_if(targets.color, [](const ColorAttachment& color) { return !unbound(color); });
     if (bound == targets.color.end() && !targets.depth) return make_error("every target is unbound");
     const TextureView& first = bound != targets.color.end() ? bound->view : targets.depth->view;
     const Device::Impl::TextureRecord* record = device.textures.get(first.texture);
     if (record == nullptr) return make_error("the first target no longer exists");
     const VkExtent2D size = mip_size(record->info, resolve(first, record->info).base_mip);
-    return VkExtent2D{targets.width != 0 ? targets.width : size.width,
-                      targets.height != 0 ? targets.height : size.height};
+    if (targets.x >= size.width || targets.y >= size.height) return make_error("the area starts outside the targets");
+    return VkRect2D{{static_cast<int32_t>(targets.x), static_cast<int32_t>(targets.y)},
+                    {targets.width != 0 ? targets.width : size.width - targets.x,
+                     targets.height != 0 ? targets.height : size.height - targets.y}};
 }
 
-Result<> describe_colors(Device::Impl& device, const RenderTargets& targets, VkExtent2D area,
+Result<> describe_colors(Device::Impl& device, const RenderTargets& targets, VkRect2D area,
                          Rendering& out) {
     bool samples_known = false;
     for (size_t i = 0; i < targets.color.size(); ++i) {
@@ -124,7 +128,7 @@ Result<> describe_colors(Device::Impl& device, const RenderTargets& targets, VkE
     return {};
 }
 
-Result<> describe_depth(Device::Impl& device, const DepthAttachment& depth, VkExtent2D area,
+Result<> describe_depth(Device::Impl& device, const DepthAttachment& depth, VkRect2D area,
                         bool first, Rendering& out) {
     auto target = attachment(device, depth.view, "the depth target", area);
     if (!target) return std::unexpected(target.error());
@@ -178,7 +182,7 @@ Result<> describe(Device::Impl& device, const RenderTargets& targets, Rendering&
     }
 
     out.info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    out.info.renderArea = {{0, 0}, *area};
+    out.info.renderArea = *area;
     out.info.layerCount = 1;
     out.info.colorAttachmentCount = static_cast<uint32_t>(targets.color.size());
     out.info.pColorAttachments = out.colors.data();
@@ -225,9 +229,10 @@ RenderEncoder CommandList::render(const RenderTargets& targets) {
     }
     vkCmdBeginRendering(self.cb, &rendering.info);
 
-    const VkExtent2D area = rendering.info.renderArea.extent;
-    const VkViewport viewport{0.0f, 0.0f, static_cast<float>(area.width),
-                              static_cast<float>(area.height), 0.0f, 1.0f};
+    const VkRect2D area = rendering.info.renderArea;
+    const VkViewport viewport{static_cast<float>(area.offset.x), static_cast<float>(area.offset.y),
+                              static_cast<float>(area.extent.width), static_cast<float>(area.extent.height),
+                              0.0f, 1.0f};
     vkCmdSetViewport(self.cb, 0, 1, &viewport);
     vkCmdSetScissor(self.cb, 0, 1, &rendering.info.renderArea);
 
