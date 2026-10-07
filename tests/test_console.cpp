@@ -128,7 +128,8 @@ void check_one_after_another(const std::map<int, core::Rect>& lines) {
 TEST_CASE("The Console's log draws only the lines in sight, one under another", "[ui][kit][console]") {
     LogConsole c(2000);
     const auto lines = c.drawn();
-    CHECK(lines.contains(0));
+    // Following the newest line, as it does until scrolled away.
+    CHECK(lines.contains(1999));
     CHECK(lines.size() < 60);
     check_one_after_another(lines);
 }
@@ -141,6 +142,34 @@ TEST_CASE("Scrolled to the end, the Console's log shows its last lines", "[ui][k
     CHECK(lines.contains(1999));
     CHECK(lines.size() < 60);
     check_one_after_another(lines);
+}
+
+TEST_CASE("Following, the Console's log keeps its newest line in sight as lines arrive", "[ui][kit][console]") {
+    LogConsole c(2000);
+    CHECK(c.drawn().contains(1999));
+    spdlog::logger logger("log test", c.console);
+    for (int i = 2000; i < 2100; ++i) {
+        logger.info("line {}", i);
+        // A scroll asked for shows from the frame after.
+        c.h.step(2);
+        INFO("line " << i);
+        CHECK(c.drawn().contains(i));
+    }
+}
+
+TEST_CASE("Scrolled up, the Console's log stays where it is as lines arrive", "[ui][kit][console]") {
+    LogConsole c(2000);
+    c.h.wheel({450.0f, 300.0f}, 5.0f);
+    c.h.step(60);
+    const auto before = c.drawn();
+    REQUIRE(!before.empty());
+    CHECK_FALSE(before.contains(1999));
+    spdlog::logger logger("log test", c.console);
+    for (int i = 2000; i < 2010; ++i) {
+        logger.info("line {}", i);
+        c.h.step();
+    }
+    CHECK(c.drawn().begin()->first == before.begin()->first);
 }
 
 TEST_CASE("The Console's problems list errors first, the newest first, with the count on the switch",

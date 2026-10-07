@@ -559,8 +559,14 @@ glm::vec2 Context::end_area() {
     Scroll& scroll = scrolls_[area.id];
     scroll.content = content;
     scroll.visible = area.visible.size();
-    // What no longer reaches as far scrolls back, seen next frame.
+    // What no longer reaches as far scrolls back, seen next frame; a scroll
+    // asked for this frame goes as far as this frame's content reaches.
     const glm::vec2 room = glm::max(content - scroll.visible, glm::vec2{0.0f});
+    if (scroll.asked) {
+        scroll.offset = glm::clamp(*scroll.asked, glm::vec2{0.0f}, room);
+        scroll.target = scroll.offset;
+        scroll.asked.reset();
+    }
     const glm::vec2 kept = glm::clamp(scroll.offset, glm::vec2{0.0f}, room);
     if (kept != scroll.offset) request_frame();
     scroll.offset = kept;
@@ -593,9 +599,11 @@ void Context::set_scroll(glm::vec2 offset) {
     for (auto area = areas_.rbegin(); area != areas_.rend(); ++area) {
         if (!area->scrolls) continue;
         Scroll& scroll = scrolls_.at(area->id);
-        // Items already placed this frame stay; the next frame shows it.
+        // Items already placed this frame stay; the next frame shows it. Until
+        // the area ends, what it holds is known as last frame's.
         scroll.offset = glm::clamp(offset, glm::vec2{0.0f}, glm::max(scroll.content - scroll.visible, glm::vec2{0.0f}));
         scroll.target = scroll.offset;
+        scroll.asked = offset;
         request_frame();
         return;
     }

@@ -280,6 +280,30 @@ TEST_CASE("A region scrolls what it holds, as far as that reaches", "[ui-core][l
     CHECK(first.min.y == -16.0f);
 }
 
+TEST_CASE("A scroll asked for goes as far as what the area holds that frame", "[ui-core][layout]") {
+    core::Context ui;
+    std::size_t rows = 10;
+    float scrolled = 0.0f;
+    const auto draw = [&] {
+        ui.begin_region("list", {200.0f, 100.0f});
+        scrolled = ui.scroll().y;
+        for (std::size_t i = 0; i < rows; ++i) (void)item(ui, {180.0f, 20.0f});
+        // To the end, as a log following its newest line asks.
+        ui.set_scroll({0.0f, 100000.0f});
+        ui.end_region();
+    };
+    (void)frame(ui, draw);
+    (void)frame(ui, draw);
+    // Ten rows of 20 with 4 between: 236 tall, 136 more than shows.
+    CHECK(scrolled == 136.0f);
+
+    // Ten rows more, added the frame the scroll is asked for: 476 tall.
+    rows = 20;
+    (void)frame(ui, draw);
+    (void)frame(ui, draw);
+    CHECK(scrolled == 376.0f);
+}
+
 TEST_CASE("A region's padding keeps what it holds in from its edges", "[ui-core][layout]") {
     core::Context ui;
     Rect first;

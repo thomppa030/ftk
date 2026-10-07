@@ -436,6 +436,9 @@ public:
     /// and how far it can be, by what it held last frame.
     [[nodiscard]] glm::vec2 scroll() const;
     [[nodiscard]] glm::vec2 scroll_max() const;
+    /// Scrolls it to `scroll`, shown from the next frame: as far as what it
+    /// holds this frame reaches, so a scroll to the end of what was just
+    /// added gets there.
     void set_scroll(glm::vec2 scroll);
 
     /// A measured container (ftk/ui/core/layout.hpp) named `name`, until
@@ -699,6 +702,9 @@ private:
     struct Scroll {
         glm::vec2 offset{0.0f};
         glm::vec2 target{0.0f};
+        // Where set_scroll() asked for this frame, reached as far as what
+        // the area holds this frame when it ends.
+        std::optional<glm::vec2> asked;
         glm::vec2 content{0.0f};
         glm::vec2 visible{0.0f};
         uint64_t frame{0};
