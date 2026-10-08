@@ -6,6 +6,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <spdlog/logger.h>
+#include <spdlog/pattern_formatter.h>
 
 #include <algorithm>
 #include <cmath>
@@ -178,6 +179,17 @@ TEST_CASE("A log line holding ## shows whole", "[ui][kit][console]") {
     logger.info("Opened ##scene from the hierarchy");
     c.h.step(2);
     CHECK(c.h.find("Opened ##scene from the hierarchy", core::Role::ListItem) != nullptr);
+}
+
+TEST_CASE("A log line ends where its message does, however the platform ends a line", "[ui][kit][console]") {
+    LogConsole c(0);
+    // The line ending spdlog writes on Windows.
+    c.console->set_formatter(
+        std::make_unique<spdlog::pattern_formatter>("%v", spdlog::pattern_time_type::local, "\r\n"));
+    spdlog::logger logger("log test", c.console);
+    logger.info("Saved scenes/level.fjell");
+    c.h.step(2);
+    CHECK(c.h.find("Saved scenes/level.fjell", core::Role::ListItem) != nullptr);
 }
 
 TEST_CASE("The Console's problems list errors first, the newest first, with the count on the switch",
