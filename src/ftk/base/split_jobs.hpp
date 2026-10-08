@@ -60,6 +60,14 @@ public:
     /// Returns how many ran. `now` reads the time the budget is measured in.
     std::size_t run(const FrameBudget& budget, const std::function<Clock::time_point()>& now = Clock::now);
 
+    /// On the owning thread, for work that is waited on rather than spread
+    /// over frames: runs every step as its worker half finishes, whatever the
+    /// budget, blocking on the workers while none is ready, until `done()`
+    /// holds. `done()` is asked before each round and may queue more. Returns
+    /// false, with `done()` still false, once nothing is left queued that
+    /// could make it true.
+    [[nodiscard]] bool run_until(const std::function<bool()>& done);
+
     /// Blocks until every worker half submitted so far is done; their steps
     /// wait for `run()`. For a teardown that must not leave a worker reading
     /// what is about to go.

@@ -132,3 +132,48 @@ TEST_CASE("discarding waits for the worker halves and drops their steps unrun", 
     CHECK(jobs.pending() == 0);
     CHECK(jobs.run(UNLIMITED) == 0);
 }
+
+TEST_CASE("a waited run runs steps, and the jobs they submit, until it is done", "[base][split_jobs]") {
+    ftk::ThreadPool pool(2);
+    SplitJobs jobs(pool);
+    bool second_ran = false;
+    jobs.submit([&] {
+        std::this_thread::sleep_for(10ms);
+        return OwnerStep{[&] {
+                             // Found once the first is in, as a material finds its textures.
+                             jobs.submit([&] { return OwnerStep{[&] { second_ran = true; }, 1000}; });
+                         },
+                         1000};
+    });
+    CHECK(jobs.run_until([&] { return second_ran; }));
+    CHECK(jobs.pending() == 0);
+}
+
+TEST_CASE("a waited run asks again after each round, and stops once it is done", "[base][split_jobs]") {
+    ftk::ThreadPool pool(1);
+    SplitJobs jobs(pool);
+    int ran = 0;
+    for (int i = 0; i < 3; ++i) jobs.post(OwnerStep{[&ran] { ++ran; }, 0});
+    int asked = 0;
+    CHECK(jobs.run_until([&] {
+        ++asked;
+        return ran > 0;
+    }));
+    // One round runs everything ready, whatever the budget.
+    CHECK(ran == 3);
+    CHECK(asked == 2);
+}
+
+TEST_CASE("a waited run with nothing left that could finish it says so rather than waiting for ever",
+          "[base][split_jobs]") {
+    ftk::ThreadPool pool(1);
+    SplitJobs jobs(pool);
+    CHECK_FALSE(jobs.run_until([] { return false; }));
+
+    int ran = 0;
+    jobs.submit([&ran] { return OwnerStep{[&ran] { ++ran; }, 0}; });
+    jobs.submit([]() -> OwnerStep { throw std::runtime_error("the file is gone"); });
+    CHECK_FALSE(jobs.run_until([] { return false; }));
+    CHECK(ran == 1);
+    CHECK(jobs.pending() == 0);
+}
