@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -371,6 +373,23 @@ TEST_CASE("Sequential disconnects outside broadcast", "[delegate][edge]") {
 
     d.broadcast();
     REQUIRE(count == 0);
+}
+
+TEST_CASE("Disconnecting the last listener outside a broadcast lets it go once", "[delegate][edge]") {
+    // Listeners too large to be held inside their std::move_only_function,
+    // so one let go twice frees its storage twice.
+    Delegate<void()> d;
+    const auto token = std::make_shared<int>(0);
+    const std::array<char, 128> padding{};
+    int calls = 0;
+    auto c1 = d.bind([&calls, token, padding] { calls += 1 + padding[0]; });
+    auto c2 = d.bind([token, padding] { (void)padding; });
+    REQUIRE(token.use_count() == 3);
+
+    c2.disconnect();
+    REQUIRE(token.use_count() == 2);
+    d.broadcast();
+    REQUIRE(calls == 1);
 }
 
 TEST_CASE("size() counts nulled listeners during broadcast", "[delegate][edge]") {
