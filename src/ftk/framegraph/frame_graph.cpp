@@ -1059,6 +1059,7 @@ bool FrameGraph::execute(gpu::CommandList* graphics_pre,
         gpu::CommandList* cb = cb_for(pass, i);
 
         if (pass.parallel_group == 0 || !can_parallelize) {
+            if (cb != nullptr) cb->mark(pass.name);
             {
                 FTK_PROFILE_SCOPE_N("fg_emit_barriers");
                 emit_barriers_for_pass(cb, pass);
@@ -1096,6 +1097,7 @@ bool FrameGraph::execute(gpu::CommandList* graphics_pre,
             [&](uint32_t /*chunk*/, uint32_t first, uint32_t last) {
                 for (uint32_t p = first; p < last; ++p) {
                     gpu::CommandList& list = frame->parallel_commands(gpu::Queue::graphics);
+                    list.mark(passes_[group_begin + p].name);
                     passes_[group_begin + p].execute(&list);
                     recorded[p] = &list;
                 }

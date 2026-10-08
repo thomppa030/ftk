@@ -304,6 +304,16 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
         FTK_GFX_INFO("VK_EXT_device_fault not available");
     }
 
+    // VK_NV_device_diagnostic_checkpoints: lists leave named checkpoints,
+    // and after a loss each queue says which it reached. Optional.
+    checkpoints_supported_ = std::ranges::any_of(available_exts, [](const VkExtensionProperties& ext) {
+        return std::strcmp(ext.extensionName, VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME) == 0;
+    });
+    if (checkpoints_supported_) {
+        device_extensions_.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+        FTK_GFX_INFO("Diagnostic checkpoints enabled (device-loss diagnostics)");
+    }
+
     // VK_EXT_dynamic_rendering_unused_attachments: a pipeline that names a
     // format for a colour target may draw while that target is unbound, its
     // writes dropped. Optional; without it such a pipeline names no format.
@@ -561,6 +571,11 @@ void Foundation::create_logical_device() {
         FTK_GFX_INFO("Sparse binding not supported — growable buffers fall back to copy-grow");
     }
 
+    if (checkpoints_supported_) {
+        pfn_set_checkpoint_ = reinterpret_cast<PFN_vkCmdSetCheckpointNV>(
+            vkGetDeviceProcAddr(device_, "vkCmdSetCheckpointNV"));
+    }
+
     // Load mesh shader extension function pointers
     if (mesh_shader_supported_) {
         pfn_draw_mesh_tasks_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
@@ -748,8 +763,70 @@ void Foundation::check(VkResult result, const std::string& msg) const {
     vk_check(result, msg);
 }
 
+void Foundation::checkpoint(VkCommandBuffer cb, std::string_view name) {
+    if (pfn_set_checkpoint_ == nullptr) return;
+    const char* marker = nullptr;
+    {
+        std::lock_guard lock(checkpoint_names_mutex_);
+        auto found = checkpoint_names_.find(name);
+        if (found == checkpoint_names_.end()) found = checkpoint_names_.emplace(name).first;
+        marker = found->c_str();
+    }
+    pfn_set_checkpoint_(cb, marker);
+}
+
 void Foundation::dump_device_fault(const char* context) const {
     if (lost_.exchange(true)) return;
+    report_fault_info(context);
+    report_checkpoints();
+}
+
+void Foundation::report_checkpoints() const {
+    if (!checkpoints_supported_) return;
+    auto pfn = reinterpret_cast<PFN_vkGetQueueCheckpointDataNV>(
+        vkGetDeviceProcAddr(device_, "vkGetQueueCheckpointDataNV"));
+    if (pfn == nullptr) return;
+
+    // A checkpoint starts the span of work it names. Top of pipe passing one
+    // means its work had begun; bottom of pipe passing one means everything
+    // before it had finished. What hung lies between the two.
+    const std::array<std::pair<const char*, VkQueue>, 3> queues{{
+        {"graphics", graphics_queue_},
+        {"async compute", async_compute_queue_},
+        {"transfer", transfer_queue_},
+    }};
+    for (const auto& [queue_name, queue] : queues) {
+        if (queue == VK_NULL_HANDLE) continue;
+        uint32_t count = 0;
+        pfn(queue, &count, nullptr);
+        if (count == 0) {
+            FTK_GFX_CRITICAL("  {} queue: no checkpoint reached", queue_name);
+            continue;
+        }
+        std::vector<VkCheckpointDataNV> reached(count);
+        for (auto& data : reached) data.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+        pfn(queue, &count, reached.data());
+        for (uint32_t i = 0; i < count; ++i) {
+            const char* name = reached[i].pCheckpointMarker != nullptr
+                                   ? static_cast<const char*>(reached[i].pCheckpointMarker)
+                                   : "(none)";
+            switch (reached[i].stage) {
+                case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:
+                    FTK_GFX_CRITICAL("  {} queue: last begun '{}'", queue_name, name);
+                    break;
+                case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT:
+                    FTK_GFX_CRITICAL("  {} queue: everything before '{}' finished", queue_name, name);
+                    break;
+                default:
+                    FTK_GFX_CRITICAL("  {} queue: stage 0x{:x} passed '{}'", queue_name,
+                                     static_cast<uint32_t>(reached[i].stage), name);
+                    break;
+            }
+        }
+    }
+}
+
+void Foundation::report_fault_info(const char* context) const {
     if (!device_fault_supported_) {
         FTK_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
                            "cannot query faulting op", context);

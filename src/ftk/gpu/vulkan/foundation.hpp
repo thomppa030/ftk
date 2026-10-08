@@ -8,10 +8,14 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ftk {
@@ -153,7 +157,8 @@ public:
 
     // Device-loss diagnostics. Call after a VK_ERROR_DEVICE_LOST; if
     // VK_EXT_device_fault is supported, queries and logs the faulting
-    // address ranges + vendor info to pin the GPU op that lost the device.
+    // address ranges + vendor info to pin the GPU op that lost the device,
+    // then the checkpoints each queue reached (checkpoint()).
     // Logged for the first call that sees the loss, `context` naming it;
     // later calls add nothing. Any thread may call it.
     void dump_device_fault(const char* context) const;
@@ -164,6 +169,12 @@ public:
     /// Whether a call has seen the device lost. Nothing sent to it runs or
     /// finishes again.
     [[nodiscard]] bool lost() const { return lost_.load(); }
+    /// Leaves a checkpoint named `name` in `cb` where the driver keeps them
+    /// (VK_NV_device_diagnostic_checkpoints), nothing elsewhere. After a loss
+    /// dump_device_fault() names, for each queue, the last checkpoint its
+    /// work began past and the last before which all of it had finished.
+    /// Any thread may call it.
+    void checkpoint(VkCommandBuffer cb, std::string_view name);
 
     /// What every buffer and image the device makes is allocated from.
     [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
@@ -177,6 +188,11 @@ private:
     void pick_physical_device(VkSurfaceKHR shown);
     void create_logical_device();
     void create_allocator();
+
+    /// dump_device_fault()'s two halves: the fault the driver describes,
+    /// then the checkpoints each queue reached.
+    void report_fault_info(const char* context) const;
+    void report_checkpoints() const;
 
     [[nodiscard]] bool check_validation_layer_support() const;
     [[nodiscard]] std::vector<const char*> get_required_extensions() const;
@@ -216,6 +232,13 @@ private:
     bool device_fault_supported_{false};
     bool block_compression_supported_{false};
     mutable std::atomic<bool> lost_{false};
+
+    bool checkpoints_supported_{false};
+    PFN_vkCmdSetCheckpointNV pfn_set_checkpoint_{nullptr};
+    /// Every name a checkpoint has carried. A checkpoint holds a pointer to
+    /// its name, read after a loss, so a name never moves or goes.
+    std::set<std::string, std::less<>> checkpoint_names_;
+    std::mutex checkpoint_names_mutex_;
 
     bool ray_tracing_supported_{false};
     bool unbound_targets_supported_{false};
