@@ -5,6 +5,7 @@
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ftk::ui {
@@ -30,6 +31,23 @@ Edit text_field(const char* id, std::string& value) {
     // edit is committed on: while it is typed in, the field holds its own.
     const std::string original = value;
     const TextInput in = field(id, value, {});
+    Edit edit;
+    edit.changed = in.changed;
+    edit.committed = in.deactivated && in.edited && value != original;
+    if (!edit.committed) value = original;
+    detail::track_field(kit().item.id, "\"" + original + "\"", "\"" + value + "\"", in.activated, edit);
+    return edit;
+}
+
+Edit text_area(const char* id, std::string& value, TextAreaOptions options) {
+    core::Context& context = ui();
+    const std::string original = value;
+    const float lines = static_cast<float>(std::max(options.lines, 1));
+    const float height = (lines * context.text().line_height(text_style())) + (2.0f * kit().style.frame_padding.y);
+    const core::Rect rect = context.layout().next({item_width(), height});
+    const Id field_id = context.id(id);
+    const TextInput in = text_area_input(field_id, rect, value, {.hint = options.hint});
+    context.semantics(field_id, core::Role::TextField, shown(id), value);
     Edit edit;
     edit.changed = in.changed;
     edit.committed = in.deactivated && in.edited && value != original;

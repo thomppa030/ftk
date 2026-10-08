@@ -1,8 +1,8 @@
 #pragma once
 
-// The kit's one-line text editing on the UI core, under every field that
-// takes text: a text field and entry, a number being typed, a hex code, a
-// rename. It edits as ImGui's InputText does (decision 15 of the UI core
+// The kit's text editing on the UI core, under every field that takes
+// text: a text field and entry, a number being typed, a hex code, a rename,
+// and a text area of several lines. It edits as ImGui's InputText does (decision 15 of the UI core
 // plan): the keyboard goes to it when it is pressed or given it, and while
 // it has it, typing, the caret and selection by keys and the mouse, the
 // clipboard, undo, the input method's composition, Enter and Escape.
@@ -64,5 +64,12 @@ struct TextInput {
 /// has the keyboard and puts back as it was on Escape. It is the item just
 /// drawn, an item the keyboard edits.
 TextInput text_input(Id id, core::Rect rect, std::string& value, const TextInputOptions& options = {});
+
+/// The same box for text of several lines, wrapped at its width and
+/// scrolled to keep the caret in sight: Up and Down go from line to line,
+/// Home and End to a line's ends (with Ctrl, the text's), Enter starts a new
+/// line and Ctrl Enter is the Enter that finishes. `lead`, `trail` and
+/// `enter_keeps` are a one-line box's.
+TextInput text_area_input(Id id, core::Rect rect, std::string& value, const TextInputOptions& options = {});
 
 } // namespace ftk::ui::corekit

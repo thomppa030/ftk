@@ -37,7 +37,8 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     if (options.overlap) kit().next.allow_overlap = true;
     const Id id = context.id(label);
     const core::Interaction in = place(id, bb, {});
-    context.semantics(id, core::Role::ListItem, text, {}, {.selected = selected}, rect);
+    context.semantics(id, core::Role::ListItem, options.name.empty() ? text : options.name, {},
+                      {.selected = selected}, rect);
 
     if (in.held || in.hovered || selected) {
         const Color fill = in.held ? theme::accent_dim() : (in.hovered ? theme::surface_hover() : theme::surface_raised());

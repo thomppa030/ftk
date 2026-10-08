@@ -101,7 +101,11 @@ public:
                 auto& v = s->listeners;
                 for (auto it = v.begin(); it != v.end(); ++it) {
                     if (it->id == id) {
-                        *it = std::move(v.back());
+                        // The last listener takes its place, unless it is the
+                        // last: moved onto itself, a move_only_function can
+                        // free its target (GCC 13's does) and pop_back would
+                        // free it again.
+                        if (it + 1 != v.end()) *it = std::move(v.back());
                         v.pop_back();
                         return;
                     }

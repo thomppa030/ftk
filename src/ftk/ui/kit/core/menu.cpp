@@ -69,7 +69,7 @@ bool menu_item(const MenuItem& item) {
     {
         IdScope scope(item.label);
         Disabled off(!item.enabled);
-        chosen = selectable("##entry", false, {.size = {std::max(space_left().x, natural), height}});
+        chosen = selectable("##entry", false, {.size = {std::max(space_left().x, natural), height}, .name = item.label});
     }
     if (!item.enabled && item.disabled_reason != nullptr) item_tooltip(item.disabled_reason);
     if (item_hovered()) close_submenu();

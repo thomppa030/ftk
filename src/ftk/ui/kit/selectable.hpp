@@ -28,6 +28,10 @@ struct SelectableOptions {
     /// log message or a file name, which may hold ##. The label is then
     /// only its id. Empty shows the label up to its ##.
     std::string_view text{};
+    /// What it is called to what reads the screen, and to tests, when it
+    /// draws nothing of its own to go by: a menu's entry, which draws its
+    /// label itself. Empty: what it shows.
+    std::string_view name{};
 };
 
 /// `label` (an id after ##) as a line that can be picked, lit while

@@ -13,11 +13,31 @@
 #endif
 #include <Windows.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ftk::platform {
+
+namespace {
+
+constexpr DWORD WATCHED_CHANGES =
+    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE;
+
+// One notification as either kind of read lays it out.
+struct Notice {
+    DWORD action{0};
+    std::filesystem::path relative;
+    // The file's id on its volume; 0 where the read doesn't tell it.
+    int64_t file_id{0};
+    DWORD next{0};
+};
+
+} // namespace
 
 struct TreeWatcher::Impl {
     std::filesystem::path root;
@@ -27,6 +47,11 @@ struct TreeWatcher::Impl {
     // DWORD-aligned, as the notifications laid in it must be.
     std::vector<DWORD> buffer = std::vector<DWORD>(16384);
     bool pending{false};
+    // Whether the reads carry each file's id (ReadDirectoryChangesExW's
+    // extended notifications, Windows 10 1709 on), which make a file moved
+    // between folders, told as removed from one and added to the other, one
+    // rename. A volume that doesn't give them is read the plain way.
+    bool extended{true};
     // A rename's old name, waiting for its new one.
     std::optional<std::filesystem::path> renamed_from;
 
@@ -47,18 +72,45 @@ struct TreeWatcher::Impl {
     }
 
     bool begin_read() {
-        const BOOL ok = ReadDirectoryChangesW(
-            handle, buffer.data(), static_cast<DWORD>(buffer.size() * sizeof(DWORD)), TRUE,
-            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE, nullptr,
-            &overlapped, nullptr);
+        const auto size = static_cast<DWORD>(buffer.size() * sizeof(DWORD));
+        BOOL ok = FALSE;
+        if (extended) {
+            ok = ReadDirectoryChangesExW(handle, buffer.data(), size, TRUE, WATCHED_CHANGES, nullptr, &overlapped,
+                                         nullptr, ReadDirectoryNotifyExtendedInformation);
+            extended = ok != FALSE;
+        }
+        if (!extended) {
+            ok = ReadDirectoryChangesW(handle, buffer.data(), size, TRUE, WATCHED_CHANGES, nullptr, &overlapped,
+                                       nullptr);
+        }
         pending = ok != FALSE;
         return pending;
+    }
+
+    // The notification at `at` in the buffer, laid out as the read asked.
+    [[nodiscard]] Notice notice_at(const char* at) const {
+        if (extended) {
+            // Copied out rather than read in place: the extended layout holds
+            // 8-byte fields, and the buffer is only sure to be DWORD-aligned.
+            FILE_NOTIFY_EXTENDED_INFORMATION info{};
+            std::memcpy(&info, at, offsetof(FILE_NOTIFY_EXTENDED_INFORMATION, FileName));
+            const auto* name = reinterpret_cast<const wchar_t*>(at + offsetof(FILE_NOTIFY_EXTENDED_INFORMATION, FileName));
+            return {.action = info.Action,
+                    .relative = std::wstring(name, info.FileNameLength / sizeof(wchar_t)),
+                    .file_id = info.FileId.QuadPart,
+                    .next = info.NextEntryOffset};
+        }
+        const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(at);
+        return {.action = info->Action,
+                .relative = std::wstring(info->FileName, info->FileNameLength / sizeof(wchar_t)),
+                .next = info->NextEntryOffset};
     }
 
     bool watch(const std::filesystem::path& folder, SkipFolder skip_folder) {
         stop();
         root = folder;
         skip = std::move(skip_folder);
+        extended = true;
         handle = CreateFileW(folder.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                              nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
         if (handle == INVALID_HANDLE_VALUE) {
@@ -103,38 +155,56 @@ struct TreeWatcher::Impl {
     std::vector<TreeEvent> poll() {
         using Kind = TreeEvent::Kind;
         std::vector<TreeEvent> events;
+        // Files removed this poll, by id, at their place in `events`: one
+        // added under the same id was moved there, and the two are a rename.
+        std::unordered_map<int64_t, size_t> removed_at;
         while (pending && WaitForSingleObject(overlapped.hEvent, 0) == WAIT_OBJECT_0) {
             DWORD bytes = 0;
             if (GetOverlappedResult(handle, &overlapped, &bytes, FALSE) == FALSE) {
+                // An extended read the volume turned down is asked again the
+                // plain way.
                 pending = false;
-                break;
+                if (!extended) break;
+                extended = false;
+                ResetEvent(overlapped.hEvent);
+                if (!begin_read()) break;
+                continue;
             }
             // A buffer too small for what happened comes back empty.
             if (bytes == 0) events.push_back({.kind = Kind::lost, .path = root});
 
             const auto* bytes_start = reinterpret_cast<const char*>(buffer.data());
             for (const char* at = bytes_start; bytes > 0;) {
-                const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(at);
-                const std::filesystem::path relative(
-                    std::wstring(info->FileName, info->FileNameLength / sizeof(wchar_t)));
-                const std::filesystem::path path = root / relative;
+                const Notice notice = notice_at(at);
+                const std::filesystem::path path = root / notice.relative;
                 std::error_code ec;
                 const bool folder = std::filesystem::is_directory(path, ec);
-                const bool hidden = skipped(relative, folder);
+                const bool hidden = skipped(notice.relative, folder);
 
-                switch (info->Action) {
-                    case FILE_ACTION_ADDED:
+                switch (notice.action) {
+                    case FILE_ACTION_ADDED: {
                         if (hidden) break;
+                        const auto moved = notice.file_id != 0 ? removed_at.find(notice.file_id) : removed_at.end();
+                        if (moved != removed_at.end()) {
+                            TreeEvent& gone = events[moved->second];
+                            std::filesystem::path from = std::move(gone.path);
+                            gone = {.kind = Kind::renamed, .path = path, .from = std::move(from), .folder = folder};
+                            removed_at.erase(moved);
+                            break;
+                        }
                         events.push_back({.kind = Kind::added, .path = path, .folder = folder});
                         if (folder) report_contents(path, events);
                         break;
+                    }
                     case FILE_ACTION_MODIFIED:
                         // A folder is reported modified when what is in it
                         // changes, which its files' events tell already.
                         if (!hidden && !folder) events.push_back({.kind = Kind::changed, .path = path});
                         break;
                     case FILE_ACTION_REMOVED:
-                        if (!hidden) events.push_back({.kind = Kind::removed, .path = path});
+                        if (hidden) break;
+                        if (notice.file_id != 0) removed_at[notice.file_id] = events.size();
+                        events.push_back({.kind = Kind::removed, .path = path});
                         break;
                     case FILE_ACTION_RENAMED_OLD_NAME:
                         // From a folder left alone, it arrives as new.
@@ -162,8 +232,8 @@ struct TreeWatcher::Impl {
                     default:
                         break;
                 }
-                if (info->NextEntryOffset == 0) break;
-                at += info->NextEntryOffset;
+                if (notice.next == 0) break;
+                at += notice.next;
             }
             ResetEvent(overlapped.hEvent);
             begin_read();

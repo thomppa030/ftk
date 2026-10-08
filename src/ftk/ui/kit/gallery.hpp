@@ -49,6 +49,8 @@ private:
 
     // Values for the sample controls to edit.
     std::string name_{"Crate"};
+    int picked_row_{0};
+    std::string description_{"A wooden crate, weathered by the sea.\nIt floats."};
     std::string query_{"cra"};
     // The find plate's sample: a query, its toggles and a replacement.
     std::string find_query_{"band"};

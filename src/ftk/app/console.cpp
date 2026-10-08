@@ -98,8 +98,8 @@ void ConsoleSink::sink_it_(const spdlog::details::log_msg& msg) {
 
     LogEntry entry;
     entry.message = std::string(formatted.data(), formatted.size());
-    // Strip trailing newline
-    if (!entry.message.empty() && entry.message.back() == '\n') {
+    // The formatter ends the line as the platform does, "\r\n" on Windows.
+    while (!entry.message.empty() && (entry.message.back() == '\n' || entry.message.back() == '\r')) {
         entry.message.pop_back();
     }
     entry.level = msg.level;
