@@ -150,3 +150,21 @@ TEST_CASE("A menu as data runs the entry chosen, leaves a disabled one, and open
     h.step();
     CHECK(exported == 1);
 }
+
+TEST_CASE("A menu's entry is found by its label", "[ui][kit]") {
+    KitHarness h;
+    int deleted = 0;
+    h.set_ui([&] {
+        ui::button("Track");
+        h.mark("track");
+        if (auto menu = ui::ContextMenu("##track")) {
+            if (ui::menu_item({.label = "Delete track", .destructive = true})) ++deleted;
+        }
+    });
+    h.step(2);
+    h.click("track", ui::MouseButton::Right);
+    h.step();
+    REQUIRE(h.find("Delete track") != nullptr);
+    h.click("Delete track");
+    CHECK(deleted == 1);
+}

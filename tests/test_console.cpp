@@ -61,15 +61,15 @@ struct Console {
     }
 };
 
-// The entries of the menu open, top to bottom. A kit menu entry records no
-// label of its own, only an unlabelled line in the popup.
+// The entries of the menu open, top to bottom: the lines wholly inside the
+// popup, where the console's own lines beneath it reach past its sides.
 std::vector<core::Rect> menu_entries(KitHarness& h) {
     std::vector<core::Rect> entries;
     const auto popup = h.popup();
     if (!popup) return entries;
     for (const core::SemanticNode& node : h.ui().semantics()) {
-        if (node.role != core::Role::ListItem || !node.label.empty()) continue;
-        if (popup->contains((node.rect.min + node.rect.max) * 0.5f)) entries.push_back(node.rect);
+        if (node.role != core::Role::ListItem) continue;
+        if (popup->contains(node.rect.min) && popup->contains(node.rect.max)) entries.push_back(node.rect);
     }
     std::ranges::sort(entries, {}, [](const core::Rect& rect) { return rect.min.y; });
     return entries;
