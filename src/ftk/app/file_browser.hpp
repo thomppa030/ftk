@@ -17,6 +17,21 @@ namespace gpu {
 class Device;
 }
 
+/// What FileBrowser::open() is asked for besides the title, the mode and
+/// the verb.
+struct FileBrowserOptions {
+    /// The files listed beside the folders (".glb"). For select_file the
+    /// ones that can be picked, every file when empty; for select_location
+    /// the ones whose names a new one may take, clicked to take that name,
+    /// none when empty.
+    std::vector<std::string> extensions{};
+    /// Where it opens when this is a folder; else where the user last picked
+    /// from, else the project, else home.
+    std::filesystem::path start{};
+    /// What select_location's name field asks for ("Project name").
+    std::string name_hint{"Name"};
+};
+
 /// A file or folder browser in a window of its own (sheet 9): back and up,
 /// breadcrumbs that turn into a path field when the empty end of the bar is
 /// clicked, a search; places down the left (the project, home, downloads
@@ -64,10 +79,8 @@ public:
     void set_project(std::filesystem::path root) { project_root_ = std::move(root); }
 
     /// Opens the browser as a window of its own. `verb` is the confirming
-    /// button's word ("Import", "Create"). `extensions`, for select_file,
-    /// are the files shown (".glb"); empty shows every file.
-    void open(const std::string& title, Mode mode, const char* verb,
-              const std::vector<std::string>& extensions = {});
+    /// button's word ("Import", "Create").
+    void open(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
 
     /// Render one frame. Call from the main loop if is_open().
     void tick();
@@ -115,7 +128,8 @@ private:
     Mode mode_{Mode::select_directory};
     std::string title_;
     std::string verb_;
-    std::vector<std::string> extensions_; // for select_file mode
+    std::vector<std::string> extensions_;
+    std::string name_hint_;
     std::filesystem::path project_root_;
 
     std::filesystem::path current_dir_;

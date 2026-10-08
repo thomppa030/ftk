@@ -84,8 +84,7 @@ std::string FileBrowser::format_time(fs::file_time_type time) {
 
 // ── Window lifecycle ────────────────────────────────────────────────────
 
-void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
-                       const std::vector<std::string>& extensions) {
+void FileBrowser::open(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options) {
     if (!device_) {
         FTK_CORE_ERROR("FileBrowser::open() called without set_device()");
         return;
@@ -95,7 +94,8 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
     title_ = title;
     mode_ = mode;
     verb_ = verb;
-    extensions_ = extensions;
+    extensions_ = options.extensions;
+    name_hint_ = options.name_hint;
     selected_index_ = -1;
     search_.clear();
     name_.clear();
@@ -104,15 +104,18 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb,
 
     recent_folders_ = recent_.load ? recent_.load() : std::vector<std::string>{};
 
-    // Where the user last picked from, else the project, else home.
+    // The folder asked for, else where the user last picked from, else the
+    // project, else home.
     std::error_code ec;
-    fs::path start = home_dir();
-    if (!recent_folders_.empty() && fs::is_directory(recent_folders_.front(), ec)) {
-        start = recent_folders_.front();
+    fs::path first = home_dir();
+    if (!options.start.empty() && fs::is_directory(options.start, ec)) {
+        first = options.start;
+    } else if (!recent_folders_.empty() && fs::is_directory(recent_folders_.front(), ec)) {
+        first = recent_folders_.front();
     } else if (!project_root_.empty() && fs::is_directory(project_root_, ec)) {
-        start = project_root_;
+        first = project_root_;
     }
-    navigate(start, false);
+    navigate(first, false);
 
     window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, prepare_);
 }
@@ -157,20 +160,16 @@ void FileBrowser::refresh() {
 
             bool is_dir = entry.is_directory();
 
-            // In select_file mode with extension filter, skip non-matching files
-            // (directories always pass through)
-            if (!is_dir && mode_ == Mode::select_file && !extensions_.empty()) {
-                auto ext = entry.path().extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                bool matches = false;
-                for (const auto& e : extensions_) {
-                    if (ext == e) { matches = true; break; }
+            // Folders always; files as FileBrowserOptions::extensions says.
+            if (!is_dir) {
+                if (mode_ == Mode::select_directory) continue;
+                if (mode_ == Mode::select_location && extensions_.empty()) continue;
+                if (!extensions_.empty()) {
+                    auto ext = entry.path().extension().string();
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    if (std::ranges::find(extensions_, ext) == extensions_.end()) continue;
                 }
-                if (!matches) continue;
             }
-
-            // In select_directory/select_location mode, only show directories
-            if (!is_dir && mode_ != Mode::select_file) continue;
 
             uintmax_t size = 0;
             fs::file_time_type modified{};
@@ -440,7 +439,7 @@ void FileBrowser::draw_file_list() {
     };
     // Only files have a size worth a column.
     static constexpr ui::Column WITHOUT_SIZE[] = {WITH_SIZE[0], WITH_SIZE[2]};
-    const bool show_size = mode_ == Mode::select_file;
+    const bool show_size = mode_ == Mode::select_file || (mode_ == Mode::select_location && !extensions_.empty());
     const auto table = ui::Table("##files", show_size ? std::span<const ui::Column>(WITH_SIZE) : WITHOUT_SIZE,
                                  {.resizable = true, .sortable = true, .scroll = true, .column_lines = true});
     if (!table) return;
@@ -476,10 +475,12 @@ void FileBrowser::draw_file_list() {
             ui::IdScope id(fi);
             if (ui::selectable("##entry", fi == selected_index_, {.span_columns = true, .double_click = true})) {
                 selected_index_ = fi;
+                // A file listed beside the folders lends its name.
+                if (mode_ == Mode::select_location && !entry.is_directory) name_ = entry.name;
                 if (ui::mouse_double_clicked(ui::MouseButton::Left)) {
                     if (entry.is_directory) {
                         navigate(current_dir_ / entry.name);
-                    } else if (mode_ == Mode::select_file) {
+                    } else {
                         confirm_selection();
                     }
                 }
@@ -517,7 +518,7 @@ bool FileBrowser::draw_bottom_bar() {
             const float field_w = std::max(width - ui::text_size(label).x - ui::item_spacing().x, 40.0f);
             ui::next_width(field_w);
             if (mode_ == Mode::select_location) {
-                if (ui::text_entry("##name", name_, {.hint = "Project name"})) confirm_selection();
+                if (ui::text_entry("##name", name_, {.hint = name_hint_.c_str()})) confirm_selection();
                 return;
             }
             // What the verb would take: the selected entry, or this folder.
