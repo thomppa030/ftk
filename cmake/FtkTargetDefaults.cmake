@@ -49,6 +49,13 @@ function(ftk_target_defaults target)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized)
         endif()
+        # C++23 keeps a temporary alive through a range-for over it
+        # (`for (x : make().items())`); GCC 15 on does, GCC 13 on CI does not,
+        # and there the loop reads a destroyed object. The older rule here
+        # too, so such a loop fails a local sanitizer run as it does CI's.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+            target_compile_options(${target} PRIVATE -fno-range-for-ext-temps)
+        endif()
     endif()
 endfunction()
 
