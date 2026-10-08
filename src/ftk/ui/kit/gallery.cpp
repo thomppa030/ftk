@@ -15,6 +15,7 @@
 #include "ftk/ui/kit/list_editor.hpp"
 #include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/picture_row.hpp"
 #include "ftk/ui/kit/plate.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/problem_row.hpp"
@@ -398,6 +399,15 @@ void KitGallery::lists() {
                             "No events. Add one to call a script at a frame",
                             [](float& t, std::size_t) { return drag("##t", t, {.unit = Unit::Seconds}); });
         if (edit.committed) ++commits_;
+
+        subheading("Pictures");
+        for (int i = 0; i < 2; ++i) {
+            const char* name = i == 0 ? "Empty" : "Harbour base";
+            const char* about = i == 0 ? "Lit ground under a sky, nothing to delete" : "Stilt houses, the sea and the storm rig";
+            if (picture_row({.id = name, .icon = ICON_LC_IMAGE, .name = name, .detail = about}, picked_row_ == i).clicked) {
+                picked_row_ = i;
+            }
+        }
 
         subheading("Tree");
         search_field("##gallery_search", query_);

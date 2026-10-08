@@ -150,6 +150,7 @@ add_executable(ftk-kit-tests
     test_table.cpp
     test_text_field.cpp
     test_text_area.cpp
+    test_picture_row.cpp
     test_tree.cpp
 )
 target_link_libraries(ftk-kit-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)
