@@ -98,6 +98,7 @@ add_dependencies(ftk-tests ftk-test-child)
 target_compile_definitions(ftk-tests PRIVATE FTK_TEST_CHILD="$<TARGET_FILE:ftk-test-child>")
 ftk_target_defaults(ftk-tests)
 ftk_delay_load_vulkan(ftk-tests)
+ftk_leak_suppressions(ftk-tests)
 # Keeps only the shared libraries something references. The backend the
 # frame graph brings in still references the Vulkan loader, so on Linux the
 # tests need it installed.
@@ -158,6 +159,7 @@ target_link_libraries(ftk-kit-tests PRIVATE ftk::app-editor)
 target_compile_definitions(ftk-kit-tests PRIVATE FTK_FONTS_DIR="${PROJECT_SOURCE_DIR}/fonts")
 ftk_target_defaults(ftk-kit-tests)
 ftk_delay_load_vulkan(ftk-kit-tests)
+ftk_leak_suppressions(ftk-kit-tests)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(ftk-kit-tests PRIVATE LINKER:--as-needed)
 endif()

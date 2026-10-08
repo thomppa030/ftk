@@ -152,6 +152,16 @@ function(ftk_delay_load_vulkan target)
     endif()
 endfunction()
 
+# For a program run under LeakSanitizer: the leaks of the system's libraries
+# ftk uses that it is not to report (ftk/platform/linux/leak_suppressions.cpp).
+# Linux only, where ftk asks the system's fontconfig for fonts.
+function(ftk_leak_suppressions target)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_sources(${target} PRIVATE
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ftk/platform/linux/leak_suppressions.cpp)
+    endif()
+endfunction()
+
 # ftk-gpu is the GPU interface and its Vulkan backend: the window, device,
 # swapchain, pipelines, bindings, command lists, uploads and readbacks. SDL,
 # Vulkan and VMA stay inside it: its headers declare SDL's window and event
