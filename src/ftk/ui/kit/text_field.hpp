@@ -35,6 +35,21 @@ struct TextEntryOptions {
 ///     if (ui::text_entry("##name", name, {.hint = "Project name"})) create(name);
 bool text_entry(const char* id, std::string& value, TextEntryOptions options = {});
 
+struct TextAreaOptions {
+    /// Shown dimmed while the area is empty.
+    const char* hint{nullptr};
+    /// How many lines high the area is; longer text scrolls inside it.
+    int lines{3};
+};
+
+/// A field of several lines, its text wrapped at the field's width, for a
+/// sentence or a paragraph: a description. Enter starts a new line; Ctrl
+/// Enter, or leaving it, finishes. It commits as text_field does: on
+/// finishing, never per keystroke, and Escape puts the old text back.
+///
+///     if (ui::text_area("##Description", details.description).committed) changed = true;
+Edit text_area(const char* id, std::string& value, TextAreaOptions options = {});
+
 /// The same field for a caller that applies the edit itself (through an
 /// undo command) and needs to know whether an edit is under way. Kept by
 /// the caller as a member, one per field, and never writes

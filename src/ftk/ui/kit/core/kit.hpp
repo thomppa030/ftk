@@ -88,7 +88,8 @@ struct TextEditing {
     /// The caret and the other end of the selection, as bytes into `text`.
     std::size_t caret{0};
     std::size_t anchor{0};
-    /// How far the text is scrolled left to keep the caret in sight.
+    /// How far the text is scrolled to keep the caret in sight: left in a
+    /// one-line box, up in a text area.
     float scroll{0.0f};
     /// When the caret last moved, from which it blinks.
     double moved{0.0};

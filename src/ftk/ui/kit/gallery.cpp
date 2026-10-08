@@ -222,6 +222,7 @@ void KitGallery::rows() {
 
         if (auto t = PropertyTable("##gallery_rows")) {
             row("Name", [&] { text_field("##name", name_); });
+            row("Description", [&] { text_area("##description", description_, {.hint = "What it is for"}); });
             row("Intensity", "Brightness of the light, as a multiple of the colour.",
                 [&] { drag("##intensity", intensity_, {.speed = 0.05f, .min = 0.0f, .max = 100.0f}); });
             hint("Above 1 blooms");
