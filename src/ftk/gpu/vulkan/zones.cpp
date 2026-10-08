@@ -4,7 +4,8 @@
 #include <string>
 
 // Zones: a debug label around a span of a list's commands and, in profiling
-// builds, a GPU zone the profiler times.
+// builds, a GPU zone the profiler times. Marks: checkpoints a device loss is
+// reported against.
 
 namespace ftk::gpu {
 
@@ -34,9 +35,14 @@ const tracy::SourceLocationData* Device::Impl::zone_source(std::string_view zone
 
 #endif
 
+void CommandList::mark(std::string_view name) {
+    device_->impl().foundation.checkpoint(impl_->cb, name);
+}
+
 Zone CommandList::zone(std::string_view name, std::source_location where) {
     Impl& self = *impl_;
     Device::Impl& device = device_->impl();
+    mark(name);
     if (device.begin_label != nullptr) {
         const std::string label(name);
         VkDebugUtilsLabelEXT info{};

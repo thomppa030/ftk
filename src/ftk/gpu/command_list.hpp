@@ -224,6 +224,13 @@ public:
     [[nodiscard]] Zone zone(std::string_view name,
                             std::source_location where = std::source_location::current());
 
+    /// Marks where the work named `name` begins in this list, for when the
+    /// device is lost: the report then names, for each queue, the last mark
+    /// the GPU had begun and the last before which it had finished
+    /// everything. Records nothing where the driver keeps no such marks. A
+    /// zone marks where it opens.
+    void mark(std::string_view name);
+
     [[nodiscard]] Device& device() const noexcept { return *device_; }
 
     /// The backend's state, for the backend's own code.
