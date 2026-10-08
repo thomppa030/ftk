@@ -123,12 +123,14 @@ FetchContent_Declare(
 # of Compressonator and asks GCC for a CPU it no longer knows, so only the
 # four encoders ftk uses are compiled, into ftk-cmp-core in src/libraries.cmake.
 # The release's archive rather than its repository, since the patch step
-# (cmake/CmpCoreQuiet.cmake) edits a file that a later update would trip over.
+# (cmake/CmpCoreQuiet.cmake, cmake/CmpCorePackIndex.cmake) edits files that a
+# later update would trip over.
 FetchContent_Declare(
     compressonator
     URL            https://github.com/GPUOpen-Tools/compressonator/archive/refs/tags/V4.5.52.tar.gz
     URL_HASH       SHA256=3a55094045838a6fa19185a6ac869f1265568907587a80bfcaaa3b25aca0e567
     PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/CmpCoreQuiet.cmake
+          COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/CmpCorePackIndex.cmake
     SOURCE_SUBDIR  no-cmake-here
 )
 
