@@ -15,6 +15,11 @@ function(ftk_target_defaults target)
         CXX_EXTENSIONS OFF)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX)
+        # A COFF object holds at most 65,279 sections, and every inline
+        # function or template a source instantiates takes one: a source
+        # that includes enough of the engine passes that (C1128). /bigobj
+        # raises the limit; the code it compiles is the same.
+        target_compile_options(${target} PRIVATE /bigobj)
         # The engine reads and writes its binary formats with the C stdio
         # family, which MSVC deprecates in favour of the *_s variants under
         # /W4 /WX. Set on every first-party target, so a source shared
