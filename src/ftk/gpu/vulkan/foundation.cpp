@@ -18,9 +18,25 @@ namespace ftk::gpu::vulkan {
 // Messages the layers send about what is meant: a fragment shader writing an
 // output into a colour target the render scope leaves unbound, which is how a
 // view leaves out an output it has no use for (Caps::unbound_targets).
-constexpr std::string_view EXPECTED_MESSAGES[] = {
+//
+// The validation layer is told them as its message filter when the instance
+// is made, so they are left out of every place it reports to, a log file a
+// run names in its layer settings as much as the callback below; the
+// callback drops them too, for a layer that cannot be told.
+constexpr const char* EXPECTED_MESSAGES[] = {
     "Undefined-Value-ShaderOutputNotConsumed-DynamicRendering",
 };
+
+// Whether `layer` offers the instance extension `extension`.
+static bool layer_has_extension(const char* layer, const char* extension) {
+    uint32_t count = 0;
+    if (vkEnumerateInstanceExtensionProperties(layer, &count, nullptr) != VK_SUCCESS) return false;
+    std::vector<VkExtensionProperties> available(count);
+    if (vkEnumerateInstanceExtensionProperties(layer, &count, available.data()) != VK_SUCCESS) return false;
+    return std::ranges::any_of(available, [&](const VkExtensionProperties& props) {
+        return std::strcmp(props.extensionName, extension) == 0;
+    });
+}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -28,7 +44,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT* data,
     void* /*user_data*/) {
     if (data->pMessageIdName != nullptr &&
-        std::ranges::find(EXPECTED_MESSAGES, std::string_view(data->pMessageIdName)) != std::end(EXPECTED_MESSAGES)) {
+        std::ranges::any_of(EXPECTED_MESSAGES, [&](const char* expected) {
+            return std::string_view(expected) == data->pMessageIdName;
+        })) {
         return VK_FALSE;
     }
     switch (severity) {
@@ -123,8 +141,27 @@ void Foundation::create_instance(const std::string& program) {
 
     auto extensions = get_required_extensions();
 
+    // The messages that are meant, as the validation layer's own filter.
+    const bool tell_layer =
+        enable_validation_ && layer_has_extension(validation_layers_[0], VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+    if (tell_layer) extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+    const VkLayerSettingEXT expected_filter{
+        .pLayerName = validation_layers_[0],
+        .pSettingName = "message_id_filter",
+        .type = VK_LAYER_SETTING_TYPE_STRING_EXT,
+        .valueCount = static_cast<uint32_t>(std::size(EXPECTED_MESSAGES)),
+        .pValues = EXPECTED_MESSAGES,
+    };
+    const VkLayerSettingsCreateInfoEXT layer_settings{
+        .sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+        .pNext = nullptr,
+        .settingCount = 1,
+        .pSettings = &expected_filter,
+    };
+
     VkInstanceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    if (tell_layer) create_info.pNext = &layer_settings;
     create_info.pApplicationInfo = &app_info;
     create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     create_info.ppEnabledExtensionNames = extensions.data();
