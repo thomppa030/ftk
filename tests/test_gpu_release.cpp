@@ -107,6 +107,24 @@ TEST_CASE("flushing the release queue runs everything", "[gpu][release]") {
     CHECK(queue.pending() == 0);
 }
 
+TEST_CASE("a release waits for the frame recording, or with none open for the next", "[gpu][release]") {
+    CHECK(release_frame(5, 4) == 5); // frame 5 is recording
+    CHECK(release_frame(5, 5) == 6); // between frames 5 and 6
+    CHECK(release_frame(0, 0) == 1); // before the first frame
+}
+
+TEST_CASE("something released before the first frame outlives that frame", "[gpu][release]") {
+    // An upload recorded at start-up into an image released straight after
+    // is sent with the first frame: the image must outlive it.
+    std::vector<std::string> log;
+    ReleaseQueue queue;
+    queue.retire(release_frame(0, 0), Tracked(log, "image"));
+    queue.collect(0); // the first frame begins: nothing has finished
+    CHECK(log.empty());
+    queue.collect(1); // the first frame, and the upload with it, finished
+    CHECK(log == std::vector<std::string>{"image"});
+}
+
 TEST_CASE("an owned handle goes back to its owner once", "[gpu][owned]") {
     FakeOwner owner;
     {

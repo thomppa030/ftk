@@ -267,10 +267,11 @@ struct Device::Impl {
     /// the set is the pipeline's own.
     [[nodiscard]] std::string shared_at(const PipelineRecord& pipeline, uint32_t set);
 
-    /// Runs `fn` once the GPU has finished the frame recording now: how
-    /// everything the device destroys is destroyed.
+    /// Runs `fn` once the GPU has finished the frame that sends what is
+    /// recorded now (release_frame()): how everything the device destroys is
+    /// destroyed.
     void release_later(std::move_only_function<void()> fn) {
-        releases.defer(recording, std::move(fn));
+        releases.defer(release_frame(recording, ended), std::move(fn));
     }
 
     /// Logs `message` as an error the first time it is reported, so a
@@ -312,8 +313,8 @@ struct Device::Impl {
     /// serial: the value it has reached is the newest frame the GPU has
     /// finished.
     VkSemaphore frame_timeline{VK_NULL_HANDLE};
-    /// The serial of the frame recording now, which what is released is
-    /// kept alive for.
+    /// The serial of the frame recording now, or the last recorded while
+    /// none is open; with `ended`, what decides how long a release waits.
     uint64_t recording{0};
     /// The serial of the newest frame sent to the GPU.
     uint64_t ended{0};

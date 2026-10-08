@@ -59,4 +59,14 @@ private:
     uint64_t collected_{0};
 };
 
+/// The frame a release made now waits for, from the serial of the frame
+/// recording now and of the newest frame sent to the GPU. A frame is sent
+/// after every upload recorded before its end, and waits for them, so it is
+/// the frame recording while one is open; with none open (before the first
+/// frame, or between two) the next one, which sends the uploads recorded
+/// since.
+[[nodiscard]] constexpr uint64_t release_frame(uint64_t recording, uint64_t ended) {
+    return recording > ended ? recording : recording + 1;
+}
+
 } // namespace ftk::gpu
