@@ -23,7 +23,7 @@ namespace {
 constexpr float PAD_X = 10.0f;        // from the strip's ends
 constexpr float PAD_Y = 8.0f;         // above and below its pictures
 constexpr float NAME_GAP = 3.0f;      // from a picture to its name
-constexpr float NAME_MAX = 88.0f;     // the widest a name is drawn before it is cut
+constexpr float NAME_WIDEST = 88.0f;  // the widest a name is drawn before it is cut
 constexpr float OUTLINE = 2.0f;       // round the one shown
 constexpr float ROUNDING = 3.0f;
 
@@ -59,7 +59,7 @@ std::optional<std::size_t> picture_strip(const char* id, std::span<const StripPi
         float cell = STRIP_PICTURE;
         {
             const FontScope small(Font::Current, theme::AXIS_TEXT);
-            name = ellipsized(each.name, NAME_MAX);
+            name = ellipsized(each.name, NAME_WIDEST);
             cell = std::max(cell, measure(name).x);
         }
         // The whole cell, picture and name, is the target.
