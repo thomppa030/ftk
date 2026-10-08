@@ -53,8 +53,10 @@ struct TreeEvent {
 ///
 /// Linux: inotify, a watch per folder, a folder that appears watched as it
 /// comes and the files already in it reported added. Windows:
-/// ReadDirectoryChangesW over the whole subtree, which reports a little
-/// after the change, not at once.
+/// ReadDirectoryChangesExW over the whole subtree, which reports a little
+/// after the change, not at once, and tells a file moved between folders as
+/// removed and added; the two are one rename where it gives the file's id
+/// (Windows 10 1709 on, a local volume), and stay two where it doesn't.
 ///
 /// @code
 /// platform::TreeWatcher watcher;
