@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ftk/gpu/staging_ring.hpp"
+
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
@@ -157,16 +159,10 @@ private:
         std::deque<Batch> in_flight;
     };
 
-    // One ring allocation, in ring order. Reclaimable once its batch was
-    // flushed (*batch_value != 0) and the lane timeline reached that value.
-    struct RingAlloc {
-        VkDeviceSize end{0};
-        LaneIndex lane{BUFFER};
-        std::shared_ptr<uint64_t> batch_value{};
-    };
-
     [[nodiscard]] VkCommandBuffer lane_cb(LaneIndex lane);
     [[nodiscard]] StagingSlice acquire_staging(LaneIndex lane, VkDeviceSize size);
+    /// What the staging ring asks of the lanes while it places.
+    [[nodiscard]] gpu::StagingRing::Owner ring_owner();
     void flush_lane(LaneIndex lane);
     void reclaim_completed();
     [[nodiscard]] uint64_t completed_value(LaneIndex lane) const;
@@ -181,10 +177,8 @@ private:
 
     // Persistent mapped staging ring shared by both lanes.
     std::unique_ptr<Staging> ring_;
-    VkDeviceSize ring_capacity_{0};
-    VkDeviceSize head_{0};
-    VkDeviceSize tail_{0};
-    std::deque<RingAlloc> ring_allocs_;
+    // Where in it each upload is staged, and when that is free again.
+    gpu::StagingRing ring_regions_{RING_CAPACITY, RING_ALIGNMENT};
 
     static constexpr VkDeviceSize RING_CAPACITY = 64ull * 1024 * 1024;
     // Covers buffer copy alignment (4) and bufferOffset texel alignment

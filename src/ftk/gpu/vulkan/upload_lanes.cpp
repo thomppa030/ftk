@@ -63,11 +63,10 @@ UploadLanes::UploadLanes(Foundation& foundation)
                  "Failed to create upload timeline semaphore");
     }
 
-    ring_capacity_ = RING_CAPACITY;
-    ring_ = std::make_unique<Staging>(allocator_, ring_capacity_);
+    ring_ = std::make_unique<Staging>(allocator_, RING_CAPACITY);
 
     FTK_GFX_INFO("Upload lanes: {}MB staging ring, buffer lane on {} queue",
-                   ring_capacity_ / (1024 * 1024),
+                   RING_CAPACITY / (1024 * 1024),
                    foundation.transfer_queue_supported() ? "transfer" : "graphics");
 }
 
@@ -178,70 +177,37 @@ StagingSlice UploadLanes::acquire_staging(LaneIndex lane, VkDeviceSize size) {
 
     // Oversized requests bypass the ring entirely; the dedicated buffer
     // rides with the batch and is freed when it completes.
-    if (size > ring_capacity_ / 2) {
+    if (size > RING_CAPACITY / 2) {
         auto dedicated = std::make_unique<Staging>(allocator_, size);
         StagingSlice slice{dedicated->buffer, 0, dedicated->mapped};
         lanes_[lane].open.dedicated.push_back(std::move(dedicated));
         return slice;
     }
 
-    VkDeviceSize aligned = (size + RING_ALIGNMENT - 1) & ~(RING_ALIGNMENT - 1);
+    const uint64_t offset = ring_regions_.place(size, lane, ring_owner());
+    return StagingSlice{ring_->buffer, offset, static_cast<uint8_t*>(ring_->mapped) + offset};
+}
 
-    // Live data occupies [tail_, head_), possibly wrapped. An empty
-    // allocation deque means the ring is idle; equal cursors with live
-    // allocations mean full.
-    for (;;) {
-        reclaim_completed();
-
-        if (ring_allocs_.empty()) {
-            head_ = 0;
-            tail_ = 0;
-            break;
-        }
-        if (head_ > tail_) {
-            if (ring_capacity_ - head_ >= aligned) {
-                break;
-            }
-            if (tail_ > aligned) {
-                // Wrap: hand the dead tail-end region to the open batch so
-                // the reclaim cursor walks past it in order. flush() above
-                // may have retired and reset this lane's batch since we
-                // last opened it, so re-open before reading its value —
-                // otherwise this pushes a sentinel with a null batch_value
-                // that reclaim_completed can never resolve.
-                (void)lane_cb(lane);
-                ring_allocs_.push_back({ring_capacity_, lane, lanes_[lane].open.value});
-                head_ = 0;
-                break;
-            }
-        } else if (head_ < tail_ && tail_ - head_ > aligned) {
-            break;
-        }
-
-        // Full or fragmented: submit what we have, then wait for the
-        // oldest batch to release its region.
-        flush();
-        const RingAlloc& oldest = ring_allocs_.front();
-        if (*oldest.batch_value == 0) {
-            throw std::runtime_error(
-                "Staging ring stuck: oldest allocation belongs to an unsubmitted batch");
-        }
-        VkSemaphoreWaitInfo wait{};
-        wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        wait.semaphoreCount = 1;
-        wait.pSemaphores = &lanes_[oldest.lane].timeline;
-        wait.pValues = &*oldest.batch_value;
-        foundation_.check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
-                          "Failed waiting for staging ring space");
-    }
-
-    StagingSlice slice{ring_->buffer, head_, static_cast<uint8_t*>(ring_->mapped) + head_};
-    head_ += aligned;
-    // flush() inside the loop above may have retired and reset this lane's
-    // batch since we last opened it — re-open before reading its value.
-    (void)lane_cb(lane);
-    ring_allocs_.push_back({head_, lane, lanes_[lane].open.value});
-    return slice;
+gpu::StagingRing::Owner UploadLanes::ring_owner() {
+    return {
+        .completed = [this](uint32_t lane) { return completed_value(static_cast<LaneIndex>(lane)); },
+        .open_batch = [this](uint32_t lane) -> gpu::StagingRing::BatchValue {
+            const auto index = static_cast<LaneIndex>(lane);
+            (void)lane_cb(index);
+            return lanes_[index].open.value;
+        },
+        .flush = [this] { flush(); },
+        .wait =
+            [this](uint32_t lane, uint64_t value) {
+                VkSemaphoreWaitInfo wait{};
+                wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+                wait.semaphoreCount = 1;
+                wait.pSemaphores = &lanes_[lane].timeline;
+                wait.pValues = &value;
+                foundation_.check(vkWaitSemaphores(device_, &wait, UINT64_MAX),
+                                  "Failed waiting for staging ring space");
+            },
+    };
 }
 
 void UploadLanes::flush_lane(LaneIndex lane) {
@@ -314,15 +280,7 @@ uint64_t UploadLanes::completed_value(LaneIndex lane) const {
 void UploadLanes::reclaim_completed() {
     std::array<uint64_t, LANE_COUNT> completed{completed_value(BUFFER), completed_value(IMAGE)};
 
-    // Ring allocations reclaim strictly in ring order; an open batch
-    // (*batch_value == 0) blocks the cursor until it flushes and completes.
-    while (!ring_allocs_.empty()) {
-        const RingAlloc& front = ring_allocs_.front();
-        uint64_t value = *front.batch_value;
-        if (value == 0 || completed[front.lane] < value) break;
-        tail_ = front.end == ring_capacity_ ? 0 : front.end;
-        ring_allocs_.pop_front();
-    }
+    ring_regions_.reclaim([&](uint32_t lane) { return completed[lane]; });
 
     for (uint32_t i = 0; i < LANE_COUNT; ++i) {
         auto& lane = lanes_[i];
