@@ -132,6 +132,10 @@ ui::Texture IconCache::icon(const std::string& name) const {
     return it != icons_.end() ? ui_texture(it->second) : ui::Texture{};
 }
 
+IconCache::Picture IconCache::read_picture(const std::string& path) {
+    return read_rgba(path);
+}
+
 gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels, uint32_t width, uint32_t height,
                                                 const std::string& name) {
     FTK_PROFILE_SCOPE_N("icon_upload");

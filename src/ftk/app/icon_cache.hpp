@@ -80,6 +80,10 @@ public:
     /// safe from any thread.
     static void ensure_thumbnail_cache(const std::string& path, const std::string& cache_folder);
 
+    /// The image file at `path` at its own size, as RGBA8 in sRGB; empty
+    /// when it does not read. Safe from any thread.
+    [[nodiscard]] static Picture read_picture(const std::string& path);
+
     /// A texture of `pixels`, RGBA8 in sRGB row after row, `width` × `height`,
     /// ready for the frames sent from now on. `name` labels it in debuggers
     /// and validation messages. None when the device cannot make it.
