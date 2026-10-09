@@ -123,28 +123,29 @@ private:
     uint32_t next_{1};
 };
 
-// The renderer's warnings while it lives, kept here instead of the terminal
-// so a test that provokes them passes quietly.
-class Warnings {
+// The renderer's log lines at one level while it lives, kept here instead
+// of the terminal so a test that provokes them passes quietly.
+class Logged {
 public:
-    Warnings() {
+    explicit Logged(spdlog::level::level_enum level) : level_(level) {
         auto& sinks = log::renderer()->sinks();
         kept_ = std::move(sinks);
         sinks = {std::make_shared<spdlog::sinks::callback_sink_mt>(
             [this](const spdlog::details::log_msg& message) {
-                if (message.level == spdlog::level::warn) {
+                if (message.level == level_) {
                     lines_.emplace_back(message.payload.data(), message.payload.size());
                 }
             })};
     }
-    ~Warnings() { log::renderer()->sinks() = std::move(kept_); }
+    ~Logged() { log::renderer()->sinks() = std::move(kept_); }
 
-    Warnings(const Warnings&) = delete;
-    Warnings& operator=(const Warnings&) = delete;
+    Logged(const Logged&) = delete;
+    Logged& operator=(const Logged&) = delete;
 
     [[nodiscard]] const std::vector<std::string>& lines() const { return lines_; }
 
 private:
+    spdlog::level::level_enum level_;
     std::vector<spdlog::sink_ptr> kept_;
     std::vector<std::string> lines_;
 };
@@ -419,7 +420,7 @@ TEST_CASE("A use declared with an access its resource lacks is left out and warn
     GraphRun run;
     const gpu::Texture t = run.texture();
     const gpu::Buffer b = run.buffer();
-    Warnings warnings;
+    Logged warnings{spdlog::level::warn};
     run.begin();
     run.pass("wrong", [&](PassBuilder& p) {
         p.read(p.import("t", t), Access::uniform_read);
@@ -454,27 +455,36 @@ TEST_CASE("A transient takes the view's render or output size, divided", "[frame
     CHECK(resolved_size(TextureDesc{.width = 256, .height = 64}, view) == glm::uvec3(256, 64, 1));
 }
 
-TEST_CASE("A transient declared with no size, or unlike its first declaration, is warned of",
-          "[framegraph]") {
+TEST_CASE("A transient declared with no size is warned of", "[framegraph]") {
     GraphRun run;
-    Warnings warnings;
+    Logged warnings{spdlog::level::warn};
+    run.begin();
+    run.pass("make", [&](PassBuilder& b) {
+        b.write(b.create("unsized", TextureDesc{.format = gpu::Format::r8_unorm}), Access::storage_write_compute);
+    });
+
+    REQUIRE(warnings.lines().size() == 1);
+    CHECK(warnings.lines()[0] ==
+          "FrameGraph: pass 'make' declares 'unsized' with no size; give it one, or say it is render- or "
+          "output-sized.");
+}
+
+TEST_CASE("A transient declared unlike its first declaration is an error", "[framegraph]") {
+    GraphRun run;
+    Logged errors{spdlog::level::err};
     run.begin();
     run.pass("make", [&](PassBuilder& b) {
         b.write(b.create("sized", TextureDesc{.size_class = SizeClass::output, .format = gpu::Format::r8_unorm}),
                 Access::storage_write_compute);
-        b.write(b.create("unsized", TextureDesc{.format = gpu::Format::r8_unorm}), Access::storage_write_compute);
     });
     run.pass("use", [&](PassBuilder& b) {
         b.read(b.create("sized", TextureDesc{.size_class = SizeClass::render, .format = gpu::Format::r8_unorm}),
                Access::sampled_compute);
     });
 
-    REQUIRE(warnings.lines().size() == 2);
-    CHECK(warnings.lines()[0] ==
-          "FrameGraph: pass 'make' declares 'unsized' with no size; give it one, or say it is render- or "
-          "output-sized.");
-    CHECK(warnings.lines()[1] == "FrameGraph: pass 'use' declares 'sized' unlike the pass that first did; the "
-                                 "first one's is kept.");
+    REQUIRE(errors.lines().size() == 1);
+    CHECK(errors.lines()[0] == "FrameGraph: pass 'use' declares 'sized' unlike the pass that first did; the "
+                               "first one's is kept.");
 }
 
 TEST_CASE("Render- and output-sized transients share a texture when their sizes agree", "[framegraph]") {

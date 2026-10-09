@@ -349,9 +349,9 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
             // Every pass declaring a transient by its name declares the one
             // the first did; a different desc would be silently dropped.
             if (!same_desc(images_[it->second].desc, cre.desc)) {
-                FTK_GFX_WARN("FrameGraph: pass '{}' declares '{}' unlike the pass that first did; "
-                             "the first one's is kept.",
-                             name, cre.name);
+                FTK_GFX_ERROR("FrameGraph: pass '{}' declares '{}' unlike the pass that first did; "
+                              "the first one's is kept.",
+                              name, cre.name);
             }
             handle_to_image_id[cre.handle.id] = it->second;
             continue;
