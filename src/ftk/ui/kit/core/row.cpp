@@ -98,6 +98,14 @@ bool detail::filtering() {
     return kit().row_search.active;
 }
 
+void detail::heading_drawn() {
+    Kit& k = kit();
+    PropertyRows& rows = k.rows;
+    if (!rows.open || rows.in_row) return;
+    // Spaced as a row's end would be.
+    rows.bottom = cursor().y - k.style.item_spacing.y + CELL_PADDING.y;
+}
+
 PropertyTable::PropertyTable(const char* id) {
     core::Context& context = ui();
     const glm::vec2 at = cursor();

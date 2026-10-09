@@ -58,6 +58,10 @@ namespace detail {
 bool begin_row(const char* label, const char* help, bool bold = false);
 /// Whether a RowFilter with a query is in effect.
 [[nodiscard]] bool filtering();
+/// After a heading: in a table with no row open, its first or under
+/// another heading, the rows after it start under it. Under a row, that
+/// row's end takes it in.
+void heading_drawn();
 
 /// Where an inherited row's reset goes, taken before its value is drawn.
 struct InheritedValue {

@@ -80,6 +80,7 @@ bool heading(const char* label, const char* icon, float size, bool rule, bool fo
     // a test aims at the heading row, and item spacing separates what
     // follows.
     text(uppercase(label));
+    detail::heading_drawn();
     return open;
 }
 

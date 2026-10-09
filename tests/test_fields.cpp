@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -184,6 +185,39 @@ TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") 
     const float field_width = h.rect("field").width();
     CHECK(h.rect("field").min.x >= label);
     CHECK(field_width > window_width - label - 40.0f);
+}
+
+TEST_CASE("A heading with no row above it in a table keeps the rows under it", "[ui][kit]") {
+    KitHarness h;
+    float a = 0.0f;
+    float b = 0.0f;
+    h.set_ui([&] {
+        if (auto t = ui::PropertyTable("##rows")) {
+            // First in the table.
+            if (ui::subheading_foldable("All", true)) {
+                h.mark("all");
+                ui::row("A", [&] {
+                    (void)ui::drag("##a", a);
+                    h.mark("a");
+                });
+            }
+            // Folded, then another heading straight under it.
+            (void)ui::subheading_foldable("Red", false);
+            h.mark("red");
+            if (ui::subheading_foldable("Green", true)) {
+                h.mark("green");
+                ui::row("B", [&] {
+                    (void)ui::drag("##b", b);
+                    h.mark("b");
+                });
+            }
+        }
+    });
+    h.step(2);
+    CHECK(h.rect("a").min.y >= h.rect("all").max.y);
+    CHECK(h.rect("red").min.y >= h.rect("a").max.y);
+    CHECK(h.rect("green").min.y >= h.rect("red").max.y);
+    CHECK(h.rect("b").min.y >= h.rect("green").max.y);
 }
 
 TEST_CASE("A stepper steps one at a time and stops at its end", "[ui][kit]") {
