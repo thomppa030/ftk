@@ -57,6 +57,10 @@ void DrawList::quad_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, C
     core().quad_filled(a, b, c, d, faded(colour));
 }
 
+void DrawList::convex_filled(std::span<const glm::vec2> points, Color colour) {
+    core().convex_filled(points, faded(colour));
+}
+
 void DrawList::quad(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour, float thickness) {
     core().quad(a, b, c, d, faded(colour), thickness);
 }

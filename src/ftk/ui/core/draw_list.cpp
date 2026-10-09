@@ -169,15 +169,18 @@ void DrawList::arc(glm::vec2 centre, float radius, float from, float to, Color c
          .kind = PrimitiveKind::Arc});
 }
 
-void DrawList::triangle_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour) {
-    const uint32_t packed = pack_colour(colour);
+void DrawList::triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, uint32_t colour, uint32_t inner) {
     add({.min = glm::min(a, glm::min(b, c)),
          .max = glm::max(a, glm::max(b, c)),
          .shape = {a, b},
-         .extra = {c, 0.0f, 0.0f},
-         .colour = packed,
-         .colour2 = packed,
+         .extra = {c, static_cast<float>(inner), 0.0f},
+         .colour = colour,
+         .colour2 = colour,
          .kind = PrimitiveKind::Triangle});
+}
+
+void DrawList::triangle_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour) {
+    triangle(a, b, c, pack_colour(colour), 0);
 }
 
 void DrawList::triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour, float thickness) {
@@ -186,8 +189,20 @@ void DrawList::triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour, flo
 }
 
 void DrawList::quad_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour) {
-    triangle_filled(a, b, c, colour);
-    triangle_filled(a, c, d, colour);
+    const glm::vec2 corners[] = {a, b, c, d};
+    convex_filled(corners, colour);
+}
+
+void DrawList::convex_filled(std::span<const glm::vec2> points, Color colour) {
+    if (points.size() < 3) return;
+    const uint32_t packed = pack_colour(colour);
+    const std::size_t last = points.size() - 1;
+    // Each triangle's edges from the first corner are spokes inside the
+    // polygon, except where they are its first and last sides.
+    for (std::size_t i = 1; i + 1 < points.size(); ++i) {
+        const uint32_t inner = (i > 1 ? 1u : 0u) | (i + 1 < last ? 4u : 0u);
+        triangle(points[0], points[i], points[i + 1], packed, inner);
+    }
 }
 
 void DrawList::quad(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour, float thickness) {

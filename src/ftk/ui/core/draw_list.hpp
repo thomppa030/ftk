@@ -46,6 +46,10 @@ enum class PrimitiveKind : uint32_t {
     /// clockwise on screen. `thickness` wide.
     Arc,
     /// A filled triangle with corners shape.xy, shape.zw and extra.xy.
+    /// extra.z marks the edges that lie inside a larger shape, which neither
+    /// fade nor count as near: 1 for shape.xy to shape.zw, 2 for shape.zw to
+    /// extra.xy, 4 for extra.xy back to shape.xy. Two triangles of one
+    /// shape meet on such an edge without a seam.
     Triangle,
     /// A glyph: atlas page `texture`'s coverage at `extra` (min, max), in
     /// `colour`.
@@ -127,6 +131,9 @@ public:
     void triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour, float thickness = 1.0f);
     /// A convex quad, its corners in order around it.
     void quad_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour);
+    /// A convex polygon, its corners in order around it: triangles fanned
+    /// from the first corner, edged only where the polygon is.
+    void convex_filled(std::span<const glm::vec2> points, Color colour);
     void quad(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour, float thickness = 1.0f);
 
     /// `text` in the current text style, its top-left at `at`. A newline
@@ -176,6 +183,8 @@ private:
     // Records `p` under the current clip, unless its bounds fall outside it.
     void add(Primitive p);
     void segment(glm::vec2 from, glm::vec2 to, uint32_t colour, float thickness);
+    // `inner` as PrimitiveKind::Triangle's extra.z holds it.
+    void triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, uint32_t colour, uint32_t inner);
 
     DrawData* data_{nullptr};
     std::vector<Primitive>* target_{nullptr};

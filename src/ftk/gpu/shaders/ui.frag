@@ -77,7 +77,11 @@ float arc(vec2 p, vec2 centre, float radius, float from, float to) {
     return min(length(p - a), length(p - b));
 }
 
-float triangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
+// The signed distance to a triangle. The edges `inner` marks (1: p0 to p1,
+// 2: p1 to p2, 4: p2 to p0) lie inside a larger shape: they still bound it,
+// but are never the nearest edge, so they cut hard and leave no fade for a
+// neighbour's to show through.
+float triangle(vec2 p, vec2 p0, vec2 p1, vec2 p2, uint inner) {
     const vec2 e0 = p1 - p0;
     const vec2 e1 = p2 - p1;
     const vec2 e2 = p0 - p2;
@@ -87,10 +91,11 @@ float triangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
     const vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
     const vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
     const vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+    const float far = 1e30;
     const float s = sign(e0.x * e2.y - e0.y * e2.x);
-    const vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
-                           vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
-                       vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+    const vec2 d = min(min(vec2((inner & 1u) != 0u ? far : dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                           vec2((inner & 2u) != 0u ? far : dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                       vec2((inner & 4u) != 0u ? far : dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
     return -sqrt(d.x) * sign(d.y);
 }
 
@@ -133,7 +138,7 @@ void main() {
     } else if (p.kind == KIND_ARC) {
         covered = coverage(arc(v_at, p.shape.xy, p.shape.z, p.extra.x, p.extra.y) - 0.5 * p.thickness, p.softness);
     } else if (p.kind == KIND_TRIANGLE) {
-        covered = coverage(triangle(v_at, p.shape.xy, p.shape.zw, p.extra.xy), p.softness);
+        covered = coverage(triangle(v_at, p.shape.xy, p.shape.zw, p.extra.xy, uint(p.extra.z + 0.5)), p.softness);
     } else if (p.kind == KIND_GLYPH) {
         covered = texture(atlas[nonuniformEXT(p.texture)], uv).r;
     }

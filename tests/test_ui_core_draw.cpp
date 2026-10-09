@@ -101,10 +101,36 @@ TEST_CASE("Lines, circles, arcs, triangles and quads become the shapes they are"
     CHECK(triangle.kind == core::PrimitiveKind::Triangle);
     CHECK(triangle.max == glm::vec2{10.0f, 8.0f});
     CHECK(glm::vec2{triangle.extra} == glm::vec2{5.0f, 8.0f});
+    CHECK(triangle.extra.z == 0.0f);
+    // A filled quad is two triangles that meet on its diagonal, marked as
+    // inside it so no seam shows there.
     CHECK(data.primitives[5].kind == core::PrimitiveKind::Triangle);
+    CHECK(data.primitives[5].extra.z == 4.0f);
     CHECK(data.primitives[6].kind == core::PrimitiveKind::Triangle);
+    CHECK(data.primitives[6].extra.z == 1.0f);
     // An outlined quad is its four sides, a polyline its segments.
     for (std::size_t i = 7; i < data.primitives.size(); ++i) CHECK(data.primitives[i].kind == core::PrimitiveKind::Segment);
+}
+
+TEST_CASE("A convex polygon is a fan of triangles edged only where it is", "[ui-core]") {
+    core::Context ui;
+    const core::DrawData& data = drawn(ui, [](core::DrawList& dl) {
+        const glm::vec2 pentagon[] = {{5.0f, 0.0f}, {10.0f, 5.0f}, {10.0f, 12.0f}, {0.0f, 12.0f}, {0.0f, 5.0f}};
+        dl.convex_filled(pentagon, RED);
+        const glm::vec2 line[] = {{0.0f, 0.0f}, {10.0f, 0.0f}};
+        dl.convex_filled(line, RED);
+    });
+    // Three triangles from the tip; two corners make nothing.
+    REQUIRE(data.primitives.size() == 3);
+    for (const core::Primitive& p : data.primitives) {
+        CHECK(p.kind == core::PrimitiveKind::Triangle);
+        CHECK(glm::vec2{p.shape} == glm::vec2{5.0f, 0.0f});
+    }
+    // The first keeps the polygon's first side, the last its last, and the
+    // one between has only its own.
+    CHECK(data.primitives[0].extra.z == 4.0f);
+    CHECK(data.primitives[1].extra.z == 5.0f);
+    CHECK(data.primitives[2].extra.z == 1.0f);
 }
 
 TEST_CASE("Clips nest, and what falls outside one is dropped", "[ui-core]") {

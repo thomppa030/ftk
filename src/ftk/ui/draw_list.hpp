@@ -62,6 +62,9 @@ public:
     void triangle_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour);
     void triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, Color colour, float thickness = 1.0f);
     void quad_filled(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour);
+    /// A convex polygon, its corners in order around it, filled as one
+    /// shape: no seam where its triangles meet.
+    void convex_filled(std::span<const glm::vec2> points, Color colour);
     void quad(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec2 d, Color colour,
               float thickness = 1.0f);
 
