@@ -83,6 +83,23 @@ bool range_contains(const SubresourceRange& outer, const SubresourceRange& inner
         && outer.base_layer + outer.layer_count >= inner.base_layer + inner.layer_count;
 }
 
+// Whether two declarations of one transient agree: the same format and
+// shape, sized by the same rule.
+bool same_desc(const TextureDesc& a, const TextureDesc& b) {
+    return a.format == b.format && a.samples == b.samples && a.array_layers == b.array_layers
+        && a.mip_levels == b.mip_levels && a.kind == b.kind && a.size_class == b.size_class
+        && a.width == b.width && a.height == b.height && a.depth == b.depth && a.divisor == b.divisor;
+}
+
+// Whether one texture can back transients of both descs in a view of
+// `extents`: the same format and shape, and the same size there, whichever
+// rule each takes to it.
+bool same_texture(const TextureDesc& a, const TextureDesc& b, ViewExtents extents) {
+    return a.format == b.format && a.samples == b.samples && a.array_layers == b.array_layers
+        && a.mip_levels == b.mip_levels && a.kind == b.kind
+        && resolved_size(a, extents) == resolved_size(b, extents);
+}
+
 } // namespace
 
 uint32_t FrameGraph::register_image(const gpu::TextureView& view, bool persistent,
@@ -329,8 +346,20 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     // pool may back two of them with one image inside a run.
     for (const auto& cre : builder.created_textures()) {
         if (auto it = virtual_index_.find(cre.name_hash); it != virtual_index_.end()) {
+            // Every pass declaring a transient by its name declares the one
+            // the first did; a different desc would be silently dropped.
+            if (!same_desc(images_[it->second].desc, cre.desc)) {
+                FTK_GFX_WARN("FrameGraph: pass '{}' declares '{}' unlike the pass that first did; "
+                             "the first one's is kept.",
+                             name, cre.name);
+            }
             handle_to_image_id[cre.handle.id] = it->second;
             continue;
+        }
+        if (cre.desc.size_class == SizeClass::absolute && (cre.desc.width == 0 || cre.desc.height == 0)) {
+            FTK_GFX_WARN("FrameGraph: pass '{}' declares '{}' with no size; give it one, or say it is "
+                         "render- or output-sized.",
+                         name, cre.name);
         }
 
         TrackedImage img{};
@@ -495,22 +524,6 @@ void FrameGraph::log_lifetimes() const {
     }
 }
 
-namespace {
-
-bool desc_matches_exactly(const TextureDesc& a, const TextureDesc& b) {
-    return a.format == b.format
-        && a.samples == b.samples
-        && a.array_layers == b.array_layers
-        && a.mip_levels == b.mip_levels
-        && a.size_class == b.size_class
-        && a.width == b.width
-        && a.height == b.height
-        && a.depth == b.depth
-        && a.viewport_divisor == b.viewport_divisor
-        && a.kind == b.kind;
-}
-
-} // namespace
 
 std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
     std::vector<AliasGroup> groups;
@@ -546,7 +559,7 @@ void FrameGraph::compute_alias_groups(const std::vector<ResourceLifetime>& lifet
         AliasGroup* target = nullptr;
         if (aliasing_enabled_) {
             for (auto& g : groups) {
-                if (g.last_free_pass < c.lt.first_pass && desc_matches_exactly(g.desc, desc)) {
+                if (g.last_free_pass < c.lt.first_pass && same_texture(g.desc, desc, extents_)) {
                     target = &g;
                     break;
                 }

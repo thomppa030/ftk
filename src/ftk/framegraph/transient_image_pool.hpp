@@ -50,17 +50,11 @@ public:
     /// ones idle for STALE_FRAMES are released.
     void begin_frame(uint64_t frame_serial, uint64_t completed_serial);
 
-    /// A texture matching the resolved desc and able to serve `uses`, made
-    /// on a miss. It is the caller's until the frame begin_frame() was last
-    /// told about is complete.
+    /// A texture matching `desc` as resolved in a view of `extents`, able to
+    /// serve `uses`, made on a miss. It is the caller's until the frame
+    /// begin_frame() was last told about is complete.
     /// @return the texture, or an invalid handle when none could be made
-    [[nodiscard]] gpu::Texture acquire(const TextureDesc& desc, glm::uvec2 viewport_extent,
-                                       gpu::TextureUses uses);
-
-    /// The extent a texture of `desc` has at `viewport`. A persistent image
-    /// that must line up with a transient of the same desc sizes itself
-    /// through this rather than repeating the arithmetic.
-    [[nodiscard]] static glm::uvec3 resolve_extent(const TextureDesc& desc, glm::uvec2 viewport);
+    [[nodiscard]] gpu::Texture acquire(const TextureDesc& desc, ViewExtents extents, gpu::TextureUses uses);
 
     /// Frames a texture may go unused before it is released.
     static constexpr uint64_t STALE_FRAMES = 120;

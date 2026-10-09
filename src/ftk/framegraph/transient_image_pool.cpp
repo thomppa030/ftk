@@ -17,29 +17,6 @@ void TransientImagePool::destroy() {
     device_ = nullptr;
 }
 
-glm::uvec3 TransientImagePool::resolve_extent(const TextureDesc& desc, glm::uvec2 viewport) {
-    glm::uvec3 out{0, 0, desc.depth > 0 ? desc.depth : 1};
-    switch (desc.size_class) {
-        case SizeClass::absolute:
-            out.x = desc.width;
-            out.y = desc.height;
-            break;
-        case SizeClass::viewport: {
-            uint32_t div = desc.viewport_divisor > 0 ? desc.viewport_divisor : 1;
-            out.x = std::max(1u, viewport.x / div);
-            out.y = std::max(1u, viewport.y / div);
-            break;
-        }
-        case SizeClass::match:
-            // Match is resolved by the caller (lookup by reference); fall
-            // back to viewport-sized so unhandled uses don't allocate 0x0.
-            out.x = viewport.x;
-            out.y = viewport.y;
-            break;
-    }
-    return out;
-}
-
 bool TransientImagePool::entry_matches(const Entry& e, const TextureDesc& desc,
                                        glm::uvec3 resolved, gpu::TextureUses uses) const {
     // Free once the frame that last took it is complete. A texture never
@@ -76,10 +53,9 @@ void TransientImagePool::begin_frame(uint64_t frame_serial, uint64_t completed_s
     });
 }
 
-gpu::Texture TransientImagePool::acquire(const TextureDesc& desc, glm::uvec2 viewport_extent,
-                                         gpu::TextureUses uses) {
+gpu::Texture TransientImagePool::acquire(const TextureDesc& desc, ViewExtents extents, gpu::TextureUses uses) {
     ++acquires_this_frame_;
-    const glm::uvec3 resolved = resolve_extent(desc, viewport_extent);
+    const glm::uvec3 resolved = resolved_size(desc, extents);
 
     for (auto& e : entries_) {
         if (entry_matches(e, desc, resolved, uses)) {

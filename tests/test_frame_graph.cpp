@@ -82,6 +82,8 @@ public:
 
     void execute() { (void)graph_.execute(nullptr, nullptr, nullptr, nullptr, nullptr); }
 
+    [[nodiscard]] FrameGraph& graph() { return graph_; }
+
     // The batches recorded after the pass `after` ran and before `before`
     // did; an empty name is the run's start or end.
     [[nodiscard]] std::vector<Batch> batches(std::string_view after, std::string_view before) const {
@@ -351,11 +353,11 @@ TEST_CASE("A transient starts undefined in the texture that backs it", "[framegr
     const gpu::Texture backing = run.texture();
     run.begin();
     run.pass("make", [&](PassBuilder& b) {
-        b.write(b.create("scratch", TextureDesc{.format = gpu::Format::r8_unorm}),
+        b.write(b.create("scratch", TextureDesc{.size_class = SizeClass::render, .format = gpu::Format::r8_unorm}),
                 Access::storage_write_compute);
     });
     run.pass("use", [&](PassBuilder& b) {
-        b.read(b.create("scratch", TextureDesc{.format = gpu::Format::r8_unorm}),
+        b.read(b.create("scratch", TextureDesc{.size_class = SizeClass::render, .format = gpu::Format::r8_unorm}),
                Access::sampled_compute);
     });
     run.back("scratch", backing);
@@ -433,4 +435,60 @@ TEST_CASE("A use declared with an access its resource lacks is left out and warn
     CHECK(warnings.lines()[1] ==
           "FrameGraph: pass 'wrong' declares uniform_read on a texture, which has no such "
           "access; the use is left out.");
+}
+
+TEST_CASE("A transient takes the view's render or output size, divided", "[framegraph]") {
+    const ViewExtents view{.render = {1280, 720}, .output = {1920, 1080}};
+    CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render}, view) == glm::uvec3(1280, 720, 1));
+    CHECK(resolved_size(TextureDesc{.size_class = SizeClass::output, .divisor = 2}, view)
+          == glm::uvec3(960, 540, 1));
+    // Every side at least one pixel, however far it is divided.
+    CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render, .divisor = 4096}, view)
+          == glm::uvec3(1, 1, 1));
+    // A froxel grid: a sixteenth of the render size, 128 deep.
+    CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render, .depth = 128, .divisor = 16}, view)
+          == glm::uvec3(80, 45, 128));
+    CHECK(resolved_size(TextureDesc{.width = 256, .height = 64}, view) == glm::uvec3(256, 64, 1));
+}
+
+TEST_CASE("A transient declared with no size, or unlike its first declaration, is warned of",
+          "[framegraph]") {
+    GraphRun run;
+    Warnings warnings;
+    run.begin();
+    run.pass("make", [&](PassBuilder& b) {
+        b.write(b.create("sized", TextureDesc{.size_class = SizeClass::output, .format = gpu::Format::r8_unorm}),
+                Access::storage_write_compute);
+        b.write(b.create("unsized", TextureDesc{.format = gpu::Format::r8_unorm}), Access::storage_write_compute);
+    });
+    run.pass("use", [&](PassBuilder& b) {
+        b.read(b.create("sized", TextureDesc{.size_class = SizeClass::render, .format = gpu::Format::r8_unorm}),
+               Access::sampled_compute);
+    });
+
+    REQUIRE(warnings.lines().size() == 2);
+    CHECK(warnings.lines()[0] ==
+          "FrameGraph: pass 'make' declares 'unsized' with no size; give it one, or say it is render- or "
+          "output-sized.");
+    CHECK(warnings.lines()[1] == "FrameGraph: pass 'use' declares 'sized' unlike the pass that first did; the "
+                                 "first one's is kept.");
+}
+
+TEST_CASE("Render- and output-sized transients share a texture when their sizes agree", "[framegraph]") {
+    const auto groups_at = [](ViewExtents view) {
+        GraphRun run;
+        run.begin();
+        run.graph().set_view_extents(view);
+        const TextureDesc render{.size_class = SizeClass::render, .format = gpu::Format::rgba16_float};
+        const TextureDesc output{.size_class = SizeClass::output, .format = gpu::Format::rgba16_float};
+        run.pass("a", [&](PassBuilder& b) { b.write(b.create("early", render), Access::storage_write_compute); });
+        run.pass("b", [&](PassBuilder& b) { b.read(b.create("early", render), Access::sampled_compute); });
+        run.pass("c", [&](PassBuilder& b) { b.write(b.create("late", output), Access::storage_write_compute); });
+        run.pass("d", [&](PassBuilder& b) { b.read(b.create("late", output), Access::sampled_compute); });
+        return run.graph().compute_alias_groups().size();
+    };
+    // At a render scale of 1 the two are one size, and one texture serves
+    // both in turn; below it they are not.
+    CHECK(groups_at({.render = {1920, 1080}, .output = {1920, 1080}}) == 1);
+    CHECK(groups_at({.render = {1280, 720}, .output = {1920, 1080}}) == 2);
 }

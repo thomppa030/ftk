@@ -180,8 +180,8 @@ struct ResourceLifetime {
 
 // One physical allocation shared by resources whose lifetimes don't
 // overlap. Populated by compute_alias_groups() from lifetime + desc.
-// Non-matching descs (different format/extent/samples/layers/mips) go
-// into their own groups — exact match only in Phase 3.
+// Descs that differ in format, resolved size, samples, layers or mips go
+// into their own groups.
 struct AliasGroup {
     TextureDesc desc{};                   // shared descriptor, for C3 allocation
     std::vector<uint32_t> resource_ids;   // image IDs in images_ that share this group
@@ -298,9 +298,14 @@ public:
     // operation. Intended for Phase 3 debugging only.
     void log_lifetimes() const;
 
+    // The view this run draws, whose sizes render- and output-sized
+    // transients take: what aliasing compares them by.
+    void set_view_extents(ViewExtents extents) noexcept { extents_ = extents; }
+    [[nodiscard]] ViewExtents view_extents() const noexcept { return extents_; }
+
     // Greedy bin-pack virtual (create()-declared) resources with
-    // non-overlapping lifetimes and identical descriptors into shared
-    // AliasGroups. Persistent and backed (imported) images stay out of
+    // non-overlapping lifetimes and descriptors of one format, shape and
+    // resolved size (in this run's view) into shared AliasGroups. Persistent and backed (imported) images stay out of
     // the pool — each lands in its own singleton group. C3 turns these
     // groups into real texture allocations; C2 only analyses.
     //
@@ -464,6 +469,7 @@ private:
     std::vector<MergedAccess> merged_scratch_;
 
     bool aliasing_enabled_{true};
+    ViewExtents extents_{};
 };
 
 } // namespace ftk

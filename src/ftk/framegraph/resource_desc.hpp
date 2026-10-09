@@ -5,24 +5,39 @@
 #include "ftk/gpu/texture.hpp"
 #include "ftk/gpu/usage.hpp"
 
+#include <glm/common.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+
 #include <cstdint>
 
 namespace ftk {
 
-/// Resolution of a TextureDesc at compile time.
-/// "viewport" and fractions are resolved from the active viewport extent.
+/// What a TextureDesc's size follows.
 enum class SizeClass : uint8_t {
-    absolute,       // width/height are exact pixels
-    viewport,       // matches viewport extent (divisor applied)
-    match,          // matches another resource (handled at compile)
+    absolute,       // width and height are exact pixels
+    render,         // the view's render size, over `divisor`
+    output,         // the view's output size, over `divisor`
+};
+
+/// The two sizes of a view: `render`, what its scene is drawn at, and
+/// `output`, what it is shown at. The scene's images are render-sized up to
+/// the temporal resolve, which writes at the output size.
+struct ViewExtents {
+    glm::uvec2 render{0, 0};
+    glm::uvec2 output{0, 0};
 };
 
 struct TextureDesc {
-    SizeClass size_class{SizeClass::viewport};
+    /// Absolute unless the desc says it follows a view size; an absolute
+    /// desc without a size is a mistake the graph reports.
+    SizeClass size_class{SizeClass::absolute};
     uint32_t width{0};
     uint32_t height{0};
     uint32_t depth{1};
-    uint32_t viewport_divisor{1};
+    /// What a render- or output-sized texture divides the size by, each side
+    /// at least one pixel.
+    uint32_t divisor{1};
     uint32_t mip_levels{1};
     uint32_t array_layers{1};
 
@@ -40,6 +55,21 @@ struct TextureDesc {
     /// candidates for transient aliasing.
     bool persistent{false};
 };
+
+/// The size `desc` takes in a view of `extents`.
+[[nodiscard]] inline glm::uvec3 resolved_size(const TextureDesc& desc, ViewExtents extents) {
+    const uint32_t depth = desc.depth > 0 ? desc.depth : 1;
+    const uint32_t divisor = desc.divisor > 0 ? desc.divisor : 1;
+    switch (desc.size_class) {
+        case SizeClass::render:
+            return {glm::max(extents.render / divisor, glm::uvec2(1)), depth};
+        case SizeClass::output:
+            return {glm::max(extents.output / divisor, glm::uvec2(1)), depth};
+        case SizeClass::absolute:
+            break;
+    }
+    return {desc.width, desc.height, depth};
+}
 
 struct BufferDesc {
     uint64_t size{0};
