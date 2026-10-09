@@ -13,6 +13,8 @@ struct CurveKeyframe {
     float value{0.0f};        // output value
     float tangent_in{0.0f};   // left handle slope
     float tangent_out{0.0f};  // right handle slope
+
+    bool operator==(const CurveKeyframe&) const = default;
 };
 
 /// A value keyed over normalized time 0..1, cubic Hermite between keys.
@@ -33,6 +35,8 @@ struct Curve {
 
     void to_json(nlohmann::json& j) const;
     void from_json(const nlohmann::json& j);
+
+    bool operator==(const Curve&) const = default;
 };
 
 } // namespace ftk
