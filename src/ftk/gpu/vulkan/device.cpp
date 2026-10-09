@@ -205,6 +205,7 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
     const vulkan::Foundation& vk = foundation;
     vkGetPhysicalDeviceProperties(vk.physical_device(), &properties);
     max_anisotropy = properties.limits.maxSamplerAnisotropy;
+    max_mip_bias = properties.limits.maxSamplerLodBias;
     name = vk.gpu_name();
     caps.mesh_shaders = vk.mesh_shader_supported();
     caps.mesh_max_output_vertices = vk.mesh_shader_max_output_vertices();
@@ -645,6 +646,7 @@ Sampler Device::sampler(const SamplerDesc& asked) {
     create_info.compareOp = vulkan::to_vk(desc.compare.value_or(Compare::always));
     create_info.minLod = desc.min_lod;
     create_info.maxLod = desc.max_lod;
+    create_info.mipLodBias = std::clamp(desc.mip_bias, -self.max_mip_bias, self.max_mip_bias);
     create_info.borderColor = vulkan::to_vk(desc.border);
 
     VkSampler made{VK_NULL_HANDLE};

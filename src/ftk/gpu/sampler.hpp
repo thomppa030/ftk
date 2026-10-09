@@ -64,6 +64,10 @@ struct SamplerDesc {
     /// Mip levels the sampler may read, as a range of level of detail.
     float min_lod{0.0f};
     float max_lod{1000.0f};
+    /// Added to every level of detail the sampler reads, an explicit one
+    /// included: below 0 it reads finer mips, as an image drawn smaller than
+    /// it is shown wants. Held to what the device allows.
+    float mip_bias{0.0f};
 
     bool operator==(const SamplerDesc&) const = default;
 };

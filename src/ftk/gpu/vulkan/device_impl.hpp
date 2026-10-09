@@ -288,6 +288,7 @@ struct Device::Impl {
     VkDevice device{VK_NULL_HANDLE};
     VmaAllocator allocator{VK_NULL_HANDLE};
     float max_anisotropy{1.0f};
+    float max_mip_bias{0.0f};
     /// The queue sparse memory is bound on; null where the device cannot
     /// bind it, and growable buffers grow by copying. The fence each bind
     /// is waited on with, made at the first.
