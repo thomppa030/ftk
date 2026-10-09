@@ -44,12 +44,15 @@ if(FTK_ENABLE_TRACY)
 endif()
 
 # ftk-math is the colour and curve math the layers above share: colour space
-# conversions, and keyed curves that read and write themselves as JSON.
+# conversions, and keyed curves and colour gradients that read and write
+# themselves as JSON.
 ftk_library(math
     SOURCES
+        ftk/math/color_gradient.cpp
         ftk/math/curve.cpp
         ftk/math/half.cpp
     HEADERS
+        ftk/math/color_gradient.hpp
         ftk/math/color_space.hpp
         ftk/math/curve.hpp
         ftk/math/half.hpp
