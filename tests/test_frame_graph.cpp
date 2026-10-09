@@ -442,6 +442,9 @@ TEST_CASE("A transient takes the view's render or output size, divided", "[frame
     CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render}, view) == glm::uvec3(1280, 720, 1));
     CHECK(resolved_size(TextureDesc{.size_class = SizeClass::output, .divisor = 2}, view)
           == glm::uvec3(960, 540, 1));
+    // A half of an odd size covers its last pixel.
+    CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render, .divisor = 2}, {.render = {1287, 723}})
+          == glm::uvec3(644, 362, 1));
     // Every side at least one pixel, however far it is divided.
     CHECK(resolved_size(TextureDesc{.size_class = SizeClass::render, .divisor = 4096}, view)
           == glm::uvec3(1, 1, 1));

@@ -40,8 +40,8 @@ struct TextureDesc {
     uint32_t width{0};
     uint32_t height{0};
     uint32_t depth{1};
-    /// What a render- or output-sized texture divides the size by, each side
-    /// at least one pixel.
+    /// What a render- or output-sized texture divides the size by, rounded
+    /// up: a half of an odd size covers its last pixel.
     uint32_t divisor{1};
     uint32_t mip_levels{1};
     uint32_t array_layers{1};
@@ -67,9 +67,9 @@ struct TextureDesc {
     const uint32_t divisor = desc.divisor > 0 ? desc.divisor : 1;
     switch (desc.size_class) {
         case SizeClass::render:
-            return {glm::max(extents.render / divisor, glm::uvec2(1)), depth};
+            return {glm::max((extents.render + (divisor - 1)) / divisor, glm::uvec2(1)), depth};
         case SizeClass::output:
-            return {glm::max(extents.output / divisor, glm::uvec2(1)), depth};
+            return {glm::max((extents.output + (divisor - 1)) / divisor, glm::uvec2(1)), depth};
         case SizeClass::absolute:
             break;
     }
