@@ -26,6 +26,11 @@ enum class SizeClass : uint8_t {
 struct ViewExtents {
     glm::uvec2 render{0, 0};
     glm::uvec2 output{0, 0};
+
+    /// A view drawn at the size it is shown at.
+    [[nodiscard]] static constexpr ViewExtents unscaled(glm::uvec2 size) { return {size, size}; }
+
+    friend constexpr bool operator==(const ViewExtents&, const ViewExtents&) = default;
 };
 
 struct TextureDesc {
