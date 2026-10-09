@@ -1,9 +1,12 @@
 #include "ftk/ui/kit/canvas.hpp"
 
+#include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/core/text_input.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/state.hpp"
@@ -18,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <numbers>
 #include <string>
 #include <string_view>
@@ -399,6 +403,41 @@ void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 c
     dl.rect_filled(at, at + box, theme::surface_sunken(), rounding);
     dl.rect(at, at + box, theme::border(), rounding);
     dl.text(at + pad, theme::text(), text);
+}
+
+void channel_toggles(Channels& shown, const Channels& fixed, bool alpha) {
+    // Only the toggles drawn count towards the last one shown.
+    const int on = int{shown.r} + int{shown.g} + int{shown.b} + (alpha ? int{shown.a} : 0);
+    const auto channel = [&](const char* id, const char* letter, bool& value, bool is_fixed, const char* tooltip) {
+        if (is_fixed) {
+            const Disabled disabled;
+            (void)toggle_button(id, letter, value, tooltip);
+            return;
+        }
+        if (toggle_button(id, letter, value, tooltip) && (!value || on > 1)) value = !value;
+    };
+    channel("##r", "R", shown.r, fixed.r, "Red");
+    same_line();
+    channel("##g", "G", shown.g, fixed.g, "Green");
+    same_line();
+    channel("##b", "B", shown.b, fixed.b, fixed.b ? "Blue, rebuilt by the shader" : "Blue");
+    if (alpha) {
+        same_line();
+        channel("##a", "A", shown.a, fixed.a, "Alpha");
+    }
+}
+
+ZoomAsk zoom_controls(const CanvasView& view) {
+    ZoomAsk asked = ZoomAsk::None;
+    align_text_to_frame();
+    text(std::format(" {:.0f}", view.scale_x() * 100.0f));
+    same_line(2.0f);
+    text("% ", theme::text_secondary());
+    same_line();
+    if (icon_button("##fit", icon::frame_view, "Fit (F)")) asked = ZoomAsk::Fit;
+    same_line();
+    if (icon_button("##one", "1:1", "Pixel for pixel (1)")) asked = ZoomAsk::PixelForPixel;
+    return asked;
 }
 
 namespace {

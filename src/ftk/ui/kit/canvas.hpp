@@ -209,4 +209,33 @@ Edit canvas_swatch(const char* id, glm::vec2 min, glm::vec2 max, glm::vec4& srgb
 /// `clip_min`..`clip_max`.
 void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max);
 
+// A picture on a canvas (sheet 33, T1): its channel toggles in the pill top
+// left, its zoom in the pill top right.
+
+/// Which of a picture's channels a canvas shows.
+struct Channels {
+    bool r{true};
+    bool g{true};
+    bool b{true};
+    bool a{true};
+
+    [[nodiscard]] int count() const { return int{r} + int{g} + int{b} + int{a}; }
+    bool operator==(const Channels&) const = default;
+};
+
+/// A picture's channel toggles, in the open pill: R, G, B and, with
+/// `alpha`, A. One alone is shown in grey, which the owner draws; the last
+/// one shown stays on, since a picture of nothing tells nothing. One in
+/// `fixed` is shown and greyed: a normal map's blue, which a shader rebuilds.
+void channel_toggles(Channels& shown, const Channels& fixed = {.r = false, .g = false, .b = false, .a = false},
+                     bool alpha = true);
+
+/// What a picture canvas's zoom controls ask for.
+enum class ZoomAsk { None, Fit, PixelForPixel };
+
+/// A picture canvas's zoom, in the open pill: how large `view` shows it in
+/// percent, Fit (F) and Pixel for pixel (1). The owner does what is asked,
+/// and takes F and 1 itself while it has the keys.
+[[nodiscard]] ZoomAsk zoom_controls(const CanvasView& view);
+
 } // namespace ftk::ui

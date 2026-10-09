@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/canvas.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/plot.hpp"
@@ -246,4 +247,45 @@ TEST_CASE("A plot leaves room for its values and names outside it", "[ui][canvas
     ui::plot_area(ORIGIN, SIZE, {.x_name = "speed", .y_axis = false}, &origin, &size);
     CHECK(origin.x == ORIGIN.x);
     CHECK(size.x == Approx(SIZE.x));
+}
+
+TEST_CASE("A picture's channel toggles keep the last channel shown on", "[ui][canvas]") {
+    KitHarness h;
+    ui::Channels shown;
+    h.set_ui([&] { ui::channel_toggles(shown, {.r = false, .g = false, .b = false, .a = false}, false); });
+    h.step(2);
+    // Without alpha there is no A to turn off, and it doesn't count.
+    CHECK(h.find("A") == nullptr);
+    h.click("R");
+    h.click("G");
+    CHECK_FALSE(shown.r);
+    CHECK_FALSE(shown.g);
+    h.click("B");
+    CHECK(shown.b);
+    h.click("R");
+    CHECK(shown.r);
+}
+
+TEST_CASE("A fixed channel can't be turned off", "[ui][canvas]") {
+    KitHarness h;
+    ui::Channels shown;
+    h.set_ui([&] { ui::channel_toggles(shown, {.r = false, .g = false, .b = true, .a = false}); });
+    h.step(2);
+    h.click("B");
+    CHECK(shown.b);
+}
+
+TEST_CASE("A picture canvas's zoom asks to fit or to show it pixel for pixel", "[ui][canvas]") {
+    KitHarness h;
+    ui::CanvasView view;
+    ui::ZoomAsk asked = ui::ZoomAsk::None;
+    h.set_ui([&] {
+        draw_canvas(view);
+        if (const ui::ZoomAsk ask = ui::zoom_controls(view); ask != ui::ZoomAsk::None) asked = ask;
+    });
+    h.step(2);
+    h.click(ui::icon::frame_view);
+    CHECK(asked == ui::ZoomAsk::Fit);
+    h.click("1:1");
+    CHECK(asked == ui::ZoomAsk::PixelForPixel);
 }
