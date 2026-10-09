@@ -390,9 +390,9 @@ void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 c
     const glm::vec2 pad{7.0f, 4.0f};
     const glm::vec2 box = ts + pad * 2.0f;
     // Up and to the right of the handle; to its left at the right edge,
-    // under it at the top.
+    // under it at the top. Where neither side has room, against the left.
     glm::vec2 at{handle.x + 14.0f, handle.y - box.y - 8.0f};
-    if (at.x + box.x > clip_max.x - 4.0f) at.x = handle.x - box.x - 14.0f;
+    if (at.x + box.x > clip_max.x - 4.0f) at.x = std::max(handle.x - box.x - 14.0f, clip_min.x + 4.0f);
     if (at.y < clip_min.y + 4.0f) at.y = handle.y + 12.0f;
     at = glm::floor(at);
     const float rounding = kit().style.frame_rounding;
