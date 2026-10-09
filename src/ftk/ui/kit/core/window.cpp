@@ -254,6 +254,10 @@ WorkArea work_area() {
     return {.pos = rect.min, .size = rect.size()};
 }
 
+float pixels_per_unit() {
+    return ui().root_scale();
+}
+
 std::vector<ShownWindow> shown_windows() {
     std::vector<ShownWindow> shown;
     const uint64_t frame = ui().frame();

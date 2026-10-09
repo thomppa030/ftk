@@ -444,3 +444,11 @@ TEST_CASE("A drag carries a typed payload, offered while over a target and deliv
     h.step(2);
     CHECK_FALSE(h.ui().dragging());
 }
+
+TEST_CASE("A window's UI knows how many pixels make one of its units", "[ui-core][layers]") {
+    UiHarness h({400.0f, 300.0f}, 2.0f);
+    float scale = 0.0f;
+    h.set_ui([&] { scale = h.ui().root_scale(); });
+    h.step();
+    CHECK(scale == 2.0f);
+}

@@ -175,6 +175,10 @@ glm::vec2 Context::root_size() const {
     return root_ != nullptr ? root_->size : glm::vec2{0.0f};
 }
 
+float Context::root_scale() const {
+    return root_ != nullptr ? root_->scale : 1.0f;
+}
+
 RootId Context::root() const {
     return root_ != nullptr ? root_->id : 0;
 }

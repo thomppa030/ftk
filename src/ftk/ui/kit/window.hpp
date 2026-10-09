@@ -58,6 +58,10 @@ struct WorkArea {
 };
 [[nodiscard]] WorkArea work_area();
 
+/// Pixels to one of the UI's units in the OS window being drawn: its
+/// display's density times the scale chosen for content there.
+[[nodiscard]] float pixels_per_unit();
+
 /// A window of the program's own, as it was last drawn: its name (with any
 /// "##" or "###" part) and where it is on screen.
 struct ShownWindow {

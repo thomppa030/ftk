@@ -293,6 +293,8 @@ public:
     void end_root();
     /// The size of the OS window being drawn, in layout units.
     [[nodiscard]] glm::vec2 root_size() const;
+    /// Pixels to one layout unit in the OS window being drawn.
+    [[nodiscard]] float root_scale() const;
     /// The OS window being drawn.
     [[nodiscard]] RootId root() const;
     /// Lets go of what was kept for a window that is gone.
