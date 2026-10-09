@@ -441,6 +441,7 @@ ftk_library(ui-kit
         ftk/ui/kit/color_field.hpp
         ftk/ui/kit/component_block.hpp
         ftk/ui/kit/curve_editor.hpp
+        ftk/ui/kit/gradient_editor.hpp
         ftk/ui/kit/dialog.hpp
         ftk/ui/kit/dock.hpp
         ftk/ui/kit/drag_drop.hpp
@@ -518,6 +519,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/color_field.cpp
         ftk/ui/kit/core/component_block.cpp
         ftk/ui/kit/core/curve_editor.cpp
+        ftk/ui/kit/core/gradient_editor.cpp
         ftk/ui/kit/core/dialog.cpp
         ftk/ui/kit/core/dock.cpp
         ftk/ui/kit/core/drag_drop.cpp

@@ -155,7 +155,15 @@ void canvas_ruler(DrawList dl, const CanvasView& view, float height);
 /// triangle when it runs through a ruler.
 void canvas_playhead(DrawList dl, float x, float top, float bottom, bool head);
 
-enum class HandleShape { Circle, Diamond };
+enum class HandleShape {
+    Circle,
+    Diamond,
+    /// A pentagon pointing up at what it marks (a gradient's stop under its
+    /// bar): `at` is its tip, `radius` half its width. In its own colour it
+    /// is edged quietly at rest, in the secondary text colour under the
+    /// mouse and in the accent when selected.
+    Pointer,
+};
 
 struct HandleLook {
     HandleShape shape{HandleShape::Circle};

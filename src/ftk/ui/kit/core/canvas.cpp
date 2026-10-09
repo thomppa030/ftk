@@ -307,6 +307,24 @@ void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLoo
     const float r = look.radius;
     // The edge lies under the handle, half its width showing round it.
     constexpr float EDGE = 1.5f;
+    if (look.shape == HandleShape::Pointer) {
+        // A shoulder a half-width under the tip, the body as tall again and
+        // a half more, the outline round all five corners.
+        const glm::vec2 corners[] = {at,
+                                     {at.x + r, at.y + r},
+                                     {at.x + r, at.y + r * 2.5f},
+                                     {at.x - r, at.y + r * 2.5f},
+                                     {at.x - r, at.y + r}};
+        dl.convex_filled(corners, look.fill != nullptr ? *look.fill : state);
+        // In its own colour, its edge stays quiet at rest so the colours
+        // read side by side.
+        const Color edge = look.fill == nullptr ? theme::border()
+                           : selected           ? theme::accent()
+                           : hot                ? theme::text_secondary()
+                                                : theme::surface_highest();
+        dl.polyline(corners, edge, selected ? 2.5f : 1.5f, true);
+        return;
+    }
     if (look.shape == HandleShape::Diamond) {
         const glm::vec2 a{at.x, at.y - r};
         const glm::vec2 b{at.x + r, at.y};
