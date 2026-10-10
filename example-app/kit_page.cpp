@@ -219,7 +219,7 @@ void KitPage::draw_canvases(glm::vec2 at) {
                           .hue = theme::hue(theme::Hue::ochre), .rows = {mask, base}});
     desc.links = {{.id = 1, .from = {1, 11}, .to = {3, 31}}, {.id = 2, .from = {2, 21}, .to = {3, 32}}};
     const ui::NodeGraphEvents events = graph_.draw(desc);
-    if (events.moved) node_places_[events.moved->node - 1] = events.moved->position;
+    for (const auto& move : events.moved) node_places_[move.node - 1] = move.position;
 }
 
 void KitPage::draw_scene(glm::vec2 at) {

@@ -22,7 +22,7 @@ struct PinGraph {
     float amount{50.0f};
     ui::NodeGraphDesc desc;
     std::optional<ui::NodeGraphEvents::Link> linked;
-    std::optional<ui::NodeGraphEvents::Move> moved;
+    std::vector<ui::NodeGraphEvents::Move> moved;
     std::vector<uint64_t> edited;
     int removes{0};
     std::optional<glm::vec2> double_clicked;
@@ -69,10 +69,10 @@ struct PinGraph {
     void draw(ui::NodeGraph& graph) {
         const ui::NodeGraphEvents events = graph.draw(desc);
         if (events.linked) linked = events.linked;
-        if (events.moved) {
-            moved = events.moved;
+        if (!events.moved.empty()) moved = events.moved;
+        for (const auto& move : events.moved) {
             for (auto& node : desc.nodes) {
-                if (node.id == events.moved->node) node.position = events.moved->position;
+                if (node.id == move.node) node.position = move.position;
             }
         }
         edited.insert(edited.end(), events.edited.begin(), events.edited.end());
@@ -194,9 +194,9 @@ TEST_CASE("A node dragged by its body is reported at its snapped place", "[ui][n
 
     // The source's header, dragged by (65, 65): onto the 12-unit grid at (60, 60).
     h.drag(graph.screen_position({40.0f, 13.0f}), graph.screen_position({105.0f, 78.0f}));
-    REQUIRE(g.moved.has_value());
-    CHECK(g.moved->node == 1);
-    CHECK(g.moved->position == glm::vec2(60.0f, 60.0f));
+    REQUIRE(g.moved.size() == 1);
+    CHECK(g.moved[0].node == 1);
+    CHECK(g.moved[0].position == glm::vec2(60.0f, 60.0f));
     CHECK(graph.selected_node() == 1);
 }
 
@@ -212,7 +212,7 @@ TEST_CASE("A value dragged sideways in its node changes and reports the node", "
     h.drag(at, {at.x + 20.0f, at.y});
     CHECK(g.amount == 70.0f);   // 50, one a pixel
     CHECK(std::find(g.edited.begin(), g.edited.end(), uint64_t{2}) != g.edited.end());
-    CHECK_FALSE(g.moved.has_value());   // the field took the drag, not the node
+    CHECK(g.moved.empty());   // the field took the drag, not the node
 }
 
 TEST_CASE("Del asks to remove the selected node, and nothing without a selection", "[ui][node_graph]") {
@@ -325,4 +325,163 @@ TEST_CASE("An edge link is selected by its badge", "[ui][node_graph]") {
     h.drag(badge, badge);
     CHECK(graph.selected_link() == 9);
     CHECK(graph.selected_node() == 0);
+}
+
+// The pin graph's nodes: Source at (0, 0) and Middle at (0, 200), both 176
+// wide and 56 tall, and Target at (300, 0).
+
+TEST_CASE("A box dragged over empty canvas selects every node it touches", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    // From above Source's left, to the inside of Middle: Target is left out.
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 220.0f}));
+    std::vector<uint64_t> selected = graph.selected_nodes();
+    std::sort(selected.begin(), selected.end());
+    CHECK(selected == std::vector<uint64_t>{1, 3});
+
+    // A plain box again starts over.
+    h.drag(graph.screen_position({250.0f, -20.0f}), graph.screen_position({320.0f, 20.0f}));
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{2});
+}
+
+TEST_CASE("Shift adds a box to the selection and Ctrl takes one out of it", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    graph.select_node(2);
+    h.hold({.shift = true});
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 20.0f}));
+    h.hold({});
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{2, 1});
+
+    h.hold({.ctrl = true});
+    h.drag(graph.screen_position({250.0f, -20.0f}), graph.screen_position({320.0f, 20.0f}));
+    h.hold({});
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{1});
+}
+
+TEST_CASE("Ctrl and a click on a node adds it or takes it out, Shift adds it", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 source = graph.screen_position({40.0f, 13.0f});
+    const glm::vec2 target = graph.screen_position({340.0f, 13.0f});
+    const glm::vec2 middle = graph.screen_position({40.0f, 213.0f});
+    h.drag(source, source);
+    h.hold({.ctrl = true});
+    h.drag(target, target);
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{1, 2});
+    h.drag(source, source);
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{2});
+    h.hold({.shift = true});
+    h.drag(middle, middle);
+    h.hold({});
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{2, 3});
+    CHECK(graph.selected_node() == 3);
+    CHECK(g.moved.empty());
+}
+
+TEST_CASE("Nodes selected together move together, the one taken snapped", "[ui][node_graph]") {
+    PinGraph g;
+    g.desc.nodes[2].position = {5.0f, 200.0f};   // Middle, off the grid
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 220.0f}));
+    // Source's header, dragged by (65, 65): onto the grid at (60, 60), Middle as far.
+    h.drag(graph.screen_position({40.0f, 13.0f}), graph.screen_position({105.0f, 78.0f}));
+    CHECK(g.desc.nodes[0].position == glm::vec2(60.0f, 60.0f));
+    CHECK(g.desc.nodes[2].position == glm::vec2(65.0f, 260.0f));
+    CHECK(g.desc.nodes[1].position == glm::vec2(300.0f, 0.0f));
+    CHECK(graph.selected_nodes().size() == 2);
+}
+
+TEST_CASE("A click on one of several selected nodes, without a drag, selects it alone", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 220.0f}));
+    REQUIRE(graph.selected_nodes().size() == 2);
+    const glm::vec2 middle = graph.screen_position({40.0f, 213.0f});
+    h.drag(middle, middle);
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{3});
+}
+
+TEST_CASE("Ctrl A selects every node, and Del asks to remove them", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty);   // the canvas takes the keys
+    h.press(ui::Key::A, {.ctrl = true});
+    std::vector<uint64_t> selected = graph.selected_nodes();
+    std::sort(selected.begin(), selected.end());
+    CHECK(selected == std::vector<uint64_t>{1, 2, 3});
+    h.press(ui::Key::Delete);
+    CHECK(g.removes == 1);
+}
+
+TEST_CASE("Right-click on one of several selected nodes keeps them all", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { graph.draw(g.desc, [](const ui::NodeGraphMenu&) { return false; }); });
+    h.step(2);
+
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 220.0f}));
+    const glm::vec2 middle = graph.screen_position({40.0f, 213.0f});
+    h.drag(middle, middle, ui::MouseButton::Right);
+    h.step();
+    CHECK(graph.selected_nodes().size() == 2);
+}
+
+TEST_CASE("Without select_many a box selects nothing and Ctrl adds nothing", "[ui][node_graph]") {
+    PinGraph g;
+    g.desc.select_many = false;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    h.drag(graph.screen_position({-20.0f, -20.0f}), graph.screen_position({100.0f, 220.0f}));
+    CHECK(graph.selected_nodes().empty());
+    const glm::vec2 source = graph.screen_position({40.0f, 13.0f});
+    const glm::vec2 target = graph.screen_position({340.0f, 13.0f});
+    h.drag(source, source);
+    h.hold({.ctrl = true});
+    h.drag(target, target);
+    h.hold({});
+    CHECK(graph.selected_nodes() == std::vector<uint64_t>{2});
+}
+
+TEST_CASE("A click on a node off the grid leaves it where it is", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    // Middle, at (0, 200): 200 is not a whole number of half-grids.
+    const glm::vec2 middle = graph.screen_position({40.0f, 213.0f});
+    h.drag(middle, middle);
+    CHECK(g.moved.empty());
+    CHECK(graph.selected_node() == 3);
 }
