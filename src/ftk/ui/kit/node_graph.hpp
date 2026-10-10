@@ -24,7 +24,7 @@
 //     desc.nodes.push_back({.id = 1, .position = at, .title = "Add", .rows = rows});
 //     const ui::NodeGraphEvents events = graph_.draw(desc, menu_items);
 //     if (events.linked) my_graph.connect(events.linked->from, events.linked->to);
-//     if (events.moved) my_graph.place(events.moved->node, events.moved->position);
+//     for (const auto& move : events.moved) my_graph.place(move.node, move.position);
 //
 // A node connects in one of two ways. By its pins: typed pins on its rows,
 // inputs on the left and outputs on the right, and a link is a curve leaving
@@ -36,6 +36,12 @@
 // a middle or Alt drag pans, F frames everything, Del removes what is
 // selected, Ctrl and a click on a pin breaks its links, and right-click opens
 // the caller's menu on what is under the mouse.
+//
+// Several nodes may be selected at once: a box dragged over the empty canvas
+// takes every node it touches (Shift adds them to the selection, Ctrl takes
+// them out of it), Ctrl and a click on a node adds or takes out that one,
+// Shift and a click adds it, Ctrl A takes them all. Nodes selected together
+// move together.
 
 namespace ftk::ui {
 
@@ -150,6 +156,9 @@ struct NodeGraphDesc {
     std::function<bool(const NodeEnd& from, const NodeEnd& to)> can_link;
     /// Shown in the middle of an empty canvas under the mouse.
     const char* empty_hint{nullptr};
+    /// Whether several nodes may be selected at once. Off, one node or one
+    /// link is: for a caller whose Remove takes one node at a time.
+    bool select_many{true};
 };
 
 /// What the user did in one frame, for the caller to apply.
@@ -160,7 +169,8 @@ struct NodeGraphEvents {
     };
     struct Move {
         uint64_t node{0};
-        /// Snapped to half the grid, of the point the node's anchor names.
+        /// Of the point the node's anchor names: the node taken snapped to
+        /// half the grid, the others moved as far as it.
         glm::vec2 position{0.0f};
     };
 
@@ -168,8 +178,8 @@ struct NodeGraphEvents {
     std::optional<Link> linked;
     /// Links to break: every link on a pin Ctrl-clicked.
     std::vector<uint64_t> unlinked;
-    /// A node dragged by its body.
-    std::optional<Move> moved;
+    /// A node dragged by its body, and every other node selected with it.
+    std::vector<Move> moved;
     /// Nodes one of whose values was edited this frame.
     std::vector<uint64_t> edited;
     /// Remove what is selected: Del, or the menu asked.
@@ -201,10 +211,14 @@ public:
     /// or everything framed.
     void show(const std::string& key);
 
-    /// The selection: one node or one link, 0 for none. An id missing from
-    /// the next description is let go.
-    [[nodiscard]] uint64_t selected_node() const { return selected_node_; }
+    /// The selection: nodes, or one link. selected_node() is the node
+    /// selected last, 0 for none; selected_nodes() is every one, in the order
+    /// they were selected. An id missing from the next description is let go.
+    [[nodiscard]] uint64_t selected_node() const { return selected_nodes_.empty() ? 0 : selected_nodes_.back(); }
+    [[nodiscard]] const std::vector<uint64_t>& selected_nodes() const { return selected_nodes_; }
+    [[nodiscard]] bool is_selected(uint64_t node) const;
     [[nodiscard]] uint64_t selected_link() const { return selected_link_; }
+    /// Selects that node alone.
     void select_node(uint64_t id);
     void select_link(uint64_t id);
     void clear_selection();
@@ -216,7 +230,7 @@ public:
     [[nodiscard]] glm::vec2 end_position(const NodeEnd& end) const;
 
 private:
-    enum class Drag : uint8_t { None, Move, Link };
+    enum class Drag : uint8_t { None, Move, Link, Box };
 
     // The last frame's layout. Ids, sides and places outlive draw() and
     // answer end_position(); the pointers point into the description being
@@ -260,17 +274,23 @@ private:
     [[nodiscard]] const LaidNode* find_node(uint64_t id) const;
     [[nodiscard]] const LaidPin* find_pin(const NodeEnd& end) const;
     [[nodiscard]] bool kit_allows(const NodeEnd& from, const NodeEnd& to) const;
+    // Adds a node to the selection, as the one selected last.
+    void add_to_selection(uint64_t id);
 
     CanvasView view_{{.zoom = CanvasZoom::Uniform, .min_scale = 0.25f, .max_scale = 2.5f}};
     bool frame_pending_{true};
     std::vector<LaidNode> laid_;
 
-    uint64_t selected_node_{0};
+    std::vector<uint64_t> selected_nodes_;
     uint64_t selected_link_{0};
 
     Drag drag_{Drag::None};
     NodeEnd drag_end_{};          // the node moved, or the end a link is dragged out of
     glm::vec2 drag_grab_{0.0f};   // where in the node it was taken
+    bool drag_moved_{false};      // whether a node taken has moved yet
+    bool alone_on_release_{false};   // a node taken among others selected, selected alone if let go unmoved
+    glm::vec2 box_from_{0.0f};    // where a box began, in graph units
+    bool box_takes_out_{false};   // a box dragged with Ctrl, taking nodes out of the selection
     NodeGraphMenu menu_{};
 };
 

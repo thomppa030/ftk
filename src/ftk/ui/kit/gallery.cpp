@@ -421,7 +421,7 @@ void KitGallery::graphs() {
     // remove the selected link or a pin's. Their nodes stay.
     const auto apply = [this](NodeGraph& graph, const NodeGraphEvents& events, std::vector<glm::vec2>& places,
                               std::vector<NodeLink>& links) {
-        if (events.moved) places[static_cast<std::size_t>(events.moved->node - 1)] = events.moved->position;
+        for (const auto& move : events.moved) places[static_cast<std::size_t>(move.node - 1)] = move.position;
         if (events.linked) {
             links.push_back({.id = next_link_++, .from = events.linked->from, .to = events.linked->to});
             graph.select_link(links.back().id);

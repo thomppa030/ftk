@@ -157,9 +157,19 @@ void NodeGraph::show(const std::string& key) {
     frame_pending_ = !view_.recall("node_graph|" + key);
 }
 
+bool NodeGraph::is_selected(uint64_t node) const {
+    return std::find(selected_nodes_.begin(), selected_nodes_.end(), node) != selected_nodes_.end();
+}
+
+void NodeGraph::add_to_selection(uint64_t id) {
+    std::erase(selected_nodes_, id);
+    selected_nodes_.push_back(id);
+    selected_link_ = 0;
+}
+
 void NodeGraph::select_node(uint64_t id) {
     clear_selection();
-    selected_node_ = id;
+    if (id != 0) selected_nodes_.push_back(id);
 }
 
 void NodeGraph::select_link(uint64_t id) {
@@ -168,7 +178,7 @@ void NodeGraph::select_link(uint64_t id) {
 }
 
 void NodeGraph::clear_selection() {
-    selected_node_ = 0;
+    selected_nodes_.clear();
     selected_link_ = 0;
 }
 
@@ -308,12 +318,15 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     lay_out(desc);
 
     // What was selected or dragged may have gone since the last frame.
-    if (selected_node_ != 0 && find_node(selected_node_) == nullptr) selected_node_ = 0;
+    std::erase_if(selected_nodes_, [&](uint64_t id) { return find_node(id) == nullptr; });
+    if (!desc.select_many && selected_nodes_.size() > 1) {
+        selected_nodes_.erase(selected_nodes_.begin(), selected_nodes_.end() - 1);
+    }
     if (selected_link_ != 0 &&
         std::none_of(desc.links.begin(), desc.links.end(), [&](const NodeLink& l) { return l.id == selected_link_; })) {
         selected_link_ = 0;
     }
-    if (drag_ != Drag::None && find_node(drag_end_.node) == nullptr) drag_ = Drag::None;
+    if ((drag_ == Drag::Move || drag_ == Drag::Link) && find_node(drag_end_.node) == nullptr) drag_ = Drag::None;
     if (drag_ == Drag::Link && drag_end_.pin != 0 && find_pin(drag_end_) == nullptr) drag_ = Drag::None;
 
     if (frame_pending_) {
@@ -446,43 +459,94 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         } else if (hot_node != 0 && hot_edge) {
             drag_ = Drag::Link;
             drag_end_ = {hot_node, 0};
+        } else if (hot_node != 0 && desc.select_many && modifiers().ctrl) {
+            // Ctrl and a click adds the node or takes it out, and moves nothing.
+            if (is_selected(hot_node)) {
+                std::erase(selected_nodes_, hot_node);
+            } else {
+                add_to_selection(hot_node);
+            }
         } else if (hot_node != 0) {
-            select_node(hot_node);
+            // Taken among others selected, it moves them with it, or let go
+            // where it was, is selected alone.
+            alone_on_release_ = false;
+            if (desc.select_many && modifiers().shift) {
+                add_to_selection(hot_node);
+            } else if (desc.select_many && is_selected(hot_node)) {
+                add_to_selection(hot_node);
+                alone_on_release_ = true;
+            } else {
+                select_node(hot_node);
+            }
             drag_ = Drag::Move;
             drag_end_ = {hot_node, 0};
             drag_grab_ = mouse_graph - find_node(hot_node)->desc->position;
+            drag_moved_ = false;
         } else if (hot_link != 0) {
             select_link(hot_link);
+        } else if (desc.select_many) {
+            // A box: on its own it starts the selection again, with Shift it
+            // adds to it, with Ctrl it takes out of it.
+            const Modifiers mods = modifiers();
+            if (!mods.shift && !mods.ctrl) clear_selection();
+            selected_link_ = 0;
+            drag_ = Drag::Box;
+            box_from_ = mouse_graph;
+            box_takes_out_ = mods.ctrl;
         } else {
             clear_selection();
         }
     }
+    // Whether a node is in the box being dragged: touched by it is enough.
+    const glm::vec2 box_lo = glm::min(box_from_, mouse_graph);
+    const glm::vec2 box_hi = glm::max(box_from_, mouse_graph);
+    const auto in_drag_box = [&](const LaidNode& node) {
+        return drag_ == Drag::Box && node.max.x >= box_lo.x && node.min.x <= box_hi.x && node.max.y >= box_lo.y &&
+               node.min.y <= box_hi.y;
+    };
     if (drag_ == Drag::Move) {
         if (mouse_down(MouseButton::Left)) {
-            // Snapped, so nodes line up. Drawn where it is going this frame,
-            // before the caller has moved it.
-            const LaidNode* node = find_node(drag_end_.node);
+            // The node taken snapped, so nodes line up, and the others it
+            // was selected with as far. Drawn where they are going this
+            // frame, before the caller has moved them. Nothing moves before
+            // the mouse does: a click leaves a node off the grid where it is.
+            const bool moving = drag_moved_ || mouse_dragging(MouseButton::Left);
+            const LaidNode* node = moving ? find_node(drag_end_.node) : nullptr;
             const glm::vec2 at = snap(mouse_graph - drag_grab_);
             if (node != nullptr && at != node->desc->position) {
-                events.moved = NodeGraphEvents::Move{drag_end_.node, at};
-                LaidNode& moved = laid_[static_cast<size_t>(node - laid_.data())];
                 const glm::vec2 by = at - node->desc->position;
-                moved.min += by;
-                moved.max += by;
-                moved.picture_min += by;
-                for (auto& pin : moved.pins) pin.at += by;
-                for (auto& field : moved.fields) {
-                    field.min += by;
-                    field.max += by;
-                }
-                for (auto& text : moved.texts) {
-                    text.at += by;
-                    text.right += by.x;
+                drag_moved_ = true;
+                for (LaidNode& moved : laid_) {
+                    if (moved.id != drag_end_.node && !is_selected(moved.id)) continue;
+                    events.moved.push_back({moved.id, moved.id == drag_end_.node ? at : moved.desc->position + by});
+                    moved.min += by;
+                    moved.max += by;
+                    moved.picture_min += by;
+                    for (auto& pin : moved.pins) pin.at += by;
+                    for (auto& field : moved.fields) {
+                        field.min += by;
+                        field.max += by;
+                    }
+                    for (auto& text : moved.texts) {
+                        text.at += by;
+                        text.right += by.x;
+                    }
                 }
             }
         } else {
+            if (alone_on_release_ && !drag_moved_) select_node(drag_end_.node);
             drag_ = Drag::None;
         }
+    } else if (drag_ == Drag::Box && !mouse_down(MouseButton::Left)) {
+        for (const LaidNode& node : laid_) {
+            if (!in_drag_box(node)) continue;
+            if (box_takes_out_) {
+                std::erase(selected_nodes_, node.id);
+            } else if (!is_selected(node.id)) {
+                selected_nodes_.push_back(node.id);
+            }
+        }
+        drag_ = Drag::None;
     } else if (drag_ == Drag::Link && !mouse_down(MouseButton::Left)) {
         // Let go on an end that takes it: a pin, or an edge node anywhere.
         const NodeEnd target = drag_end_.pin != 0 ? hot_pin : NodeEnd{hot_node, 0};
@@ -500,7 +564,8 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     if (hovered && mouse_clicked(MouseButton::Right)) {
         menu_ = {hot_pin.node != 0 ? hot_pin.node : hot_node, hot_link, snap(mouse_graph)};
         if (menu_.node != 0) {
-            select_node(menu_.node);
+            // On one of several selected, the menu is for them all.
+            if (!is_selected(menu_.node)) select_node(menu_.node);
         } else if (menu_.link != 0) {
             select_link(menu_.link);
         } else {
@@ -514,7 +579,11 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
 
     const bool keys = canvas_has_keys();
     if (keys && key_pressed(Key::F)) frame(desc);
-    if (keys && key_pressed(Key::Delete) && (selected_node_ != 0 || selected_link_ != 0)) events.remove = true;
+    if (keys && key_pressed(Key::Delete) && (!selected_nodes_.empty() || selected_link_ != 0)) events.remove = true;
+    if (keys && desc.select_many && (modifiers().ctrl || modifiers().super) && key_pressed(Key::A)) {
+        clear_selection();
+        for (const LaidNode& node : laid_) selected_nodes_.push_back(node.id);
+    }
 
     // ── Drawing ───────────────────────────────────────────────────────
     core::DrawList& dl = context.draw_list();
@@ -606,9 +675,10 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         // the mouse over it.
         const bool takes =
             drag_ == Drag::Link && drag_end_.pin == 0 && hot_node == nd.id && link_to({nd.id, 0}).has_value();
-        if (nd.id == selected_node_) {
+        const bool shown_selected = in_drag_box(node) ? !box_takes_out_ : is_selected(nd.id);
+        if (shown_selected) {
             dl.rect(lo, hi, faded(theme::accent()), rounding, RoundCorners::All, 2.0f);
-        } else if (nd.id == hot_node && (drag_ != Drag::Link || takes)) {
+        } else if (nd.id == hot_node && drag_ != Drag::Box && (drag_ != Drag::Link || takes)) {
             dl.rect(lo, hi, faded(theme::text_secondary()), rounding);
         } else {
             dl.rect(lo, hi, faded(theme::border()), rounding);
@@ -715,6 +785,14 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
             edited |= edit.changed;
         }
         if (edited) events.edited.push_back(nd.id);
+    }
+
+    // A box being dragged: the accent's outline over a wash of it.
+    if (drag_ == Drag::Box) {
+        const glm::vec2 a = view_.to_screen(box_lo);
+        const glm::vec2 b = view_.to_screen(box_hi);
+        dl.rect_filled(a, b, with_alpha(theme::accent(), 0.08f));
+        dl.rect(a, b, faded(theme::accent()));
     }
     dl.pop_clip();
 
