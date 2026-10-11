@@ -25,8 +25,9 @@ struct OpenPicker {
     int picks = 0;
     bool open_next = true;  // opened from inside the UI, where its caller's ids are
     bool is_open = false;
+    picker::Config config{};
 
-    OpenPicker() {
+    explicit OpenPicker(picker::Config with = {}) : config(std::move(with)) {
         picker::Group group{.label = "Physics"};
         group.items.push_back({.value = "mesh", .label = "Mesh", .enabled = false,
                                .disabled_reason = "Crate already has a Mesh"});
@@ -37,7 +38,7 @@ struct OpenPicker {
             ui::button("Add component");
             if (std::exchange(open_next, false)) picker::open("##add");
             std::string value;
-            if (picker::draw("##add", groups, {}, value)) {
+            if (picker::draw("##add", groups, config, value)) {
                 picked = value;
                 ++picks;
             }
@@ -126,4 +127,26 @@ TEST_CASE("Two pickers with the same id under different ids of their own are two
     CHECK(picked[1] == "a");
     CHECK(picked[0].empty());
     picker::close();
+}
+
+TEST_CASE("A caption sits over the search and a footer under the rows", "[ui][picker]") {
+    const auto search_and_rows = [](OpenPicker& p) {
+        float search_top = 0.0f;
+        std::vector<ui::core::Rect> rows;
+        for (const ui::core::SemanticNode& node : p.h.ui().semantics()) {
+            if (node.role == ui::core::Role::TextField) search_top = node.rect.min.y;
+            if (node.role == ui::core::Role::ListItem) rows.push_back(node.rect);
+        }
+        return std::pair{search_top, rows};
+    };
+    OpenPicker plain;
+    const auto [plain_top, plain_rows] = search_and_rows(plain);
+    picker::close();
+
+    OpenPicker told({.size = {320.0f, 160.0f}, .caption = "Takes a vec3", .caption_colour = ui::Color{1.0f, 0.5f, 0.0f, 1.0f},
+                     .enter_does = "places"});
+    const auto [told_top, told_rows] = search_and_rows(told);
+    CHECK(told_top > plain_top);
+    REQUIRE(told_rows.size() == 3);
+    CHECK(told_rows[0].min.y - plain_rows[0].min.y == told_top - plain_top);
 }

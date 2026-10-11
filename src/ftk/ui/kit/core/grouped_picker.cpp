@@ -16,6 +16,7 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -29,12 +30,15 @@ constexpr float PREVIEW_SIZE = 32.0F;
 // The column a row's dot sits in, and the dot.
 constexpr float DOT_COLUMN = 16.0F;
 constexpr float DOT_DIAMETER = 7.0F;
+// The caption's dot.
+constexpr float CAPTION_DOT = 8.0F;
 
 // Only one picker is open at a time, the same way only one popup is.
 // Pickers are told apart by their callers' ids: the same widget id under
 // two different pushed ids is two pickers. 0 is none.
 Id g_open_for = 0;      // the picker that is open
 Id g_pending_open = 0;  // the picker asked to open on the next draw
+std::optional<glm::vec2> g_open_at;  // where it opens, or at the pointer
 
 Id picker_id(const char* widget_id) { return ui().id(widget_id != nullptr ? widget_id : ""); }
 std::string g_search;
@@ -93,6 +97,10 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
         reserve({DOT_COLUMN, row_height});
         same_line();
     }
+    if (item.icon != nullptr) {
+        text(item.icon, item.icon_colour.value_or(Color(theme::text_secondary())));
+        same_line();
+    }
     if (item.preview) {
         image(item.preview, {PREVIEW_SIZE, PREVIEW_SIZE});
         same_line();
@@ -120,10 +128,16 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
 
 void open(const char* widget_id) {
     g_pending_open = picker_id(widget_id);
+    g_open_at.reset();
     g_search.clear();
     g_highlight = 0;
     g_highlight_search.clear();
     g_shown_pickable = 0;
+}
+
+void open(const char* widget_id, glm::vec2 at) {
+    open(widget_id);
+    g_open_at = at;
 }
 
 bool is_open(const char* widget_id) {
@@ -145,7 +159,11 @@ bool draw(const char* widget_id, std::span<const Group> groups, const Config& co
     if (g_pending_open != 0 && g_pending_open == id) {
         g_pending_open = 0;
         g_open_for = id;
-        context.open_popup(popup);
+        if (g_open_at) {
+            context.open_popup(popup, *g_open_at);
+        } else {
+            context.open_popup(popup);
+        }
     }
     if (g_open_for != id) return false;
 
@@ -161,10 +179,27 @@ bool draw(const char* widget_id, std::span<const Group> groups, const Config& co
     const bool appearing = !stored_bool(seen);
     store_bool(seen, true);
 
+    if (!config.caption.empty()) {
+        if (config.caption_colour) {
+            const glm::vec2 at = cursor();
+            const float middle = at.y + line_height() * 0.5F;
+            ui().draw_list().circle_filled({at.x + CAPTION_DOT * 0.5F, middle}, CAPTION_DOT * 0.5F,
+                                           faded(*config.caption_colour));
+            reserve({CAPTION_DOT, line_height()});
+            same_line();
+        }
+        text(config.caption, theme::text_secondary());
+    }
+
     // The search takes the keyboard as the picker opens.
     if (appearing) context.set_focus(context.id("##search"));
     next_width(FILL);
     (void)search_field("##search", g_search, config.search_hint);
+    // Edged in the accent while it takes the keys.
+    if (kit().item.focused) {
+        const core::Rect field = kit().item.rect;
+        ui().draw_list().rect(field.min, field.max, faded(theme::accent()), kit().style.frame_rounding);
+    }
 
     bool chose = false;
 
@@ -189,7 +224,9 @@ bool draw(const char* widget_id, std::span<const Group> groups, const Config& co
         return std::ranges::any_of(g.items, [](const Item& i) { return i.hue.has_value(); });
     });
 
-    context.begin_region("##list", {core::FILL, core::FILL});
+    // Room under the list for what Enter and Esc do.
+    const float footer = config.enter_does != nullptr ? line_height() + kit().style.item_spacing.y * 4.0F : 0.0F;
+    context.begin_region("##list", {core::FILL, footer > 0.0F ? -footer : core::FILL});
     bool any_shown = false;
     int index = 0;
     for (const auto& group : groups) {
@@ -223,6 +260,25 @@ bool draw(const char* widget_id, std::span<const Group> groups, const Config& co
     if (!any_shown) text(config.loading ? config.loading_message : config.empty_message, theme::text_disabled());
     context.end_region();
     place_still(context.layout().last_item());
+
+    if (config.enter_does != nullptr) {
+        const glm::vec2 at = cursor();
+        const float right = at.x + space_left().x;
+        ui().draw_list().line({at.x, at.y}, {right, at.y}, faded(theme::surface_highest()), 1.0F);
+        reserve({0.0F, kit().style.item_spacing.y});
+        const auto key_and = [](const char* key, const char* does) {
+            {
+                FontScope mono(Font::Mono, theme::SMALL_TEXT);
+                align_text_to_frame();
+                text(key, theme::text_disabled());
+            }
+            same_line(theme::GAP_XS);
+            text(does, theme::text_disabled());
+        };
+        key_and("Enter", config.enter_does);
+        same_line(theme::GAP_M);
+        key_and("Esc", "closes");
+    }
 
     if (chose) close_popup();
     corekit::end_popup();

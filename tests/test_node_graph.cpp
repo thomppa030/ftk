@@ -26,6 +26,7 @@ struct PinGraph {
     std::vector<uint64_t> edited;
     int removes{0};
     std::optional<glm::vec2> double_clicked;
+    std::optional<ui::NodeGraphEvents::Placed> placed;
 
     static constexpr ui::NodeEnd SOURCE_OUT{1, 11};
     static constexpr ui::NodeEnd TARGET_AMOUNT{2, 21};
@@ -78,6 +79,19 @@ struct PinGraph {
         edited.insert(edited.end(), events.edited.begin(), events.edited.end());
         if (events.remove) ++removes;
         if (events.double_clicked) double_clicked = events.double_clicked;
+        if (events.placed) placed = events.placed;
+    }
+
+    // A search palette of two choices, and what it was last asked for.
+    std::optional<ui::NodePlace> asked;
+    void give_palette() {
+        desc.palette = [this](const ui::NodePlace& place) {
+            asked = place;
+            ui::NodePalette palette;
+            palette.groups.push_back({.label = "Math", .items = {{.value = "add", .label = "Add"}, {.value = "mix", .label = "Mix"}}});
+            if (place.from) palette.caption = "Takes a float";
+            return palette;
+        };
     }
 };
 
@@ -484,4 +498,112 @@ TEST_CASE("A click on a node off the grid leaves it where it is", "[ui][node_gra
     h.drag(middle, middle);
     CHECK(g.moved.empty());
     CHECK(graph.selected_node() == 3);
+}
+
+TEST_CASE("Space on the canvas opens the search palette, and Enter places a match where the mouse was",
+          "[ui][node_graph]") {
+    PinGraph g;
+    g.give_palette();
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty);
+    h.press(ui::Key::Space);
+    h.step(2);
+    h.type("mi");
+    h.step();
+    h.press(ui::Key::Enter);
+    REQUIRE(g.placed.has_value());
+    CHECK(g.placed->value == "mix");
+    CHECK(g.placed->place.at == glm::vec2(204.0f, 96.0f));
+    CHECK_FALSE(g.placed->place.from.has_value());
+}
+
+TEST_CASE("A right-click on the empty canvas opens the search palette, not the menu", "[ui][node_graph]") {
+    PinGraph g;
+    g.give_palette();
+    ui::NodeGraph graph;
+    int menus = 0;
+    KitHarness h;
+    h.set_ui([&] {
+        const auto events = graph.draw(g.desc, [&](const ui::NodeGraphMenu&) {
+            ++menus;
+            return false;
+        });
+        if (events.placed) g.placed = events.placed;
+    });
+    h.step(2);
+
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty, ui::MouseButton::Right);
+    h.step(2);
+    CHECK(menus == 0);
+    CHECK(g.asked.has_value());
+    h.press(ui::Key::Enter);
+    REQUIRE(g.placed.has_value());
+    CHECK(g.placed->value == "add");
+}
+
+TEST_CASE("A link let go on the empty canvas opens the search palette for it", "[ui][node_graph]") {
+    PinGraph g;
+    g.give_palette();
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    h.drag(graph.end_position(PinGraph::SOURCE_OUT), graph.screen_position({200.0f, 100.0f}));
+    h.step(2);
+    REQUIRE(g.asked.has_value());
+    CHECK(g.asked->from == std::optional<ui::NodeEnd>{PinGraph::SOURCE_OUT});
+    CHECK_FALSE(g.linked.has_value());
+    h.press(ui::Key::Enter);
+    REQUIRE(g.placed.has_value());
+    CHECK(g.placed->place.from == std::optional<ui::NodeEnd>{PinGraph::SOURCE_OUT});
+    CHECK(g.placed->place.at == glm::vec2(204.0f, 96.0f));
+}
+
+TEST_CASE("What was picked in the search palette lately comes first", "[ui][node_graph]") {
+    PinGraph g;
+    g.give_palette();
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty);
+    h.press(ui::Key::Space);
+    h.step(2);
+    h.type("mix");
+    h.step();
+    h.press(ui::Key::Enter);
+    REQUIRE(g.placed.has_value());
+    g.placed.reset();
+
+    // Enter takes the first choice shown: Mix, under Recently used, over Add.
+    h.drag(empty, empty);
+    h.press(ui::Key::Space);
+    h.step(2);
+    h.press(ui::Key::Enter);
+    REQUIRE(g.placed.has_value());
+    CHECK(g.placed->value == "mix");
+}
+
+TEST_CASE("Without a palette, a link let go on the empty canvas is dropped", "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    h.drag(graph.end_position(PinGraph::SOURCE_OUT), graph.screen_position({200.0f, 100.0f}));
+    h.press(ui::Key::Space);
+    h.step(2);
+    h.press(ui::Key::Enter);
+    CHECK_FALSE(g.linked.has_value());
+    CHECK_FALSE(g.placed.has_value());
 }

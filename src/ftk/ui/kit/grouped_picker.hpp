@@ -47,6 +47,11 @@ struct Item {
     /// A dot in its hue at the head of the row, for a group that mixes
     /// kinds ("Recently added").
     std::optional<theme::Hue> hue{};
+    /// An icon of ui::icon's at the head of the row, for what kind of choice
+    /// it is (one built in, one from a library); in `icon_colour`, or the
+    /// secondary text's.
+    const char* icon{nullptr};
+    std::optional<Color> icon_colour{};
     /// A dim word at the row's right end ("added").
     std::string detail{};
     /// A disabled item is shown dimmed and can't be picked;
@@ -81,6 +86,13 @@ struct Config {
     /// where the single header would only repeat the field's own label.
     bool hide_group_headers{false};
     glm::vec2 size{320.0F, 400.0F};
+    /// A line over the search naming what the choices are for ("Takes a
+    /// vec3, from Mix · Result"), after a dot in `caption_colour` when set.
+    std::string caption{};
+    std::optional<Color> caption_colour{};
+    /// What Enter does to the highlighted item ("places"): set, a line under
+    /// the list says it, and that Esc closes.
+    const char* enter_does{nullptr};
 };
 
 /// Open the picker owned by `widget_id` on the next draw. A picker is known by
@@ -88,6 +100,9 @@ struct Config {
 /// has to tell apart two pickers drawn under the same one; call this, like
 /// is_open() and draw(), from where the picker is drawn.
 void open(const char* widget_id);
+/// The same, the picker's top-left at `at` on screen rather than at the
+/// pointer.
+void open(const char* widget_id, glm::vec2 at);
 
 /// Whether `widget_id`'s picker is the one currently open. For a caller that
 /// only gathers items while its picker is up.

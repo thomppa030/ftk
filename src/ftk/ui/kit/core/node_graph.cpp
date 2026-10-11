@@ -43,6 +43,9 @@ constexpr float PAIR_OFFSET = 7.0f;   // an edge link and the one coming back, s
 constexpr float START_GAP = 110.0f;   // the start marker, left of its node
 constexpr float MARGIN = 40.0f;       // around what F frames
 constexpr int SAMPLES = 24;           // points along a drawn curve
+constexpr std::size_t RECENT = 5;     // choices the search palette remembers
+constexpr float PLACE_MARK = 9.0f;    // the corner where a node from the palette goes
+constexpr float PALETTE_OFFSET = 8.0f;   // the palette, right of it and down, in pixels
 
 Color with_alpha(Color c, float alpha) {
     c.a *= alpha;
@@ -154,6 +157,7 @@ NodeValue NodeValue::colour(glm::vec4& srgb) {
 void NodeGraph::show(const std::string& key) {
     clear_selection();
     drag_ = Drag::None;
+    palette_.reset();
     frame_pending_ = !view_.recall("node_graph|" + key);
 }
 
@@ -552,6 +556,9 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         const NodeEnd target = drag_end_.pin != 0 ? hot_pin : NodeEnd{hot_node, 0};
         if (target.node != 0) {
             if (auto link = link_to(target)) events.linked = *link;
+        } else if (desc.palette && hot_node == 0 && hot_link == 0) {
+            palette_ = NodePlace{snap(mouse_graph), drag_end_};
+            grouped_picker::open("##palette", view_.to_screen(palette_->at) + glm::vec2(PALETTE_OFFSET));
         }
         drag_ = Drag::None;
     }
@@ -561,7 +568,12 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     }
 
     // Right-click: the caller's menu, on what the mouse is on.
-    if (hovered && mouse_clicked(MouseButton::Right)) {
+    const bool on_empty = hot_pin.node == 0 && hot_node == 0 && hot_link == 0;
+    if (hovered && mouse_clicked(MouseButton::Right) && desc.palette && on_empty) {
+        clear_selection();
+        palette_ = NodePlace{snap(mouse_graph), std::nullopt};
+        grouped_picker::open("##palette", view_.to_screen(palette_->at) + glm::vec2(PALETTE_OFFSET));
+    } else if (hovered && mouse_clicked(MouseButton::Right)) {
         menu_ = {hot_pin.node != 0 ? hot_pin.node : hot_node, hot_link, snap(mouse_graph)};
         if (menu_.node != 0) {
             // On one of several selected, the menu is for them all.
@@ -580,6 +592,10 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
     const bool keys = canvas_has_keys();
     if (keys && key_pressed(Key::F)) frame(desc);
     if (keys && key_pressed(Key::Delete) && (!selected_nodes_.empty() || selected_link_ != 0)) events.remove = true;
+    if (keys && hovered && desc.palette && drag_ == Drag::None && key_pressed(Key::Space)) {
+        palette_ = NodePlace{snap(mouse_graph), std::nullopt};
+        grouped_picker::open("##palette", view_.to_screen(palette_->at) + glm::vec2(PALETTE_OFFSET));
+    }
     if (keys && desc.select_many && (modifiers().ctrl || modifiers().super) && key_pressed(Key::A)) {
         clear_selection();
         for (const LaidNode& node : laid_) selected_nodes_.push_back(node.id);
@@ -654,6 +670,31 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
             dashed(dl, a, mouse, line_w);
             dl.circle_filled(a, 4.0f, faded(theme::accent()));
         }
+    }
+
+    // While the palette is open: the corner where what it places goes, and
+    // the link let go there, still dashed, reaching it.
+    if (palette_) {
+        const glm::vec2 at = view_.to_screen(palette_->at);
+        if (palette_->from) {
+            if (const LaidPin* pin = find_pin(*palette_->from)) {
+                Samples points{};
+                if (pin->output) {
+                    bezier(view_, pin->at, palette_->at, points);
+                } else {
+                    bezier(view_, palette_->at, pin->at, points);
+                }
+                for (std::size_t i = 0; i < SAMPLES; i += 2) {
+                    dl.line(points[i], points[i + 1], faded(theme::accent()), curve_w);
+                }
+            } else if (const LaidNode* from = find_node(palette_->from->node)) {
+                dashed(dl, view_.to_screen(box_edge(from->centre(), (from->max - from->min) * 0.5f, palette_->at)), at,
+                       line_w);
+            }
+        }
+        const Color ink = faded(theme::text());
+        dl.line(at, {at.x + PLACE_MARK, at.y}, ink, 1.5f);
+        dl.line(at, {at.x, at.y + PLACE_MARK}, ink, 1.5f);
     }
 
     // Nodes.
@@ -795,6 +836,42 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         dl.rect(a, b, faded(theme::accent()));
     }
     dl.pop_clip();
+
+    // The search palette, over it all at the mouse.
+    if (palette_ && desc.palette) {
+        NodePalette offered = desc.palette(*palette_);
+        // Those picked lately first, as their own groups show them, each
+        // naming its group at its right.
+        std::vector<grouped_picker::Group> groups;
+        grouped_picker::Group recently{.label = "Recently used"};
+        for (const std::string& value : recent_) {
+            for (const grouped_picker::Group& group : offered.groups) {
+                const auto it = std::ranges::find(group.items, value, &grouped_picker::Item::value);
+                if (it == group.items.end()) continue;
+                grouped_picker::Item item = *it;
+                if (item.detail.empty()) item.detail = group.label;
+                recently.items.push_back(std::move(item));
+                break;
+            }
+        }
+        if (!recently.items.empty()) groups.push_back(std::move(recently));
+        for (grouped_picker::Group& group : offered.groups) groups.push_back(std::move(group));
+        const grouped_picker::Config config{.empty_message = "Nothing takes it.",
+                                            .size = {300.0f, 360.0f},
+                                            .caption = std::move(offered.caption),
+                                            .caption_colour = offered.caption_colour,
+                                            .enter_does = "places"};
+        std::string picked;
+        if (grouped_picker::draw("##palette", groups, config, picked)) {
+            events.placed = NodeGraphEvents::Placed{picked, *palette_};
+            std::erase(recent_, picked);
+            recent_.insert(recent_.begin(), picked);
+            if (recent_.size() > RECENT) recent_.pop_back();
+            palette_.reset();
+        } else if (!grouped_picker::is_open("##palette")) {
+            palette_.reset();
+        }
+    }
 
     if (drag_ == Drag::None && (hot_pin.node != 0 || (hot_node != 0 && hot_edge))) set_mouse_cursor(MouseCursor::Hand);
     if (laid_.empty() && hovered && desc.empty_hint != nullptr) {

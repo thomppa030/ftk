@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/kit/canvas.hpp"
+#include "ftk/ui/kit/grouped_picker.hpp"
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
 
@@ -42,6 +43,11 @@
 // them out of it), Ctrl and a click on a node adds or takes out that one,
 // Shift and a click adds it, Ctrl A takes them all. Nodes selected together
 // move together.
+//
+// A caller that gives a palette has a node added by searching for it (sheet
+// 38): Space or a right-click on the empty canvas opens the kit's grouped
+// picker there, and so does a link let go there, offering what takes it,
+// with those picked lately first.
 
 namespace ftk::ui {
 
@@ -139,6 +145,26 @@ struct NodeLink {
     bool marked{false};
 };
 
+/// Where a node picked in the search palette goes.
+struct NodePlace {
+    /// Snapped to half the grid, in graph units: the point the new node's
+    /// anchor names.
+    glm::vec2 at{0.0f};
+    /// The end of the link let go there, to link the new node to; none for
+    /// a palette opened by Space or a right-click.
+    std::optional<NodeEnd> from;
+};
+
+/// What the search palette offers for a place, as the caller sees it.
+struct NodePalette {
+    /// The choices, an item's value what comes back when it is picked.
+    std::vector<grouped_picker::Group> groups;
+    /// Over the search, for a link let go: what takes it ("Takes a vec3,
+    /// from Mix · Result"), after a dot in `caption_colour` when set.
+    std::string caption;
+    std::optional<Color> caption_colour;
+};
+
 /// Where the graph starts: a dot with its label and an arrow into one node
 /// (a state machine's Entry).
 struct NodeStart {
@@ -159,6 +185,11 @@ struct NodeGraphDesc {
     /// Whether several nodes may be selected at once. Off, one node or one
     /// link is: for a caller whose Remove takes one node at a time.
     bool select_many{true};
+    /// What the search palette offers for a node placed at `place`, those
+    /// that take its link when it has one. Unset, there is no palette: a
+    /// right-click on the empty canvas opens the caller's menu there, and a
+    /// link let go there is dropped.
+    std::function<NodePalette(const NodePlace& place)> palette;
 };
 
 /// What the user did in one frame, for the caller to apply.
@@ -166,6 +197,11 @@ struct NodeGraphEvents {
     struct Link {
         NodeEnd from;
         NodeEnd to;
+    };
+    struct Placed {
+        /// The value of the item picked.
+        std::string value;
+        NodePlace place;
     };
     struct Move {
         uint64_t node{0};
@@ -186,6 +222,9 @@ struct NodeGraphEvents {
     bool remove{false};
     /// A double-click on empty canvas, snapped, in graph units.
     std::optional<glm::vec2> double_clicked;
+    /// A choice picked in the search palette, for the caller to add where
+    /// its place says and link to the end it names.
+    std::optional<Placed> placed;
 };
 
 /// What the right-click menu was opened on: a node, a link, or with neither
@@ -292,6 +331,10 @@ private:
     glm::vec2 box_from_{0.0f};    // where a box began, in graph units
     bool box_takes_out_{false};   // a box dragged with Ctrl, taking nodes out of the selection
     NodeGraphMenu menu_{};
+    // The search palette: where what it places goes while it is open, and
+    // the values picked in it, the latest first.
+    std::optional<NodePlace> palette_;
+    std::vector<std::string> recent_;
 };
 
 } // namespace ftk::ui
