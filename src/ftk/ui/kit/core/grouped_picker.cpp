@@ -16,7 +16,11 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <optional>
+#include <span>
+#include <unordered_set>
+#include <vector>
 #include <string>
 #include <string_view>
 
@@ -52,9 +56,40 @@ int g_shown_pickable = 0;
 // Set when the arrow keys moved the highlight, to bring it into view once.
 bool g_scroll_to_highlight = false;
 
-bool matches_search(const Item& item, std::string_view needle) {
-    return ui::matches(item.label, needle) || ui::matches(item.sublabel, needle) ||
-           ui::matches(item.search_text, needle);
+// How much less a choice found only in its sublabel or search text scores
+// than one found as well in its label.
+constexpr int ELSEWHERE = 64;
+
+// A choice found by the search: its score, and where in its label.
+struct Found {
+    const Item* item{nullptr};
+    const Group* group{nullptr};
+    FuzzyMatch match;
+    bool in_label{false};
+};
+
+// Every choice the search finds, the best first; one in two groups once, as
+// the first shows it.
+std::vector<Found> found_by(std::span<const Group> groups, std::string_view needle) {
+    std::vector<Found> found;
+    std::unordered_set<std::string_view> seen;
+    for (const Group& group : groups) {
+        for (const Item& item : group.items) {
+            if (!seen.insert(item.value).second) continue;
+            if (auto in_label = fuzzy_match(item.label, needle)) {
+                found.push_back({&item, &group, std::move(*in_label), true});
+                continue;
+            }
+            std::optional<FuzzyMatch> elsewhere = fuzzy_match(item.sublabel, needle);
+            if (auto in_text = fuzzy_match(item.search_text, needle);
+                in_text && (!elsewhere || in_text->score > elsewhere->score)) {
+                elsewhere = std::move(in_text);
+            }
+            if (elsewhere) found.push_back({&item, &group, {.score = elsewhere->score - ELSEWHERE, .runs = {}}, false});
+        }
+    }
+    std::ranges::stable_sort(found, std::greater{}, [](const Found& f) { return f.match.score; });
+    return found;
 }
 
 /// A short word in a coloured pill, for a row's kind.
@@ -68,10 +103,10 @@ void draw_tag(const std::string& text, Color color) {
     reserve(p1 - p0);
 }
 
-/// Draw one row: dot, preview or tag, then the label over its
-/// sublabel, and the detail word at the right end. Returns true when it was
-/// clicked.
-bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_view query) {
+/// Draw one row: dot, preview or tag, then the label over its sublabel,
+/// where `match` found the search in it, and `detail` at the right end.
+/// Returns true when it was clicked.
+bool draw_row(const Item& item, bool highlighted, bool dot_column, const FuzzyMatch* match, std::string_view detail) {
     const bool two_line = !item.sublabel.empty();
     const float text_height = line_height() * (two_line ? 2.0F : 1.0F);
     const float row_height = item.preview ? std::max(PREVIEW_SIZE, text_height) : text_height;
@@ -110,14 +145,18 @@ bool draw_row(const Item& item, bool highlighted, bool dot_column, std::string_v
     }
 
     layout.begin_group();
-    highlighted_text(item.label, query);
+    if (match != nullptr) {
+        fuzzy_text(item.label, *match);
+    } else {
+        highlighted_text(item.label, {});
+    }
     if (two_line) text(item.sublabel, theme::text_disabled());
     place_still(layout.end_group());
-    if (!item.detail.empty()) {
-        const float width = measure(item.detail).x;
+    if (!detail.empty()) {
+        const float width = measure(detail).x;
         same_line();
         set_cursor({row_right - width - kit().style.item_spacing.x, cursor().y});
-        text(item.detail, theme::text_secondary());
+        text(detail, theme::text_secondary());
     }
     place_still(layout.end_group());
 
@@ -229,28 +268,44 @@ bool draw(const char* widget_id, std::span<const Group> groups, const Config& co
     context.begin_region("##list", {core::FILL, footer > 0.0F ? -footer : core::FILL});
     bool any_shown = false;
     int index = 0;
-    for (const auto& group : groups) {
-        // A group whose every item is filtered out takes its header with
-        // it, so a search does not leave a page of empty headings.
-        const bool has_match = std::ranges::any_of(group.items, [&](const Item& i) { return matches_search(i, needle); });
-        if (!has_match) continue;
-        any_shown = true;
+    if (needle.empty()) {
+        // Looking around: the groups as given, under their headers.
+        for (const auto& group : groups) {
+            if (group.items.empty()) continue;
+            any_shown = true;
 
-        // An item may sit in two groups ("Recently added" and its own), so
-        // each group is its own id scope.
-        IdScope group_scope(group.label.c_str());
-        bool body_open = true;
-        if (!config.hide_group_headers) {
-            body_open = group.hue ? subheading_foldable(group.label.c_str(), *group.hue, group.open)
-                                  : subheading_foldable(group.label.c_str(), group.open);
+            // An item may sit in two groups ("Recently added" and its own),
+            // so each group is its own id scope.
+            IdScope group_scope(group.label.c_str());
+            bool body_open = true;
+            if (!config.hide_group_headers) {
+                body_open = group.hue ? subheading_foldable(group.label.c_str(), *group.hue, group.open)
+                                      : subheading_foldable(group.label.c_str(), group.open);
+            }
+            if (!body_open) continue;
+            for (const auto& item : group.items) {
+                const bool highlighted = item.enabled && index == g_highlight;
+                if (item.enabled) ++index;
+                IdScope item_scope(item.value.c_str());
+                if (draw_row(item, highlighted, dot_column, nullptr, item.detail) || (highlighted && enter)) {
+                    picked = item.value;
+                    chose = true;
+                }
+            }
         }
-        if (!body_open) continue;
-        for (const auto& item : group.items) {
-            if (!matches_search(item, needle)) continue;
+    } else {
+        // Searching: one list, the best match first, Enter's choice on top;
+        // each choice names its group at its right, as no header does.
+        for (const Found& found : found_by(groups, needle)) {
+            any_shown = true;
+            const Item& item = *found.item;
             const bool highlighted = item.enabled && index == g_highlight;
             if (item.enabled) ++index;
+            const std::string_view detail =
+                !item.detail.empty() || config.hide_group_headers ? std::string_view{item.detail} : found.group->label;
             IdScope item_scope(item.value.c_str());
-            if (draw_row(item, highlighted, dot_column, needle) || (highlighted && enter)) {
+            if (draw_row(item, highlighted, dot_column, found.in_label ? &found.match : nullptr, detail) ||
+                (highlighted && enter)) {
                 picked = item.value;
                 chose = true;
             }

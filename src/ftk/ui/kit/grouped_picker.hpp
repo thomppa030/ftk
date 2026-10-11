@@ -15,7 +15,8 @@ namespace ftk::ui {
 
 /// The drop-down a field opens when it is clicked: a searchable list of
 /// choices under collapsible group headers, each row optionally carrying a
-/// picture and a short tag.
+/// picture and a short tag. Searching, it shows one list instead, ranked best
+/// first by a fuzzy match (ui::fuzzy_match), each row naming its group.
 ///
 /// The picker draws; it does not gather. Callers hand it the groups already
 /// built and get back the value of whatever was clicked, so what an item is

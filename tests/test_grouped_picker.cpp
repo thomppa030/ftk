@@ -150,3 +150,21 @@ TEST_CASE("A caption sits over the search and a footer under the rows", "[ui][pi
     REQUIRE(told_rows.size() == 3);
     CHECK(told_rows[0].min.y - plain_rows[0].min.y == told_top - plain_top);
 }
+
+TEST_CASE("While searching the picker shows one list, the best match first", "[ui][picker]") {
+    OpenPicker p;
+    p.groups = {{.label = "Shapes", .items = {{.value = "bevel", .label = "Bevel"}}},
+                {.label = "Recently used", .items = {{.value = "blend", .label = "Blend"}}},
+                {.label = "Filters", .items = {{.value = "blur", .label = "Blur"}, {.value = "blend", .label = "Blend"}}}};
+    p.h.step(2);
+    p.h.type("bl");
+    p.h.step(2);
+    std::vector<ui::core::Rect> rows;
+    for (const ui::core::SemanticNode& node : p.h.ui().semantics()) {
+        if (node.role == ui::core::Role::ListItem) rows.push_back(node.rect);
+    }
+    // Bevel's letters apart, below Blend and Blur's together; Blend once.
+    CHECK(rows.size() == 3);
+    p.h.press(ui::Key::Enter);
+    CHECK(p.picked == "blend");   // tied with Blur, in the group before it
+}

@@ -35,6 +35,30 @@ void detail::draw_highlighted(DrawList list, glm::vec2 pos, std::string_view tex
     list.text(pos, colour, after);
 }
 
+void detail::draw_fuzzy(DrawList list, glm::vec2 pos, std::string_view text, const FuzzyMatch& match, Color colour) {
+    std::size_t at = 0;
+    for (const FuzzyMatch::Run& run : match.runs) {
+        if (run.begin < at || run.end > text.size()) break;
+        const std::string_view before = text.substr(at, run.begin - at);
+        const std::string_view found = text.substr(run.begin, run.end - run.begin);
+        list.text(pos, colour, before);
+        pos.x += measure(before).x;
+        list.text(pos, theme::accent(), found);
+        pos.x += measure(found).x;
+        at = run.end;
+    }
+    list.text(pos, colour, text.substr(at));
+}
+
+void fuzzy_text(std::string_view text, const FuzzyMatch& match) {
+    glm::vec2 size = measure(text);
+    const float drop = line_text_drop();
+    size.y += 2.0f * drop;
+    const core::Rect rect = ui().layout().next(size);
+    place_still(rect);
+    detail::draw_fuzzy(DrawList::window(), {rect.min.x, rect.min.y + drop}, text, match, theme::text());
+}
+
 void highlighted_text(std::string_view text, std::string_view query, bool dimmed) {
     glm::vec2 size = measure(text);
     const float drop = line_text_drop();
