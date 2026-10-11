@@ -103,10 +103,11 @@ Result<Device::Impl::LayoutInfo> Device::Impl::pipeline_layout(const ShaderLayou
 
     const std::lock_guard lock(layouts_mutex);
 
-    // One set layout per set up to the highest the shaders use; a set they
-    // skip is an empty layout.
+    // One set layout per set up to the highest the shaders or a shared layout
+    // use; a set they skip is an empty layout.
     uint32_t set_count = 0;
     for (const auto& binding : layout.bindings) set_count = std::max(set_count, binding.set + 1);
+    for (const auto& [handle, set] : info.shared_sets) set_count = std::max(set_count, set + 1);
     info.set_layouts.assign(set_count, VK_NULL_HANDLE);
 
     std::string pipeline_key;

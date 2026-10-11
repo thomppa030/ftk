@@ -188,6 +188,17 @@ TEST_CASE("a single texture never reads as the bindless table", "[gpu][binding]"
     CHECK(sets.error().find("no set that fits the shared 'bindless'") != std::string::npos);
 }
 
+TEST_CASE("a shared layout the shaders read nothing of takes its usual set", "[gpu][binding]") {
+    // A sky's cloud shadow variant that reads no material declares its
+    // globals and its own output, and no set 1 at all.
+    const ShaderLayout layout = with({declared(0, 0, BindingKind::uniform_buffer),
+                                      declared(2, 0, BindingKind::storage_texture)});
+    const SharedLayoutDesc named[] = {GLOBALS, BINDLESS};
+    auto sets = place_shared(layout, named);
+    REQUIRE(sets.has_value());
+    CHECK(*sets == std::vector<uint32_t>{0, 1});
+}
+
 TEST_CASE("an array compiled to one element still reads as the bindless table", "[gpu][binding]") {
     // A sky or fog shader indexes the table at constants only, and glslang
     // sizes `textures[]` to one element.

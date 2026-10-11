@@ -184,9 +184,9 @@ struct SharedGroupDesc {
 /// them. A set fits a shared layout when every binding declared there is one
 /// of the layout's by number and kind, an array (even of one element) only
 /// where the layout has an array at least as long (one sized at run time fits
-/// any). Names take no
-/// part. Of the sets that fit, the layout's usual set is taken; else the only
-/// one that fits.
+/// any). Names take no part. Of the sets that fit, the layout's usual set is
+/// taken; else the only one that fits; and a layout the shaders read nothing
+/// of takes its usual set when they declare nothing there.
 /// @return the sets, or which layout fits no set, fits several none of which
 ///         is its usual set, or would share a set with another.
 [[nodiscard]] Result<std::vector<uint32_t>> place_shared(const ShaderLayout& layout,

@@ -156,6 +156,11 @@ Result<std::vector<uint32_t>> place_shared(const ShaderLayout& layout,
             chosen = group.usual_set;
         } else if (candidates.size() == 1) {
             chosen = candidates.front();
+        } else if (candidates.empty() && std::ranges::find(sets_declared, group.usual_set) == sets_declared.end()) {
+            // The shaders read nothing of it, as a variant that needs no
+            // material reads none of the bindless set: it takes its usual
+            // set, which they leave empty, so it is bound where it always is.
+            chosen = group.usual_set;
         } else if (candidates.empty()) {
             return make_error("The shaders declare no set that fits the shared '" + group.name + "'");
         } else {
