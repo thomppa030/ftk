@@ -104,16 +104,18 @@ void HistoryPanel::draw(const char* title) {
             const bool is_undone = i > current;
             const auto& desc = cmds[i]->description();
             const bool has_markers = desc.find('\x01') != std::string::npos;
+            // The description as it is, ## included: it may hold a name.
+            const std::string plain = plain_text(desc);
 
             if (has_markers && !is_undone) {
-                if (ui::selectable("##cmd", is_current, {.size = {0.0f, ui::line_height()}})) {
+                if (ui::selectable("##cmd", is_current, {.size = {0.0f, ui::line_height()}, .name = plain})) {
                     history_->jump_to(i);
                 }
                 draw_marked_text(ui::item_min(), desc);
             } else {
                 std::optional<ui::TextColour> dim;
                 if (is_undone) dim.emplace(theme::text_disabled());
-                if (ui::selectable(plain_text(desc).c_str(), is_current)) {
+                if (ui::selectable("##cmd", is_current, {.text = plain})) {
                     history_->jump_to(i);
                 }
             }

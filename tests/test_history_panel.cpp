@@ -110,3 +110,17 @@ TEST_CASE("A step clicked in the History panel is gone back to, and the initial 
     c.h.click("Initial state");
     CHECK(c.history.current_index() == -1);
 }
+
+TEST_CASE("A step holding ## shows whole in the History panel", "[ui][kit][history]") {
+    History c(0);
+    c.history.record(std::make_unique<Step>("Delete Crate##2"));
+    c.h.step(2);
+    CHECK(c.h.find("Delete Crate##2", core::Role::ListItem) != nullptr);
+}
+
+TEST_CASE("A step showing its values in colour is named by its text", "[ui][kit][history]") {
+    History c(0);
+    c.history.record(std::make_unique<Step>(ftk::describe_change("Crate · Rigidbody: Mass", "1.00 kg", "2.50 kg")));
+    c.h.step(2);
+    CHECK(c.h.find("Crate · Rigidbody: Mass 1.00 kg -> 2.50 kg", core::Role::ListItem) != nullptr);
+}
