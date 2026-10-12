@@ -44,6 +44,7 @@ add_executable(ftk-tests
     test_resample.cpp
     test_shader_compiler.cpp
     test_shader_diagnostic.cpp
+    test_shading_rate.cpp
     test_small_vector.cpp
     test_split_jobs.cpp
     test_staging_ring.cpp

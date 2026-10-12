@@ -336,6 +336,69 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
         FTK_GFX_INFO("No unbound colour targets on this GPU");
     }
 
+    // VK_KHR_fragment_shading_rate: a draw's own rate and a rate image, for
+    // shading flat parts of the picture once per block of pixels. Optional.
+    // The rate a primitive could give itself is left off.
+    const bool shading_rate_ext_present = std::ranges::any_of(available_exts, [](const VkExtensionProperties& ext) {
+        return std::strcmp(ext.extensionName, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0;
+    });
+    if (shading_rate_ext_present) {
+        VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features{};
+        rate_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &rate_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+        shading_rates_.per_draw = rate_features.pipelineFragmentShadingRate == VK_TRUE;
+        shading_rates_.image = rate_features.attachmentFragmentShadingRate == VK_TRUE;
+    }
+    if (shading_rates_.per_draw || shading_rates_.image) {
+        device_extensions_.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+        if (shading_rates_.image) {
+            VkPhysicalDeviceFragmentShadingRatePropertiesKHR rate_props{};
+            rate_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+            VkPhysicalDeviceProperties2 props2{};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &rate_props;
+            vkGetPhysicalDeviceProperties2(physical_device_, &props2);
+            shading_rates_.tile_width = rate_props.minFragmentShadingRateAttachmentTexelSize.width;
+            shading_rates_.tile_height = rate_props.minFragmentShadingRateAttachmentTexelSize.height;
+        }
+
+        // The rates the GPU offers and the sample counts each is offered at.
+        const auto get_rates = reinterpret_cast<PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR>(
+            vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceFragmentShadingRatesKHR"));
+        if (get_rates != nullptr) {
+            uint32_t rate_count = 0;
+            vk_check(get_rates(physical_device_, &rate_count, nullptr), "Failed to count the shading rates");
+            VkPhysicalDeviceFragmentShadingRateKHR blank{};
+            blank.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_KHR;
+            std::vector<VkPhysicalDeviceFragmentShadingRateKHR> rates(rate_count, blank);
+            vk_check(get_rates(physical_device_, &rate_count, rates.data()), "Failed to list the shading rates");
+            for (const VkPhysicalDeviceFragmentShadingRateKHR& rate : rates) {
+                for (const Samples samples : {Samples::x1, Samples::x2, Samples::x4, Samples::x8}) {
+                    if ((rate.sampleCounts & static_cast<VkSampleCountFlags>(samples)) == 0) continue;
+                    shading_rates_.offer({static_cast<uint8_t>(rate.fragmentSize.width),
+                                          static_cast<uint8_t>(rate.fragmentSize.height)},
+                                         samples);
+                }
+            }
+        }
+
+        const auto coarsest = [&](Samples samples) {
+            const ShadingRate most = rate_for(shading_rates_, samples, ShadingRate{4, 4});
+            return std::to_string(most.width) + "x" + std::to_string(most.height);
+        };
+        FTK_GFX_INFO("Shading rates: {}{}; coarsest at 1, 2, 4, 8 samples: {}, {}, {}, {}",
+                     shading_rates_.per_draw ? "per draw" : "no rate per draw",
+                     shading_rates_.image ? ", an image of " + std::to_string(shading_rates_.tile_width) + "x" +
+                                                std::to_string(shading_rates_.tile_height) + " px tiles"
+                                          : ", no rate image",
+                     coarsest(Samples::x1), coarsest(Samples::x2), coarsest(Samples::x4), coarsest(Samples::x8));
+    } else {
+        FTK_GFX_INFO("No shading rates on this GPU");
+    }
+
     // Probe for VK_KHR_acceleration_structure + VK_KHR_ray_query
     bool has_accel_struct = false;
     bool has_deferred_ops = false;
@@ -493,6 +556,15 @@ void Foundation::create_logical_device() {
         unused_features.dynamicRenderingUnusedAttachments = VK_TRUE;
         unused_features.pNext = chain_tail;
         chain_tail = &unused_features;
+    }
+
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features{};
+    if (shading_rates_.per_draw || shading_rates_.image) {
+        rate_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+        rate_features.pipelineFragmentShadingRate = shading_rates_.per_draw ? VK_TRUE : VK_FALSE;
+        rate_features.attachmentFragmentShadingRate = shading_rates_.image ? VK_TRUE : VK_FALSE;
+        rate_features.pNext = chain_tail;
+        chain_tail = &rate_features;
     }
 
     VkPhysicalDeviceFaultFeaturesEXT fault_features{};

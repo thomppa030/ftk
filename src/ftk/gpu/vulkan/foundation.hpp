@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/base/result.hpp"
+#include "ftk/gpu/shading_rate.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -149,6 +150,9 @@ public:
     /// Whether a pipeline that names a format for a colour target may draw
     /// while that target is unbound (VK_EXT_dynamic_rendering_unused_attachments).
     [[nodiscard]] bool unbound_targets_supported() const { return unbound_targets_supported_; }
+    /// What the GPU offers for shading in blocks of pixels
+    /// (VK_KHR_fragment_shading_rate); empty where it offers none.
+    [[nodiscard]] const ShadingRates& shading_rates() const { return shading_rates_; }
     [[nodiscard]] PFN_vkCreateAccelerationStructureKHR create_accel_struct_fn() const { return pfn_create_accel_struct_; }
     [[nodiscard]] PFN_vkDestroyAccelerationStructureKHR destroy_accel_struct_fn() const { return pfn_destroy_accel_struct_; }
     [[nodiscard]] PFN_vkGetAccelerationStructureBuildSizesKHR get_accel_struct_build_sizes_fn() const { return pfn_get_accel_struct_build_sizes_; }
@@ -242,6 +246,7 @@ private:
 
     bool ray_tracing_supported_{false};
     bool unbound_targets_supported_{false};
+    ShadingRates shading_rates_{};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
     PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
     PFN_vkGetAccelerationStructureBuildSizesKHR pfn_get_accel_struct_build_sizes_{nullptr};

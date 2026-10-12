@@ -36,6 +36,12 @@ std::vector<std::string> missing_caps(const Caps& caps, const Caps& required) {
     if (required.unbound_targets && !caps.unbound_targets) {
         missing.emplace_back("colour targets left unbound while pipelines draw to them");
     }
+    if (required.shading_rates.per_draw && !caps.shading_rates.per_draw) {
+        missing.emplace_back("a shading rate set per draw");
+    }
+    if (required.shading_rates.image && !caps.shading_rates.image) {
+        missing.emplace_back("a shading-rate image");
+    }
     return missing;
 }
 
