@@ -96,3 +96,31 @@ TEST_CASE("A GPU without shading rates is named short of what a program requires
     CHECK(missing_caps(Caps{}, required) ==
           std::vector<std::string>{"a shading rate set per draw", "a shading-rate image"});
 }
+
+TEST_CASE("A draw at full rate is told 1x1 and not to take the image", "[gpu][shading_rate]") {
+    const ShadingRates rates = rtx_5080();
+    const DrawShading full{.rate = {1, 1}, .from_image = false};
+    CHECK(shading_for(rates, Samples::x4, full) == full);
+}
+
+TEST_CASE("A draw taking the image is told so only where the GPU has images", "[gpu][shading_rate]") {
+    const DrawShading image{.rate = {}, .from_image = true};
+    CHECK(shading_for(rtx_5080(), Samples::x4, image) == image);
+
+    const ShadingRates per_draw_only{.per_draw = true};
+    CHECK(shading_for(per_draw_only, Samples::x4, image) == DrawShading{});
+}
+
+TEST_CASE("A draw's own rate is told as one the GPU offers at the targets' samples", "[gpu][shading_rate]") {
+    const ShadingRates rates = rtx_5080();
+    const DrawShading coarse{.rate = {2, 2}, .from_image = false};
+    CHECK(shading_for(rates, Samples::x4, coarse) == coarse);
+    CHECK(shading_for(rates, Samples::x8, coarse) == DrawShading{.rate = {1, 2}, .from_image = false});
+}
+
+TEST_CASE("A GPU without rates per draw is told 1x1 for any rate", "[gpu][shading_rate]") {
+    ShadingRates image_only{.image = true, .tile_width = 8, .tile_height = 8};
+    image_only.offer({2, 2}, Samples::x4);
+    CHECK(shading_for(image_only, Samples::x4, {.rate = {2, 2}, .from_image = false}) == DrawShading{});
+    CHECK(shading_for(ShadingRates{}, Samples::x1, {.rate = {2, 2}, .from_image = false}) == DrawShading{});
+}

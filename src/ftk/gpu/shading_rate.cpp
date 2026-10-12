@@ -54,4 +54,10 @@ ShadingRate rate_for(const ShadingRates& rates, Samples samples, ShadingRate ask
     return best;
 }
 
+DrawShading shading_for(const ShadingRates& rates, Samples samples, DrawShading asked) {
+    if (asked.from_image) return {.rate = {}, .from_image = rates.image};
+    if (!rates.per_draw) return {};
+    return {.rate = rate_for(rates, samples, asked.rate), .from_image = false};
+}
+
 } // namespace ftk::gpu

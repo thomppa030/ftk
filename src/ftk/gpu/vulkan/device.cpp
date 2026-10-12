@@ -240,6 +240,10 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
     caps.block_compression = vk.block_compression_supported();
     caps.unbound_targets = vk.unbound_targets_supported();
     caps.shading_rates = vk.shading_rates();
+    if (caps.shading_rates.per_draw || caps.shading_rates.image) {
+        set_shading_rate = reinterpret_cast<PFN_vkCmdSetFragmentShadingRateKHR>(
+            vkGetDeviceProcAddr(device, "vkCmdSetFragmentShadingRateKHR"));
+    }
     caps.ray_queries = vk.ray_tracing_supported();
     if (caps.ray_queries) {
         create_acceleration = vk.create_accel_struct_fn();

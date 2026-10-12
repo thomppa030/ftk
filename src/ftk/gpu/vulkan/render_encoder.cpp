@@ -215,6 +215,22 @@ Result<> matches_targets(const Device::Impl::PipelineRecord& pipeline, const Com
     return {};
 }
 
+// Sends what the scope's draws shade at, under a pipeline that takes its
+// rate per draw. The first combiner keeps the draw's rate over a rate a
+// primitive could give (never set); the second takes the rate image's
+// (REPLACE) or keeps the draw's own (KEEP).
+void send_shading(Device& device, CommandList::Impl& list) {
+    Device::Impl& impl = device.impl();
+    if (list.pipeline == nullptr || !list.pipeline->variable_rate || impl.set_shading_rate == nullptr) return;
+    const DrawShading sent = shading_for(impl.caps.shading_rates, list.target_samples, list.shading);
+    const VkExtent2D size{sent.rate.width, sent.rate.height};
+    const std::array<VkFragmentShadingRateCombinerOpKHR, 2> ops{
+        VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
+        sent.from_image ? VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR
+                        : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR};
+    impl.set_shading_rate(list.cb, &size, ops.data());
+}
+
 } // namespace
 
 RenderEncoder CommandList::render(const RenderTargets& targets) {
@@ -246,6 +262,7 @@ RenderEncoder CommandList::render(const RenderTargets& targets) {
     self.target_samples = rendering.samples;
     self.vertex_buffer_set = false;
     self.index_buffer_set = false;
+    self.shading = {.rate = {}, .from_image = true};
     return RenderEncoder(*device_, *this, true);
 }
 
@@ -272,6 +289,7 @@ void RenderEncoder::set_pipeline(GraphicsPipeline pipeline) {
         }
     }
     vulkan::use_pipeline(*device_, self, record);
+    send_shading(*device_, self);
 }
 
 void RenderEncoder::bind(BindGroup group) {
@@ -301,6 +319,20 @@ void RenderEncoder::set_scissor(const Rect& scissor) {
     if (!open_) return;
     const VkRect2D native{{scissor.x, scissor.y}, {scissor.width, scissor.height}};
     vkCmdSetScissor(list_->impl().cb, 0, 1, &native);
+}
+
+void RenderEncoder::set_shading_rate(ShadingRate rate) {
+    if (!open_) return;
+    CommandList::Impl& self = list_->impl();
+    self.shading = {.rate = rate, .from_image = false};
+    send_shading(*device_, self);
+}
+
+void RenderEncoder::set_shading_rate_from_image() {
+    if (!open_) return;
+    CommandList::Impl& self = list_->impl();
+    self.shading = {.rate = {}, .from_image = true};
+    send_shading(*device_, self);
 }
 
 void RenderEncoder::set_vertex_buffer(BufferRange vertices) {

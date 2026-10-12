@@ -5,6 +5,7 @@
 #include "ftk/gpu/buffer.hpp"
 #include "ftk/gpu/clear.hpp"
 #include "ftk/gpu/pipeline.hpp"
+#include "ftk/gpu/shading_rate.hpp"
 #include "ftk/gpu/texture.hpp"
 
 #include <cstddef>
@@ -211,6 +212,16 @@ public:
 
     void set_viewport(const Viewport& viewport);
     void set_scissor(const Rect& scissor);
+
+    /// The rate the next draws shade at, whatever a rate image says: 1 × 1
+    /// shades every pixel. A rate the GPU does not offer at the targets'
+    /// samples becomes the largest offered inside it (`rate_for`), and 1 × 1
+    /// on a GPU without rates per draw. Only a pipeline built `variable_rate`
+    /// shades at anything but 1 × 1.
+    void set_shading_rate(ShadingRate rate);
+    /// The next draws shade at the rate image's rate, as they do when the
+    /// scope begins: 1 × 1 where the scope holds no image.
+    void set_shading_rate_from_image();
 
     /// The vertices a pipeline with a vertex layout reads.
     void set_vertex_buffer(BufferRange vertices);

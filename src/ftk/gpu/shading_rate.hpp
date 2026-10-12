@@ -55,4 +55,19 @@ struct ShadingRates {
 /// for the GPU to choose, so what is drawn is what was asked.
 [[nodiscard]] ShadingRate rate_for(const ShadingRates& rates, Samples samples, ShadingRate asked);
 
+/// What a draw shades at: a rate of its own, or the rate image's where the
+/// render scope holds one (and 1 × 1 where it holds none).
+struct DrawShading {
+    ShadingRate rate{};
+    bool from_image{false};
+
+    friend constexpr bool operator==(DrawShading, DrawShading) = default;
+};
+
+/// What a GPU is told for a draw asking `asked` among targets with `samples`:
+/// a rate of its own becomes one the GPU offers there (`rate_for`), and 1 × 1
+/// where it sets no rates per draw; the image is taken only where it has
+/// images.
+[[nodiscard]] DrawShading shading_for(const ShadingRates& rates, Samples samples, DrawShading asked);
+
 } // namespace ftk::gpu

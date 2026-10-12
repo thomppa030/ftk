@@ -106,6 +106,9 @@ struct Device::Impl {
         bool mesh{false};
         bool task{false};
         bool reads_vertices{false};
+        /// Built `variable_rate` on a GPU with shading rates: its draws set
+        /// their rate as dynamic state.
+        bool variable_rate{false};
     };
 
     struct SharedRecord {
@@ -409,6 +412,9 @@ struct Device::Impl {
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count{nullptr};
+    /// A draw's shading rate, loaded where the GPU has shading rates
+    /// (`Caps::shading_rates`); null elsewhere.
+    PFN_vkCmdSetFragmentShadingRateKHR set_shading_rate{nullptr};
     /// What pipelines are built through, loaded from and saved to
     /// `pipeline_cache_file`; null without one.
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};

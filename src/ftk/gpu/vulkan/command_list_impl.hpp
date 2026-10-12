@@ -42,6 +42,9 @@ struct CommandList::Impl {
     Samples target_samples{Samples::x1};
     bool vertex_buffer_set{false};
     bool index_buffer_set{false};
+    /// What the scope's draws shade at, sent whenever a pipeline built
+    /// `variable_rate` is set and whenever it changes under one.
+    DrawShading shading{.rate = {}, .from_image = true};
 
     /// Zones open on the list; the profiler times the first `MAX_ZONE_DEPTH`.
     static constexpr uint32_t MAX_ZONE_DEPTH = 8;

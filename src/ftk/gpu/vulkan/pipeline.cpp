@@ -300,10 +300,15 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport.viewportCount = 1;
     viewport.scissorCount = 1;
-    const VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    // A pipeline drawing at a variable rate takes its rate per draw.
+    const ShadingRates& rates = caps.shading_rates;
+    const bool variable_rate = desc.variable_rate && (rates.per_draw || rates.image);
+    record.variable_rate = variable_rate;
+    const VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                                             VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR};
     VkPipelineDynamicStateCreateInfo dynamic{};
     dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic.dynamicStateCount = 2;
+    dynamic.dynamicStateCount = variable_rate ? 3 : 2;
     dynamic.pDynamicStates = dynamic_states;
 
     const Raster& r = desc.raster;
@@ -363,6 +368,10 @@ Result<Device::Impl::PipelineRecord> Device::Impl::build(const GraphicsPipelineD
     VkGraphicsPipelineCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     create_info.pNext = &rendering;
+    // Built for a scope holding a rate image, which it may also draw without.
+    if (variable_rate && rates.image) {
+        create_info.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+    }
     create_info.stageCount = static_cast<uint32_t>(stage_infos.size());
     create_info.pStages = stage_infos.data();
     // A mesh pipeline reads no vertices and assembles its own primitives.
