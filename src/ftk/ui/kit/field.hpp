@@ -34,6 +34,7 @@ enum class Unit {
     Hertz,
     Kilograms,
     Pixels,
+    Texels,  ///< texels of a texture, as a shadow's bias counts them
     Percent,
     ExposureValue,  ///< stops of exposure, "EV"
     Times,  ///< a multiplier, "1.25 ×"

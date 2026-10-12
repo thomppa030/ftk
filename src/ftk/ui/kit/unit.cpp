@@ -21,6 +21,7 @@ const char* unit_symbol(Unit unit) {
         case Unit::Hertz:           return "Hz";
         case Unit::Kilograms:       return "kg";
         case Unit::Pixels:          return "px";
+        case Unit::Texels:          return "texels";
         case Unit::Percent:         return "%";
         case Unit::ExposureValue:   return "EV";
         case Unit::Times:           return "\xc3\x97";
