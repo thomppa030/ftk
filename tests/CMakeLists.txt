@@ -129,6 +129,7 @@ add_executable(ftk-kit-tests
     test_fields.cpp
     test_find.cpp
     test_grouped_picker.cpp
+    test_history_panel.cpp
     test_kit.cpp
     test_kit_basics.cpp
     test_kit_dock.cpp
