@@ -93,6 +93,13 @@ struct DepthAttachment {
 struct RenderTargets {
     std::vector<ColorAttachment> color{};
     std::optional<DepthAttachment> depth{};
+    /// The rate image draws taking theirs from an image shade by
+    /// (`RenderEncoder::set_shading_rate_from_image`): an `r8_uint` texel of
+    /// `rate_texel()` for each tile of `Caps::shading_rates`' size,
+    /// single-sample, covering the area drawn. The pass declares
+    /// `Access::shading_rate_read` for it. None while its texture is unset; a
+    /// scope holding one draws only pipelines built `variable_rate`.
+    TextureView shading_rate{};
     /// The area drawn, cleared and stored: `width` × `height` pixels from
     /// (`x`, `y`), the top left corner by default; a width or height of 0
     /// reaches the first attachment's edge. Drawing starts with the viewport

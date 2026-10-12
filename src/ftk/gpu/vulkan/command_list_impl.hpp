@@ -40,6 +40,8 @@ struct CommandList::Impl {
     uint32_t target_color_count{0};
     Format target_depth{Format::undefined};
     Samples target_samples{Samples::x1};
+    /// Whether the scope holds a rate image.
+    bool target_rate_image{false};
     bool vertex_buffer_set{false};
     bool index_buffer_set{false};
     /// What the scope's draws shade at, sent whenever a pipeline built

@@ -124,3 +124,14 @@ TEST_CASE("A GPU without rates per draw is told 1x1 for any rate", "[gpu][shadin
     CHECK(shading_for(image_only, Samples::x4, {.rate = {2, 2}, .from_image = false}) == DrawShading{});
     CHECK(shading_for(ShadingRates{}, Samples::x1, {.rate = {2, 2}, .from_image = false}) == DrawShading{});
 }
+
+TEST_CASE("A rate image holds the width's log2 in bits 2-3 and the height's in bits 0-1",
+          "[gpu][shading_rate]") {
+    CHECK(rate_texel({1, 1}) == 0);
+    CHECK(rate_texel({1, 2}) == 1);
+    CHECK(rate_texel({2, 1}) == 4);
+    CHECK(rate_texel({2, 2}) == 5);
+    CHECK(rate_texel({2, 4}) == 6);
+    CHECK(rate_texel({4, 2}) == 9);
+    CHECK(rate_texel({4, 4}) == 10);
+}

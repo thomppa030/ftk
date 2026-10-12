@@ -118,3 +118,13 @@ TEST_CASE("What was made visible to a stage stays visible to it", "[vulkan][acce
     CHECK_FALSE(buffer_already_visible(Access::indirect_read, Access::uniform_read,
                                        Queue::graphics));
 }
+
+TEST_CASE("A shading-rate image is read in its own layout, at the stage that reads rates",
+          "[vulkan][access]") {
+    const vulkan::ImageScope scope = vulkan::image_scope(Access::shading_rate_read, false);
+    CHECK(scope.layout == VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR);
+    CHECK(scope.stages == VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR);
+    CHECK(scope.access == VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR);
+    // The compute queue has no such stage, so a barrier there names every stage instead.
+    CHECK(vulkan::compute_queue_stages(scope.stages) == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+}

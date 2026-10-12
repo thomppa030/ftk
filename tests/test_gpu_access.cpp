@@ -108,3 +108,17 @@ TEST_CASE("A block-compressed format is sized by whole 4 by 4 blocks", "[gpu][fo
     CHECK(kind(Format::bc6h_ufloat) == FormatKind::color);
     CHECK_FALSE(is_block_compressed(Format::rgba8_srgb));
 }
+
+TEST_CASE("A shading-rate image is read, made for that use alone", "[gpu][access]") {
+    CHECK(access_is_read(Access::shading_rate_read));
+    CHECK_FALSE(access_is_write(Access::shading_rate_read));
+    CHECK(applies_to_texture(Access::shading_rate_read));
+    CHECK_FALSE(applies_to_buffer(Access::shading_rate_read));
+    CHECK(texture_use(Access::shading_rate_read) == TextureUses{TextureUse::shading_rate});
+    CHECK(access_name(Access::shading_rate_read) == "shading_rate_read");
+}
+
+TEST_CASE("A rate image's format is one unsigned byte a texel", "[gpu][format]") {
+    CHECK(kind(Format::r8_uint) == FormatKind::color_uint);
+    CHECK(texel_size(Format::r8_uint) == 1);
+}

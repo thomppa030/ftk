@@ -55,6 +55,14 @@ struct ShadingRates {
 /// for the GPU to choose, so what is drawn is what was asked.
 [[nodiscard]] ShadingRate rate_for(const ShadingRates& rates, Samples samples, ShadingRate asked);
 
+/// The value a rate image's texel holds for `rate`, as Vulkan and Direct3D 12
+/// both read it: the width's log2 in bits 2–3 and the height's in bits 0–1,
+/// so 2 × 2 is 5.
+[[nodiscard]] constexpr uint8_t rate_texel(ShadingRate rate) noexcept {
+    const auto side_log2 = [](uint8_t side) -> uint8_t { return side >= 4 ? 2 : side >= 2 ? 1 : 0; };
+    return static_cast<uint8_t>((side_log2(rate.width) << 2) | side_log2(rate.height));
+}
+
 /// What a draw shades at: a rate of its own, or the rate image's where the
 /// render scope holds one (and 1 × 1 where it holds none).
 struct DrawShading {

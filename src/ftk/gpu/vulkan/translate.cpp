@@ -24,6 +24,7 @@ VkFormat to_vk(Format format) {
         case Format::r32_float:         return VK_FORMAT_R32_SFLOAT;
         case Format::r16_uint:          return VK_FORMAT_R16_UINT;
         case Format::r32_uint:          return VK_FORMAT_R32_UINT;
+        case Format::r8_uint:           return VK_FORMAT_R8_UINT;
         case Format::rg8_uint:          return VK_FORMAT_R8G8_UINT;
         case Format::rg32_uint:         return VK_FORMAT_R32G32_UINT;
         case Format::rgba32_float:      return VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -55,6 +56,7 @@ Format from_vk(VkFormat format) {
         case VK_FORMAT_R32_SFLOAT:          return Format::r32_float;
         case VK_FORMAT_R16_UINT:            return Format::r16_uint;
         case VK_FORMAT_R32_UINT:            return Format::r32_uint;
+        case VK_FORMAT_R8_UINT:             return Format::r8_uint;
         case VK_FORMAT_R8G8_UINT:           return Format::rg8_uint;
         case VK_FORMAT_R32G32_UINT:         return Format::rg32_uint;
         case VK_FORMAT_R32G32B32A32_SFLOAT: return Format::rgba32_float;
@@ -104,6 +106,7 @@ VkImageUsageFlags to_vk(TextureUses uses) {
             case TextureUse::storage:      flags |= VK_IMAGE_USAGE_STORAGE_BIT; break;
             case TextureUse::color_target: flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; break;
             case TextureUse::depth_target: flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; break;
+            case TextureUse::shading_rate: flags |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR; break;
         }
     });
     return flags;

@@ -17,6 +17,8 @@ enum class TextureUse : uint8_t {
     color_target,
     /// Rendered to as a depth (and stencil) attachment.
     depth_target,
+    /// Read as a render scope's shading-rate image, a rate for each tile.
+    shading_rate,
 };
 
 template <>
