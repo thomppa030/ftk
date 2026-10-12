@@ -8,6 +8,7 @@ namespace ftk::ui {
 const char* unit_symbol(Unit unit) {
     switch (unit) {
         case Unit::None:            return "";
+        case Unit::Centimetres:     return "cm";
         case Unit::Metres:          return "m";
         case Unit::Kilometres:      return "km";
         case Unit::SquareMetres:    return "m\xc2\xb2";
