@@ -412,6 +412,10 @@ void Foundation::create_logical_device() {
     features.multiDrawIndirect = VK_TRUE;
     features.drawIndirectFirstInstance = VK_TRUE;
     features.independentBlend = VK_TRUE;
+    // A shader reading an input at the pixel's centre under MSAA
+    // (interpolateAtOffset), where it is otherwise read inside the part of
+    // the pixel the surface covers.
+    features.sampleRateShading = VK_TRUE;
     features.textureCompressionBC = supported.textureCompressionBC;
     block_compression_supported_ = supported.textureCompressionBC == VK_TRUE;
 
