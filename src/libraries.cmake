@@ -62,7 +62,7 @@ ftk_library(math
 
 # ftk-platform is everything that talks to the operating system: one
 # backend per system behind platform.hpp, child_process.hpp,
-# file_watcher.hpp, tree_watcher.hpp and shared_library.hpp. Only the
+# tree_watcher.hpp and shared_library.hpp. Only the
 # backend being built is listed, so each system's build checks its own
 # backend's includes.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -71,7 +71,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         ftk/platform/linux/pipes.cpp
         ftk/platform/linux/pipes.hpp
         ftk/platform/linux/platform_linux.cpp
-        ftk/platform/linux/file_watcher_linux.cpp
         ftk/platform/linux/tree_watcher_linux.cpp
         ftk/platform/linux/shared_library_linux.cpp
         ftk/platform/linux/system_fonts_linux.cpp
@@ -83,7 +82,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         ftk/platform/windows/pipes.cpp
         ftk/platform/windows/pipes.hpp
         ftk/platform/windows/platform_windows.cpp
-        ftk/platform/windows/file_watcher_windows.cpp
         ftk/platform/windows/tree_watcher_windows.cpp
         ftk/platform/windows/shared_library_windows.cpp
         ftk/platform/windows/system_fonts_windows.cpp
@@ -101,7 +99,6 @@ ftk_library(platform
     HEADERS
         ftk/platform/child_process.hpp
         ftk/platform/detail/command_line.hpp
-        ftk/platform/file_watcher.hpp
         ftk/platform/tree_watcher.hpp
         ftk/platform/platform.hpp
         ftk/platform/shared_library.hpp

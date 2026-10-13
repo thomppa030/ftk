@@ -3,9 +3,9 @@
 // its own dependencies. Running it calls into each part once.
 
 #include "ftk/base/log.hpp"
-#include "ftk/platform/file_watcher.hpp"
 #include "ftk/platform/platform.hpp"
 #include "ftk/platform/shared_library.hpp"
+#include "ftk/platform/tree_watcher.hpp"
 
 #include <filesystem>
 
@@ -15,8 +15,8 @@ int main() {
     const std::filesystem::path exe = ftk::platform::executable_path();
     const auto pid = ftk::platform::process_id();
 
-    ftk::platform::FileWatcher watcher;
-    const bool watching = watcher.watch(exe.parent_path(), [](const std::filesystem::path&) {});
+    ftk::platform::TreeWatcher watcher;
+    const bool watching = watcher.watch(exe.parent_path());
     (void)watcher.poll();
 
     ftk::platform::SharedLibrary library;
