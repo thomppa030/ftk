@@ -174,6 +174,7 @@ ftk_library(gpu
         ftk/gpu/release_queue.cpp
         ftk/gpu/shader_file.cpp
         ftk/gpu/shader_reflection.cpp
+        ftk/gpu/shading_rate.cpp
         ftk/gpu/staging_ring.cpp
         ftk/gpu/transient_memory.cpp
         ftk/gpu/vulkan/acceleration.cpp
@@ -218,6 +219,7 @@ ftk_library(gpu
         ftk/gpu/release_queue.hpp
         ftk/gpu/sampler.hpp
         ftk/gpu/shader.hpp
+        ftk/gpu/shading_rate.hpp
         ftk/gpu/staging_ring.hpp
         ftk/gpu/swapchain.hpp
         ftk/gpu/texture.hpp

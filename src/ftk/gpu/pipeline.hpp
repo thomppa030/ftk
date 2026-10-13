@@ -247,6 +247,12 @@ struct GraphicsPipelineDesc {
     /// The fragment stage declares that output even where the pass has no
     /// colour target, a depth pass. Metal has the same switch.
     bool alpha_to_coverage{false};
+    /// Whether its draws may shade coarser than every pixel: at the rate
+    /// image's rate in a scope holding one, or at a rate a draw sets
+    /// (`RenderEncoder::set_shading_rate`). Without it every draw shades each
+    /// pixel, and a scope holding a rate image refuses the pipeline. On a GPU
+    /// without shading rates (`Caps::shading_rates`) it changes nothing.
+    bool variable_rate{false};
     /// The shared layouts the pipeline binds; each takes the set its shaders
     /// declare it at (see `place_shared`). Every other set is the pipeline's
     /// own.

@@ -29,6 +29,8 @@ enum class Access : uint8_t {
     /// also samples it: one layout serves both.
     depth_read_sampled,
     input_attachment,
+    /// A render scope's shading-rate image, read for each tile's rate.
+    shading_rate_read,
 
     // Shader reads
     sampled_fragment,
@@ -131,6 +133,7 @@ using AccessSet = Flags<Access>;
         case Access::depth_attachment_read:
         case Access::depth_read_sampled:
         case Access::input_attachment:
+        case Access::shading_rate_read:
         case Access::sampled_fragment:
         case Access::sampled_vertex:
         case Access::sampled_mesh:
@@ -206,6 +209,7 @@ using AccessSet = Flags<Access>;
         case Access::depth_attachment_read: return "depth_attachment_read";
         case Access::depth_read_sampled: return "depth_read_sampled";
         case Access::input_attachment: return "input_attachment";
+        case Access::shading_rate_read: return "shading_rate_read";
         case Access::sampled_fragment: return "sampled_fragment";
         case Access::sampled_vertex: return "sampled_vertex";
         case Access::sampled_mesh: return "sampled_mesh";
@@ -250,6 +254,8 @@ using AccessSet = Flags<Access>;
             return TextureUse::depth_target;
         case Access::depth_read_sampled:
             return TextureUse::depth_target | TextureUse::sampled;
+        case Access::shading_rate_read:
+            return TextureUse::shading_rate;
         case Access::sampled_fragment:
         case Access::sampled_vertex:
         case Access::sampled_mesh:

@@ -10,6 +10,7 @@
 #include "ftk/gpu/readback.hpp"
 #include "ftk/gpu/sampler.hpp"
 #include "ftk/gpu/shader.hpp"
+#include "ftk/gpu/shading_rate.hpp"
 #include "ftk/gpu/texture.hpp"
 #include "ftk/gpu/upload.hpp"
 
@@ -60,6 +61,9 @@ struct Caps {
     /// Without it a pipeline drawing into an unbound target names no format
     /// for it.
     bool unbound_targets{false};
+    /// Shading in blocks of pixels: a rate per draw, a rate image, its tile
+    /// size and the rates offered at each sample count.
+    ShadingRates shading_rates{};
 };
 
 /// What `caps` falls short of in `required`, one phrase each ("mesh shaders",

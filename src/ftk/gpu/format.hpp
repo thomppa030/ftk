@@ -23,6 +23,7 @@ enum class Format : uint8_t {
     rg16_float,
     rgba16_float,
     r32_float,
+    r8_uint,
     r16_uint,
     r32_uint,
     rg8_uint,
@@ -58,6 +59,7 @@ enum class FormatKind : uint8_t {
     switch (format) {
         case Format::undefined:
             return FormatKind::none;
+        case Format::r8_uint:
         case Format::r16_uint:
         case Format::r32_uint:
         case Format::rg8_uint:
@@ -137,6 +139,7 @@ enum class FormatKind : uint8_t {
         case Format::bc7_srgb:
             return 0;
         case Format::r8_unorm:
+        case Format::r8_uint:
             return 1;
         case Format::rg8_unorm:
         case Format::r16_unorm:

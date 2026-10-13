@@ -30,6 +30,7 @@ struct Rendering {
     std::array<Format, MAX_COLOR_TARGETS> color_formats{};
     Format depth_format{Format::undefined};
     Samples samples{Samples::x1};
+    VkRenderingFragmentShadingRateAttachmentInfoKHR shading_rate{};
 };
 
 // One attachment's texture, checked against the area drawn.
@@ -167,6 +168,32 @@ Result<> describe_depth(Device::Impl& device, const DepthAttachment& depth, VkRe
     return {};
 }
 
+// The rate image, which must cover the area drawn in tiles of the GPU's size.
+Result<> describe_shading_rate(Device::Impl& device, const TextureView& view, VkRect2D area, Rendering& out) {
+    const ShadingRates& rates = device.caps.shading_rates;
+    if (!rates.image) return make_error("the shading-rate image cannot be used: this GPU has none");
+    const Device::Impl::TextureRecord* record = device.textures.get(view.texture);
+    if (record == nullptr) return make_error("the shading-rate image no longer exists");
+    const ResolvedView resolved = resolve(view, record->info);
+    if (resolved.format != Format::r8_uint) return make_error("the shading-rate image is not r8_uint");
+    if (record->info.samples != Samples::x1) return make_error("the shading-rate image has more than one sample");
+    const VkExtent2D size = mip_size(record->info, resolved.base_mip);
+    const uint64_t right = uint64_t{static_cast<uint32_t>(area.offset.x)} + area.extent.width;
+    const uint64_t bottom = uint64_t{static_cast<uint32_t>(area.offset.y)} + area.extent.height;
+    if (uint64_t{size.width} * rates.tile_width < right || uint64_t{size.height} * rates.tile_height < bottom) {
+        return make_error("the shading-rate image is too small for the area drawn in " +
+                          std::to_string(rates.tile_width) + " x " + std::to_string(rates.tile_height) + " tiles");
+    }
+    const VkImageView native = device.image_view(view);
+    if (native == VK_NULL_HANDLE) return make_error("the shading-rate image has no view");
+    out.shading_rate.sType = VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR;
+    out.shading_rate.imageView = native;
+    out.shading_rate.imageLayout = vulkan::image_scope(Access::shading_rate_read, false).layout;
+    out.shading_rate.shadingRateAttachmentTexelSize = {rates.tile_width, rates.tile_height};
+    out.info.pNext = &out.shading_rate;
+    return {};
+}
+
 Result<> describe(Device::Impl& device, const RenderTargets& targets, Rendering& out) {
     if (targets.color.empty() && !targets.depth) return make_error("there is nothing to draw to");
     if (targets.color.size() > MAX_COLOR_TARGETS) {
@@ -179,6 +206,9 @@ Result<> describe(Device::Impl& device, const RenderTargets& targets, Rendering&
         const bool first = std::ranges::all_of(targets.color, unbound);
         auto depth = describe_depth(device, *targets.depth, *area, first, out);
         if (!depth) return depth;
+    }
+    if (targets.shading_rate.texture.valid()) {
+        if (auto rate = describe_shading_rate(device, targets.shading_rate, *area, out); !rate) return rate;
     }
 
     out.info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -212,7 +242,26 @@ Result<> matches_targets(const Device::Impl::PipelineRecord& pipeline, const Com
     if (pipeline.samples != list.target_samples) {
         return make_error("draws with other samples than the targets have");
     }
+    if (list.target_rate_image && !pipeline.variable_rate) {
+        return make_error("is not built variable_rate, which a scope holding a shading-rate image needs");
+    }
     return {};
+}
+
+// Sends what the scope's draws shade at, under a pipeline that takes its
+// rate per draw. The first combiner keeps the draw's rate over a rate a
+// primitive could give (never set); the second takes the rate image's
+// (REPLACE) or keeps the draw's own (KEEP).
+void send_shading(Device& device, CommandList::Impl& list) {
+    Device::Impl& impl = device.impl();
+    if (list.pipeline == nullptr || !list.pipeline->variable_rate || impl.set_shading_rate == nullptr) return;
+    const DrawShading sent = shading_for(impl.caps.shading_rates, list.target_samples, list.shading);
+    const VkExtent2D size{sent.rate.width, sent.rate.height};
+    const std::array<VkFragmentShadingRateCombinerOpKHR, 2> ops{
+        VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
+        sent.from_image ? VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR
+                        : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR};
+    impl.set_shading_rate(list.cb, &size, ops.data());
 }
 
 } // namespace
@@ -244,8 +293,10 @@ RenderEncoder CommandList::render(const RenderTargets& targets) {
     self.target_color_count = rendering.info.colorAttachmentCount;
     self.target_depth = rendering.depth_format;
     self.target_samples = rendering.samples;
+    self.target_rate_image = rendering.shading_rate.imageView != VK_NULL_HANDLE;
     self.vertex_buffer_set = false;
     self.index_buffer_set = false;
+    self.shading = {.rate = {}, .from_image = true};
     return RenderEncoder(*device_, *this, true);
 }
 
@@ -272,6 +323,7 @@ void RenderEncoder::set_pipeline(GraphicsPipeline pipeline) {
         }
     }
     vulkan::use_pipeline(*device_, self, record);
+    send_shading(*device_, self);
 }
 
 void RenderEncoder::bind(BindGroup group) {
@@ -301,6 +353,20 @@ void RenderEncoder::set_scissor(const Rect& scissor) {
     if (!open_) return;
     const VkRect2D native{{scissor.x, scissor.y}, {scissor.width, scissor.height}};
     vkCmdSetScissor(list_->impl().cb, 0, 1, &native);
+}
+
+void RenderEncoder::set_shading_rate(ShadingRate rate) {
+    if (!open_) return;
+    CommandList::Impl& self = list_->impl();
+    self.shading = {.rate = rate, .from_image = false};
+    send_shading(*device_, self);
+}
+
+void RenderEncoder::set_shading_rate_from_image() {
+    if (!open_) return;
+    CommandList::Impl& self = list_->impl();
+    self.shading = {.rate = {}, .from_image = true};
+    send_shading(*device_, self);
 }
 
 void RenderEncoder::set_vertex_buffer(BufferRange vertices) {

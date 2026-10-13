@@ -42,6 +42,10 @@ ImageScope image_scope(Access access, bool depth) {
                     FRAGMENT_TESTS | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT};
+        case Access::shading_rate_read:
+            return {VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR,
+                    VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR};
         case Access::sampled_fragment:
             return {sampled_layout(depth), VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT};
@@ -201,6 +205,7 @@ std::string layout_name(VkImageLayout layout) {
         case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:             return "XFER_SRC";
         case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:             return "XFER_DST";
         case VK_IMAGE_LAYOUT_PREINITIALIZED:                   return "PREINIT";
+        case VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR: return "RATE_ATT";
         case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:         return "DEPTH_ATT";
         case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:           return "DEPTH_RO";
         case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                  return "PRESENT";
@@ -217,7 +222,8 @@ VkPipelineStageFlags2 compute_queue_stages(VkPipelineStageFlags2 stages) {
         VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT |
         VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT |
         VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT |
-        VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT |
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
     if ((stages & GRAPHICS_ONLY) == 0) return stages;
     return (stages & ~GRAPHICS_ONLY) | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
