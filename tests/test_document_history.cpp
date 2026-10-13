@@ -82,3 +82,16 @@ TEST_CASE("A step the editor records itself is followed, not recorded twice", "[
     CHECK(e.history.commands().size() == 1);
     CHECK(e.restores == 0);
 }
+
+TEST_CASE("A file written on disk is taken in only when nothing here is unsaved", "[document_history]") {
+    using ftk::FileWritten;
+    using ftk::on_file_written;
+    // The editor's own save: the file says what it last saved.
+    CHECK(on_file_written("mass=2", "mass=2", "mass=2") == FileWritten::nothing);
+    CHECK(on_file_written("mass=2", "mass=2", "mass=3") == FileWritten::nothing);
+    // Written elsewhere.
+    CHECK(on_file_written("mass=5", "mass=2", "mass=2") == FileWritten::take);
+    CHECK(on_file_written("mass=5", "mass=2", "mass=3") == FileWritten::ask);
+    // Written elsewhere to what is held here: the edits are saved now.
+    CHECK(on_file_written("mass=3", "mass=2", "mass=3") == FileWritten::take);
+}

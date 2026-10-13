@@ -3,8 +3,10 @@
 #include "ftk/app/command_history.hpp"
 #include "ftk/base/result.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace ftk {
 
@@ -44,5 +46,22 @@ private:
     int recorded_at_{-1};
     bool was_editing_{false};
 };
+
+/// What an editor holding a document does when its file is written on disk.
+enum class FileWritten : uint8_t {
+    /// The file says what was last saved: the editor's own save, or a write
+    /// that changes nothing.
+    nothing,
+    /// Nothing is unsaved here, or the file says what is held: the file's
+    /// document is taken in, and is what was last saved.
+    take,
+    /// There are unsaved edits here: whether to keep them is asked.
+    ask,
+};
+
+/// What to do with `on_disk`, the file's document as the editor would write
+/// it, given `saved`, the document as last opened or saved, and `held`, the
+/// one the editor holds now.
+[[nodiscard]] FileWritten on_file_written(std::string_view on_disk, std::string_view saved, std::string_view held);
 
 } // namespace ftk

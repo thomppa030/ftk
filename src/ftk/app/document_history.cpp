@@ -72,4 +72,9 @@ void DocumentHistory::apply(const std::string& text) {
     recorded_ = document_();
 }
 
+FileWritten on_file_written(std::string_view on_disk, std::string_view saved, std::string_view held) {
+    if (on_disk == saved) return FileWritten::nothing;
+    return held == saved || held == on_disk ? FileWritten::take : FileWritten::ask;
+}
+
 } // namespace ftk
