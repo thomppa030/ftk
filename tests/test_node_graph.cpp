@@ -4,6 +4,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <glm/geometric.hpp>
+
 #include <algorithm>
 #include <optional>
 
@@ -27,6 +29,9 @@ struct PinGraph {
     int removes{0};
     std::optional<glm::vec2> double_clicked;
     std::optional<ui::NodeGraphEvents::Placed> placed;
+    int copies{0};
+    std::optional<glm::vec2> pasted;
+    std::optional<glm::vec2> duplicated;
 
     static constexpr ui::NodeEnd SOURCE_OUT{1, 11};
     static constexpr ui::NodeEnd TARGET_AMOUNT{2, 21};
@@ -80,6 +85,9 @@ struct PinGraph {
         if (events.remove) ++removes;
         if (events.double_clicked) double_clicked = events.double_clicked;
         if (events.placed) placed = events.placed;
+        if (events.copy) ++copies;
+        if (events.paste) pasted = events.paste;
+        if (events.duplicate) duplicated = events.duplicate;
     }
 
     // A search palette of two choices, and what it was last asked for.
@@ -451,6 +459,76 @@ TEST_CASE("Ctrl A selects every node, and Del asks to remove them", "[ui][node_g
     CHECK(selected == std::vector<uint64_t>{1, 2, 3});
     h.press(ui::Key::Delete);
     CHECK(g.removes == 1);
+}
+
+TEST_CASE("Ctrl C copies the selected nodes, Ctrl X cuts them, and nothing is copied without a selection",
+          "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 source = graph.screen_position({40.0f, 13.0f});
+    h.drag(source, source);
+    h.press(ui::Key::C, {.ctrl = true});
+    CHECK(g.copies == 1);
+    CHECK(g.removes == 0);
+    h.press(ui::Key::X, {.ctrl = true});
+    CHECK(g.copies == 2);
+    CHECK(g.removes == 1);
+
+    graph.clear_selection();
+    h.press(ui::Key::C, {.ctrl = true});
+    h.press(ui::Key::X, {.ctrl = true});
+    CHECK(g.copies == 2);
+    CHECK(g.removes == 1);
+}
+
+TEST_CASE("Ctrl V pastes at the mouse, snapped, or in the middle of the view with the mouse off it",
+          "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    // With nothing selected too: what is pasted comes from elsewhere.
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty);
+    h.press(ui::Key::V, {.ctrl = true});
+    REQUIRE(g.pasted.has_value());
+    CHECK(*g.pasted == glm::vec2(204.0f, 96.0f));
+
+    g.pasted.reset();
+    h.move_to({900.0f, 700.0f});
+    h.press(ui::Key::V, {.ctrl = true});
+    REQUIRE(g.pasted.has_value());
+    CHECK(glm::distance(graph.screen_position(*g.pasted), glm::vec2(400.0f, 300.0f)) < 30.0f);
+}
+
+TEST_CASE("Ctrl D duplicates the selected nodes a grid step away, and the copies can be selected",
+          "[ui][node_graph]") {
+    PinGraph g;
+    ui::NodeGraph graph;
+    KitHarness h;
+    h.set_ui([&] { g.draw(graph); });
+    h.step(2);
+
+    const glm::vec2 empty = graph.screen_position({200.0f, 100.0f});
+    h.drag(empty, empty);
+    h.press(ui::Key::D, {.ctrl = true});
+    CHECK_FALSE(g.duplicated.has_value());
+
+    h.press(ui::Key::A, {.ctrl = true});
+    h.press(ui::Key::D, {.ctrl = true});
+    REQUIRE(g.duplicated.has_value());
+    CHECK(*g.duplicated == glm::vec2(24.0f, 24.0f));
+
+    const std::vector<uint64_t> copies{3, 1};
+    graph.select_nodes(copies);
+    CHECK(graph.selected_nodes() == copies);
+    CHECK(graph.selected_node() == 1);
 }
 
 TEST_CASE("Right-click on one of several selected nodes keeps them all", "[ui][node_graph]") {
