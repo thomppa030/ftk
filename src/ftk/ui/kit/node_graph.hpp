@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,9 @@
 // takes every node it touches (Shift adds them to the selection, Ctrl takes
 // them out of it), Ctrl and a click on a node adds or takes out that one,
 // Shift and a click adds it, Ctrl A takes them all. Nodes selected together
-// move together.
+// move together. Ctrl C copies them, Ctrl X cuts them, Ctrl V pastes at the
+// mouse and Ctrl D duplicates them beside themselves; what a copy holds is the
+// caller's to keep, on the clipboard so that another graph can take it.
 //
 // A caller that gives a palette has a node added by searching for it (sheet
 // 38): Space or a right-click on the empty canvas opens the kit's grouped
@@ -109,6 +112,10 @@ enum class NodeAnchor : uint8_t { TopLeft, Centre };
 
 /// The width a node is drawn at unless it asks for another, in graph units.
 inline constexpr float NODE_WIDTH = 176.0f;
+
+/// How far Ctrl D puts a duplicate from what it copies, in graph units: a
+/// grid step down and right.
+inline constexpr glm::vec2 NODE_DUPLICATE_OFFSET{24.0f, 24.0f};
 
 struct NodeDesc {
     /// Non-zero and unique in the graph.
@@ -218,8 +225,18 @@ struct NodeGraphEvents {
     std::vector<Move> moved;
     /// Nodes one of whose values was edited this frame.
     std::vector<uint64_t> edited;
-    /// Remove what is selected: Del, or the menu asked.
+    /// Remove what is selected: Del, Ctrl X, or the menu asked.
     bool remove{false};
+    /// Copy the selected nodes and the links between them: Ctrl C, or Ctrl
+    /// X with `remove` set too, so they are copied before they go.
+    bool copy{false};
+    /// Paste what was copied, its top left here: Ctrl V, at the mouse or
+    /// with the mouse off the canvas in the middle of the view; snapped, in
+    /// graph units.
+    std::optional<glm::vec2> paste;
+    /// Copy the selected nodes and the links between them into the graph,
+    /// this far from them: Ctrl D, NODE_DUPLICATE_OFFSET.
+    std::optional<glm::vec2> duplicate;
     /// A double-click on empty canvas, snapped, in graph units.
     std::optional<glm::vec2> double_clicked;
     /// A choice picked in the search palette, for the caller to add where
@@ -259,6 +276,9 @@ public:
     [[nodiscard]] uint64_t selected_link() const { return selected_link_; }
     /// Selects that node alone.
     void select_node(uint64_t id);
+    /// Selects those nodes and nothing else (what was pasted), the last as
+    /// the one selected last.
+    void select_nodes(std::span<const uint64_t> ids);
     void select_link(uint64_t id);
     void clear_selection();
 

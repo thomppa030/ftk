@@ -176,6 +176,13 @@ void NodeGraph::select_node(uint64_t id) {
     if (id != 0) selected_nodes_.push_back(id);
 }
 
+void NodeGraph::select_nodes(std::span<const uint64_t> ids) {
+    clear_selection();
+    for (const uint64_t id : ids) {
+        if (id != 0) add_to_selection(id);
+    }
+}
+
 void NodeGraph::select_link(uint64_t id) {
     clear_selection();
     selected_link_ = id;
@@ -596,9 +603,18 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         palette_ = NodePlace{snap(mouse_graph), std::nullopt};
         grouped_picker::open("##palette", view_.to_screen(palette_->at) + glm::vec2(PALETTE_OFFSET));
     }
-    if (keys && desc.select_many && (modifiers().ctrl || modifiers().super) && key_pressed(Key::A)) {
+    const bool command = modifiers().ctrl || modifiers().super;
+    if (keys && desc.select_many && command && key_pressed(Key::A)) {
         clear_selection();
         for (const LaidNode& node : laid_) selected_nodes_.push_back(node.id);
+    }
+    if (keys && command && drag_ == Drag::None && !selected_nodes_.empty()) {
+        if (key_pressed(Key::C)) events.copy = true;
+        if (key_pressed(Key::X)) events.copy = events.remove = true;
+        if (key_pressed(Key::D)) events.duplicate = NODE_DUPLICATE_OFFSET;
+    }
+    if (keys && command && drag_ == Drag::None && key_pressed(Key::V)) {
+        events.paste = snap(hovered ? mouse_graph : view_.to_world(origin + size * 0.5f));
     }
 
     // ── Drawing ───────────────────────────────────────────────────────
