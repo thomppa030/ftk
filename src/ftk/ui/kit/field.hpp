@@ -39,6 +39,7 @@ enum class Unit {
     ExposureValue,  ///< stops of exposure, "EV"
     Times,  ///< a multiplier, "1.25 ×"
     Megabytes,
+    Centimetres,
 };
 
 /// The symbol drawn for a unit, empty for Unit::None.
