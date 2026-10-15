@@ -33,8 +33,9 @@ namespace ftk {
 class Window;
 
 namespace gpu {
+class CommandList;
 class Swapchain;
-}
+} // namespace gpu
 
 /// What a program's main window is made with.
 struct AppWindowDesc {
@@ -52,12 +53,16 @@ struct AppWindowDesc {
 /// root, `size` in layout units.
 using UiDraw = std::function<void(ui::core::Context& ui, glm::vec2 size)>;
 
-/// What a program does in each frame: `update`, then `ui`.
+/// What a program does in each frame: `update`, then `ui`, then `record`.
 struct AppFrame {
     UiDraw ui{};
     /// After the platform's events, before the frame records: work that must
     /// not run inside one.
     std::function<void()> update{};
+    /// The program's own GPU work, recorded into the frame after the UI is
+    /// built and before it is drawn: passes into textures the UI shows, as a
+    /// viewport's picture, which it leaves readable by the fragment stage.
+    std::function<void(gpu::CommandList& cmd)> record{};
 };
 
 /// A frame read back from the GPU.
@@ -97,6 +102,10 @@ public:
     /// popups) settle.
     /// @return the last frame's pixels, or why they could not be drawn or read
     [[nodiscard]] Result<Shot> shot(const UiDraw& ui, glm::uvec2 size, float scale = 1.0f, int frames = 4);
+
+    /// The same for `frame`: its `record` runs in each frame drawn, after the
+    /// UI is built, as in run(). Its `update` is the caller's to run.
+    [[nodiscard]] Result<Shot> shot(const AppFrame& frame, glm::uvec2 size, float scale = 1.0f, int frames = 4);
 
     [[nodiscard]] Window& window() const { return *window_; }
     [[nodiscard]] gpu::Device& device() const { return *device_; }
