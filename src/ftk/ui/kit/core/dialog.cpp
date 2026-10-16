@@ -2,7 +2,9 @@
 
 #include "ftk/ui/kit/asset_header.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -15,9 +17,12 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace ftk::ui {
 
@@ -25,8 +30,9 @@ using namespace corekit;
 
 namespace {
 
-// The dialog's width, and the least a button in it is.
+// The dialog's width, the clash dialog's, and the least a button in them is.
 constexpr float DIALOG_WIDTH = 380.0f;
+constexpr float CLASH_WIDTH = 600.0f;
 constexpr float BUTTON_MIN = 96.0f;
 constexpr float PADDING_X = 16.0f;
 constexpr float PADDING_Y = 14.0f;
@@ -89,7 +95,20 @@ void open_dialog(const char* id, DialogAnchor anchor) {
     ui().open_popup(ui().id(id), {anchor.at.x - anchor.align * DIALOG_WIDTH, anchor.at.y});
 }
 
+namespace {
+
+// begin_dialog() for a dialog `width` wide.
+bool begin_dialog_as_wide(const char* id, const DialogSpec& spec, float width);
+
+} // namespace
+
 bool detail::begin_dialog(const char* id, const DialogSpec& spec) {
+    return begin_dialog_as_wide(id, spec, DIALOG_WIDTH);
+}
+
+namespace {
+
+bool begin_dialog_as_wide(const char* id, const DialogSpec& spec, float width) {
     core::Context& context = ui();
     Kit& k = kit();
     const Id popup = context.id(id);
@@ -97,8 +116,8 @@ bool detail::begin_dialog(const char* id, const DialogSpec& spec) {
     const bool open = corekit::begin_popup(popup,
                                            {.padding = {PADDING_X, PADDING_Y},
                                             .scroll = false,
-                                            .min_size = {DIALOG_WIDTH, 0.0f},
-                                            .max_size = {DIALOG_WIDTH, std::numeric_limits<float>::infinity()}},
+                                            .min_size = {width, 0.0f},
+                                            .max_size = {width, std::numeric_limits<float>::infinity()}},
                                            PopupKind::Dialog);
     if (!open) {
         store_bool(seen, false);
@@ -132,9 +151,16 @@ bool detail::begin_dialog(const char* id, const DialogSpec& spec) {
     return true;
 }
 
-DialogAnswer detail::end_dialog(const DialogSpec& spec, const DialogButtons& buttons) {
+} // namespace
+
+DialogAnswer detail::end_dialog(const DialogSpec& spec, const DialogButtons& buttons,
+                                const std::function<void(float width)>& left) {
     end_body();
     reserve({0.0f, theme::GAP_M});
+    if (left) {
+        left(std::max(space_left().x - buttons_width(spec) - theme::GAP_M, 0.0f));
+        same_line();
+    }
     DialogAnswer answer = dialog_buttons(spec, buttons, kit().dialog_appearing);
     // Enter presses the button that took the focus as the dialog opened, as
     // ImGui's keyboard does: Cancel on a dialog that destroys, else the verb
@@ -288,6 +314,165 @@ UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<U
     const int ticked = item_rows(items);
     const std::string verb = ticked == 0 ? std::string("Quit") : "Save " + std::to_string(ticked) + " and quit";
     return unsaved_buttons(verb.c_str());
+}
+
+namespace {
+
+// The clash dialog's rows: their room around what they hold, their corners,
+// and how wide their choice is.
+constexpr float CLASH_PAD_X = 8.0f;
+constexpr float CLASH_PAD_Y = 7.0f;
+constexpr float CLASH_ROUNDING = 4.0f;
+constexpr float CLASH_CHOICE_WIDTH = 228.0f;
+constexpr std::array<const char*, 3> CLASH_CHOICES{"Replace", "Keep both", "Skip"};
+// The mono line under a row's name: what is there and what comes.
+constexpr float CLASH_FACTS_TEXT = theme::SMALL_TEXT - 1.0f;
+
+// The choice `index` (counted from Replace) as segments `width` wide: all
+// three, or Keep both and Skip where the copy can't write over what is
+// there. Returns whether it was changed.
+bool clash_choice(const char* id, int& index, bool replaceable, float width) {
+    const std::span<const char* const> all(CLASH_CHOICES);
+    const std::span<const char* const> names = replaceable ? all : all.subspan(1);
+    int shown = replaceable || index < 0 ? index : index - 1;
+    next_width(width);
+    const bool changed = detail::segmented(id, shown, names).changed;
+    if (changed) index = replaceable ? shown : shown + 1;
+    return changed;
+}
+
+// One name asked about, a row on the sunken surface: its icon, name and a
+// note, over what is there and what comes, the choice at the right.
+void clash_row(ClashItem& item) {
+    core::Context& context = ui();
+    const float name_h = line_height();
+    float facts_h = 0.0f;
+    {
+        FontScope mono(Font::Mono, CLASH_FACTS_TEXT);
+        facts_h = line_height();
+    }
+    const float height = std::max(name_h + facts_h, frame_height()) + (CLASH_PAD_Y * 2.0f);
+    const core::Rect row = context.layout().next({space_left().x, height});
+    const glm::vec2 after = cursor();
+    context.semantics(context.id("##clash"), core::Role::ListItem, item.name, {}, {});
+    context.draw_list().rect_filled(row.min, row.max, faded(theme::surface_sunken()), CLASH_ROUNDING);
+
+    const float choice_w = item.replaceable ? CLASH_CHOICE_WIDTH : CLASH_CHOICE_WIDTH * 2.0f / 3.0f;
+    set_cursor({row.max.x - CLASH_PAD_X - choice_w, row.min.y + std::floor((height - frame_height()) * 0.5f)});
+    int index = static_cast<int>(item.choice);
+    if (clash_choice("##choice", index, item.replaceable, choice_w)) item.choice = static_cast<ClashChoice>(index);
+    set_cursor(after);
+
+    const float right = row.max.x - (CLASH_PAD_X * 2.0f) - choice_w;
+    const float top = std::floor(row.min.y + ((height - name_h - facts_h) * 0.5f));
+    float x = row.min.x + CLASH_PAD_X;
+    if (item.icon != nullptr) {
+        draw_text({x, top}, item.icon_colour, item.icon);
+        x += measure(item.icon).x + theme::GAP_S + theme::GAP_XS;
+    }
+    // What the choice does beyond the name: what else replacing changes, or
+    // the name a kept copy takes.
+    const std::string note = item.choice == ClashChoice::Replace ? item.replace_note
+                             : item.choice == ClashChoice::KeepBoth && !item.kept_name.empty() ? "as " + item.kept_name
+                                                                                               : std::string{};
+    float note_w = 0.0f;
+    if (!note.empty()) {
+        FontScope mono(Font::Mono, CLASH_FACTS_TEXT);
+        note_w = measure(note).x + theme::GAP_M;
+    }
+    const std::string name = ellipsized(item.name, std::max(right - x - note_w, 0.0f));
+    draw_text({x, top}, theme::text(), name);
+    const float name_end = x + measure(name).x + theme::GAP_M;
+    {
+        FontScope mono(Font::Mono, CLASH_FACTS_TEXT);
+        if (!note.empty()) {
+            draw_text({name_end, top + std::floor((name_h - facts_h) * 0.5f)}, theme::text_disabled(),
+                      ellipsized(note, std::max(right - name_end, 0.0f)));
+        }
+        // "here 398 KB, 2 Oct 14:20 · dropped 412 KB, today 09:12": the words
+        // in the secondary colour, what they say dimmer.
+        float at = row.min.x + CLASH_PAD_X;
+        const auto part = [&](const std::string& said, Color colour) {
+            const std::string shown = ellipsized(said, std::max(right - at, 0.0f));
+            draw_text({at, top + name_h}, colour, shown);
+            at += measure(shown).x;
+        };
+        part("here ", theme::text_secondary());
+        part(item.here, theme::text_disabled());
+        part(" \xc2\xb7 dropped ", theme::text_secondary());
+        part(item.dropped, theme::text_disabled());
+    }
+}
+
+// What the warning names: the one written over, or the first and how many
+// more.
+std::string written_over(std::span<const ClashItem> items, const std::string& folder) {
+    std::vector<const ClashItem*> replaced;
+    for (const ClashItem& item : items) {
+        if (item.choice == ClashChoice::Replace && item.replaceable) replaced.push_back(&item);
+    }
+    if (replaced.empty()) return {};
+    const std::string where = folder.empty() ? std::string{} : " in " + folder;
+    const std::string first = ellipsized(replaced.front()->name, 160.0f);
+    if (replaced.size() == 1) return first + where + " is overwritten.";
+    return first + " and " + std::to_string(replaced.size() - 1) + " more" + where + " are overwritten.";
+}
+
+} // namespace
+
+void open_clash_dialog(const char* id, DialogAnchor anchor) {
+    ui().open_popup(ui().id(id), {anchor.at.x - anchor.align * CLASH_WIDTH, anchor.at.y});
+}
+
+DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<ClashItem> items) {
+    if (!begin_dialog_as_wide(id, {.title = spec.title}, CLASH_WIDTH)) return DialogAnswer::None;
+
+    if (!spec.copied.empty()) status(Severity::Success, spec.copied.c_str());
+    reserve({0.0f, theme::GAP_S});
+
+    // "Every file": lit where every row agrees, and setting them all; Replace
+    // leaves the rows that can't write over what is there as they are.
+    {
+        const bool agree = !items.empty() && std::ranges::all_of(items, [&](const ClashItem& item) {
+            return item.choice == items.front().choice;
+        });
+        int every = agree ? static_cast<int>(items.front().choice) : -1;
+        const glm::vec2 start = cursor();
+        align_text_to_frame();
+        text("Every file", theme::text());
+        set_cursor({start.x + space_left().x - CLASH_PAD_X - CLASH_CHOICE_WIDTH, start.y});
+        if (clash_choice("##every", every, true, CLASH_CHOICE_WIDTH)) {
+            for (ClashItem& item : items) {
+                if (every != static_cast<int>(ClashChoice::Replace) || item.replaceable) {
+                    item.choice = static_cast<ClashChoice>(every);
+                }
+            }
+        }
+    }
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        IdScope scope(static_cast<int>(i));
+        clash_row(items[i]);
+    }
+
+    // Counted once the rows have taken this frame's clicks, so the buttons
+    // under them say what they do now.
+    const auto counted = [&](ClashChoice choice) {
+        return std::ranges::count_if(items, [&](const ClashItem& item) {
+            return item.choice == choice && (choice != ClashChoice::Replace || item.replaceable);
+        });
+    };
+    const auto copies = counted(ClashChoice::Replace) + counted(ClashChoice::KeepBoth);
+    const std::string verb = copies == 1 ? std::string("Copy 1 file") : "Copy " + std::to_string(copies) + " files";
+    const DialogSpec dialog{
+        .title = spec.title, .confirm = verb.c_str(), .destructive = counted(ClashChoice::Replace) > 0};
+    const std::string warning = written_over(items, spec.folder);
+    return detail::end_dialog(dialog,
+                              {.can_confirm = copies > 0, .why_not = "Every file is skipped, as Cancel skips them"},
+                              [&](float) {
+                                  if (warning.empty()) return;
+                                  align_text_to_frame();
+                                  status(Severity::Warning, warning.c_str());
+                              });
 }
 
 RecoverAnswer recover_dialog(const char* id, const char* title, const char* text, std::span<UnsavedItem> items) {

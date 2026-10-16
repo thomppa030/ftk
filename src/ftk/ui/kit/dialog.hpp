@@ -4,6 +4,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>
@@ -81,7 +82,11 @@ struct DialogButtons {
 };
 
 bool begin_dialog(const char* id, const DialogSpec& spec);
-DialogAnswer end_dialog(const DialogSpec& spec, const DialogButtons& buttons = {});
+/// Ends the dialog with its buttons; `left`, when given, draws first on
+/// their line in the room left of them, given that room's width (a status
+/// line).
+DialogAnswer end_dialog(const DialogSpec& spec, const DialogButtons& buttons = {},
+                        const std::function<void(float width)>& left = {});
 /// Cancel, then the verb, at the right of the current line, `inset` in
 /// from the window's content edge.
 DialogAnswer dialog_buttons(const DialogSpec& spec, const DialogButtons& buttons, bool appearing, float inset = 0.0f);
@@ -131,6 +136,52 @@ struct UnsavedItem {
 /// each, Don't save on the left, Cancel, and "Save N and quit" counting the
 /// ticked ones. Returns the answer on the frame it is given.
 UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items);
+
+/// How a name a copy finds already there is answered.
+enum class ClashChoice : std::uint8_t { Replace, KeepBoth, Skip };
+
+/// A name a copy finds already there, which the clash dialog asks about.
+struct ClashItem {
+    const char* icon{nullptr};
+    Color icon_colour{};
+    std::string name{};     ///< "crate.gltf"
+    std::string here{};     ///< what is there: "398 KB, 2 Oct 14:20"
+    std::string dropped{};  ///< what comes: "412 KB, today 09:12"
+    /// Said beside the name while it is replaced: what else that changes
+    /// ("crate.fjmesh comes back changed"); empty for nothing.
+    std::string replace_note{};
+    /// The name a copy kept beside it takes ("lantern_1.glb"), said beside
+    /// the name while Keep both is chosen.
+    std::string kept_name{};
+    /// What is there is a file the copy can write over; Replace isn't
+    /// offered for a folder.
+    bool replaceable{true};
+    ClashChoice choice{ClashChoice::Skip};
+};
+
+/// What the clash dialog says around its rows.
+struct ClashSpec {
+    /// The question: "Replace the 3 files already in props?"
+    const char* title{""};
+    /// What was copied without asking, in a success line ("9 other files
+    /// were copied."); empty for nothing.
+    std::string copied{};
+    /// The folder copied into, as the warning names it ("props").
+    std::string folder{};
+};
+
+/// Opens the clash dialog `id` hanging from `anchor`, as wide as it is.
+void open_clash_dialog(const char* id, DialogAnchor anchor);
+/// Asks about names a copy finds already there (sheet 46, D1): the title,
+/// what was copied already, a row "Every file" whose Replace | Keep both |
+/// Skip sets them all, then a row per name on the sunken surface with what
+/// is there and what comes in the mono face and its own choice, which the
+/// dialog changes in `items`. The verb counts what will be copied ("Copy 2
+/// files"); while anything is replaced it is the danger kind, a warning in
+/// the bar names what is written over, and Cancel takes Enter. Cancel and
+/// Esc answer Cancel, which the caller takes as Skip for every one. Returns
+/// the answer on the frame it is given.
+DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<ClashItem> items);
 
 /// What to do with the unsaved work a program kept when it last ended
 /// without saving it.
