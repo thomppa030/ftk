@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -142,6 +143,41 @@ struct PlainField {
 };
 
 } // namespace
+
+TEST_CASE("text_field shows its hint while empty and commits what is typed over it", "[ui][text_field]") {
+    KitHarness h;
+    std::string value;
+    int commits = 0;
+    h.set_ui([&] {
+        if (ftk::ui::text_field("##Output", value, {.hint = "Beside each source"}).committed) ++commits;
+        h.mark("field");
+        ui::button("Elsewhere");
+        h.mark("elsewhere");
+    });
+    h.step(2);
+    const auto drew_hint = [&] {
+        const uint32_t hint = ftk::ui::core::pack_colour(ftk::theme::text_disabled());
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == hint && h.rect("field").contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(drew_hint());
+    // The hint is never the value: leaving the field untouched commits nothing.
+    h.click("field");
+    h.click("elsewhere");
+    CHECK(commits == 0);
+    CHECK(value.empty());
+    h.click("field");
+    h.type("models");
+    h.press(ui::Key::Enter);
+    CHECK(commits == 1);
+    CHECK(value == "models");
+    h.step();
+    CHECK_FALSE(drew_hint());
+}
 
 TEST_CASE("text_field leaves the value alone while typing and writes it on Enter", "[ui][text_field]") {
     PlainField f;

@@ -17,6 +17,15 @@ namespace ftk::ui {
 ///     }
 Edit text_field(const char* id, std::string& value);
 
+struct TextFieldOptions {
+    /// Shown dimmed while the field is empty: what an empty field stands
+    /// for ("Beside each source").
+    const char* hint{nullptr};
+};
+
+/// The same field, with options.
+Edit text_field(const char* id, std::string& value, TextFieldOptions options);
+
 struct TextEntryOptions {
     /// Shown dimmed while the field is empty.
     const char* hint{nullptr};
