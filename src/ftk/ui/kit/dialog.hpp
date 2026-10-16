@@ -30,6 +30,9 @@ struct DialogSpec {
     const char* title{""};
     /// The verb on the confirming button.
     const char* confirm{"OK"};
+    /// The word on the button that answers no, which Esc presses: "Not now"
+    /// on a dialog that asks again later, "Close" once nothing is left to do.
+    const char* cancel{"Cancel"};
     /// Destroys something: the confirming button is the danger kind and
     /// Cancel starts with the focus, so Enter cancels until the user moves.
     bool destructive{false};

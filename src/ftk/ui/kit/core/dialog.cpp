@@ -42,8 +42,12 @@ float confirm_width(const DialogSpec& spec) {
     return std::max(BUTTON_MIN, measure(spec.confirm).x + kit().style.frame_padding.x * 2.0f);
 }
 
+float cancel_width(const DialogSpec& spec) {
+    return std::max(BUTTON_MIN, measure(spec.cancel).x + kit().style.frame_padding.x * 2.0f);
+}
+
 float buttons_width(const DialogSpec& spec) {
-    return BUTTON_MIN + kit().style.item_spacing.x + confirm_width(spec);
+    return cancel_width(spec) + kit().style.item_spacing.x + confirm_width(spec);
 }
 
 // The right edge of what the window or dialog being drawn holds.
@@ -157,7 +161,7 @@ DialogAnswer detail::dialog_buttons(const DialogSpec& spec, const DialogButtons&
     (void)appearing;
     set_cursor({std::max(cursor().x, content_right() - inset - buttons_width(spec)), cursor().y});
     DialogAnswer answer = DialogAnswer::None;
-    if (button("Cancel", ButtonKind::Secondary, {BUTTON_MIN, 0.0f})) answer = DialogAnswer::Cancel;
+    if (button(spec.cancel, ButtonKind::Secondary, {cancel_width(spec), 0.0f})) answer = DialogAnswer::Cancel;
     same_line();
     {
         Disabled off(!buttons.can_confirm);

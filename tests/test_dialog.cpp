@@ -71,6 +71,35 @@ TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless so
     CHECK(answer == ui::DialogAnswer::None);
 }
 
+TEST_CASE("A window's button bar names its no as the dialog asks, and Esc still presses it", "[ui][kit]") {
+    KitHarness h;
+    ui::DialogAnswer answer = ui::DialogAnswer::None;
+    const char* cancel = "Not now";
+    h.set_ui([&] {
+        const auto a = ui::window_bar({.title = "Import models", .confirm = "Import 179", .cancel = cancel}, {});
+        if (a != ui::DialogAnswer::None) answer = a;
+    });
+    h.step(2);
+    const auto* not_now = h.find("Not now", ftk::ui::core::Role::Button);
+    REQUIRE(not_now != nullptr);
+    CHECK(h.find("Cancel", ftk::ui::core::Role::Button) == nullptr);
+    h.click_at(not_now->rect.centre());
+    CHECK(answer == ui::DialogAnswer::Cancel);
+
+    // A longer word widens its button, the verb still at the right edge, clear of it.
+    cancel = "Close and leave the rest raw";
+    answer = ui::DialogAnswer::None;
+    h.step(2);
+    const auto* close = h.find(cancel, ftk::ui::core::Role::Button);
+    const auto* verb = h.find("Import 179", ftk::ui::core::Role::Button);
+    REQUIRE(close != nullptr);
+    REQUIRE(verb != nullptr);
+    CHECK(close->rect.max.x <= verb->rect.min.x);
+    CHECK(close->rect.width() > 96.0f);
+    h.press(ui::Key::Escape);
+    CHECK(answer == ui::DialogAnswer::Cancel);
+}
+
 TEST_CASE("A name prompt takes typing at once and Enter confirms it", "[ui][kit]") {
     KitHarness h;
     Prompt prompt;
