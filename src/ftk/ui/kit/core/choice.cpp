@@ -124,7 +124,7 @@ Edit segmented(const char* id, int& index, std::span<const char* const> names) {
                 edit = {true, true};
             }
             const bool now_on = (!mixed || edit.changed) && static_cast<int>(i) == index;
-            context.semantics(seg_id, core::Role::Button, names[i], {}, {.selected = now_on});
+            context.semantics(seg_id, core::Role::Button, names[i], {}, {.selected = now_on}, seg);
 
             if (now_on) {
                 dl.rect_filled(seg.min, seg.max, faded(theme::toggle_on()), SEGMENT_ROUNDING);

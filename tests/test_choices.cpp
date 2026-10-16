@@ -193,6 +193,26 @@ TEST_CASE("A segment click picks its value as one commit", "[ui][kit]") {
     CHECK(tally.committed == 2);
 }
 
+TEST_CASE("Each segment is recorded where it is drawn, and found there", "[ui][kit]") {
+    KitHarness h;
+    Body body = Body::Static;
+    h.set_ui([&] {
+        ui::next_width(300.0f);
+        (void)ui::segmented("##body", body, BODIES);
+    });
+    h.step(2);
+    const auto* stat = h.find("Static", ftk::ui::core::Role::Button);
+    const auto* dynamic = h.find("Dynamic", ftk::ui::core::Role::Button);
+    const auto* kinematic = h.find("Kinematic", ftk::ui::core::Role::Button);
+    REQUIRE((stat != nullptr && dynamic != nullptr && kinematic != nullptr));
+    CHECK(stat->rect.max.x <= dynamic->rect.min.x);
+    CHECK(dynamic->rect.max.x <= kinematic->rect.min.x);
+    h.click_at(kinematic->rect.centre());
+    CHECK(body == Body::Kinematic);
+    h.click_at(h.find("Static", ftk::ui::core::Role::Button)->rect.centre());
+    CHECK(body == Body::Static);
+}
+
 TEST_CASE("A choice is segmented only for three short options that fit", "[ui][kit]") {
     KitHarness h;
     const std::array<const char* const, 3> three{"Static", "Dynamic", "Kinematic"};
