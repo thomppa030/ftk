@@ -249,6 +249,23 @@ bool table_row_hovered() {
     return t != nullptr && t->row >= 0 && t->hovered_row == t->row;
 }
 
+void table_reveal_row() {
+    TableState& t = table();
+    if (!t.scrolling || t.in_cell) return;
+    core::Context& context = ui();
+    // Where the row starts in the region's own space, and the room it takes
+    // at the least: a line, or a field's height for one typed in.
+    const core::Rect view = context.area_inside();
+    const glm::vec2 scroll = context.scroll();
+    const float height = std::max(line_height() + CELL_PADDING.y * 2.0f, frame_height());
+    const float top = t.row_top - view.min.y + scroll.y;
+    if (t.row_top < view.min.y) {
+        context.set_scroll({scroll.x, top});
+    } else if (t.row_top + height > view.max.y) {
+        context.set_scroll({scroll.x, top + height - view.height()});
+    }
+}
+
 std::optional<TableSort> table_sort_changed() {
     TableState* t = current_table();
     if (t == nullptr || !t->sort_dirty || t->sort_column < 0) return std::nullopt;
