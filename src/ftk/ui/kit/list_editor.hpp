@@ -129,6 +129,21 @@ void card_summary(const char* text);
     return index;
 }
 
+/// Moves the item at `from` in front of the one at `to`, as a ListEditor's
+/// moved() reports a drag, the rest keeping their order: each item ends
+/// where index_after_move() says.
+template <typename T>
+void move_item(std::vector<T>& items, std::size_t from, std::size_t to) {
+    auto first = items.begin();
+    if (from < to) {
+        std::rotate(first + static_cast<std::ptrdiff_t>(from), first + static_cast<std::ptrdiff_t>(from) + 1,
+                    first + static_cast<std::ptrdiff_t>(to));
+    } else if (to < from) {
+        std::rotate(first + static_cast<std::ptrdiff_t>(to), first + static_cast<std::ptrdiff_t>(from),
+                    first + static_cast<std::ptrdiff_t>(from) + 1);
+    }
+}
+
 /// A whole list: one card per item drawn by `draw_item(item, index)`, which
 /// returns the item's Edit; adding appends `make()`. Adding, removing and
 /// reordering are each a finished edit.
@@ -152,17 +167,7 @@ Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
         items.erase(items.begin() + static_cast<std::ptrdiff_t>(*remove));
         edit = {true, true};
     } else if (auto move = list.moved()) {
-        const auto [from, to] = *move;
-        auto first = items.begin();
-        if (from < to) {
-            std::rotate(first + static_cast<std::ptrdiff_t>(from),
-                        first + static_cast<std::ptrdiff_t>(from) + 1,
-                        first + static_cast<std::ptrdiff_t>(to));
-        } else {
-            std::rotate(first + static_cast<std::ptrdiff_t>(to),
-                        first + static_cast<std::ptrdiff_t>(from),
-                        first + static_cast<std::ptrdiff_t>(from) + 1);
-        }
+        move_item(items, move->first, move->second);
         edit = {true, true};
     }
     return edit;

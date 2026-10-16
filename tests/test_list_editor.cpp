@@ -318,6 +318,19 @@ TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
     CHECK(ui::index_after_move(0, 3, 1) == 0);
 }
 
+TEST_CASE("An item moved in front of another lands where its index follows it, the rest in order", "[ui][kit]") {
+    for (std::size_t from = 0; from < 5; ++from) {
+        for (std::size_t to = 0; to <= 5; ++to) {
+            std::vector<int> items{0, 1, 2, 3, 4};
+            ui::move_item(items, from, to);
+            for (std::size_t index = 0; index < items.size(); ++index) {
+                INFO("item " << index << " after moving " << from << " in front of " << to);
+                CHECK(items[ui::index_after_move(index, from, to)] == static_cast<int>(index));
+            }
+        }
+    }
+}
+
 TEST_CASE("A card whose first line is text centres it on the number's line", "[ui][kit]") {
     KitHarness h;
     std::vector<int> items{10};
