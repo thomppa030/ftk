@@ -449,6 +449,7 @@ ftk_library(ui-kit
         ftk/ui/kit/feedback.hpp
         ftk/ui/kit/field.hpp
         ftk/ui/kit/find.hpp
+        ftk/ui/kit/folder_field.hpp
         ftk/ui/kit/gallery.hpp
         ftk/ui/kit/grouped_picker.hpp
         ftk/ui/kit/icons.hpp
@@ -527,6 +528,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/feedback.cpp
         ftk/ui/kit/core/field.cpp
         ftk/ui/kit/core/find.cpp
+        ftk/ui/kit/core/folder_field.cpp
         ftk/ui/kit/core/grouped_picker.cpp
         ftk/ui/kit/core/image.cpp
         ftk/ui/kit/core/input.cpp
