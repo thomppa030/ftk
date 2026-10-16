@@ -5,12 +5,15 @@
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/dialog.hpp"
+#include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/menu.hpp"
 #include "ftk/ui/kit/pane.hpp"
+#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/selectable.hpp"
@@ -28,7 +31,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <span>
+#include <string>
 #include <utility>
 
 namespace ftk {
@@ -43,6 +48,8 @@ constexpr float PLACES_W = 170.0f;
 constexpr float PLACE_H = 26.0f;
 constexpr float SEARCH_W = 150.0f;
 constexpr std::size_t RECENT_FOLDERS = 8;
+// The rename box's key: one folder is named at a time.
+constexpr std::uint32_t NAMING = 1;
 
 fs::path home_dir() {
     const char* home = std::getenv("HOME");
@@ -225,6 +232,67 @@ void FileBrowser::select_named(std::string_view name) {
     }
 }
 
+void FileBrowser::make_folder() {
+    problem_.clear();
+    // A name still being typed is the last folder's before another is made.
+    if (!naming_.empty()) {
+        if (auto typed = rename_.finish()) {
+            name_folder(*typed);
+        } else {
+            naming_.clear();
+        }
+    }
+    // As the content browser names a new folder.
+    std::error_code ec;
+    std::string name = "new_folder";
+    for (int n = 1; fs::exists(current_dir_ / name, ec); ++n) name = "new_folder_" + std::to_string(n);
+    fs::create_directory(current_dir_ / name, ec);
+    if (ec) {
+        const std::string here = current_dir_.filename().empty() ? current_dir_.string() : current_dir_.filename().string();
+        problem_ = "Couldn't make a folder in " + here + ": " + ec.message();
+        return;
+    }
+    // A search could hide it. The search may have the keyboard, and would
+    // put its text back as it let go.
+    ui::stop_typing();
+    search_.clear();
+    refresh();
+    select_named(name);
+    naming_ = name;
+    rename_.start(NAMING, name);
+    reveal_named_ = true;
+}
+
+void FileBrowser::name_folder(const std::string& name) {
+    const std::string made = std::exchange(naming_, {});
+    if (name.find_first_of("/\\") != std::string::npos) {
+        problem_ = "A folder's name can't hold a slash; it is still " + made;
+        return;
+    }
+    if (name.starts_with('.')) {
+        problem_ = "A name starting with a dot would hide it; it is still " + made;
+        return;
+    }
+    const fs::path from = current_dir_ / made;
+    const fs::path to = current_dir_ / name;
+    std::error_code ec;
+    // The same folder in other letter case, where the system doesn't tell
+    // case apart, is renamed.
+    if (fs::exists(to, ec) && !fs::equivalent(from, to, ec)) {
+        problem_ = name + " is here already; the new folder is still " + made;
+        return;
+    }
+    fs::rename(from, to, ec);
+    if (ec) {
+        problem_ = "Couldn't name it " + name + ": " + ec.message();
+        return;
+    }
+    const bool selected = selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_indices_.size()) &&
+                          entries_[filtered_indices_[static_cast<size_t>(selected_index_)]].name == made;
+    refresh();
+    if (selected) select_named(name);
+}
+
 void FileBrowser::refilter() {
     filtered_indices_.clear();
     for (size_t i = 0; i < entries_.size(); ++i) {
@@ -274,13 +342,27 @@ void FileBrowser::confirm_selection() {
 // ── UI ──────────────────────────────────────────────────────────────────
 
 bool FileBrowser::draw() {
+    // What the bar says went wrong stands until the next click.
+    if (ui::mouse_clicked(ui::MouseButton::Left) || ui::mouse_clicked(ui::MouseButton::Right)) problem_.clear();
+    const ui::Modifiers held = ui::modifiers();
+    if (!ui::typing() && held.ctrl && held.shift && !held.alt && ui::key_pressed(ui::Key::N)) make_folder();
+
     draw_top_bar();
     // The bar at the bottom: a rule, its padding, a line of buttons.
     const float bar_h = ui::frame_height() + theme::GAP_M * 2.0f + 1.0f;
     const float body_h = std::max(ui::space_left().y - bar_h, 1.0f);
     if (auto places = ui::Pane("##places", {PLACES_W, body_h}, ui::PaneSurface::Sunken)) draw_places();
     ui::same_line(0.0f);
-    if (auto files = ui::Pane("##entries", {0.0f, body_h})) draw_file_list();
+    if (auto files = ui::Pane("##entries", {0.0f, body_h})) {
+        draw_file_list();
+        // A right click in the list: a new folder goes in the one it shows.
+        if (ui::window_or_child_hovered() && ui::mouse_clicked(ui::MouseButton::Right)) ui::open_popup("##list_menu");
+        if (auto menu = ui::Popup("##list_menu")) {
+            if (ui::menu_item({.icon = ui::icon::new_folder, .label = "New folder", .shortcut = "Ctrl Shift N"})) {
+                make_folder();
+            }
+        }
+    }
 
     ui::set_cursor({ui::window_pos().x + theme::GAP_M, ui::cursor().y});
     const bool cancelled = draw_bottom_bar();
@@ -303,6 +385,8 @@ void FileBrowser::draw_top_bar() {
         ui::Disabled at_root(parent == current_dir_);
         if (ui::icon_button("##up", ui::icon::up_folder, "Up to the folder this one is in")) navigate(parent);
     }
+    ui::same_line(theme::GAP_XS);
+    if (ui::icon_button("##new_folder", ui::icon::new_folder, "New folder (Ctrl Shift N)")) make_folder();
     ui::same_line(theme::GAP_S);
 
     const float crumbs_w = ui::space_left().x - SEARCH_W - theme::GAP_S - theme::GAP_M;
@@ -482,9 +566,12 @@ void FileBrowser::draw_file_list() {
         refresh();
     }
 
+    std::optional<std::string> named;
     for (int fi = 0; fi < static_cast<int>(filtered_indices_.size()); ++fi) {
         const auto& entry = entries_[filtered_indices_[static_cast<size_t>(fi)]];
         ui::table_next_row();
+        const bool naming = !naming_.empty() && entry.name == naming_ && rename_.editing(NAMING);
+        if (naming && std::exchange(reveal_named_, false)) ui::table_reveal_row();
         ui::table_next_column();
 
         // Its icon in its kind's colour: a folder in the structure grey.
@@ -495,8 +582,9 @@ void FileBrowser::draw_file_list() {
         const glm::vec2 row = ui::cursor();
         {
             ui::IdScope id(fi);
+            // Only the name being typed may sit over the row.
             if (ui::selectable("##entry", fi == selected_index_,
-                               {.span_columns = true, .double_click = true, .name = entry.name})) {
+                               {.span_columns = true, .double_click = true, .overlap = naming, .name = entry.name})) {
                 selected_index_ = fi;
                 // A file listed beside the folders lends its name.
                 if (mode_ == Mode::select_location && !entry.is_directory) name_ = entry.name;
@@ -511,7 +599,20 @@ void FileBrowser::draw_file_list() {
         }
         ui::DrawList dl = ui::DrawList::window();
         dl.text(row, tint, icon);
-        ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, theme::text());
+        if (naming) {
+            // Its text where the name's is, the field centred on the line.
+            const glm::vec2 at{row.x + 22.0f - ui::frame_padding().x,
+                               row.y - (ui::frame_height() - ui::line_height()) * 0.5f};
+            ui::set_cursor(at);
+            const float width = std::max(ui::space_left().x, 40.0f);
+            if (auto typed = rename_.draw(width)) {
+                named = std::move(typed);
+            } else if (!rename_.editing()) {
+                naming_.clear();
+            }
+        } else {
+            ui::detail::draw_highlighted(dl, {row.x + 22.0f, row.y}, entry.name, search_, theme::text());
+        }
 
         ui::TextColour dim(theme::text_secondary());
         if (show_size) {
@@ -525,6 +626,8 @@ void FileBrowser::draw_file_list() {
         ui::table_next_column();
         ui::text(format_time(entry.modified));
     }
+    // Named once the rows are drawn: naming reads the folder again.
+    if (named) name_folder(*named);
 }
 
 bool FileBrowser::draw_bottom_bar() {
@@ -534,6 +637,11 @@ bool FileBrowser::draw_bottom_bar() {
          .why_not = mode_ == Mode::select_location ? "Give it a name first" : "Pick a file first",
          .focus_confirm = false},
         [&](float width) {
+            if (!problem_.empty()) {
+                ui::align_text_to_frame();
+                ui::status(ui::Severity::Error, problem_.c_str());
+                return;
+            }
             ui::align_text_to_frame();
             const char* label = mode_ == Mode::select_location ? "Name" : mode_ == Mode::select_file ? "File" : "Folder";
             ui::text(label, theme::text_secondary());
