@@ -277,6 +277,16 @@ struct Device::Impl {
         releases.defer(release_frame(recording, ended), std::move(fn));
     }
 
+    /// release_later() for what frees GPU memory: `bytes` count as waiting
+    /// to be freed (releasing_bytes) until `fn` has run.
+    void release_memory_later(uint64_t bytes, std::move_only_function<void()> fn) {
+        releasing_bytes += bytes;
+        release_later([this, bytes, free = std::move(fn)]() mutable {
+            free();
+            releasing_bytes -= bytes;
+        });
+    }
+
     /// Logs `message` as an error the first time it is reported, so a
     /// mistake recorded every frame is read once.
     void report_once(const std::string& message);
@@ -336,6 +346,9 @@ struct Device::Impl {
     /// What was released and waits for the GPU to finish the frames that
     /// may still use it.
     ReleaseQueue releases;
+    /// Bytes of the buffers and textures released whose frames are not done:
+    /// still in VMA's count until release_memory_later() frees them.
+    std::atomic<uint64_t> releasing_bytes{0};
     /// The device's upload, made when first asked for.
     Upload::Impl upload_state;
     std::unique_ptr<Upload> upload;
