@@ -155,6 +155,12 @@ void FileBrowser::navigate(const fs::path& dir, bool remember) {
 }
 
 void FileBrowser::refresh() {
+    // The entry selected stays selected, by its name, as the folder is read
+    // again and sorted anew under it.
+    std::string selected;
+    if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_indices_.size())) {
+        selected = entries_[filtered_indices_[static_cast<size_t>(selected_index_)]].name;
+    }
     entries_.clear();
 
     try {
@@ -205,6 +211,18 @@ void FileBrowser::refresh() {
     std::sort(entries_.begin(), entries_.end(), comparator);
 
     refilter();
+    select_named(selected);
+}
+
+void FileBrowser::select_named(std::string_view name) {
+    selected_index_ = -1;
+    if (name.empty()) return;
+    for (size_t fi = 0; fi < filtered_indices_.size(); ++fi) {
+        if (entries_[filtered_indices_[fi]].name == name) {
+            selected_index_ = static_cast<int>(fi);
+            return;
+        }
+    }
 }
 
 void FileBrowser::refilter() {

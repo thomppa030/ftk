@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -120,6 +121,8 @@ private:
     /// Goes to `dir`; `remember` keeps where it was for Back.
     void navigate(const std::filesystem::path& dir, bool remember = true);
     void refresh();
+    /// Selects the entry listed as `name`; none when it isn't listed.
+    void select_named(std::string_view name);
     [[nodiscard]] bool can_confirm() const;
     void confirm_selection();
     void remember_folder();

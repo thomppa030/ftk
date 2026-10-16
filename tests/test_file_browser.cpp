@@ -125,3 +125,19 @@ TEST_CASE("A file browser lists the files it asks for and chooses only a file", 
     CHECK(fs::path(b.chosen.back()) == fs::canonical(b.folder.root) / "crate.glb");
 }
 
+TEST_CASE("Sorting the list keeps the entry selected", "[file_browser]") {
+    Browser b;
+    b.click(b.row("props"));
+    b.h.step();
+    REQUIRE(b.row("props")->state.selected);
+    // Name, again: Z to A, props now first.
+    b.click(b.button("Name"));
+    b.h.step();
+    CHECK(b.listed() == std::vector<std::string>{"props", "kit"});
+    CHECK(b.row("props")->state.selected);
+    CHECK_FALSE(b.row("kit")->state.selected);
+    b.click(b.button("Choose"));
+    REQUIRE(b.chosen.size() == 1);
+    CHECK(fs::path(b.chosen.back()) == fs::canonical(b.folder.root) / "props");
+}
+
