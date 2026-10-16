@@ -180,7 +180,7 @@ void table_headers() {
         const core::Rect cell{.min = {t.x[i], top}, .max = {t.x[i] + t.widths[i], top + height}};
         const Id id = context.id(t.columns[i].name);
         const core::Interaction in = place(id, cell);
-        context.semantics(id, core::Role::Button, t.columns[i].name);
+        context.semantics(id, core::Role::Button, t.columns[i].name, {}, {}, cell);
         if (in.held || in.hovered) {
             dl.rect_filled(cell.min, cell.max, faded(in.held ? theme::surface_active() : theme::surface_hover()));
         }

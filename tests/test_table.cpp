@@ -79,3 +79,34 @@ TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
     CHECK_FALSE(hovered[0]);
     CHECK(hovered[1]);
 }
+
+TEST_CASE("A table's headers are told where each is", "[ui][kit]") {
+    KitHarness h;
+    static constexpr ui::Column COLUMNS[] = {
+        {.name = "Name", .default_sort = true},
+        {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
+    };
+    h.set_ui([&] {
+        if (auto table = ui::Table("##files", COLUMNS, {.sortable = true, .scroll = true})) {
+            ui::table_headers();
+            (void)ui::table_sort_changed();
+            ui::table_next_row();
+            ui::table_next_column();
+            ui::text("terrain.fjmesh");
+            h.mark("name");
+            ui::table_next_column();
+            ui::text("12 KB");
+            h.mark("size");
+        }
+    });
+    h.step(2);
+    const ui::core::SemanticNode* name = h.find("Name", ui::core::Role::Button);
+    const ui::core::SemanticNode* size = h.find("Size", ui::core::Role::Button);
+    REQUIRE(name != nullptr);
+    REQUIRE(size != nullptr);
+    // Each over its own column, in a row above the first.
+    CHECK(name->rect.max.y <= h.rect("name").min.y);
+    CHECK(size->rect.max.y <= h.rect("size").min.y);
+    CHECK(name->rect.max.x <= size->rect.min.x + 1.0f);
+    CHECK(size->rect.width() == 80.0f);
+}
