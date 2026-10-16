@@ -20,9 +20,10 @@
 namespace ftk::ui {
 
 /// A round mark on the top-right corner of a tile's picture: work going on
-/// for the file (a spinner), or work that failed (the error fill with an
-/// exclamation mark).
-enum class TileBadge : uint8_t { none, busy, failed };
+/// for the file (a spinner), work that failed (the error fill with an
+/// exclamation mark), or a file not imported yet (the import arrow on the
+/// raised surface, quiet beside the others).
+enum class TileBadge : uint8_t { none, busy, failed, not_imported };
 
 struct AssetTileSpec {
     /// Unique among the grid's tiles; also the tile's id.

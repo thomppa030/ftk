@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/asset_tile.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -27,6 +28,8 @@ constexpr float PICTURE = 80.0f;
 // The badge on the picture's corner, 18 px across, a little over its edges.
 constexpr float BADGE_RADIUS = 9.0f;
 constexpr float BADGE_OVERHANG = 3.0f;
+// The size a glyph on the badge is drawn at, inside its round.
+constexpr float BADGE_GLYPH = 11.0f;
 constexpr float ICON = 40.0f;
 constexpr float PAD_TOP = 8.0f;
 constexpr float PAD_SIDE = 4.0f;
@@ -118,6 +121,13 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
             dl.circle_filled(centre, BADGE_RADIUS, theme::surface_raised());
             dl.circle(centre, BADGE_RADIUS, theme::border());
             spinner(DrawList::window(), centre, BADGE_RADIUS - 4.0f, static_cast<float>(seconds()));
+        } else if (spec.badge == TileBadge::not_imported) {
+            dl.circle_filled(centre, BADGE_RADIUS, theme::surface_raised());
+            dl.circle(centre, BADGE_RADIUS, theme::border());
+            FontScope small(Font::Current, BADGE_GLYPH);
+            const glm::vec2 arrow = measure(icon::import);
+            draw_text({std::floor(centre.x - arrow.x * 0.5f), std::floor(centre.y - arrow.y * 0.5f)},
+                      theme::text_secondary(), icon::import);
         } else {
             dl.circle_filled(centre, BADGE_RADIUS, theme::error());
             const glm::vec2 mark = measure("!");
