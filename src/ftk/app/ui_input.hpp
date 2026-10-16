@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 
 union SDL_Event;
@@ -72,6 +73,9 @@ private:
     std::array<SDL_Cursor*, 6> cursors_{};
     bool text_input_{false};
     std::unordered_map<uint32_t, Pen> pens_;
+    // The paths of the files a drag from outside brings, a line each, as the
+    // drop names them.
+    std::string dropping_;
 };
 
 } // namespace ftk

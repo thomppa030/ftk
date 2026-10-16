@@ -118,11 +118,38 @@ void Context::carry(std::string_view type, const void* data, std::size_t size) {
     if (size > 0) std::memcpy(drag_.data.data(), data, size);
 }
 
+void Context::outside_drag(std::string_view type) {
+    if (!drag_.active || !drag_.outside || drag_.ended) {
+        drag_ = Drag{};
+        drag_.active = true;
+        drag_.outside = true;
+        // It moves as the mouse, which the window's drag events place.
+        drag_.pointer_type = PointerType::Mouse;
+        drag_.pointer = 0;
+    }
+    drag_.type = type;
+    request_frame();
+}
+
+void Context::outside_drop(const void* data, std::size_t size) {
+    if (!drag_.active || !drag_.outside) return;
+    drag_.data.resize(size);
+    if (size > 0) std::memcpy(drag_.data.data(), data, size);
+    drag_.dropped = true;
+    request_frame();
+}
+
+void Context::outside_drag_left() {
+    if (!drag_.active || !drag_.outside) return;
+    drag_.ended = true;
+    request_frame();
+}
+
 std::optional<Drop> Context::drop_target(std::string_view type) {
     if (!drag_.active || drag_.type != type || drag_.source == last_widget_) return std::nullopt;
     const Tracked* by = drag_pointer();
     if (by == nullptr || by->top != last_widget_ || !last_interaction_.under) return std::nullopt;
-    return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = by->pointer.released != 0};
+    return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = delivered(*by)};
 }
 
 std::optional<Drop> Context::drop_target(Rect rect, std::string_view type) {
@@ -132,7 +159,11 @@ std::optional<Drop> Context::drop_target(Rect rect, std::string_view type) {
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
     // Over it, and not over another panel lying on it.
     if (!visible.contains(by->pointer.now.position) || by->top_panel != current_panel()) return std::nullopt;
-    return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = by->pointer.released != 0};
+    return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = delivered(*by)};
+}
+
+bool Context::delivered(const Tracked& by) const {
+    return drag_.outside ? drag_.dropped : by.pointer.released != 0;
 }
 
 void Context::begin_drag_preview() {
@@ -154,8 +185,14 @@ void Context::settle_layers() {
     if (!popups_.empty() && key_pressed(Key::Escape) && !key_claimed(Key::Escape)) close_popups_from(popups_.size() - 1);
 
     // The drag ends when its pointer is let go or gone, or its source stops
-    // being drawn; it is forgotten as the next frame begins.
-    if (drag_.active) {
+    // being drawn; one from outside when it is let go; it is forgotten as
+    // the next frame begins.
+    if (drag_.active && drag_.outside) {
+        if (drag_.dropped) {
+            drag_.ended = true;
+            request_frame();
+        }
+    } else if (drag_.active) {
         const Tracked* by = drag_pointer();
         if (by == nullptr || !drag_.seen || by->pointer.released != 0 || by->pointer.cancelled) {
             drag_.ended = true;

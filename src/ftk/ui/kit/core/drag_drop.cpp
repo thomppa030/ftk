@@ -50,6 +50,10 @@ void DragSource::carry(const char* type, std::string_view text) {
     ui().carry(type, terminated.c_str(), terminated.size() + 1);
 }
 
+bool dragging_from_outside() {
+    return ui().dragging_from_outside();
+}
+
 DropTarget::DropTarget() {
     target_rect().reset();
     open_ = ui().dragging() && over(ui().drag_type()).has_value();
