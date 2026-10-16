@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -226,4 +227,31 @@ TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", 
     h.press(ui::Key::Enter);
     CHECK(line == "18");
     CHECK(entered);
+}
+
+TEST_CASE("A text field shows its hint dimmed while empty, and not over text", "[ui][kit]") {
+    KitHarness h;
+    std::string tag;
+    std::string named{"pines"};
+    h.set_ui([&] {
+        (void)ui::text_field("##tag", tag, "trees");
+        h.mark("empty");
+        (void)ui::text_field("##named", named, "trees");
+        h.mark("named");
+    });
+    h.step(2);
+    // How much the frame drew in the disabled colour inside a mark.
+    const auto dimmed = [&](const std::string& mark) {
+        const uint32_t packed = ftk::ui::core::pack_colour(ftk::theme::text_disabled());
+        const auto rect = h.rect(mark);
+        int count = 0;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && rect.contains((p.min + p.max) * 0.5f)) ++count;
+            }
+        }
+        return count;
+    };
+    CHECK(dimmed("empty") >= static_cast<int>(std::string("trees").size()));
+    CHECK(dimmed("named") == 0);
 }

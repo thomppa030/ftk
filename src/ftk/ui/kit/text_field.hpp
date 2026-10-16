@@ -15,7 +15,10 @@ namespace ftk::ui {
 ///     if (ui::text_field("##Default", clip.default_name).committed) {
 ///         changed = true;
 ///     }
-Edit text_field(const char* id, std::string& value);
+///
+/// `hint` is shown dimmed while the field is empty: what an empty value
+/// stands for, such as the name a blank tag takes.
+Edit text_field(const char* id, std::string& value, const char* hint = nullptr);
 
 struct TextEntryOptions {
     /// Shown dimmed while the field is empty.
