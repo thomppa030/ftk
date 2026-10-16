@@ -95,10 +95,12 @@ endif()
 ftk_library(platform
     SOURCES
         ${FTK_PLATFORM_SOURCES}
+        ftk/platform/file_names.cpp
         ftk/platform/tree_watcher.cpp
     HEADERS
         ftk/platform/child_process.hpp
         ftk/platform/detail/command_line.hpp
+        ftk/platform/file_names.hpp
         ftk/platform/tree_watcher.hpp
         ftk/platform/platform.hpp
         ftk/platform/shared_library.hpp
@@ -668,5 +670,5 @@ ftk_library(app-editor
         ftk/app/standalone_window.hpp
     LINKS
         PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-ui ftk::app-ui ftk::ui-kit ftk::ui-core
-        PRIVATE ftk::image
+        PRIVATE ftk::image ftk::platform
 )

@@ -2,6 +2,7 @@
 
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/log.hpp"
+#include "ftk/platform/file_names.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/dialog.hpp"
@@ -244,8 +245,7 @@ void FileBrowser::make_folder() {
     }
     // As the content browser names a new folder.
     std::error_code ec;
-    std::string name = "new_folder";
-    for (int n = 1; fs::exists(current_dir_ / name, ec); ++n) name = "new_folder_" + std::to_string(n);
+    const std::string name = platform::free_name(current_dir_, {.stem = "new_folder"});
     fs::create_directory(current_dir_ / name, ec);
     if (ec) {
         const std::string here = current_dir_.filename().empty() ? current_dir_.string() : current_dir_.filename().string();
