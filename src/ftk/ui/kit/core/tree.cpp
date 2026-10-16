@@ -59,6 +59,7 @@ void RenameBox::start(std::uint32_t key, std::string_view name) {
 std::optional<std::string> RenameBox::draw(float width) {
     core::Context& context = ui();
     const Id field = context.id("##rename");
+    field_ = field;
     if (focus_) {
         context.set_focus(field);
         focus_ = false;
@@ -72,6 +73,19 @@ std::optional<std::string> RenameBox::draw(float width) {
     context.draw_list().rect(rect.min, rect.max, faded(theme::accent()), kit().style.frame_rounding);
     if (!in.deactivated) return std::nullopt;
     key_.reset();
+    if (text_.empty() || text_ == original_) return std::nullopt;
+    return text_;
+}
+
+std::optional<std::string> RenameBox::finish() {
+    if (!key_) return std::nullopt;
+    key_.reset();
+    // The field lets go of the keyboard as Enter would have it, keeping
+    // nothing for the next name started in it.
+    Kit& k = kit();
+    if (k.editing.id == field_) k.editing = {};
+    if (k.left.id == field_) k.left = {};
+    if (ui().focused() == field_) ui().clear_focus();
     if (text_.empty() || text_ == original_) return std::nullopt;
     return text_;
 }

@@ -49,11 +49,18 @@ public:
     /// and isn't empty; Esc leaves the old one.
     std::optional<std::string> draw(float width);
 
+    /// Finishes it as Enter does, for an owner moving on before the field
+    /// is drawn again (another name started in the same box): the name as
+    /// typed when it differs from the old and isn't empty.
+    std::optional<std::string> finish();
+
 private:
     std::optional<std::uint32_t> key_;
     std::string original_;
     std::string text_;
     bool focus_{false};
+    /// The field's id as last drawn, which finish() takes the keyboard from.
+    Id field_{0};
 };
 
 struct TreeRowSpec {
