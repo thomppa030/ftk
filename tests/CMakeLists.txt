@@ -58,6 +58,7 @@ add_executable(ftk-tests
     test_text_translate.cpp
     test_theme.cpp
     test_thread_pool.cpp
+    test_time_text.cpp
     test_tree_watcher.cpp
     test_ui_core_draw.cpp
     test_ui_core_frame.cpp
