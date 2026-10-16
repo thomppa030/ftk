@@ -172,6 +172,8 @@ struct ClashSpec {
 
 /// Opens the clash dialog `id` hanging from `anchor`, as wide as it is.
 void open_clash_dialog(const char* id, DialogAnchor anchor);
+/// The same hanging from under the editor header, as open_dialog() does.
+void open_clash_dialog(const char* id);
 /// Asks about names a copy finds already there (sheet 46, D1): the title,
 /// what was copied already, a row "Every file" whose Replace | Keep both |
 /// Skip sets them all, then a row per name on the sunken surface with what

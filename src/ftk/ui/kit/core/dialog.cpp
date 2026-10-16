@@ -424,6 +424,10 @@ void open_clash_dialog(const char* id, DialogAnchor anchor) {
     ui().open_popup(ui().id(id), {anchor.at.x - anchor.align * CLASH_WIDTH, anchor.at.y});
 }
 
+void open_clash_dialog(const char* id) {
+    open_clash_dialog(id, header_anchor());
+}
+
 DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<ClashItem> items) {
     if (!begin_dialog_as_wide(id, {.title = spec.title}, CLASH_WIDTH)) return DialogAnswer::None;
 
