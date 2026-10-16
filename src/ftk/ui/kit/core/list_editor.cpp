@@ -277,14 +277,14 @@ void ListEditor::empty(const char* text) {
     reserve({width, height});
 }
 
-void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag_text) {
+void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag_text, CardName name_kind) {
     if (icon != nullptr) {
         align_text_to_frame();
         text(icon, theme::hue(hue));
         same_line(theme::GAP_S + theme::GAP_XS);
     }
     align_text_to_frame();
-    text(name, theme::text());
+    text(name, name_kind == CardName::missing ? theme::text_disabled() : theme::text());
     if (tag_text == nullptr) return;
     // At the end of the line the card's fields end at.
     same_line(theme::GAP_M);

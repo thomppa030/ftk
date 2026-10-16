@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <optional>
 #include <vector>
@@ -111,10 +112,16 @@ private:
     std::optional<std::pair<std::size_t, std::size_t>> moved_;
 };
 
+/// Whether a card's heading names its item, or stands in for a name it has
+/// not been given ("unnamed").
+enum class CardName : uint8_t { given, missing };
+
 /// A card's first line, for an item that is a thing with a name: its icon
 /// in `hue`, its name in the text colour (on a closed card too, above its
-/// summary), and at the line's end a `tag` saying where or what it is.
-void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag = nullptr);
+/// summary), and at the line's end a `tag` saying where or what it is. A
+/// `missing` name is a stand-in, in the disabled text colour.
+void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag = nullptr,
+                  CardName name_kind = CardName::given);
 
 /// A closed card's one line about its item, under a card_heading(), in the
 /// colour the card gives it.
