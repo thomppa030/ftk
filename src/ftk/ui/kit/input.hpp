@@ -36,6 +36,13 @@ void claim_key(Key key, const char* owner);
 /// A text field has the keyboard: keys are its, not shortcuts.
 [[nodiscard]] bool typing();
 
+/// Takes the keyboard from the field that has it, dropping what was typed
+/// there as though it never was: the field shows its value as the caller
+/// has it from then on. For a caller that sets the value of a field that
+/// may be typed in, such as a search cleared to show what was just made;
+/// otherwise the field puts its own text back as it lets go.
+void stop_typing();
+
 /// Some key went down this frame, any of them.
 [[nodiscard]] bool any_key_pressed();
 

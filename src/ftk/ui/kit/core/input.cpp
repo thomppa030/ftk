@@ -43,6 +43,13 @@ bool typing() {
     return ui().typing() || ui().typing_as_begun();
 }
 
+void stop_typing() {
+    Kit& k = kit();
+    k.editing = {};
+    k.left = {};
+    ui().clear_focus();
+}
+
 bool any_key_pressed() {
     return ui().any_key_pressed();
 }

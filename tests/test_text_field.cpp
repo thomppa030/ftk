@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -263,3 +264,32 @@ TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", 
     CHECK(line == "18");
     CHECK(entered);
 }
+
+TEST_CASE("stop_typing drops what a field held, and the value set stays", "[ui][text_field]") {
+    KitHarness h;
+    std::string query;
+    bool clear = false;
+    h.set_ui([&] {
+        (void)ui::text_entry("##search", query);
+        h.mark("search");
+        if (ui::button("Clear")) clear = true;
+        h.mark("clear");
+        if (std::exchange(clear, false)) {
+            ui::stop_typing();
+            query.clear();
+        }
+    });
+    h.step(2);
+    h.click("search");
+    h.type("kit");
+    REQUIRE(query == "kit");
+    h.click("clear");
+    h.step(3);
+    CHECK(query.empty());
+    CHECK_FALSE(ui::typing());
+    // Typed in again, it starts from what it now holds.
+    h.click("search");
+    h.type("props");
+    CHECK(query == "props");
+}
+
