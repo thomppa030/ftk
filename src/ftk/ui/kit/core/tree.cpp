@@ -67,6 +67,7 @@ std::optional<std::string> RenameBox::draw(float width) {
     // Esc puts the text back as it was when the field was entered, so the
     // edit ends with the old name and changes nothing.
     const TextInput in = text_input(field, rect, text_, {.select_all = true});
+    context.semantics(field, core::Role::TextField, "Name", text_);
     // A sunken field edged in amber: the name being edited.
     context.draw_list().rect(rect.min, rect.max, faded(theme::accent()), kit().style.frame_rounding);
     if (!in.deactivated) return std::nullopt;
