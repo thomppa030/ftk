@@ -3,6 +3,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
@@ -755,6 +756,46 @@ TEST_CASE("A notice strip says what wants an answer and gives the answer clicked
     REQUIRE(load != nullptr);
     h.click_at(load->rect.centre());
     CHECK(chosen == std::optional<std::size_t>{1});
+}
+
+TEST_CASE("A note line says what the fields under it stand for, on the raised surface", "[ui][kit]") {
+    KitHarness h;
+    float width = 400.0f;
+    h.set_ui([&] {
+        if (auto region = ui::Region("##note", {width, 80.0f})) {
+            ui::note_line(ftk::ui::icon::checked, "Settings for the ", "179 picked");
+            h.mark("note");
+            ui::text("below");
+            h.mark("below");
+        }
+    });
+    h.step(2);
+    const auto note = h.rect("note");
+    CHECK(note.min.y < h.rect("below").min.y);
+    CHECK(h.rect("below").min.y >= note.max.y);
+    const uint32_t raised = ftk::ui::core::pack_colour(ftk::theme::surface_raised());
+    const uint32_t strong = ftk::ui::core::pack_colour(ftk::theme::text());
+    const uint32_t quiet = ftk::ui::core::pack_colour(ftk::theme::text_secondary());
+    // Drawn inside the note line, in `colour`.
+    const auto drew = [&](uint32_t colour) {
+        const auto note_rect = h.rect("note");
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == colour && note_rect.contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(drew(raised));
+    CHECK(drew(strong));
+    CHECK(drew(quiet));
+
+    // Too narrow for both: one line, cut, in the quiet colour alone.
+    width = 90.0f;
+    h.step(2);
+    CHECK(drew(raised));
+    CHECK_FALSE(drew(strong));
+    CHECK(h.rect("below").min.y >= h.rect("note").max.y);
 }
 
 TEST_CASE("A region that resizes keeps the width its right edge is dragged to", "[ui][kit]") {
