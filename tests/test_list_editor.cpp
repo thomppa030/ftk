@@ -318,6 +318,19 @@ TEST_CASE("An index follows its item when another moves past it", "[ui][kit]") {
     CHECK(ui::index_after_move(0, 3, 1) == 0);
 }
 
+TEST_CASE("An item moved in front of another lands where its index follows it, the rest in order", "[ui][kit]") {
+    for (std::size_t from = 0; from < 5; ++from) {
+        for (std::size_t to = 0; to <= 5; ++to) {
+            std::vector<int> items{0, 1, 2, 3, 4};
+            ui::move_item(items, from, to);
+            for (std::size_t index = 0; index < items.size(); ++index) {
+                INFO("item " << index << " after moving " << from << " in front of " << to);
+                CHECK(items[ui::index_after_move(index, from, to)] == static_cast<int>(index));
+            }
+        }
+    }
+}
+
 TEST_CASE("A card whose first line is text centres it on the number's line", "[ui][kit]") {
     KitHarness h;
     std::vector<int> items{10};
@@ -411,4 +424,45 @@ TEST_CASE("Clicking a headed card's summary selects the card", "[ui][kit]") {
     HeadedFixture f;
     f.h.click("summary1");
     CHECK(f.selected == 1);
+}
+
+TEST_CASE("A card heading with a missing name shows its stand-in in the disabled colour", "[ui][kit]") {
+    KitHarness h;
+    std::vector<int> items{10, 20};
+    int selected = -1;
+    h.set_ui([&] {
+        (void)ui::selectable_list_editor(
+            "##masks", items, selected, "Add", "Nothing", {},
+            [&](const int&, std::size_t i) {
+                if (i == 0) {
+                    ui::card_heading(nullptr, ftk::theme::Hue::blue, "forest", "6.1 ha");
+                } else {
+                    ui::card_heading(nullptr, ftk::theme::Hue::blue, "unnamed", "nothing painted",
+                                     ui::CardName::missing);
+                }
+                h.mark("card" + std::to_string(i));
+            },
+            [&](int&, std::size_t) { return ui::Edit{}; }, [] { return 0; });
+    });
+    h.step(3);
+    // How much the frame drew in `colour` on the line of a card's heading,
+    // left of its tag (the mark): its number, then its name.
+    const auto drawn_in = [&](const std::string& mark, ui::Color colour) {
+        const uint32_t packed = ui::core::pack_colour(colour);
+        const auto tag = h.rect(mark);
+        const ui::core::Rect rect{{0.0f, tag.min.y}, {tag.min.x, tag.max.y}};
+        int count = 0;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && rect.contains((p.min + p.max) * 0.5f)) ++count;
+            }
+        }
+        return count;
+    };
+    // The given name in the text colour; the stand-in's letters in the
+    // disabled one, beside the number both cards draw there.
+    CHECK(drawn_in("card0", ftk::theme::text()) > 0);
+    CHECK(drawn_in("card1", ftk::theme::text()) == 0);
+    CHECK(drawn_in("card1", ftk::theme::text_disabled()) >=
+          drawn_in("card0", ftk::theme::text_disabled()) + static_cast<int>(std::string("unnamed").size()));
 }

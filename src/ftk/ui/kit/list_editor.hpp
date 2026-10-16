@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <optional>
 #include <vector>
@@ -111,10 +112,16 @@ private:
     std::optional<std::pair<std::size_t, std::size_t>> moved_;
 };
 
+/// Whether a card's heading names its item, or stands in for a name it has
+/// not been given ("unnamed").
+enum class CardName : uint8_t { given, missing };
+
 /// A card's first line, for an item that is a thing with a name: its icon
 /// in `hue`, its name in the text colour (on a closed card too, above its
-/// summary), and at the line's end a `tag` saying where or what it is.
-void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag = nullptr);
+/// summary), and at the line's end a `tag` saying where or what it is. A
+/// `missing` name is a stand-in, in the disabled text colour.
+void card_heading(const char* icon, theme::Hue hue, const char* name, const char* tag = nullptr,
+                  CardName name_kind = CardName::given);
 
 /// A closed card's one line about its item, under a card_heading(), in the
 /// colour the card gives it.
@@ -127,6 +134,21 @@ void card_summary(const char* text);
     if (from < index && index < to) return index - 1;
     if (to <= index && index < from) return index + 1;
     return index;
+}
+
+/// Moves the item at `from` in front of the one at `to`, as a ListEditor's
+/// moved() reports a drag, the rest keeping their order: each item ends
+/// where index_after_move() says.
+template <typename T>
+void move_item(std::vector<T>& items, std::size_t from, std::size_t to) {
+    auto first = items.begin();
+    if (from < to) {
+        std::rotate(first + static_cast<std::ptrdiff_t>(from), first + static_cast<std::ptrdiff_t>(from) + 1,
+                    first + static_cast<std::ptrdiff_t>(to));
+    } else if (to < from) {
+        std::rotate(first + static_cast<std::ptrdiff_t>(to), first + static_cast<std::ptrdiff_t>(from),
+                    first + static_cast<std::ptrdiff_t>(from) + 1);
+    }
 }
 
 /// A whole list: one card per item drawn by `draw_item(item, index)`, which
@@ -152,17 +174,7 @@ Edit list_editor(const char* id, std::vector<T>& items, const char* add_label,
         items.erase(items.begin() + static_cast<std::ptrdiff_t>(*remove));
         edit = {true, true};
     } else if (auto move = list.moved()) {
-        const auto [from, to] = *move;
-        auto first = items.begin();
-        if (from < to) {
-            std::rotate(first + static_cast<std::ptrdiff_t>(from),
-                        first + static_cast<std::ptrdiff_t>(from) + 1,
-                        first + static_cast<std::ptrdiff_t>(to));
-        } else {
-            std::rotate(first + static_cast<std::ptrdiff_t>(to),
-                        first + static_cast<std::ptrdiff_t>(from),
-                        first + static_cast<std::ptrdiff_t>(from) + 1);
-        }
+        move_item(items, move->first, move->second);
         edit = {true, true};
     }
     return edit;

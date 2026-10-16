@@ -30,6 +30,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_CLIPBOARD_COPY       "\xee\x88\xa5"  // U+E225
 #define ICON_LC_EXTERNAL_LINK        "\xee\x82\xb9"  // U+E0B9
 #define ICON_LC_FILE_PLUS            "\xee\x83\x89"  // U+E0C9
+#define ICON_LC_FLAME                "\xee\x83\x92"  // U+E0D2
 #define ICON_LC_FOLDER_PLUS          "\xee\x83\x99"  // U+E0D9
 #define ICON_LC_HAMMER               "\xee\x83\xac"  // U+E0EC
 #define ICON_LC_HARD_DRIVE           "\xee\x83\xad"  // U+E0ED
@@ -153,6 +154,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_PIN                "\xee\x89\x99"  // U+E259
 #define ICON_LC_CROSSHAIR          "\xee\x82\xac"  // U+E0AC
 #define ICON_LC_CLOUD_FOG          "\xee\x88\x94"  // U+E214
+#define ICON_LC_TREES              "\xee\x8b\xb5"  // U+E2F5
 #define ICON_LC_MOUSE_POINTER_CLICK "\xee\x84\xa0"  // U+E120
 #define ICON_LC_CIRCLE_DOT         "\xee\x8d\x85"  // U+E345
 #define ICON_LC_TYPE               "\xee\x86\x98"  // U+E198

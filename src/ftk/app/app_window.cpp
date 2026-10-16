@@ -86,6 +86,7 @@ Result<> AppWindow::draw_frame(const AppFrame& frame) {
         return {};
     }
     gpu::CommandList& cmd = gpu_frame.commands(gpu::Queue::graphics);
+    if (frame.record) frame.record(cmd);
     const gpu::Transition to_draw = image->to_draw();
     cmd.transition({&to_draw, 1});
     layer_->render(cmd, image->texture, {swapchain_->width(), swapchain_->height()});
@@ -96,6 +97,10 @@ Result<> AppWindow::draw_frame(const AppFrame& frame) {
 }
 
 Result<Shot> AppWindow::shot(const UiDraw& ui, glm::uvec2 size, float scale, int frames) {
+    return shot(AppFrame{.ui = ui}, size, scale, frames);
+}
+
+Result<Shot> AppWindow::shot(const AppFrame& app_frame, glm::uvec2 size, float scale, int frames) {
     if (size.x == 0 || size.y == 0) return make_error("A shot needs a size of at least one pixel");
     auto made = device_->create(gpu::TextureDesc{
         .format = swapchain_->format(),
@@ -122,8 +127,9 @@ Result<Shot> AppWindow::shot(const UiDraw& ui, glm::uvec2 size, float scale, int
                                       .name = "shot"};
         cmd.transition({&to_draw, 1});
         layer_->begin_frame(size, scale);
-        if (ui) ui(layer_->context(), layer_->size());
+        if (app_frame.ui) app_frame.ui(layer_->context(), layer_->size());
         (void)layer_->end_frame();
+        if (app_frame.record) app_frame.record(cmd);
         layer_->render(cmd, target.get(), size);
         const gpu::Transition to_read{.texture = target.get(),
                                       .wait_for = gpu::Access::color_attachment,
