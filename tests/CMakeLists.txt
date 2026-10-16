@@ -128,6 +128,7 @@ add_executable(ftk-kit-tests
     test_curve_editor.cpp
     test_gradient_editor.cpp
     test_dialog.cpp
+    test_drop_cue.cpp
     test_edit_record.cpp
     test_fields.cpp
     test_find.cpp
