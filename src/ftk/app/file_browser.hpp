@@ -82,8 +82,17 @@ public:
     /// button's word ("Import", "Create").
     void open(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
 
+    /// Readies the browser as open() does, but for a window of the caller's
+    /// that draw() fills, as its tests draw it.
+    void start(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
+
     /// Render one frame. Call from the main loop if is_open().
     void tick();
+
+    /// Draws the browser in the space left of the window being drawn: what
+    /// tick() draws in its own window. True once it is answered, a choice
+    /// confirmed or Cancel, and should close.
+    bool draw();
 
     /// Close the browser window.
     void close();
@@ -98,7 +107,6 @@ public:
 
 private:
     // ── UI drawing ──────────────────────────────────────────────────────
-    bool draw_ui(float window_w, float window_h);
     void draw_top_bar();
     void draw_breadcrumbs(float width);
     void draw_places();
@@ -138,6 +146,7 @@ private:
     std::vector<Entry> entries_;
     std::vector<size_t> filtered_indices_; // indices into entries_ after search filter
     int selected_index_{-1};               // index into filtered_indices_
+    bool answered_{false};                 // a choice was confirmed this frame
     bool typing_path_{false};              // the breadcrumbs are a path field
     bool focus_path_{false};
     std::string typed_path_;

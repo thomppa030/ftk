@@ -90,7 +90,11 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb, co
         return;
     }
     if (is_open()) close();
+    start(title, mode, verb, options);
+    window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, prepare_);
+}
 
+void FileBrowser::start(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options) {
     title_ = title;
     mode_ = mode;
     verb_ = verb;
@@ -116,8 +120,6 @@ void FileBrowser::open(const std::string& title, Mode mode, const char* verb, co
         first = project_root_;
     }
     navigate(first, false);
-
-    window_ = std::make_unique<StandaloneWindow>(*device_, title, BROWSER_WIDTH, BROWSER_HEIGHT, prepare_);
 }
 
 void FileBrowser::tick() {
@@ -127,7 +129,12 @@ void FileBrowser::tick() {
         return;
     }
     bool should_close = false;
-    window_->frame([&](float width, float height) { should_close = draw_ui(width, height); });
+    window_->frame([&](float width, float height) {
+        ui::next_window_place({0.0f, 0.0f}, {width, height});
+        (void)ui::begin_host_window("##FileBrowser", {.scrollbar = false});
+        should_close = draw();
+        ui::end_host_window();
+    });
     if (should_close) close();
 }
 
@@ -243,14 +250,12 @@ void FileBrowser::confirm_selection() {
         on_location_selected.broadcast(current_dir_.string(), name_);
     }
     remember_folder();
-    window_->request_close();
+    answered_ = true;
 }
 
 // ── UI ──────────────────────────────────────────────────────────────────
 
-bool FileBrowser::draw_ui(float window_w, float window_h) {
-    ui::next_window_place({0.0f, 0.0f}, {window_w, window_h});
-    (void)ui::begin_host_window("##FileBrowser", {.scrollbar = false});
+bool FileBrowser::draw() {
     draw_top_bar();
     // The bar at the bottom: a rule, its padding, a line of buttons.
     const float bar_h = ui::frame_height() + theme::GAP_M * 2.0f + 1.0f;
@@ -260,9 +265,8 @@ bool FileBrowser::draw_ui(float window_w, float window_h) {
     if (auto files = ui::Pane("##entries", {0.0f, body_h})) draw_file_list();
 
     ui::set_cursor({ui::window_pos().x + theme::GAP_M, ui::cursor().y});
-    const bool close = draw_bottom_bar();
-    ui::end_host_window();
-    return close;
+    const bool cancelled = draw_bottom_bar();
+    return cancelled || std::exchange(answered_, false);
 }
 
 void FileBrowser::draw_top_bar() {
@@ -473,7 +477,8 @@ void FileBrowser::draw_file_list() {
         const glm::vec2 row = ui::cursor();
         {
             ui::IdScope id(fi);
-            if (ui::selectable("##entry", fi == selected_index_, {.span_columns = true, .double_click = true})) {
+            if (ui::selectable("##entry", fi == selected_index_,
+                               {.span_columns = true, .double_click = true, .name = entry.name})) {
                 selected_index_ = fi;
                 // A file listed beside the folders lends its name.
                 if (mode_ == Mode::select_location && !entry.is_directory) name_ = entry.name;

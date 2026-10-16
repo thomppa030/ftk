@@ -155,6 +155,7 @@ add_executable(ftk-kit-tests
     test_table.cpp
     test_text_field.cpp
     test_folder_field.cpp
+    test_file_browser.cpp
     test_text_area.cpp
     test_picture_row.cpp
     test_pick_row.cpp
