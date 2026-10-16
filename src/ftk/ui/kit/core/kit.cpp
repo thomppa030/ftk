@@ -130,6 +130,31 @@ void draw_frame(core::Rect rect, const core::Interaction& in, bool active) {
     ui().draw_list().rect_filled(rect.min, rect.max, faded(fill), kit().style.frame_rounding);
 }
 
+void draw_check_box(core::Rect box, const core::Interaction& in, bool on, bool mixed) {
+    core::DrawList& dl = ui().draw_list();
+    const float side = box.width();
+    draw_frame(box, in, false);
+    if (mixed) {
+        // A dash: some on and some off.
+        const float pad = std::max(1.0f, std::floor(side / 4.0f));
+        const float thickness = std::max(std::floor(side / 7.0f), 1.0f);
+        const float y = std::floor(box.min.y + side * 0.5f - thickness * 0.5f);
+        dl.rect_filled({box.min.x + pad, y}, {box.max.x - pad, y + thickness}, faded(text_colour()));
+    } else if (on) {
+        // ImGui's tick: a short stroke down and a long one up.
+        const float pad = std::max(1.0f, std::floor(side / 6.0f));
+        const float sz = side - pad * 2.0f;
+        const float thickness = std::max(sz / 5.0f, 1.0f);
+        const float inner = sz - thickness * 0.5f;
+        const glm::vec2 at = box.min + glm::vec2{pad + thickness * 0.25f, pad + thickness * 0.25f};
+        const float third = inner / 3.0f;
+        const glm::vec2 points[] = {{at.x, at.y + inner - third},
+                                    {at.x + third, at.y + inner},
+                                    {at.x + third * 3.0f, at.y + inner - third * 3.0f}};
+        dl.polyline(points, faded(text_colour()), thickness);
+    }
+}
+
 float item_width() {
     const Kit& k = kit();
     core::Layout& layout = ui().layout();

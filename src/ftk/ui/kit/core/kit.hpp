@@ -443,6 +443,9 @@ void draw_text(glm::vec2 at, Color colour, std::string_view text, float wrap = c
 [[nodiscard]] FrameColours frame_colours();
 /// A field's frame at `rect` as `in` finds it, `active` while it is edited.
 void draw_frame(core::Rect rect, const core::Interaction& in, bool active);
+/// A checkbox's box at `box`, square, as `in` finds it: ticked while `on`,
+/// a dash while `mixed`, empty otherwise.
+void draw_check_box(core::Rect box, const core::Interaction& in, bool on, bool mixed);
 
 /// The width the next item takes: what next_width() asked, or the share
 /// of the room a field takes.
