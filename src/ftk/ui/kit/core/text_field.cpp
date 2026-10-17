@@ -62,11 +62,15 @@ Edit text_area(const char* id, std::string& value, TextAreaOptions options) {
 
 bool text_entry(const char* id, std::string& value, TextEntryOptions options) {
     if (options.focus) ui().set_focus(ui().id(id));
-    if (options.prompt == nullptr) return field(id, value, {.hint = options.hint}).entered;
+    if (options.prompt == nullptr) {
+        return field(id, value, {.hint = options.hint, .caret_at_end = options.caret_at_end}).entered;
+    }
 
     // The prompt sits where the text would begin, the text after it.
     const float prompt_width = measure(options.prompt).x;
-    const bool entered = field(id, value, {.hint = options.hint, .lead = prompt_width + theme::GAP_XS}).entered;
+    const bool entered =
+        field(id, value, {.hint = options.hint, .caret_at_end = options.caret_at_end, .lead = prompt_width + theme::GAP_XS})
+            .entered;
     const core::Rect rect = kit().item.rect;
     const float text_y = rect.min.y + std::floor((rect.height() - text_style().size) * 0.5f);
     draw_text({rect.min.x + kit().style.frame_padding.x, text_y}, theme::text_secondary(), options.prompt);

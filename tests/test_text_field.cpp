@@ -248,6 +248,30 @@ TEST_CASE("A text entry's text is live, and Enter is told apart from leaving it"
     CHECK(left >= 1);
 }
 
+TEST_CASE("A text entry given the keyboard can take typing after its text", "[ui][kit]") {
+    KitHarness h;
+    std::string with_caret = "tree.oak.";
+    std::string selecting = "tree.oak.";
+    bool focus_caret = false;
+    bool focus_select = false;
+    h.set_ui([&] {
+        (void)ui::text_entry("##caret", with_caret, {.focus = std::exchange(focus_caret, false), .caret_at_end = true});
+        (void)ui::text_entry("##select", selecting, {.focus = std::exchange(focus_select, false)});
+    });
+    h.step(2);
+    focus_caret = true;
+    h.step(2);
+    h.type("grey");
+    h.step();
+    CHECK(with_caret == "tree.oak.grey");
+    // Without it, the keyboard selects the text, and typing replaces it.
+    focus_select = true;
+    h.step(2);
+    h.type("grey");
+    h.step();
+    CHECK(selecting == "grey");
+}
+
 TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", "[ui][kit]") {
     KitHarness h;
     std::string line;

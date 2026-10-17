@@ -304,9 +304,12 @@ void take_keyboard(Id id, const core::Interaction& in, const core::Focus& focus,
         if (k.editing.id != 0 && k.editing.id != id) k.left = std::move(k.editing);
         k.editing = {.id = id, .text = value, .initial = value, .moved = context.time()};
         // Given by a click, the caret goes where it landed; given by the
-        // keyboard, or asked to, the whole text is selected.
+        // keyboard, or asked to, the whole text is selected, or the caret
+        // goes after it where the box is filled in to be added to.
         if (in.pressed && !options.select_all) {
             k.editing.caret = k.editing.anchor = caret_at(value, in.position);
+        } else if (!in.pressed && options.caret_at_end) {
+            k.editing.caret = k.editing.anchor = value.size();
         } else {
             k.editing.anchor = 0;
             k.editing.caret = value.size();

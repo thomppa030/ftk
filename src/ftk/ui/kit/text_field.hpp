@@ -34,6 +34,10 @@ struct TextEntryOptions {
     const char* prompt{nullptr};
     /// The keyboard goes to the field on this draw.
     bool focus{false};
+    /// Given the keyboard by `focus`, the caret goes after the text with
+    /// nothing selected, rather than selecting it all: a field filled in to
+    /// be added to, such as a new tag's name after its parent's.
+    bool caret_at_end{false};
 };
 
 /// A field whose text is live, unlike text_field's: `value` is written as

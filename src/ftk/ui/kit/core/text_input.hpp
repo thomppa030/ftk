@@ -31,6 +31,9 @@ struct TextInputOptions {
     const char* hint{nullptr};
     /// Taking the keyboard selects the whole text, as a click does too.
     bool select_all{false};
+    /// Given the keyboard by the caller, the caret goes after the text with
+    /// nothing selected: a box filled in to be added to.
+    bool caret_at_end{false};
     /// Room left of the text, past the frame's padding: an icon's.
     float lead{0.0f};
     /// Room right of the text, before the frame's padding: buttons inside
