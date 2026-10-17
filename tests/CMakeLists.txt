@@ -23,6 +23,7 @@ add_executable(ftk-tests
     test_compression.cpp
     test_delegate.cpp
     test_document_history.cpp
+    test_file_names.cpp
     test_frame_graph.cpp
     test_gpu_access.cpp
     test_gpu_binding.cpp
@@ -57,6 +58,7 @@ add_executable(ftk-tests
     test_text_translate.cpp
     test_theme.cpp
     test_thread_pool.cpp
+    test_time_text.cpp
     test_tree_watcher.cpp
     test_ui_core_draw.cpp
     test_ui_core_frame.cpp
@@ -126,6 +128,7 @@ add_executable(ftk-kit-tests
     test_curve_editor.cpp
     test_gradient_editor.cpp
     test_dialog.cpp
+    test_drop_cue.cpp
     test_edit_record.cpp
     test_fields.cpp
     test_find.cpp
@@ -154,8 +157,11 @@ add_executable(ftk-kit-tests
     test_status_bar.cpp
     test_table.cpp
     test_text_field.cpp
+    test_folder_field.cpp
+    test_file_browser.cpp
     test_text_area.cpp
     test_picture_row.cpp
+    test_pick_row.cpp
     test_tree.cpp
 )
 target_link_libraries(ftk-kit-tests PRIVATE ftk::app-ui ftk::kit-harness Catch2::Catch2WithMain)

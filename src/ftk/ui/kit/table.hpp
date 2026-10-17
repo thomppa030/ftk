@@ -75,6 +75,11 @@ void table_next_row();
 /// Moves to the next cell of the row. False when its column is hidden.
 bool table_next_column();
 
+/// Scrolls a table whose rows scroll so that the row just started is in
+/// sight, from the next frame on: a row made or found out of view. Asked
+/// after table_next_row(), before the row's first cell.
+void table_reveal_row();
+
 /// The mouse is on the row being drawn, in any of its cells: a property
 /// row's menu opens from anywhere on it.
 [[nodiscard]] bool table_row_hovered();

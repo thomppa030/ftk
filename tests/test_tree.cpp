@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/text.hpp"
@@ -110,6 +111,40 @@ TEST_CASE("A search opens a folded row without unfolding it for good", "[ui][kit
     t.force_open = false;
     t.h.step(2);
     CHECK_FALSE(t.child_drawn);
+}
+
+TEST_CASE("A rename's field is told as a text field named Name, with the keyboard", "[ui][kit]") {
+    SmallTree t;
+    t.rename.start(1, "Docks");
+    t.h.step(2);
+    const ui::core::SemanticNode* field = t.h.find("Name", ui::core::Role::TextField);
+    REQUIRE(field != nullptr);
+    CHECK(field->value == "Docks");
+    CHECK(field->state.focused);
+    t.h.press(ui::Key::Escape);
+    t.h.step();
+    CHECK(t.h.find("Name", ui::core::Role::TextField) == nullptr);
+}
+
+TEST_CASE("A rename finished by its owner gives the name as typed", "[ui][kit]") {
+    SmallTree t;
+    t.rename.start(1, "Docks");
+    t.h.step(2);
+    t.h.press(ui::Key::Backspace);
+    t.h.type("Harbour");
+    REQUIRE(t.rename.editing());
+    const std::optional<std::string> finished = t.rename.finish();
+    REQUIRE(finished.has_value());
+    CHECK(*finished == "Harbour");
+    CHECK_FALSE(t.rename.editing());
+    CHECK_FALSE(t.rename.finish().has_value());
+    t.h.step();
+    CHECK_FALSE(ui::typing());
+
+    // Unchanged, or emptied: nothing.
+    t.rename.start(1, "Docks");
+    t.h.step(2);
+    CHECK_FALSE(t.rename.finish().has_value());
 }
 
 TEST_CASE("A rename commits on Enter or a click away, and Esc keeps the old name", "[ui][kit]") {

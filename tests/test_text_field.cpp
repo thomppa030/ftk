@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -144,6 +145,41 @@ struct PlainField {
 
 } // namespace
 
+TEST_CASE("text_field shows its hint while empty and commits what is typed over it", "[ui][text_field]") {
+    KitHarness h;
+    std::string value;
+    int commits = 0;
+    h.set_ui([&] {
+        if (ftk::ui::text_field("##Output", value, {.hint = "Beside each source"}).committed) ++commits;
+        h.mark("field");
+        ui::button("Elsewhere");
+        h.mark("elsewhere");
+    });
+    h.step(2);
+    const auto drew_hint = [&] {
+        const uint32_t hint = ftk::ui::core::pack_colour(ftk::theme::text_disabled());
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == hint && h.rect("field").contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(drew_hint());
+    // The hint is never the value: leaving the field untouched commits nothing.
+    h.click("field");
+    h.click("elsewhere");
+    CHECK(commits == 0);
+    CHECK(value.empty());
+    h.click("field");
+    h.type("models");
+    h.press(ui::Key::Enter);
+    CHECK(commits == 1);
+    CHECK(value == "models");
+    h.step();
+    CHECK_FALSE(drew_hint());
+}
+
 TEST_CASE("text_field leaves the value alone while typing and writes it on Enter", "[ui][text_field]") {
     PlainField f;
     f.h.click("field");
@@ -229,29 +265,31 @@ TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", 
     CHECK(entered);
 }
 
-TEST_CASE("A text field shows its hint dimmed while empty, and not over text", "[ui][kit]") {
+TEST_CASE("stop_typing drops what a field held, and the value set stays", "[ui][text_field]") {
     KitHarness h;
-    std::string tag;
-    std::string named{"pines"};
+    std::string query;
+    bool clear = false;
     h.set_ui([&] {
-        (void)ui::text_field("##tag", tag, "trees");
-        h.mark("empty");
-        (void)ui::text_field("##named", named, "trees");
-        h.mark("named");
+        (void)ui::text_entry("##search", query);
+        h.mark("search");
+        if (ui::button("Clear")) clear = true;
+        h.mark("clear");
+        if (std::exchange(clear, false)) {
+            ui::stop_typing();
+            query.clear();
+        }
     });
     h.step(2);
-    // How much the frame drew in the disabled colour inside a mark.
-    const auto dimmed = [&](const std::string& mark) {
-        const uint32_t packed = ftk::ui::core::pack_colour(ftk::theme::text_disabled());
-        const auto rect = h.rect(mark);
-        int count = 0;
-        for (const auto& root : h.output().roots) {
-            for (const auto& p : root.draw->primitives) {
-                if (p.colour == packed && rect.contains((p.min + p.max) * 0.5f)) ++count;
-            }
-        }
-        return count;
-    };
-    CHECK(dimmed("empty") >= static_cast<int>(std::string("trees").size()));
-    CHECK(dimmed("named") == 0);
+    h.click("search");
+    h.type("kit");
+    REQUIRE(query == "kit");
+    h.click("clear");
+    h.step(3);
+    CHECK(query.empty());
+    CHECK_FALSE(ui::typing());
+    // Typed in again, it starts from what it now holds.
+    h.click("search");
+    h.type("props");
+    CHECK(query == "props");
 }
+

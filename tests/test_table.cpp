@@ -79,3 +79,73 @@ TEST_CASE("A table knows which of its rows the mouse is on", "[ui][kit]") {
     CHECK_FALSE(hovered[0]);
     CHECK(hovered[1]);
 }
+
+TEST_CASE("A table's headers are told where each is", "[ui][kit]") {
+    KitHarness h;
+    static constexpr ui::Column COLUMNS[] = {
+        {.name = "Name", .default_sort = true},
+        {.name = "Size", .sizing = ui::ColumnWidth::Fixed, .width = 80.0f},
+    };
+    h.set_ui([&] {
+        if (auto table = ui::Table("##files", COLUMNS, {.sortable = true, .scroll = true})) {
+            ui::table_headers();
+            (void)ui::table_sort_changed();
+            ui::table_next_row();
+            ui::table_next_column();
+            ui::text("terrain.fjmesh");
+            h.mark("name");
+            ui::table_next_column();
+            ui::text("12 KB");
+            h.mark("size");
+        }
+    });
+    h.step(2);
+    const ui::core::SemanticNode* name = h.find("Name", ui::core::Role::Button);
+    const ui::core::SemanticNode* size = h.find("Size", ui::core::Role::Button);
+    REQUIRE(name != nullptr);
+    REQUIRE(size != nullptr);
+    // Each over its own column, in a row above the first.
+    CHECK(name->rect.max.y <= h.rect("name").min.y);
+    CHECK(size->rect.max.y <= h.rect("size").min.y);
+    CHECK(name->rect.max.x <= size->rect.min.x + 1.0f);
+    CHECK(size->rect.width() == 80.0f);
+}
+
+TEST_CASE("A table brings a row out of sight into view when asked", "[ui][kit]") {
+    KitHarness h{{400.0f, 300.0f}};
+    static constexpr ui::Column COLUMNS[] = {{.name = "Name"}};
+    int reveal = -1;
+    h.set_ui([&] {
+        if (auto table = ui::Table("##files", COLUMNS, {.scroll = true})) {
+            ui::table_headers();
+            for (int i = 0; i < 100; ++i) {
+                ui::IdScope row(i);
+                ui::table_next_row();
+                if (i == reveal) ui::table_reveal_row();
+                ui::table_next_column();
+                ui::text("row " + std::to_string(i));
+                h.mark("row" + std::to_string(i));
+            }
+        }
+    });
+    h.step(2);
+    const float top = h.rect("row0").min.y;
+    CHECK(h.rect("row80").min.y > 300.0f);
+
+    // Down to row 80: wholly in the window.
+    reveal = 80;
+    h.step(3);
+    CHECK(h.rect("row80").min.y >= top);
+    CHECK(h.rect("row80").max.y <= 300.0f);
+    // A row in sight stays where it is.
+    const float at = h.rect("row80").min.y;
+    reveal = 79;
+    h.step(3);
+    CHECK(h.rect("row80").min.y == at);
+    // Back up to row 2: under the headers, not behind them.
+    reveal = 2;
+    h.step(3);
+    CHECK(h.rect("row2").min.y >= top);
+    CHECK(h.rect("row2").max.y <= 300.0f);
+}
+

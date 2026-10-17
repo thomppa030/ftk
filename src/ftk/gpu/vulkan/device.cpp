@@ -82,6 +82,22 @@ void destroy_buffer(VkDevice device, VmaAllocator allocator, const Device::Impl:
     }
 }
 
+// The bytes VMA holds for `allocation`, as memory_in_use() counts them.
+uint64_t allocation_bytes(VmaAllocator allocator, VmaAllocation allocation) {
+    if (allocation == VK_NULL_HANDLE) return 0;
+    VmaAllocationInfo info{};
+    vmaGetAllocationInfo(allocator, allocation, &info);
+    return info.size;
+}
+
+// The bytes a buffer's memory takes: its allocation, or a sparse one's pages.
+uint64_t buffer_bytes(VmaAllocator allocator, const Device::Impl::BufferRecord& record) {
+    if (!record.sparse) return allocation_bytes(allocator, record.allocation);
+    uint64_t bytes = 0;
+    for (VmaAllocation page : record.pages) bytes += allocation_bytes(allocator, page);
+    return bytes;
+}
+
 // Where each queue family the uploads run on may use a buffer.
 void share_with_upload_families(VkBufferCreateInfo& info, std::span<const uint32_t> families) {
     // Uploads may run on the transfer queue and compute on its own: a buffer
@@ -714,9 +730,10 @@ Result<> Device::grow(Buffer buffer, uint64_t size) {
                         record->name);
     grown.size = target;
     ++grown.generation;
-    self.release_later([device = self.device, allocator = self.allocator, gone = std::move(*record)] {
-        destroy_buffer(device, allocator, gone);
-    });
+    self.release_memory_later(buffer_bytes(self.allocator, *record),
+                              [device = self.device, allocator = self.allocator, gone = std::move(*record)] {
+                                  destroy_buffer(device, allocator, gone);
+                              });
     *record = std::move(grown);
     return {};
 }
@@ -794,20 +811,20 @@ void release(Device& device, Buffer buffer) {
     Device::Impl& self = device.impl();
     auto record = self.buffers.take(buffer);
     if (!record.has_value()) return;
-    self.release_later(
-        [device = self.device, allocator = self.allocator, gone = std::move(*record)] {
-            destroy_buffer(device, allocator, gone);
-        });
+    self.release_memory_later(buffer_bytes(self.allocator, *record),
+                              [device = self.device, allocator = self.allocator, gone = std::move(*record)] {
+                                  destroy_buffer(device, allocator, gone);
+                              });
 }
 
 void release(Device& device, Texture texture) {
     Device::Impl& self = device.impl();
     auto record = self.textures.take(texture);
     if (!record.has_value()) return;
-    self.release_later(
-        [dev = self.device, allocator = self.allocator, gone = std::move(*record)] {
-            destroy_texture(dev, allocator, gone);
-        });
+    self.release_memory_later(allocation_bytes(self.allocator, record->allocation),
+                              [dev = self.device, allocator = self.allocator, gone = std::move(*record)] {
+                                  destroy_texture(dev, allocator, gone);
+                              });
 }
 
 void Device::after_frames(std::move_only_function<void()> fn) {
@@ -818,6 +835,10 @@ uint64_t Device::memory_in_use() const {
     VmaTotalStatistics stats{};
     vmaCalculateStatistics(impl_->allocator, &stats);
     return stats.total.statistics.allocationBytes;
+}
+
+uint64_t Device::memory_releasing() const {
+    return impl_->releasing_bytes.load();
 }
 
 uint64_t Device::recording_frame() const { return impl_->recording; }

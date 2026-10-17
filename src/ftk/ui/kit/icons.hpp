@@ -37,6 +37,10 @@ inline constexpr const char* up_folder = ICON_LC_ARROW_UP;      // the folder th
 inline constexpr const char* home      = ICON_LC_HOUSE;         // the user's home folder
 inline constexpr const char* downloads = ICON_LC_DOWNLOAD;
 inline constexpr const char* project   = ICON_LC_FOLDER_GIT_2;  // the open project's folder
+inline constexpr const char* new_folder = ICON_LC_FOLDER_PLUS;  // a folder made where the browser is
+
+// A tile's marks (ftk/ui/kit/asset_tile.hpp)
+inline constexpr const char* import = ICON_LC_IMPORT;  // a file waiting to be imported
 
 // Kinds of asset every program has (ftk/ui/kit/asset_kind.hpp)
 inline constexpr const char* texture = ICON_LC_IMAGE;

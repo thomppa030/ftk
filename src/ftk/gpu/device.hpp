@@ -302,6 +302,11 @@ public:
     /// the device has made and not yet released. For a test that checks a
     /// program gives back what it took.
     [[nodiscard]] uint64_t memory_in_use() const;
+    /// Of memory_in_use(), the buffers and textures released whose frames
+    /// are not done yet: freed as released_frame() passes the frame each was
+    /// released in. How much it is follows frame timing, not what the
+    /// program holds.
+    [[nodiscard]] uint64_t memory_releasing() const;
     /// The serial of the frame recording now, which what is released now
     /// waits for.
     [[nodiscard]] uint64_t recording_frame() const;

@@ -3,7 +3,8 @@
 
 # ftk-base holds what any program needs before it has a window: the log and
 # the problem list, results, delegates, handles and handle pools, range
-# allocation, the thread pool, the profiler, and the string and UTF-8 helpers.
+# allocation, the thread pool, the profiler, and the string, time and UTF-8
+# helpers.
 ftk_library(base
     SOURCES
         ftk/base/compression.cpp
@@ -12,6 +13,7 @@ ftk_library(base
         ftk/base/range_allocator.cpp
         ftk/base/split_jobs.cpp
         ftk/base/thread_pool.cpp
+        ftk/base/time_text.cpp
     HEADERS
         ftk/base/compression.hpp
         ftk/base/delegate.hpp
@@ -27,6 +29,7 @@ ftk_library(base
         ftk/base/result.hpp
         ftk/base/string_utils.hpp
         ftk/base/thread_pool.hpp
+        ftk/base/time_text.hpp
         ftk/base/utf8.hpp
     LINKS
         PUBLIC spdlog::spdlog
@@ -95,10 +98,12 @@ endif()
 ftk_library(platform
     SOURCES
         ${FTK_PLATFORM_SOURCES}
+        ftk/platform/file_names.cpp
         ftk/platform/tree_watcher.cpp
     HEADERS
         ftk/platform/child_process.hpp
         ftk/platform/detail/command_line.hpp
+        ftk/platform/file_names.hpp
         ftk/platform/tree_watcher.hpp
         ftk/platform/platform.hpp
         ftk/platform/shared_library.hpp
@@ -444,11 +449,13 @@ ftk_library(ui-kit
         ftk/ui/kit/dialog.hpp
         ftk/ui/kit/dock.hpp
         ftk/ui/kit/drag_drop.hpp
+        ftk/ui/kit/drop_cue.hpp
         ftk/ui/kit/edit.hpp
         ftk/ui/kit/edit_record.hpp
         ftk/ui/kit/feedback.hpp
         ftk/ui/kit/field.hpp
         ftk/ui/kit/find.hpp
+        ftk/ui/kit/folder_field.hpp
         ftk/ui/kit/gallery.hpp
         ftk/ui/kit/grouped_picker.hpp
         ftk/ui/kit/icons.hpp
@@ -470,6 +477,7 @@ ftk_library(ui-kit
         ftk/ui/kit/plot.hpp
         ftk/ui/kit/popup.hpp
         ftk/ui/kit/panel.hpp
+        ftk/ui/kit/pick_row.hpp
         ftk/ui/kit/picture_row.hpp
         ftk/ui/kit/plate.hpp
         ftk/ui/kit/problem_row.hpp
@@ -522,10 +530,12 @@ ftk_library(app-ui
         ftk/ui/kit/core/dialog.cpp
         ftk/ui/kit/core/dock.cpp
         ftk/ui/kit/core/drag_drop.cpp
+        ftk/ui/kit/core/drop_cue.cpp
         ftk/ui/kit/core/draw_list.cpp
         ftk/ui/kit/core/feedback.cpp
         ftk/ui/kit/core/field.cpp
         ftk/ui/kit/core/find.cpp
+        ftk/ui/kit/core/folder_field.cpp
         ftk/ui/kit/core/grouped_picker.cpp
         ftk/ui/kit/core/image.cpp
         ftk/ui/kit/core/input.cpp
@@ -544,6 +554,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/pane.cpp
         ftk/ui/kit/core/panel.cpp
         ftk/ui/kit/core/picture_strip.cpp
+        ftk/ui/kit/core/pick_row.cpp
         ftk/ui/kit/core/picture_row.cpp
         ftk/ui/kit/core/plate.cpp
         ftk/ui/kit/core/plot.cpp
@@ -664,5 +675,5 @@ ftk_library(app-editor
         ftk/app/standalone_window.hpp
     LINKS
         PUBLIC ftk::base ftk::app ftk::gpu ftk::gpu-ui ftk::app-ui ftk::ui-kit ftk::ui-core
-        PRIVATE ftk::image
+        PRIVATE ftk::image ftk::platform
 )

@@ -180,7 +180,7 @@ void table_headers() {
         const core::Rect cell{.min = {t.x[i], top}, .max = {t.x[i] + t.widths[i], top + height}};
         const Id id = context.id(t.columns[i].name);
         const core::Interaction in = place(id, cell);
-        context.semantics(id, core::Role::Button, t.columns[i].name);
+        context.semantics(id, core::Role::Button, t.columns[i].name, {}, {}, cell);
         if (in.held || in.hovered) {
             dl.rect_filled(cell.min, cell.max, faded(in.held ? theme::surface_active() : theme::surface_hover()));
         }
@@ -247,6 +247,23 @@ bool table_next_column() {
 bool table_row_hovered() {
     const TableState* t = current_table();
     return t != nullptr && t->row >= 0 && t->hovered_row == t->row;
+}
+
+void table_reveal_row() {
+    TableState& t = table();
+    if (!t.scrolling || t.in_cell) return;
+    core::Context& context = ui();
+    // Where the row starts in the region's own space, and the room it takes
+    // at the least: a line, or a field's height for one typed in.
+    const core::Rect view = context.area_inside();
+    const glm::vec2 scroll = context.scroll();
+    const float height = std::max(line_height() + CELL_PADDING.y * 2.0f, frame_height());
+    const float top = t.row_top - view.min.y + scroll.y;
+    if (t.row_top < view.min.y) {
+        context.set_scroll({scroll.x, top});
+    } else if (t.row_top + height > view.max.y) {
+        context.set_scroll({scroll.x, top + height - view.height()});
+    }
 }
 
 std::optional<TableSort> table_sort_changed() {

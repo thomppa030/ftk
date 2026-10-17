@@ -26,6 +26,11 @@
 
 namespace ftk::ui {
 
+/// Files are dragged over the window from outside the program: a drop
+/// target takes them as ui::OUTSIDE_FILES, their paths a line each once let
+/// go.
+[[nodiscard]] bool dragging_from_outside();
+
 /// While it lives, the item just drawn is being dragged, when this is
 /// true: carry() what it gives and draw the preview inside the scope. The
 /// item may be one drawn by hand with no id of its own.

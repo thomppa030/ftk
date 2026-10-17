@@ -399,6 +399,18 @@ public:
     /// the drag ends.
     [[nodiscard]] std::optional<Drop> drop_target(std::string_view type);
     [[nodiscard]] std::optional<Drop> drop_target(Rect rect, std::string_view type);
+    /// Files dragged over a window from outside the program: a drag of
+    /// `type` with no source here, where the mouse is, which the window's
+    /// drag events move. It is offered to the drop targets of its type under
+    /// it as a drag from inside is, until it is let go or leaves.
+    void outside_drag(std::string_view type);
+    /// The drag from outside let go, carrying `size` bytes at `data` (the
+    /// files' paths): delivered this frame to the target under it, then over.
+    void outside_drop(const void* data, std::size_t size);
+    /// The drag from outside left the window without being let go.
+    void outside_drag_left();
+    /// Something is dragged in from outside the program.
+    [[nodiscard]] bool dragging_from_outside() const { return drag_.active && drag_.outside && !drag_.ended; }
     /// What is dragged, drawn at the pointer, until end_drag_preview().
     void begin_drag_preview();
     void end_drag_preview() { end_panel(); }
@@ -648,6 +660,10 @@ private:
         // Its source said so this frame; it ended this frame.
         bool seen{false};
         bool ended{false};
+        // Brought in from outside the program, with no source here; let go
+        // this frame.
+        bool outside{false};
+        bool dropped{false};
         Id source{0};
         PointerType pointer_type{PointerType::Mouse};
         PointerId pointer{0};
@@ -798,6 +814,9 @@ private:
     void settle_layers();
     // The pointer the drag is by, if it is still there.
     [[nodiscard]] const Tracked* drag_pointer() const;
+    // Whether the drag is let go over a target this frame: its pointer
+    // released, or the files from outside dropped.
+    [[nodiscard]] bool delivered(const Tracked& by) const;
     // At the frame's end: its records become the ones read.
     void finish_semantics();
     // Begins a scrolling area's frame: the wheel's turn if it is the one

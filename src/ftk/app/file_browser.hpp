@@ -2,12 +2,14 @@
 
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/delegate.hpp"
+#include "ftk/ui/kit/tree.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -82,13 +84,26 @@ public:
     /// button's word ("Import", "Create").
     void open(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
 
+    /// Readies the browser as open() does, but for a window of the caller's
+    /// that draw() fills, as its tests draw it.
+    void start(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
+
     /// Render one frame. Call from the main loop if is_open().
     void tick();
+
+    /// Draws the browser in the space left of the window being drawn: what
+    /// tick() draws in its own window. True once it is answered, a choice
+    /// confirmed or Cancel, and should close.
+    bool draw();
 
     /// Close the browser window.
     void close();
 
     [[nodiscard]] bool is_open() const { return window_ != nullptr; }
+
+    /// Why the last new folder couldn't be made or named, as the bar says
+    /// it until the next click; empty when nothing went wrong.
+    [[nodiscard]] const std::string& problem() const { return problem_; }
 
     /// Fired when the user confirms a selection (directory or file path).
     Delegate<void(const std::string&)> on_selected;
@@ -98,7 +113,6 @@ public:
 
 private:
     // ── UI drawing ──────────────────────────────────────────────────────
-    bool draw_ui(float window_w, float window_h);
     void draw_top_bar();
     void draw_breadcrumbs(float width);
     void draw_places();
@@ -112,6 +126,13 @@ private:
     /// Goes to `dir`; `remember` keeps where it was for Back.
     void navigate(const std::filesystem::path& dir, bool remember = true);
     void refresh();
+    /// Selects the entry listed as `name`; none when it isn't listed.
+    void select_named(std::string_view name);
+    /// Makes a folder where the browser is, named new_folder and numbered
+    /// when that is taken, and opens its name for typing.
+    void make_folder();
+    /// Names the folder just made `name`, unless the name can't be used.
+    void name_folder(const std::string& name);
     [[nodiscard]] bool can_confirm() const;
     void confirm_selection();
     void remember_folder();
@@ -138,11 +159,20 @@ private:
     std::vector<Entry> entries_;
     std::vector<size_t> filtered_indices_; // indices into entries_ after search filter
     int selected_index_{-1};               // index into filtered_indices_
+    bool answered_{false};                 // a choice was confirmed this frame
     bool typing_path_{false};              // the breadcrumbs are a path field
     bool focus_path_{false};
     std::string typed_path_;
     std::string search_;
     std::string name_;
+    /// The folder just made, while its name is typed.
+    std::string naming_;
+    ui::RenameBox rename_;
+    /// Scroll the folder just made into sight on the next draw.
+    bool reveal_named_{false};
+    /// Why the last folder couldn't be made or named, said in the bar until
+    /// the next click.
+    std::string problem_;
 
     // Sort state
     enum class SortColumn { name, size, date };

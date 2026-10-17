@@ -505,27 +505,7 @@ Edit checkbox(const char* id, bool& value) {
                       {.checked = value && !shows_mixed});
 
     const core::Rect box{.min = rect.min, .max = rect.min + glm::vec2{side, side}};
-    draw_frame(box, in, false);
-    if (shows_mixed) {
-        // A dash: some on and some off.
-        const float pad = std::max(1.0f, std::floor(side / 4.0f));
-        const float thickness = std::max(std::floor(side / 7.0f), 1.0f);
-        const float y = std::floor(box.min.y + side * 0.5f - thickness * 0.5f);
-        context.draw_list().rect_filled({box.min.x + pad, y}, {box.max.x - pad, y + thickness},
-                                        faded(corekit::text_colour()));
-    } else if (value) {
-        // ImGui's tick: a short stroke down and a long one up.
-        const float pad = std::max(1.0f, std::floor(side / 6.0f));
-        const float sz = side - pad * 2.0f;
-        const float thickness = std::max(sz / 5.0f, 1.0f);
-        const float inner = sz - thickness * 0.5f;
-        const glm::vec2 at = box.min + glm::vec2{pad + thickness * 0.25f, pad + thickness * 0.25f};
-        const float third = inner / 3.0f;
-        const glm::vec2 points[] = {{at.x, at.y + inner - third},
-                                    {at.x + third, at.y + inner},
-                                    {at.x + third * 3.0f, at.y + inner - third * 3.0f}};
-        context.draw_list().polyline(points, faded(corekit::text_colour()), thickness);
-    }
+    draw_check_box(box, in, value, shows_mixed);
     if (!label.empty()) {
         draw_text({box.max.x + style.item_inner_spacing.x, rect.min.y + style.frame_padding.y}, corekit::text_colour(),
                   label);

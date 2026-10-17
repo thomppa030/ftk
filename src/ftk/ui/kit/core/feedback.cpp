@@ -31,6 +31,10 @@ constexpr float NOTICE_PAD_X = 10.0f;
 constexpr float NOTICE_PAD_Y = 6.0f;
 constexpr float NOTICE_TINT = 0.10f;
 constexpr float NOTICE_LINE = 0.35f;
+
+// A note line's room inside it.
+constexpr float NOTE_PAD_X = 8.0f;
+constexpr float NOTE_PAD_Y = 1.0f;
 // The explanation wraps at about thirty characters' width, so it reads as
 // a short paragraph under the title rather than one long line.
 constexpr float EMPTY_TEXT_WIDTH = 220.0f;
@@ -150,6 +154,37 @@ std::optional<std::size_t> notice_strip(Severity severity, const char* text, std
     set_cursor({origin.x, origin.y + height});
     reserve({0.0f, 0.0f});
     return chosen;
+}
+
+void note_line(const char* icon, std::string_view text, std::string_view strong) {
+    core::Context& context = ui();
+    const glm::vec2 origin = cursor();
+    const float width = space_left().x;
+    const float height = frame_height() + (2.0f * NOTE_PAD_Y);
+    context.draw_list().rect_filled(origin, {origin.x + width, origin.y + height}, faded(theme::surface_raised()),
+                                    kit().style.frame_rounding);
+
+    set_cursor({origin.x + NOTE_PAD_X, origin.y + NOTE_PAD_Y});
+    align_text_to_frame();
+    float room = width - (NOTE_PAD_X * 2.0f);
+    if (icon != nullptr) {
+        ui::text(icon, theme::text_secondary());
+        same_line(theme::GAP_S + theme::GAP_XS);
+        room -= measure(icon).x + theme::GAP_S + theme::GAP_XS;
+    }
+    room = std::max(room, 0.0f);
+    if (measure(text).x + measure(strong).x <= room) {
+        ui::text(text, theme::text_secondary());
+        if (!strong.empty()) {
+            same_line(0.0f);
+            ui::text(strong);
+        }
+    } else {
+        ui::text(ellipsized(std::string(text) + std::string(strong), room), theme::text_secondary());
+    }
+    // The line is the item, for what follows to go under and the owner to point at.
+    set_cursor(origin);
+    reserve({width, height});
 }
 
 bool callout(Severity severity, const char* title, const char* text, const char* action_icon,

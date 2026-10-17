@@ -65,7 +65,8 @@ TEST_CASE("A tile keeps its clicks from a background drawn behind the grid after
     CHECK(background_clicks == 0);
 }
 
-TEST_CASE("A tile's badge marks work going on or failed, and its note joins the tooltip", "[ui][kit]") {
+TEST_CASE("A tile's badge marks work going on, failed or a file not imported, and its note joins the tooltip",
+          "[ui][kit]") {
     KitHarness h;
     ui::TileBadge badge = ui::TileBadge::busy;
     std::string_view note;
@@ -94,6 +95,18 @@ TEST_CASE("A tile's badge marks work going on or failed, and its note joins the 
     badge = ui::TileBadge::failed;
     h.step(2);
     CHECK(drawn_in(ftk::theme::error()));
+
+    // Not imported: the arrow in the secondary text colour, no spinner, no error.
+    badge = ui::TileBadge::not_imported;
+    h.step(2);
+    CHECK(drawn_in(ftk::theme::text_secondary()));
+    CHECK_FALSE(drawn_in(ftk::theme::accent()));
+    CHECK_FALSE(drawn_in(ftk::theme::error()));
+    badge = ui::TileBadge::none;
+    h.step(2);
+    CHECK_FALSE(drawn_in(ftk::theme::text_secondary()));
+    badge = ui::TileBadge::failed;
+    h.step(2);
 
     h.hover("tile");
     h.step(60);

@@ -200,6 +200,35 @@ void UiInput::receive(const SDL_Event& event) {
         mouse(Kind::Leave, {0.0f, 0.0f});
         break;
 
+    // Files dragged in from outside: no mouse moves while they are, so the
+    // drag's places move the mouse; it ends with their names, or with none
+    // when it leaves.
+    case SDL_EVENT_DROP_BEGIN:
+        dropping_.clear();
+        ui_.outside_drag(ui::OUTSIDE_FILES);
+        break;
+    case SDL_EVENT_DROP_POSITION:
+        ui_.outside_drag(ui::OUTSIDE_FILES);
+        mouse(Kind::Move, at(event.drop.x, event.drop.y));
+        break;
+    case SDL_EVENT_DROP_FILE:
+        if (event.drop.data != nullptr) {
+            if (!dropping_.empty()) dropping_ += '\n';
+            dropping_ += event.drop.data;
+        }
+        break;
+    case SDL_EVENT_DROP_COMPLETE:
+        if (dropping_.empty()) {
+            ui_.outside_drag_left();
+            mouse(Kind::Leave, {0.0f, 0.0f});
+        } else {
+            ui_.outside_drag(ui::OUTSIDE_FILES);
+            mouse(Kind::Move, at(event.drop.x, event.drop.y));
+            ui_.outside_drop(dropping_.data(), dropping_.size());
+            dropping_.clear();
+        }
+        break;
+
     case SDL_EVENT_FINGER_DOWN:
     case SDL_EVENT_FINGER_UP:
     case SDL_EVENT_FINGER_MOTION:

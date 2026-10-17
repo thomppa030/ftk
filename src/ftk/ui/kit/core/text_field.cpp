@@ -26,11 +26,15 @@ TextInput field(const char* id, std::string& value, const TextInputOptions& opti
 
 } // namespace
 
-Edit text_field(const char* id, std::string& value, const char* hint) {
+Edit text_field(const char* id, std::string& value) {
+    return text_field(id, value, TextFieldOptions{});
+}
+
+Edit text_field(const char* id, std::string& value, TextFieldOptions options) {
     // `value` is the caller's, put back on every frame but the one the
     // edit is committed on: while it is typed in, the field holds its own.
     const std::string original = value;
-    const TextInput in = field(id, value, {.hint = hint});
+    const TextInput in = field(id, value, {.hint = options.hint});
     Edit edit;
     edit.changed = in.changed;
     edit.committed = in.deactivated && in.edited && value != original;

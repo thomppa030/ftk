@@ -71,6 +71,35 @@ TEST_CASE("A window's button bar confirms on Enter and cancels on Esc, unless so
     CHECK(answer == ui::DialogAnswer::None);
 }
 
+TEST_CASE("A window's button bar names its no as the dialog asks, and Esc still presses it", "[ui][kit]") {
+    KitHarness h;
+    ui::DialogAnswer answer = ui::DialogAnswer::None;
+    const char* cancel = "Not now";
+    h.set_ui([&] {
+        const auto a = ui::window_bar({.title = "Import models", .confirm = "Import 179", .cancel = cancel}, {});
+        if (a != ui::DialogAnswer::None) answer = a;
+    });
+    h.step(2);
+    const auto* not_now = h.find("Not now", ftk::ui::core::Role::Button);
+    REQUIRE(not_now != nullptr);
+    CHECK(h.find("Cancel", ftk::ui::core::Role::Button) == nullptr);
+    h.click_at(not_now->rect.centre());
+    CHECK(answer == ui::DialogAnswer::Cancel);
+
+    // A longer word widens its button, the verb still at the right edge, clear of it.
+    cancel = "Close and leave the rest raw";
+    answer = ui::DialogAnswer::None;
+    h.step(2);
+    const auto* close = h.find(cancel, ftk::ui::core::Role::Button);
+    const auto* verb = h.find("Import 179", ftk::ui::core::Role::Button);
+    REQUIRE(close != nullptr);
+    REQUIRE(verb != nullptr);
+    CHECK(close->rect.max.x <= verb->rect.min.x);
+    CHECK(close->rect.width() > 96.0f);
+    h.press(ui::Key::Escape);
+    CHECK(answer == ui::DialogAnswer::Cancel);
+}
+
 TEST_CASE("A name prompt takes typing at once and Enter confirms it", "[ui][kit]") {
     KitHarness h;
     Prompt prompt;
@@ -274,4 +303,104 @@ TEST_CASE("A prompt answered gives the keyboard back to what had it as it opened
     REQUIRE(prompt.answer == ui::DialogAnswer::Confirm);
     h.type("c");
     REQUIRE(typed == "abc");
+}
+
+namespace {
+
+// The clash dialog over `items`, opened on the first frame; `answer` keeps
+// the last answer it gave.
+struct Clashes {
+    std::vector<ui::ClashItem> items;
+    bool open_now{true};
+    ui::DialogAnswer answer{ui::DialogAnswer::None};
+
+    void draw() {
+        if (open_now) {
+            ui::open_clash_dialog("##clash", {{400.0f, 0.0f}, 0.5f});
+            open_now = false;
+        }
+        const auto given = ui::clash_dialog(
+            "##clash", {.title = "Replace the 3 files already in props?", .copied = "9 other files were copied.",
+                        .folder = "props"},
+            items);
+        if (given != ui::DialogAnswer::None) answer = given;
+    }
+};
+
+std::vector<ui::ClashItem> three_clashes() {
+    return {{.name = "crate.gltf", .here = "398 KB, 2 Oct 14:20", .dropped = "412 KB, today 09:12",
+             .replace_note = "crate.fjmesh comes back changed"},
+            {.name = "lantern.glb", .here = "1.2 MB, 30 Sep 11:05", .dropped = "1.2 MB, today 09:12",
+             .kept_name = "lantern_1.glb"},
+            {.name = "rug", .here = "a folder", .dropped = "2.1 MB, today 09:12", .kept_name = "rug_1",
+             .replaceable = false}};
+}
+
+// The `n`th segment labelled `label` the last frame drew, counting the
+// "Every file" row's as the first.
+const ftk::ui::core::SemanticNode* segment(KitHarness& h, std::string_view label, int n) {
+    for (const auto& node : h.ui().semantics()) {
+        if (node.role == ftk::ui::core::Role::Button && node.label == label && n-- == 0) return &node;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST_CASE("The clash dialog asks each name at Skip, counting what it copies", "[ui][kit]") {
+    KitHarness h;
+    Clashes clashes{.items = three_clashes()};
+    h.set_ui([&] { clashes.draw(); });
+    h.step(3);
+    // Every row starts at Skip: nothing to copy, the verb greyed out.
+    REQUIRE(h.find("Copy 0 files", ftk::ui::core::Role::Button) != nullptr);
+    // The folder can't be written over: no Replace on its row.
+    CHECK(segment(h, "Replace", 2) != nullptr);
+    CHECK(segment(h, "Replace", 3) == nullptr);
+    CHECK(segment(h, "Keep both", 3) != nullptr);
+
+    h.click_at(segment(h, "Keep both", 2)->rect.centre());
+    CHECK(clashes.items[1].choice == ui::ClashChoice::KeepBoth);
+    const auto* copy = h.find("Copy 1 file", ftk::ui::core::Role::Button);
+    REQUIRE(copy != nullptr);
+    // Nothing replaced: Enter copies.
+    h.press(ui::Key::Enter);
+    CHECK(clashes.answer == ui::DialogAnswer::Confirm);
+}
+
+TEST_CASE("Replacing makes the clash dialog the danger kind, Enter cancelling", "[ui][kit]") {
+    KitHarness h;
+    Clashes clashes{.items = three_clashes()};
+    h.set_ui([&] { clashes.draw(); });
+    h.step(3);
+    h.click_at(segment(h, "Replace", 1)->rect.centre());
+    CHECK(clashes.items[0].choice == ui::ClashChoice::Replace);
+    REQUIRE(h.find("Copy 1 file", ftk::ui::core::Role::Button) != nullptr);
+    h.press(ui::Key::Enter);
+    CHECK(clashes.answer == ui::DialogAnswer::Cancel);
+
+    clashes.open_now = true;
+    clashes.answer = ui::DialogAnswer::None;
+    h.step(3);
+    h.click_at(h.find("Copy 1 file", ftk::ui::core::Role::Button)->rect.centre());
+    CHECK(clashes.answer == ui::DialogAnswer::Confirm);
+}
+
+TEST_CASE("Every file sets every row, Replace leaving a folder as it is", "[ui][kit]") {
+    KitHarness h;
+    Clashes clashes{.items = three_clashes()};
+    h.set_ui([&] { clashes.draw(); });
+    h.step(3);
+    h.click_at(segment(h, "Keep both", 0)->rect.centre());
+    for (const ui::ClashItem& item : clashes.items) CHECK(item.choice == ui::ClashChoice::KeepBoth);
+    h.step();
+    REQUIRE(h.find("Copy 3 files", ftk::ui::core::Role::Button) != nullptr);
+
+    h.click_at(segment(h, "Replace", 0)->rect.centre());
+    CHECK(clashes.items[0].choice == ui::ClashChoice::Replace);
+    CHECK(clashes.items[1].choice == ui::ClashChoice::Replace);
+    CHECK(clashes.items[2].choice == ui::ClashChoice::KeepBoth);
+
+    h.press(ui::Key::Escape);
+    CHECK(clashes.answer == ui::DialogAnswer::Cancel);
 }

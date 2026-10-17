@@ -387,6 +387,50 @@ TEST_CASE("A long press shows the tooltip where there is no hover", "[ui-core][l
     CHECK(due > 0);
 }
 
+TEST_CASE("Files from outside are offered to a target under them, delivered where let go, gone when they leave",
+          "[ui-core][layers]") {
+    UiHarness h;
+    int offered = 0;
+    std::string delivered;
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.layout().spacing(100.0f);
+        (void)widget(h, "slot");
+        if (auto drop = ui.drop_target(ftk::ui::OUTSIDE_FILES)) {
+            ++offered;
+            if (drop->delivered) delivered = std::string(drop->payload.text());
+        }
+        (void)widget(h, "other");
+    });
+    h.step();
+
+    // Dragged in over the slot, the window's drag events placing the mouse.
+    h.ui().outside_drag(ftk::ui::OUTSIDE_FILES);
+    h.move_to(h.rect("slot").centre());
+    CHECK(h.ui().dragging_from_outside());
+    CHECK(offered >= 1);
+    CHECK(delivered.empty());
+    const std::string files = "/home/me/stone.png\n/home/me/rug.png";
+    h.ui().outside_drop(files.data(), files.size());
+    h.step();
+    CHECK(delivered == files);
+    CHECK_FALSE(h.ui().dragging_from_outside());
+    h.step();
+    CHECK_FALSE(h.ui().dragging());
+
+    // Over another widget, nothing is offered; taken out, the drag is over
+    // with nothing delivered.
+    delivered.clear();
+    offered = 0;
+    h.ui().outside_drag(ftk::ui::OUTSIDE_FILES);
+    h.move_to(h.rect("other").centre());
+    CHECK(offered == 0);
+    h.ui().outside_drag_left();
+    h.step();
+    CHECK_FALSE(h.ui().dragging());
+    CHECK(delivered.empty());
+}
+
 TEST_CASE("A drag carries a typed payload, offered while over a target and delivered where let go", "[ui-core][layers]") {
     UiHarness h;
     int dragging = 0;

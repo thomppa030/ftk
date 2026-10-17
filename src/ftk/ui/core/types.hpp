@@ -60,4 +60,9 @@ struct Payload {
     }
 };
 
+/// The type of a drag of files from outside the program
+/// (core::Context::outside_drag()): its payload, once it is let go, their
+/// paths, a line each.
+inline constexpr const char* OUTSIDE_FILES = "OUTSIDE_FILES";
+
 } // namespace ftk::ui
