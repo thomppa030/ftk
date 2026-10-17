@@ -41,10 +41,13 @@ void overlay_plate(DrawList draw_list, glm::vec2 min, glm::vec2 max);
 void overlay_tag(DrawList draw_list, glm::vec2 at, std::string_view text, std::string_view detail = {});
 
 /// A piece of a line over a picture: words, or a key drawn as a small cap
-/// (sheet 26's key, sized to the line).
+/// (sheet 26's key, sized to the line). Words may lead with a swatch, a
+/// small round mark in a colour the picture shows, which they name: an
+/// overlay's key ("pines" after its footprints' hue).
 struct OverlayPiece {
     std::string_view text;
     bool key{false};
+    std::optional<Color> swatch{};
 };
 
 enum class Corner { TopLeft, TopRight, BottomLeft, BottomRight };

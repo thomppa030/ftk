@@ -18,9 +18,11 @@ constexpr float GAP = 6.0f;       // between the icon and the words, and between
 constexpr float KEY_PAD_X = 5.0f;
 constexpr float KEY_PAD_Y = 1.0f;
 constexpr float KEY_LIP = 2.0f;
+constexpr float SWATCH = 8.0f;     // a swatch's width, and the gap after it is SWATCH_GAP
+constexpr float SWATCH_GAP = 4.0f;
 
 float piece_width(const OverlayPiece& piece) {
-    if (!piece.key) return measure(piece.text).x;
+    if (!piece.key) return measure(piece.text).x + (piece.swatch ? SWATCH + SWATCH_GAP : 0.0f);
     FontScope bold(Font::Bold, 0.0f);
     return measure(piece.text).x + KEY_PAD_X * 2.0f;
 }
@@ -104,6 +106,9 @@ glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNo
         const float w = piece_width(piece);
         if (piece.key) {
             draw_key(list, {x, y}, w, piece.text);
+        } else if (piece.swatch) {
+            list.circle_filled({x + SWATCH * 0.5f, y + font_size() * 0.5f}, SWATCH * 0.5f, *piece.swatch);
+            list.text({x + SWATCH + SWATCH_GAP, y}, spec.ink, piece.text);
         } else {
             list.text({x, y}, spec.ink, piece.text);
         }

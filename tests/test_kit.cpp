@@ -424,6 +424,27 @@ TEST_CASE("A corner note hangs from its corner, and a key makes its line taller"
     CHECK(longer.y == words.y);
 }
 
+TEST_CASE("A corner note's piece led by a swatch is the swatch wider, on the same line", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 plain{};
+    glm::vec2 marked{};
+    glm::vec2 told{};
+    h.set_ui([&] {
+        const ftk::ui::OverlayPiece words[] = {{"Tiles 6 made"}, {"1 waiting"}};
+        const ftk::ui::OverlayPiece keyed[] = {{"Tiles 6 made"}, {"1 waiting", false, ftk::theme::warning()}};
+        plain = ui::corner_note(ui::DrawList::window(), {0.0f, 0.0f}, ui::Corner::TopLeft,
+                                {.line = words, .ink = ftk::theme::text_secondary()});
+        const ui::CornerNoteSpec spec{.line = keyed, .ink = ftk::theme::text_secondary()};
+        told = ui::corner_note_size(spec);
+        marked = ui::corner_note(ui::DrawList::window(), {0.0f, 0.0f}, ui::Corner::TopLeft, spec);
+    });
+    h.step(2);
+    CHECK(marked.x > plain.x);
+    CHECK(marked.x - plain.x < 16.0f);
+    CHECK(marked.y == plain.y);
+    CHECK(told == marked);
+}
+
 TEST_CASE("A corner note's size is known before it is drawn", "[ui][kit]") {
     KitHarness h;
     glm::vec2 told{};
