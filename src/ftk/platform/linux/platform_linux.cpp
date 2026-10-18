@@ -9,12 +9,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 namespace ftk::platform {
 
@@ -64,6 +66,79 @@ std::filesystem::path saved_games_dir() {
 
 std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
     return std::fopen(path.c_str(), mode);
+}
+
+namespace {
+
+// What the system said went wrong with the call that just failed.
+std::string last_error() {
+    return std::system_category().message(errno);
+}
+
+// Puts what `descriptor` holds on the disk.
+Result<> sync_descriptor(int descriptor, const std::filesystem::path& path) {
+    if (::fsync(descriptor) != 0) return make_error("can't put " + path.string() + " on the disk: " + last_error());
+    return {};
+}
+
+// Puts the folder's entries on the disk, so a rename in it holds after a
+// power cut.
+Result<> sync_folder(const std::filesystem::path& folder) {
+    const int descriptor = ::open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (descriptor < 0) return make_error("can't open the folder " + folder.string() + ": " + last_error());
+    Result<> synced = sync_descriptor(descriptor, folder);
+    ::close(descriptor);
+    return synced;
+}
+
+// `file` under the name `backup` too, in place of whatever `backup` named:
+// a second name for the same file where the file system has them, else a
+// copy put on the disk. Never touches `file`.
+Result<> keep_as(const std::filesystem::path& file, const std::filesystem::path& backup) {
+    std::filesystem::path staged = backup;
+    staged += ".new";
+    std::error_code ignored;
+    std::filesystem::remove(staged, ignored);
+    if (::link(file.c_str(), staged.c_str()) != 0) {
+        // FAT on a USB stick and some network shares give a file one name only.
+        std::error_code copied;
+        std::filesystem::copy_file(file, staged, copied);
+        if (copied) return make_error("can't keep " + file.string() + " as " + backup.string() + ": " + copied.message());
+        const int descriptor = ::open(staged.c_str(), O_RDONLY | O_CLOEXEC);
+        if (descriptor < 0) return make_error("can't open " + staged.string() + ": " + last_error());
+        Result<> synced = sync_descriptor(descriptor, staged);
+        ::close(descriptor);
+        if (!synced) return synced;
+    }
+    if (::rename(staged.c_str(), backup.c_str()) != 0) {
+        const std::string why = last_error();
+        std::filesystem::remove(staged, ignored);
+        return make_error("can't keep " + file.string() + " as " + backup.string() + ": " + why);
+    }
+    return {};
+}
+
+} // namespace
+
+Result<> sync_file(std::FILE* file) {
+    if (std::fflush(file) != 0) return make_error("can't write the file out: " + last_error());
+    if (::fsync(::fileno(file)) != 0) return make_error("can't put the file on the disk: " + last_error());
+    return {};
+}
+
+Result<> replace_file(const std::filesystem::path& from, const std::filesystem::path& to,
+                      const std::filesystem::path& backup) {
+    std::error_code ec;
+    // Checked first, so a replace that can't happen leaves the backup alone.
+    if (!std::filesystem::exists(from, ec)) return make_error("can't put " + from.string() + " anywhere: it isn't there");
+    if (!backup.empty() && std::filesystem::exists(to, ec)) {
+        if (Result<> kept = keep_as(to, backup); !kept) return kept;
+    }
+    if (::rename(from.c_str(), to.c_str()) != 0) {
+        return make_error("can't put " + from.string() + " in place of " + to.string() + ": " + last_error());
+    }
+    const std::filesystem::path folder = to.has_parent_path() ? to.parent_path() : std::filesystem::path(".");
+    return sync_folder(folder);
 }
 
 namespace {

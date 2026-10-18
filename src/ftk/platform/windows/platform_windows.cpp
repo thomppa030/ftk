@@ -18,10 +18,13 @@
 #include <ShlObj.h>
 #include <shellapi.h>
 
+#include <io.h>
+
 #include <array>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 namespace ftk::platform {
 namespace {
@@ -88,6 +91,45 @@ std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
     std::wstring wide_mode;
     for (const char* c = mode; *c != '\0'; ++c) wide_mode += static_cast<wchar_t>(*c);
     return _wfopen(path.c_str(), wide_mode.c_str());
+}
+
+namespace {
+
+// `path` in UTF-8, for a message: path::string() reads in the code page and
+// throws on a letter it has none for.
+std::string utf8(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return {text.begin(), text.end()};
+}
+
+} // namespace
+
+Result<> sync_file(std::FILE* file) {
+    if (std::fflush(file) != 0) return make_error("can't write the file out");
+    const auto handle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)));
+    if (handle == INVALID_HANDLE_VALUE) return make_error("can't put the file on the disk: it has no handle");
+    if (!FlushFileBuffers(handle)) return make_error("can't put the file on the disk: " + detail::reason(GetLastError()));
+    return {};
+}
+
+Result<> replace_file(const std::filesystem::path& from, const std::filesystem::path& to,
+                      const std::filesystem::path& backup) {
+    std::error_code ec;
+    if (std::filesystem::exists(to, ec)) {
+        // ReplaceFileW keeps to's old file as the backup and puts from in its
+        // place, so to names a whole file throughout.
+        const wchar_t* kept = backup.empty() ? nullptr : backup.c_str();
+        if (!ReplaceFileW(to.c_str(), from.c_str(), kept, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
+            return make_error("can't put " + utf8(from) + " in place of " + utf8(to) + ": " +
+                              detail::reason(GetLastError()));
+        }
+        return {};
+    }
+    if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        return make_error("can't put " + utf8(from) + " in place of " + utf8(to) + ": " +
+                          detail::reason(GetLastError()));
+    }
+    return {};
 }
 
 std::optional<std::filesystem::path> find_program(std::string_view program) {
