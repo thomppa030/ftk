@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <string>
 #include <string_view>
 
 namespace ftk::utf8 {
@@ -68,6 +70,21 @@ inline constexpr uint32_t REPLACEMENT = 0xFFFD;
     }
     i += length;
     return cp;
+}
+
+/// `path` as UTF-8 text, the same on every system, for a message or a file:
+/// path::string() gives the code page on Windows, and throws on a letter the
+/// code page has none for.
+[[nodiscard]] inline std::string from_path(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return {text.begin(), text.end()};
+}
+
+/// The path the UTF-8 `text` names, the same on every system: a path made from
+/// a plain string reads it in the code page on Windows, which mangles every
+/// letter outside ASCII.
+[[nodiscard]] inline std::filesystem::path to_path(std::string_view text) {
+    return std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size());
 }
 
 } // namespace ftk::utf8

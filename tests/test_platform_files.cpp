@@ -1,3 +1,4 @@
+#include "ftk/base/utf8.hpp"
 #include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -31,17 +32,10 @@ std::string read_text(const fs::path& path) {
     return text.str();
 }
 
-// A folder name with letters outside ASCII, spelled as its UTF-8 bytes so the
-// test reads the same whatever code page a compiler reads the source in.
-fs::path utf8_name(const char* text) {
-    const std::string bytes(text);
-    return std::u8string(bytes.begin(), bytes.end());
-}
-
 } // namespace
 
 TEST_CASE("A file opens by its own name, letters outside ASCII included", "[platform][file]") {
-    const fs::path folder = fresh_folder("open") / utf8_name("Sk\xc3\xb3gar");  // Skógar
+    const fs::path folder = fresh_folder("open") / ftk::utf8::to_path("Sk\xc3\xb3gar");  // Skógar, as its UTF-8 bytes
     fs::create_directories(folder);
     const fs::path path = folder / "quick.fjsave";
 

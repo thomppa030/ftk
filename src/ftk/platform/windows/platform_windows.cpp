@@ -1,5 +1,6 @@
 #include "ftk/platform/platform.hpp"
 
+#include "ftk/base/utf8.hpp"
 #include "ftk/platform/detail/command_line.hpp"
 #include "ftk/platform/windows/pipes.hpp"
 
@@ -93,17 +94,6 @@ std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
     return _wfopen(path.c_str(), wide_mode.c_str());
 }
 
-namespace {
-
-// `path` in UTF-8, for a message: path::string() reads in the code page and
-// throws on a letter it has none for.
-std::string utf8(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    return {text.begin(), text.end()};
-}
-
-} // namespace
-
 Result<> sync_file(std::FILE* file) {
     if (std::fflush(file) != 0) return make_error("can't write the file out");
     const auto handle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)));
@@ -120,13 +110,13 @@ Result<> replace_file(const std::filesystem::path& from, const std::filesystem::
         // place, so to names a whole file throughout.
         const wchar_t* kept = backup.empty() ? nullptr : backup.c_str();
         if (!ReplaceFileW(to.c_str(), from.c_str(), kept, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
-            return make_error("can't put " + utf8(from) + " in place of " + utf8(to) + ": " +
+            return make_error("can't put " + utf8::from_path(from) + " in place of " + utf8::from_path(to) + ": " +
                               detail::reason(GetLastError()));
         }
         return {};
     }
     if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) {
-        return make_error("can't put " + utf8(from) + " in place of " + utf8(to) + ": " +
+        return make_error("can't put " + utf8::from_path(from) + " in place of " + utf8::from_path(to) + ": " +
                           detail::reason(GetLastError()));
     }
     return {};
