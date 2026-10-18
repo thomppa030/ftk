@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -56,6 +57,12 @@ inline constexpr const char* EXE_EXT = "";
 /// data that matters lives; the Saved Games known folder on Windows, which
 /// players find to back up or share a save. Not made here.
 [[nodiscard]] std::filesystem::path saved_games_dir();
+
+/// Opens the file at `path` as std::fopen does with `mode` ("rb", "wb"), by the
+/// path's own name on every system: on Windows a path made into a narrow string
+/// is read in the code page, which can't name every file. Null when it can't
+/// be opened, as std::fopen.
+[[nodiscard]] std::FILE* open_file(const std::filesystem::path& path, const char* mode);
 
 /// The file the program a command names is, found as starting the command
 /// would find it: the path itself when `program` names a folder, else the

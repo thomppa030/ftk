@@ -21,6 +21,7 @@
 #include <array>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 
 namespace ftk::platform {
 namespace {
@@ -81,6 +82,12 @@ std::filesystem::path pictures_dir() {
 
 std::filesystem::path saved_games_dir() {
     return known_folder(FOLDERID_SavedGames);
+}
+
+std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
+    std::wstring wide_mode;
+    for (const char* c = mode; *c != '\0'; ++c) wide_mode += static_cast<wchar_t>(*c);
+    return _wfopen(path.c_str(), wide_mode.c_str());
 }
 
 std::optional<std::filesystem::path> find_program(std::string_view program) {

@@ -62,6 +62,10 @@ std::filesystem::path saved_games_dir() {
     return xdg_dir("XDG_DATA_HOME", ".local/share");
 }
 
+std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
+    return std::fopen(path.c_str(), mode);
+}
+
 namespace {
 
 // The user's folder `key` names in user-dirs.dirs ("XDG_DOCUMENTS_DIR"),

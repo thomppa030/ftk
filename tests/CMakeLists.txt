@@ -25,6 +25,7 @@ add_executable(ftk-tests
     test_delegate.cpp
     test_document_history.cpp
     test_file_names.cpp
+    test_platform_files.cpp
     test_frame_graph.cpp
     test_gpu_access.cpp
     test_gpu_binding.cpp
