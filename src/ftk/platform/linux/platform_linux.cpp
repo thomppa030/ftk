@@ -58,6 +58,10 @@ std::filesystem::path cache_dir() {
     return xdg_dir("XDG_CACHE_HOME", ".cache");
 }
 
+std::filesystem::path saved_games_dir() {
+    return xdg_dir("XDG_DATA_HOME", ".local/share");
+}
+
 namespace {
 
 // The user's folder `key` names in user-dirs.dirs ("XDG_DOCUMENTS_DIR"),

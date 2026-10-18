@@ -51,6 +51,12 @@ inline constexpr const char* EXE_EXT = "";
 [[nodiscard]] std::filesystem::path documents_dir();
 [[nodiscard]] std::filesystem::path pictures_dir();
 
+/// Where games keep their players' saved games, each in a folder of its own
+/// inside it: $XDG_DATA_HOME, else ~/.local/share, on Linux, where the user
+/// data that matters lives; the Saved Games known folder on Windows, which
+/// players find to back up or share a save. Not made here.
+[[nodiscard]] std::filesystem::path saved_games_dir();
+
 /// The file the program a command names is, found as starting the command
 /// would find it: the path itself when `program` names a folder, else the
 /// first match along the PATH. On Windows, also where Windows looks before

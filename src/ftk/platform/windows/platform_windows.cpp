@@ -79,6 +79,10 @@ std::filesystem::path pictures_dir() {
     return known_folder(FOLDERID_Pictures);
 }
 
+std::filesystem::path saved_games_dir() {
+    return known_folder(FOLDERID_SavedGames);
+}
+
 std::optional<std::filesystem::path> find_program(std::string_view program) {
     if (program.empty()) return std::nullopt;
     const std::filesystem::path given(
