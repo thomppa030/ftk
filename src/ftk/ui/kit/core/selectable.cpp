@@ -46,8 +46,11 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     }
     draw_text(rect.min, corekit::text_colour(), text);
     const bool picked = in.clicked || (options.double_click && in.double_clicked);
-    // Picked in a popup, a drop-down's list or a menu, it closes it.
-    if (picked && !kit().popup_stack.empty()) context.close_popup(kit().popup_stack.back());
+    // Picked in a popup, a drop-down's list or a menu, it closes it, unless
+    // the list is one several are chosen from.
+    if (picked && !options.keeps_popup_open && !kit().popup_stack.empty()) {
+        context.close_popup(kit().popup_stack.back());
+    }
     return picked;
 }
 

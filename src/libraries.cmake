@@ -501,6 +501,7 @@ ftk_library(ui-kit
         ftk/ui/kit/text_field.hpp
         ftk/ui/kit/tooltip.hpp
         ftk/ui/kit/tree.hpp
+        ftk/ui/kit/tree_picker.hpp
         ftk/ui/kit/viewport_toolbar.hpp
         ftk/ui/kit/window.hpp
         ftk/ui/theme.hpp
@@ -582,6 +583,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/text_input.cpp
         ftk/ui/kit/core/tooltip.cpp
         ftk/ui/kit/core/tree.cpp
+        ftk/ui/kit/core/tree_picker.cpp
         ftk/ui/kit/core/viewport_toolbar.cpp
         ftk/ui/kit/core/window.cpp
     HEADERS

@@ -32,6 +32,9 @@ struct SelectableOptions {
     /// draws nothing of its own to go by: a menu's entry, which draws its
     /// label itself. Empty: what it shows.
     std::string_view name{};
+    /// Picked in a popup, it leaves the popup open: a list several are
+    /// chosen from, each click choosing or unchoosing one.
+    bool keeps_popup_open{false};
 };
 
 /// `label` (an id after ##) as a line that can be picked, lit while
