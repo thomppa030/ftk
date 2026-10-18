@@ -506,3 +506,17 @@ TEST_CASE("When what is under a still pointer changes, another frame finds it", 
     h.step();
     CHECK(h.output().next.waits_for_input());
 }
+
+TEST_CASE("A frame can hide the pointer over its root, for that frame alone", "[ui-core][pointers]") {
+    UiHarness h;
+    h.set_ui([&] {
+        const core::Interaction canvas = widget(h, "canvas", {200.0f, 200.0f});
+        h.mark("canvas");
+        if (canvas.hovered) h.ui().set_cursor_shape(ftk::ui::MouseCursor::Hidden);
+    });
+    h.step();
+    h.move_to(h.rect("canvas").centre());
+    CHECK(h.output().roots[0].cursor == ftk::ui::MouseCursor::Hidden);
+    h.move_to(h.rect("canvas").max + glm::vec2{20.0f});
+    CHECK(h.output().roots[0].cursor == ftk::ui::MouseCursor::Arrow);
+}

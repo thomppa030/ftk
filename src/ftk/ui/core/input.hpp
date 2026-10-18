@@ -48,8 +48,10 @@ struct Modifiers {
 /// finger is Left.
 enum class MouseButton : uint8_t { Left, Right, Middle };
 
-/// The shapes the mouse pointer takes.
-enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS };
+/// The shapes the mouse pointer takes. Hidden shows none, a pen's pointer
+/// included, for a program that draws its own where the pointer is: a
+/// brush's outline, a game's crosshair.
+enum class MouseCursor : uint8_t { Arrow, Text, Hand, ResizeAll, ResizeEW, ResizeNS, Hidden };
 
 } // namespace ftk::ui
 

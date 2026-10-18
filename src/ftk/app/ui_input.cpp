@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -108,10 +109,15 @@ UiInput::UiInput(Window& window, core::Context& ui, core::RootId root) : window_
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_PEN_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_PEN_TOUCH_EVENTS, "0");
-    // In MouseCursor's order.
+    // In MouseCursor's order. Hidden is a shape of no pixels rather than
+    // SDL_HideCursor(): SDL's Wayland backend puts a pen's pointer back
+    // whenever it redraws a hidden cursor, and a shape is set only while the
+    // pointer is over this window, as the others are.
+    constexpr std::array<Uint8, 1> NO_PIXELS{};
     cursors_ = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT),
                 SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE),
-                SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE)};
+                SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE), SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE),
+                SDL_CreateCursor(NO_PIXELS.data(), NO_PIXELS.data(), 8, 1, 0, 0)};
     if (inputs_living()[&ui_]++ == 0) {
         ui_.set_clipboard_access({
             .set = [](std::string_view text) { SDL_SetClipboardText(std::string(text).c_str()); },

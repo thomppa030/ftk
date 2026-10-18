@@ -70,7 +70,7 @@ private:
     ui::core::Context& ui_;
     ui::core::RootId root_;
     Connection events_;
-    std::array<SDL_Cursor*, 6> cursors_{};
+    std::array<SDL_Cursor*, 7> cursors_{};
     bool text_input_{false};
     std::unordered_map<uint32_t, Pen> pens_;
     // The paths of the files a drag from outside brings, a line each, as the
