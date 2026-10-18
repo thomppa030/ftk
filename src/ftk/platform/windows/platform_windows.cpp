@@ -71,6 +71,14 @@ std::filesystem::path cache_dir() {
     return known_folder(FOLDERID_LocalAppData);
 }
 
+std::filesystem::path documents_dir() {
+    return known_folder(FOLDERID_Documents);
+}
+
+std::filesystem::path pictures_dir() {
+    return known_folder(FOLDERID_Pictures);
+}
+
 std::optional<std::filesystem::path> find_program(std::string_view program) {
     if (program.empty()) return std::nullopt;
     const std::filesystem::path given(

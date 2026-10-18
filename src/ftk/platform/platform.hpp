@@ -43,6 +43,14 @@ inline constexpr const char* EXE_EXT = "";
 /// keeps it apart from its state. Not made here.
 [[nodiscard]] std::filesystem::path cache_dir();
 
+/// The user's own folders for their documents and their pictures, where a
+/// program keeps the files it makes for them to see: as the desktop names
+/// them in $XDG_CONFIG_HOME/user-dirs.dirs, else ~/Documents and
+/// ~/Pictures, on Linux; the Documents and Pictures known folders on
+/// Windows. Not made here.
+[[nodiscard]] std::filesystem::path documents_dir();
+[[nodiscard]] std::filesystem::path pictures_dir();
+
 /// The file the program a command names is, found as starting the command
 /// would find it: the path itself when `program` names a folder, else the
 /// first match along the PATH. On Windows, also where Windows looks before

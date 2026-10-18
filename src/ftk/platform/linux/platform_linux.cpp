@@ -12,7 +12,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
+#include <string>
 
 namespace ftk::platform {
 
@@ -54,6 +56,39 @@ std::filesystem::path state_dir() {
 
 std::filesystem::path cache_dir() {
     return xdg_dir("XDG_CACHE_HOME", ".cache");
+}
+
+namespace {
+
+// The user's folder `key` names in user-dirs.dirs ("XDG_DOCUMENTS_DIR"),
+// where a line sets it as "$HOME/Documents" or an absolute path; else
+// `fallback` under the home folder.
+std::filesystem::path user_dir(std::string_view key, const char* fallback) {
+    const char* set = std::getenv("HOME");
+    const std::filesystem::path home = set != nullptr && set[0] != '\0' ? set : std::filesystem::temp_directory_path();
+    std::ifstream dirs(config_dir() / "user-dirs.dirs");
+    for (std::string line; std::getline(dirs, line);) {
+        if (!line.starts_with(key) || line.size() <= key.size() || line[key.size()] != '=') continue;
+        std::string value = line.substr(key.size() + 1);
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+        constexpr std::string_view HOME_VAR = "$HOME";
+        if (value.starts_with(HOME_VAR)) {
+            const std::string rest = value.substr(HOME_VAR.size());
+            return rest.empty() || rest == "/" ? home : home / std::filesystem::path(rest).relative_path();
+        }
+        if (!value.empty() && value.front() == '/') return value;
+    }
+    return home / fallback;
+}
+
+} // namespace
+
+std::filesystem::path documents_dir() {
+    return user_dir("XDG_DOCUMENTS_DIR", "Documents");
+}
+
+std::filesystem::path pictures_dir() {
+    return user_dir("XDG_PICTURES_DIR", "Pictures");
 }
 
 std::optional<std::filesystem::path> find_program(std::string_view program) {
