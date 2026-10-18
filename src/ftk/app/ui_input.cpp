@@ -325,9 +325,12 @@ void UiInput::receive(const SDL_Event& event) {
 
 void UiInput::apply(const core::RootOutput& root) {
     SDL_Window* window = window_.handle();
-    // The pointer's shape is the system's, one for every window: set while
-    // the pointer is over this one.
-    if (SDL_GetMouseFocus() == window) {
+    // The pointer's shape is the system's, one for every window and every
+    // pointer: set while the mouse is over this one, or while a pen is and
+    // the mouse is over none of the program's. SDL keeps no mouse focus for
+    // a pen that makes no mouse events.
+    SDL_Window* mouse_over = SDL_GetMouseFocus();
+    if (mouse_over == window || (mouse_over == nullptr && !pens_.empty())) {
         SDL_Cursor* wanted = cursors_[static_cast<std::size_t>(root.cursor)];
         if (SDL_GetCursor() != wanted) SDL_SetCursor(wanted);
     }
