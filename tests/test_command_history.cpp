@@ -1,3 +1,4 @@
+#include "ftk/app/change_list.hpp"
 #include "ftk/app/command_history.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -82,4 +83,17 @@ TEST_CASE("A history undone past its save says what was undone, even once replac
     // Saved again, it starts over.
     history.mark_saved();
     CHECK(history.changes_since_saved().empty());
+}
+
+TEST_CASE("A change list says each value once, from where it started", "[app][history]") {
+    ftk::ChangeList list;
+    list.add(describe_change("Rendering: Distance", "120", "200"));
+    list.add(describe_change("Wind: Gust strength", "0.4", "0.6"));
+    list.add(describe_change("Wind: Gust strength", "0.6", "0.8"));
+    list.add(describe_change("Rendering: Distance", "200", "120"));
+    CHECK(list.lines() == std::vector<std::string>{describe_change("Wind: Gust strength", "0.4", "0.8")});
+    list.add("Add Oak 4", true);
+    CHECK(list.lines().back() == "Undone: Add Oak 4");
+    list.clear();
+    CHECK(list.lines().empty());
 }

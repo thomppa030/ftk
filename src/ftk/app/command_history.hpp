@@ -27,9 +27,9 @@ public:
     /// reads from.
     void mark_saved();
     /// What changed between the saved state and now, oldest first: the steps
-    /// done since, and those undone past it ("Undone: Add Oak 4"). Steps on
-    /// one value (describe_change()) merge into one, as saved -> now, and
-    /// drop out once it is back where it was saved.
+    /// done since, and those undone past it ("Undone: Add Oak 4"), as a
+    /// ChangeList says them: steps on one value merge into one, saved -> now,
+    /// and drop out once it is back where it was saved.
     [[nodiscard]] std::vector<std::string> changes_since_saved() const;
 
 private:
