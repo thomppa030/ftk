@@ -123,6 +123,10 @@ public:
     /// follows the active context.
     [[nodiscard]] virtual bool has_unsaved_changes() const;
 
+    /// What changed since the document was last opened or saved, as its undo
+    /// history says (CommandHistory::changes_since_saved()).
+    [[nodiscard]] std::vector<std::string> changes() const { return command_history_.changes_since_saved(); }
+
     // Dockspace layout tracking
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }

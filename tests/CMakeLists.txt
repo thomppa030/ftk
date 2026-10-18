@@ -20,6 +20,7 @@ add_executable(ftk-tests
     test_child_process.cpp
     test_color_space.cpp
     test_command_group.cpp
+    test_command_history.cpp
     test_compression.cpp
     test_delegate.cpp
     test_document_history.cpp
@@ -136,6 +137,7 @@ add_executable(ftk-kit-tests
     test_tree_picker.cpp
     test_chip_field.cpp
     test_history_panel.cpp
+    test_editor_context.cpp
     test_kit.cpp
     test_kit_basics.cpp
     test_kit_dock.cpp

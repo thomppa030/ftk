@@ -65,6 +65,7 @@ Result<> EditorContext::save() {
     }
     save_error_.clear();
     saved_document_ = document();
+    command_history_.mark_saved();
     unsaved_ = false;
     unsaved_checked_at_ = ui::seconds();
     return {};
@@ -92,6 +93,7 @@ void EditorContext::take_document(const std::string& text, const std::string& wh
 void EditorContext::document_opened() {
     saved_document_ = document();
     document_history_.opened();
+    command_history_.mark_saved();
     unsaved_ = false;
     unsaved_checked_at_ = -1.0;
 }

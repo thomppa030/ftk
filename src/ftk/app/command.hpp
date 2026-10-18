@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -56,6 +57,27 @@ private:
 inline std::string describe_change(const std::string& what, const std::string& before,
                                    const std::string& after) {
     return what + " \x01" + before + "\x02 -> \x03" + after + "\x04";
+}
+
+/// One value's change as describe_change() writes it, read back.
+struct ValueChange {
+    std::string what;
+    std::string before;
+    std::string after;
+};
+
+/// The value change `description` names; none for a step that is no one
+/// value's change ("Add Oak 4").
+[[nodiscard]] inline std::optional<ValueChange> read_change(const std::string& description) {
+    const std::size_t open = description.find(" \x01");
+    if (open == std::string::npos) return std::nullopt;
+    const std::size_t middle = description.find("\x02 -> \x03", open);
+    if (middle == std::string::npos) return std::nullopt;
+    const std::size_t close = description.find('\x04', middle);
+    if (close == std::string::npos) return std::nullopt;
+    constexpr std::size_t ARROW = 6;  // \x02 -> \x03
+    return ValueChange{description.substr(0, open), description.substr(open + 2, middle - open - 2),
+                       description.substr(middle + ARROW, close - middle - ARROW)};
 }
 
 } // namespace ftk
