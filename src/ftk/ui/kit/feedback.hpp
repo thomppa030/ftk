@@ -16,8 +16,9 @@ enum class Severity { Success, Warning, Error };
 
 /// One line under the thing it is about, the whole line in the severity's
 /// colour behind its icon: a steepness that may fold waves, a material of
-/// the wrong type. Wraps to the space left. A problem that stops something
-/// working until it is fixed is a callout, not a status line.
+/// the wrong type. Wraps to the space left; under a row of a property table,
+/// a line of its own under both columns, as a hint is. A problem that stops
+/// something working until it is fixed is a callout, not a status line.
 void status(Severity severity, const char* text);
 
 /// A status line with the one thing to do about it at its end: a ghost

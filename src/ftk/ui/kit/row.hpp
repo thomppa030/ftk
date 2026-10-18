@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ftk/ui/draw_list.hpp"
+
 #include <string_view>
 #include <utility>
 
@@ -72,6 +74,11 @@ struct InheritedValue {
 [[nodiscard]] InheritedValue begin_inherited_value();
 /// The reset after the value, or its room; true when it was clicked.
 bool end_inherited_value(const InheritedValue& value, bool set_here, const char* reset_tip);
+/// A line under the row above, `glyph` before it when there is one, both
+/// in `colour`: a row of its own running under both columns while a
+/// property table is open, at the cursor where none is. What hint() and a
+/// status line in a table draw.
+void line_under_row(const char* glyph, Color colour, const char* text);
 } // namespace detail
 
 /// One row: `label` on the left, then `draw_value` in the value column with

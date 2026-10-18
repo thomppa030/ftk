@@ -1,5 +1,6 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/kit/feedback.hpp"
 #include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -185,6 +186,34 @@ TEST_CASE("A row puts its field in the value column and fills it", "[ui][kit]") 
     const float field_width = h.rect("field").width();
     CHECK(h.rect("field").min.x >= label);
     CHECK(field_width > window_width - label - 40.0f);
+}
+
+TEST_CASE("A status under a row of a table is a line of its own under both columns, as a hint is", "[ui][kit]") {
+    KitHarness h;
+    float a = 0.0f;
+    float b = 0.0f;
+    float window_width = 0.0f;
+    h.set_ui([&] {
+        window_width = ui::space_left().x;
+        if (auto t = ui::PropertyTable("##rows")) {
+            ui::row("Reach", [&] {
+                (void)ui::drag("##a", a);
+                h.mark("reach");
+            });
+            ui::status(ui::Severity::Warning, "Held to 16 m, the project's cap");
+            h.mark("status");
+            ui::row("Density", [&] {
+                (void)ui::drag("##b", b);
+                h.mark("density");
+            });
+        }
+    });
+    h.step(2);
+    CHECK(h.rect("status").min.y >= h.rect("reach").max.y);
+    CHECK(h.rect("density").min.y >= h.rect("status").max.y);
+    // From the label's edge, under both columns.
+    CHECK(h.rect("status").min.x < ftk::theme::label_column(window_width));
+    CHECK(h.rect("status").width() > window_width - 40.0f);
 }
 
 TEST_CASE("A heading with no row above it in a table keeps the rows under it", "[ui][kit]") {

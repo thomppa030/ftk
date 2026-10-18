@@ -207,12 +207,11 @@ void mark_next_row(bool set_here) {
     kit().row_mark = set_here ? RowMark::Dot : RowMark::Room;
 }
 
-void hint(const char* text) {
-    // A hint belongs to the row above, which a search may have left out.
-    if (detail::filtering()) return;
+void detail::line_under_row(const char* glyph, Color colour, const char* text) {
     Kit& k = kit();
     FontScope small(Font::Current, theme::SMALL_TEXT);
     PropertyRows& rows = k.rows;
+    float width = space_left().x;
     if (rows.open) {
         // A row of its own that runs under both columns, from the label's
         // edge to the value's.
@@ -221,19 +220,23 @@ void hint(const char* text) {
         // Drawn always, with no label to keep a height by.
         rows.id = 0;
         rows.row_top = rows.bottom;
-        const float top = rows.row_top + CELL_PADDING.y;
-        const float width = rows.right - rows.left;
-        set_cursor({rows.left, top});
-        const core::Rect placed = ui().layout().next({width, measure(text, width).y});
-        draw_text(placed.min, theme::text_secondary(), text, width);
-        place_still(placed);
-        rows.label_bottom = placed.max.y;
-    } else {
-        const float width = space_left().x;
-        const core::Rect placed = ui().layout().next({width, measure(text, width).y});
-        draw_text(placed.min, theme::text_secondary(), text, width);
-        place_still(placed);
+        width = rows.right - rows.left;
+        set_cursor({rows.left, rows.row_top + CELL_PADDING.y});
     }
+    // The glyph, then the text wrapping in the room after it.
+    const float indent = glyph != nullptr ? measure(glyph).x + theme::GAP_S + theme::GAP_XS : 0.0f;
+    const float wrap = std::max(width - indent, 0.0f);
+    const core::Rect placed = ui().layout().next({width, measure(text, wrap).y});
+    if (glyph != nullptr) draw_text(placed.min, colour, glyph);
+    draw_text({placed.min.x + indent, placed.min.y}, colour, text, wrap);
+    place_still(placed);
+    if (rows.open) rows.label_bottom = placed.max.y;
+}
+
+void hint(const char* text) {
+    // A hint belongs to the row above, which a search may have left out.
+    if (detail::filtering()) return;
+    detail::line_under_row(nullptr, theme::text_secondary(), text);
 }
 
 } // namespace ftk::ui

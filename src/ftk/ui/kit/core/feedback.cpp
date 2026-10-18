@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/text.hpp"
 
 #include <algorithm>
@@ -85,6 +86,12 @@ Color colour_of(Severity severity) {
 } // namespace
 
 void status(Severity severity, const char* text) {
+    // Under a row of a property table it is that row's, as a hint is: a line
+    // of its own under both columns, gone with the row a search leaves out.
+    if (kit().rows.open) {
+        if (!detail::filtering()) detail::line_under_row(glyph_of(severity), colour_of(severity), text);
+        return;
+    }
     const Color colour = colour_of(severity);
     FontScope small(Font::Current, theme::SMALL_TEXT);
     ui::text(glyph_of(severity), colour);
