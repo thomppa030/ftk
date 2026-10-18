@@ -28,7 +28,7 @@ constexpr float FIELD_PADDING = theme::GAP_XS;
 
 } // namespace
 
-ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* add_tooltip) {
+ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* label) {
     core::Context& context = ui();
     core::DrawList& draw = context.draw_list();
     const float rounding = kit().style.frame_rounding;
@@ -46,7 +46,7 @@ ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* add
     const float width = space_left().x;
 
     // The chips laid along lines, wrapping where the next one would pass the
-    // room left for the + on the line's end.
+    // room left for the chevron at the field's end.
     const float room = width - (FIELD_PADDING * 2.0f) - line - CHIP_GAP;
     std::vector<glm::vec2> at;
     glm::vec2 pen{FIELD_PADDING, FIELD_PADDING};
@@ -57,8 +57,16 @@ ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* add
     }
     const float height = pen.y + line + FIELD_PADDING;
     const core::Rect field = context.layout().next({width, height});
-    place_still(field);
-    draw.rect_filled(field.min, field.max, faded(theme::surface_sunken()), rounding);
+    const Id field_id = context.id("##field");
+    // The chips placed over it afterwards take the mouse where they are.
+    kit().next.allow_overlap = true;
+    const core::Interaction in = place(field_id, field);
+    context.semantics(field_id, core::Role::Choice, label, chips.empty() ? "None" : "", {}, field);
+    bool hovered = in.hovered;
+    bool clicked = in.clicked;
+    // The fill is drawn once the chips are, when whether one of them is
+    // hovered is known, and put beneath them.
+    const std::size_t chips_drawn = draw.mark();
 
     for (std::size_t i = 0; i < chips.size(); ++i) {
         const Chip& chip = chips[i];
@@ -79,6 +87,8 @@ ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* add
         const std::string take_label = "Take off " + std::string(chip.text);
         context.semantics(cross_id, core::Role::Button, take_label, {}, {}, cross_rect);
         if (take.clicked) edit.removed = i;
+        hovered |= over.hovered || take.hovered;
+        clicked |= over.clicked;
 
         draw.rect_filled(rect.min, rect.max, faded(problem ? theme::danger() : theme::surface_active()), rounding);
         const Color ink = problem ? theme::text_on_danger() : theme::text();
@@ -96,18 +106,21 @@ ChipEdit chip_field(const char* id, std::span<const Chip> chips, const char* add
         }
     }
 
-    // The + at the end of the last line.
-    const glm::vec2 add_min{field.max.x - FIELD_PADDING - line, field.min.y + pen.y};
-    const core::Rect add_rect{.min = add_min, .max = add_min + glm::vec2{line, line}};
-    const Id add_id = context.id("##add");
-    const core::Interaction press = place(add_id, add_rect);
-    context.semantics(add_id, core::Role::Button, add_tooltip, {}, {}, add_rect);
-    item_tooltip(add_tooltip);
-    draw.rect_filled(add_rect.min, add_rect.max, faded(press.hovered ? theme::surface_hover() : theme::surface_raised()),
-                     rounding);
-    const glm::vec2 plus = measure(icon::add);
-    draw_text(add_rect.min + ((add_rect.max - add_rect.min) - plus) * 0.5f, theme::text_secondary(), icon::add);
-    if (press.clicked) edit.add = true;
+    const FrameColours colours = frame_colours();
+    const std::size_t fill = draw.mark();
+    draw.rect_filled(field.min, field.max, faded(hovered ? colours.hover : colours.rest), rounding);
+    draw.put_under(chips_drawn, fill);
+    if (chips.empty()) {
+        FontScope body(Font::Body, CHIP_TEXT);
+        draw_text({field.min.x + CHIP_PADDING, field.min.y + FIELD_PADDING + std::floor((line - text_height) * 0.5f)},
+                  theme::text_disabled(), "None");
+    }
+    // The chevron at the end of the first line, by the row's label.
+    const glm::vec2 chevron = measure(icon::dropdown);
+    draw_text({field.max.x - FIELD_PADDING - line + ((line - chevron.x) * 0.5f),
+               field.min.y + FIELD_PADDING + ((line - chevron.y) * 0.5f)},
+              theme::text_secondary(), icon::dropdown);
+    if (clicked && !edit.removed) edit.open = glm::vec2{field.min.x, field.max.y};
     return edit;
 }
 

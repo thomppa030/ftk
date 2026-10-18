@@ -436,9 +436,9 @@ void KitGallery::chips_sample() {
     std::vector<Chip> chips;
     for (const std::string& name : chips_) problems.push_back(known(name) ? std::string{} : name + " is not one of the tags");
     for (std::size_t i = 0; i < chips_.size(); ++i) chips.push_back({.text = chips_[i], .problem = problems[i]});
-    const ChipEdit edit = chip_field("##gallery_chips", chips, "Add a tag");
+    const ChipEdit edit = chip_field("##gallery_chips", chips, "Choose tags");
     if (edit.removed) chips_.erase(chips_.begin() + static_cast<std::ptrdiff_t>(*edit.removed));
-    if (edit.add) tree_picker::open("##gallery_tags");
+    if (edit.open) tree_picker::open("##gallery_tags", *edit.open);
     const tree_picker::Picked picked = tree_picker::draw(
         "##gallery_tags", TAGS,
         {.chosen = chips_, .search_hint = "Search tags", .addable = [](std::string_view typed) { return std::string(typed); }});
