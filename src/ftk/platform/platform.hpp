@@ -37,6 +37,12 @@ inline constexpr const char* EXE_EXT = "";
 /// else ~/.local/state, on Linux; %LOCALAPPDATA% on Windows. Not made here.
 [[nodiscard]] std::filesystem::path state_dir();
 
+/// Where programs keep what they can make again but would rather not, such
+/// as compiled shaders, a folder of their own inside it: $XDG_CACHE_HOME,
+/// else ~/.cache, on Linux; %LOCALAPPDATA% on Windows, where a program
+/// keeps it apart from its state. Not made here.
+[[nodiscard]] std::filesystem::path cache_dir();
+
 /// The file the program a command names is, found as starting the command
 /// would find it: the path itself when `program` names a folder, else the
 /// first match along the PATH. On Windows, also where Windows looks before

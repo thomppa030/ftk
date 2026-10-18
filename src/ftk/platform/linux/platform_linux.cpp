@@ -52,6 +52,10 @@ std::filesystem::path state_dir() {
     return xdg_dir("XDG_STATE_HOME", ".local/state");
 }
 
+std::filesystem::path cache_dir() {
+    return xdg_dir("XDG_CACHE_HOME", ".cache");
+}
+
 std::optional<std::filesystem::path> find_program(std::string_view program) {
     const auto runnable = [](const std::filesystem::path& path) {
         std::error_code error;

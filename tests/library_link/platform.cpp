@@ -23,7 +23,8 @@ int main() {
     const bool loaded = library.load(exe.parent_path() / "no-such-library");
 
     const bool folders = ftk::platform::config_dir().is_absolute() && ftk::platform::state_dir().is_absolute() &&
-                         ftk::platform::config_dir() != ftk::platform::state_dir();
+                         ftk::platform::config_dir() != ftk::platform::state_dir() &&
+                         ftk::platform::cache_dir().is_absolute();
 
     ftk::log::shutdown();
     const bool ran = exe.is_absolute() && pid != 0 && watching && !loaded && folders;
