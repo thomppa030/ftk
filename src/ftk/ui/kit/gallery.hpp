@@ -39,6 +39,7 @@ private:
     void blocks();
     void feedback();
     void lists();
+    void chips_sample();
     void tree_sample();
     void graphs();
 
@@ -60,6 +61,8 @@ private:
                                          "Barrel", "Crane", "Hook", "Fog Bank"};
     std::size_t tree_selected_{4};
     RenameBox tree_rename_;
+    // The chip field's sample: tags, one of them not in the sample tree.
+    std::vector<std::string> chips_{"tree.oak", "shade", "tree.quercus"};
     float intensity_{3.2f};
     bool shadows_{true};
     bool snap_{true};

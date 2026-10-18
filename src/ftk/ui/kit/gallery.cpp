@@ -2,6 +2,7 @@
 
 #include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/chip_field.hpp"
 #include "ftk/ui/kit/choice.hpp"
 #include "ftk/ui/kit/color_field.hpp"
 #include "ftk/ui/kit/component_block.hpp"
@@ -29,6 +30,7 @@
 #include "ftk/ui/kit/text_field.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/tree.hpp"
+#include "ftk/ui/kit/tree_picker.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -412,7 +414,36 @@ void KitGallery::lists() {
         subheading("Tree");
         search_field("##gallery_search", query_);
         tree_sample();
+
+        subheading("Chips and a tree picker");
+        chips_sample();
     }
+}
+
+void KitGallery::chips_sample() {
+    static const std::vector<tree_picker::Choice> TAGS{
+        {.value = "rock", .label = "rock", .depth = 0, .detail = "rock"},
+        {.value = "shade", .label = "shade", .depth = 0, .detail = "shade"},
+        {.value = "tree", .label = "tree", .depth = 0, .detail = "tree"},
+        {.value = "tree.birch", .label = "birch", .depth = 1, .detail = "tree.birch"},
+        {.value = "tree.oak", .label = "oak", .depth = 1, .detail = "tree.oak"},
+        {.value = "tree.oak.grey", .label = "grey", .depth = 2, .detail = "tree.oak.grey"},
+    };
+    const auto known = [](const std::string& name) {
+        return std::ranges::any_of(TAGS, [&](const tree_picker::Choice& c) { return c.value == name; });
+    };
+    std::vector<std::string> problems;
+    std::vector<Chip> chips;
+    for (const std::string& name : chips_) problems.push_back(known(name) ? std::string{} : name + " is not one of the tags");
+    for (std::size_t i = 0; i < chips_.size(); ++i) chips.push_back({.text = chips_[i], .problem = problems[i]});
+    const ChipEdit edit = chip_field("##gallery_chips", chips, "Add a tag");
+    if (edit.removed) chips_.erase(chips_.begin() + static_cast<std::ptrdiff_t>(*edit.removed));
+    if (edit.add) tree_picker::open("##gallery_tags");
+    const tree_picker::Picked picked = tree_picker::draw(
+        "##gallery_tags", TAGS,
+        {.chosen = chips_, .search_hint = "Search tags", .addable = [](std::string_view typed) { return std::string(typed); }});
+    if (picked.toggled && std::erase(chips_, *picked.toggled) == 0) chips_.push_back(*picked.toggled);
+    if (picked.added) chips_.push_back(*picked.added);
 }
 
 void KitGallery::graphs() {
