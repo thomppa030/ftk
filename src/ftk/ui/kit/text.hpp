@@ -16,6 +16,9 @@
 
 #include "ftk/ui/types.hpp"
 
+#include <glm/vec2.hpp>
+
+#include <string>
 #include <string_view>
 
 namespace ftk::ui {
@@ -27,6 +30,18 @@ void text(std::string_view text, Color colour);
 
 /// Led by a bullet: a line of a list in a dialog.
 void bullet_text(std::string_view text);
+
+/// A change as an undo step names it, the values it marks in colour, as
+/// ftk::describe_change() writes them (\x01 before \x02, \x03 after \x04):
+/// the value before in the error colour, after in the success colour, the
+/// rest in `plain`.
+void marked_text(std::string_view text, Color plain);
+/// marked_text() drawn at `at` without taking room: over an item placed
+/// already, as a list row's label.
+void draw_marked_text(glm::vec2 at, std::string_view text, Color plain);
+/// `text` without the marks marked_text() reads, for drawing it in one
+/// colour or naming it.
+[[nodiscard]] std::string unmarked(std::string_view text);
 
 /// The size of the text drawn now, in pixels.
 [[nodiscard]] float font_size();

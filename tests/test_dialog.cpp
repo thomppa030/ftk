@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/dialog.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -170,6 +171,71 @@ TEST_CASE("Quitting lists everything unsaved and saves only what stays ticked", 
     CHECK(answer == ui::UnsavedAnswer::Save);
     CHECK(items[0].save);
     CHECK_FALSE(items[1].save);
+}
+
+TEST_CASE("An unsaved line shows up to three changes, more folded under a count", "[ui][kit]") {
+    KitHarness h{{800.0f, 900.0f}};
+    std::vector<ui::UnsavedItem> items{
+        {.name = "sword.fjmesh", .changes = {"Tags: weapons.sword", "Tags: weapons.axe"}},
+        {.name = "Project settings", .changes = {"a", "b", "c", "d", "e"}},
+    };
+    bool open_now = true;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##quit");
+            open_now = false;
+        }
+        (void)ui::unsaved_list_dialog("##quit", "Unsaved", items);
+    });
+    h.step(3);
+    const std::string closed = std::string(ui::icon::fold_closed) + "  5 changes";
+    REQUIRE(h.find(closed) != nullptr);
+    CHECK(h.find(std::string(ui::icon::fold_closed) + "  2 changes") == nullptr);
+    h.click(closed);
+    h.step(2);
+    CHECK(items[1].changes_open);
+    CHECK(h.find(std::string(ui::icon::fold_open) + "  5 changes") != nullptr);
+}
+
+TEST_CASE("The unsaved list stops growing at its tallest and scrolls", "[ui][kit]") {
+    KitHarness h{{800.0f, 1400.0f}};
+    std::vector<std::string> many;
+    for (int i = 0; i < 40; ++i) many.push_back("Change " + std::to_string(i));
+    std::vector<ui::UnsavedItem> items{{.name = "Project settings", .changes = many}};
+    bool open_now = true;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##quit");
+            open_now = false;
+        }
+        (void)ui::unsaved_list_dialog("##quit", "Unsaved", items, "close");
+    });
+    h.step(3);
+    const float folded = h.rect("Cancel").min.y;
+    items[0].changes_open = true;
+    h.step(3);
+    // Forty lines would push the buttons far further down.
+    CHECK(h.rect("Cancel").min.y - folded <= 330.0f);
+    CHECK(h.rect("Cancel").min.y - folded > 100.0f);
+}
+
+TEST_CASE("The unsaved list says what saving lets happen", "[ui][kit]") {
+    KitHarness h;
+    std::vector<ui::UnsavedItem> items{{.name = "forest.fjell"}, {.name = "Project settings"}};
+    bool open_now = true;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_dialog("##close");
+            open_now = false;
+        }
+        (void)ui::unsaved_list_dialog("##close", "Unsaved", items, "close");
+    });
+    h.step(3);
+    CHECK(h.find(std::string(ui::icon::save) + "  Save 2 and close") != nullptr);
+    items[0].save = false;
+    items[1].save = false;
+    h.step(2);
+    CHECK(h.find(std::string(ui::icon::save) + "  Close") != nullptr);
 }
 
 TEST_CASE("Recovering counts what stays ticked; Discard and Esc answer otherwise", "[ui][kit]") {

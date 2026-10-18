@@ -57,6 +57,41 @@ void bullet_text(std::string_view text) {
     place_still(rect);
 }
 
+void marked_text(std::string_view text, Color plain) {
+    const core::Rect rect = ui().layout().next(measure(unmarked(text)));
+    draw_marked_text(rect.min, text, plain);
+    place_still(rect);
+}
+
+void draw_marked_text(glm::vec2 at, std::string_view text, Color plain) {
+    glm::vec2 pen = at;
+    Color colour = plain;
+    std::size_t run = 0;
+    const auto flush = [&](std::size_t stop) {
+        if (stop <= run) return;
+        const std::string_view piece = text.substr(run, stop - run);
+        draw_text(pen, colour, piece);
+        pen.x += measure(piece).x;
+    };
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c < '\x01' || c > '\x04') continue;
+        flush(i);
+        colour = c == '\x01' ? theme::error() : c == '\x03' ? theme::success() : plain;
+        run = i + 1;
+    }
+    flush(text.size());
+}
+
+std::string unmarked(std::string_view text) {
+    std::string plain;
+    plain.reserve(text.size());
+    for (const char c : text) {
+        if (c < '\x01' || c > '\x04') plain += c;
+    }
+    return plain;
+}
+
 float font_size() {
     return text_style().size;
 }

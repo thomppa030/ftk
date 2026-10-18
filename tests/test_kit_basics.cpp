@@ -19,6 +19,7 @@
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <optional>
@@ -102,6 +103,23 @@ TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
     CHECK(size == measured);
     CHECK(ui::line_height() > 0.0f);
     CHECK(ui::frame_height() > ui::line_height());
+}
+
+TEST_CASE("A change's marked text is the size of its text without the marks", "[ui][kit]") {
+    KitHarness h;
+    const std::string change = "Mass \x01" "1.00 kg\x02 -> \x03" "2.50 kg\x04";
+    glm::vec2 size{};
+    glm::vec2 measured{};
+    h.set_ui([&] {
+        ui::marked_text(change, ui::Color{1.0f, 1.0f, 1.0f, 1.0f});
+        size = ui::item_max() - ui::item_min();
+        measured = ui::text_size("Mass 1.00 kg -> 2.50 kg");
+    });
+    h.step(2);
+    CHECK(ui::unmarked(change) == "Mass 1.00 kg -> 2.50 kg");
+    // Equal but for the rounding of where it was placed.
+    CHECK(size.x == Catch::Approx(measured.x));
+    CHECK(size.y == Catch::Approx(measured.y));
 }
 
 TEST_CASE("Text on a line with a field, or set level with one, sits where a field's text does", "[ui][kit]") {

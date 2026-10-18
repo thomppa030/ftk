@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <vector>
 #include <string>
 #include <utility>
 
@@ -130,12 +131,20 @@ struct UnsavedItem {
     std::string name{};    ///< "crate_wood.json"
     std::string detail{};  ///< what else saving it writes, dimmed after the name
     bool save{true};       ///< ticked: saved when the answer is Save
+    /// What changed, a line each, oldest first, the values marked as an undo
+    /// step marks them (marked_text()).
+    std::vector<std::string> changes{};
+    bool changes_open{false};  ///< the count they fold under is open
 };
 
-/// Asks before quitting with several unsaved things: one list, a checkbox
-/// each, Don't save on the left, Cancel, and "Save N and quit" counting the
-/// ticked ones. Returns the answer on the frame it is given.
-UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items);
+/// Asks before quitting, or before a project closes, with several unsaved
+/// things: one list, a checkbox each, what changed in each under its name
+/// (up to three changes, more folded under a count), Don't save on the
+/// left, Cancel, and "Save N and quit" counting the ticked ones; `going`
+/// is the verb after "and" ("quit", "close"). The list scrolls once it is
+/// tall. Returns the answer on the frame it is given.
+UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items,
+                                  const char* going = "quit");
 
 /// How a name a copy finds already there is answered.
 enum class ClashChoice : std::uint8_t { Replace, KeepBoth, Skip };

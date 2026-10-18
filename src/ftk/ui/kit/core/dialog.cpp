@@ -17,6 +17,7 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -30,8 +31,10 @@ using namespace corekit;
 
 namespace {
 
-// The dialog's width, the clash dialog's, and the least a button in them is.
+// The dialog's width, the unsaved list's and the clash dialog's, and the
+// least a button in them is.
 constexpr float DIALOG_WIDTH = 380.0f;
+constexpr float LIST_WIDTH = 480.0f;
 constexpr float CLASH_WIDTH = 600.0f;
 constexpr float BUTTON_MIN = 96.0f;
 constexpr float PADDING_X = 16.0f;
@@ -280,8 +283,34 @@ UnsavedAnswer unsaved_dialog(const char* id, const char* title, const char* text
 
 namespace {
 
+// The most changes a line of the unsaved list shows before they fold under
+// a count, and how tall the list grows before it scrolls.
+constexpr std::size_t CHANGES_SHOWN = 3;
+constexpr float LIST_TALLEST = 320.0f;
+
+// What changed in `item`, under its name from `indent` on: each change, or
+// past CHANGES_SHOWN a count that opens into them.
+void change_lines(UnsavedItem& item, float indent) {
+    if (item.changes.empty()) return;
+    FontScope small(Font::Current, theme::SMALL_TEXT);
+    if (item.changes.size() > CHANGES_SHOWN) {
+        set_cursor({indent, cursor().y});
+        const std::size_t count = item.changes.size();
+        const std::string label = std::to_string(count) + " changes";
+        if (action(item.changes_open ? icon::fold_open : icon::fold_closed, label.c_str(), ButtonKind::Ghost)) {
+            item.changes_open = !item.changes_open;
+        }
+        if (!item.changes_open) return;
+    }
+    for (const std::string& change : item.changes) {
+        set_cursor({indent, cursor().y});
+        marked_text(change, theme::text_secondary());
+    }
+}
+
 // The things a list dialog asks about, a checkbox each before the icon, the
-// name and the dimmed detail. Returns how many are ticked.
+// name and the dimmed detail, and what changed under them. Returns how many
+// are ticked.
 int item_rows(std::span<UnsavedItem> items) {
     int ticked = 0;
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -294,6 +323,7 @@ int item_rows(std::span<UnsavedItem> items) {
             text(item.icon, item.icon_colour);
             same_line(theme::GAP_S + 2.0f);
         }
+        const float name_x = cursor().x;
         align_text_to_frame();
         text(item.name);
         if (!item.detail.empty()) {
@@ -301,6 +331,7 @@ int item_rows(std::span<UnsavedItem> items) {
             align_text_to_frame();
             text(item.detail, theme::text_secondary());
         }
+        change_lines(item, name_x);
         if (item.save) ++ticked;
     }
     return ticked;
@@ -308,11 +339,29 @@ int item_rows(std::span<UnsavedItem> items) {
 
 } // namespace
 
-UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items) {
-    if (!detail::begin_dialog(id, {.title = title})) return UnsavedAnswer::None;
+UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items,
+                                  const char* going) {
+    if (!begin_dialog_as_wide(id, {.title = title}, LIST_WIDTH)) return UnsavedAnswer::None;
     end_body();
+    // The list as tall as it was drawn last frame, up to LIST_TALLEST, past
+    // which it scrolls.
+    core::Context& context = ui();
+    const Id tall = context.id("#LIST_HEIGHT");
+    const float guess = static_cast<float>(items.size()) * frame_height();
+    const float height = std::min(stored_float(tall, guess), LIST_TALLEST);
+    context.begin_region("##unsaved", {core::FILL, height});
+    const float top = cursor().y;
     const int ticked = item_rows(items);
-    const std::string verb = ticked == 0 ? std::string("Quit") : "Save " + std::to_string(ticked) + " and quit";
+    store_float(tall, cursor().y - top);
+    context.end_region();
+
+    std::string verb;
+    if (ticked == 0) {
+        verb = going;
+        if (!verb.empty()) verb[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(verb[0])));
+    } else {
+        verb = "Save " + std::to_string(ticked) + " and " + going;
+    }
     return unsaved_buttons(verb.c_str());
 }
 
