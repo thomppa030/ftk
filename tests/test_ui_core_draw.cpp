@@ -202,6 +202,19 @@ TEST_CASE("Pictures are listed once a frame and drawn through their index", "[ui
     CHECK(data.primitives[2].texture == 1);
     CHECK(data.primitives[0].shape == glm::vec4{4.0f});
     CHECK(data.primitives[0].extra == glm::vec4{0.0f, 0.0f, 1.0f, 1.0f});
+    CHECK(data.primitives[0].colour == core::pack_colour({1.0f, 1.0f, 1.0f, 1.0f}));
+}
+
+TEST_CASE("A picture's texels can be tinted, an alpha below one fading it", "[ui-core]") {
+    core::Context ui;
+    const Color faded{1.0f, 1.0f, 1.0f, 0.35f};
+    const core::DrawData& data = drawn(ui, [&](core::DrawList& dl) {
+        dl.image(ftk::ui::Texture{9}, {0.0f, 0.0f}, {32.0f, 32.0f}, 0.0f, {0.25f, 0.5f}, {0.75f, 1.0f}, faded);
+    });
+    REQUIRE(data.primitives.size() == 1);
+    CHECK(data.primitives[0].colour == core::pack_colour(faded));
+    CHECK(data.primitives[0].colour2 == core::pack_colour(faded));
+    CHECK(data.primitives[0].extra == glm::vec4{0.25f, 0.5f, 0.75f, 1.0f});
 }
 
 TEST_CASE("Each frame starts each window's drawing afresh", "[ui-core]") {

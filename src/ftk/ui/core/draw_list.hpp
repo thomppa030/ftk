@@ -145,9 +145,11 @@ public:
     /// `uv_max` of atlas page `page`: what text is made of.
     void glyph(glm::vec2 min, glm::vec2 max, glm::vec2 uv_min, glm::vec2 uv_max, uint32_t page, Color colour);
 
-    /// `texture` filling `min`..`max`, its corners rounded by `rounding`.
+    /// `texture` filling `min`..`max`, its corners rounded by `rounding`,
+    /// its texels times `tint`: an alpha below one fades it.
     void image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding = 0.0f,
-               glm::vec2 uv_min = {0.0f, 0.0f}, glm::vec2 uv_max = {1.0f, 1.0f});
+               glm::vec2 uv_min = {0.0f, 0.0f}, glm::vec2 uv_max = {1.0f, 1.0f},
+               Color tint = {1.0f, 1.0f, 1.0f, 1.0f});
 
     /// What follows is drawn only within `min`..`max` and the clip already
     /// there, until the matching pop_clip().
