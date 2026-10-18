@@ -146,6 +146,10 @@ void EditorContext::draw_header() {
     }
 }
 
+bool EditorContext::has_keyboard() const {
+    return ui::keyboard_in_dockspace(dockspace_id_);
+}
+
 std::vector<std::string> EditorContext::bottom_tabs() const {
     return {"Console", "History"};
 }

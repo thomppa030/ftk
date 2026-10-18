@@ -394,3 +394,50 @@ TEST_CASE("An editor's docked panels at rest ask for no frame", "[ui][kit][dock]
     h.step(60);
     CHECK(h.output().next.waits_for_input());
 }
+
+TEST_CASE("The keys are a dockspace's while the keyboard is in its windows, or in none", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    KitHarness h;
+    ui::Id dock = 0;
+    bool built = false;
+    bool settings_shown = true;
+    std::string give;
+    bool keys = false;
+    h.set_ui([&] {
+        dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, N::left_right(0.5f, N::tabs({"Viewport"}), N::tabs({"Hierarchy"})));
+            built = true;
+        }
+        for (const char* name : {"Viewport", "Hierarchy"}) {
+            if (auto panel = ui::Panel("", name)) ui::text(name);
+        }
+        // Outside the dockspace: a window floating over it, and a bar.
+        if (settings_shown) {
+            if (auto panel = ui::Panel("", "Settings")) ui::text("Settings");
+        }
+        if (auto bar = ui::Panel("", "Bar", {.nav_focus = false})) ui::text("Bar");
+        if (!give.empty()) ui::focus_window(std::exchange(give, {}).c_str());
+        keys = ui::keyboard_in_dockspace(dock);
+    });
+    h.step(4);
+    REQUIRE(ui::window_dock("Viewport") != 0);
+    REQUIRE(ui::window_dock("Settings") == 0);
+    // Settings took the keyboard as it appeared, as a window opening does.
+    CHECK_FALSE(keys);
+    give = "Hierarchy";
+    h.step();
+    CHECK(keys);
+
+    // A bar takes no keys of its own, and a window gone has none.
+    give = "Bar";
+    h.step();
+    CHECK(keys);
+    give = "Settings";
+    h.step();
+    CHECK_FALSE(keys);
+    settings_shown = false;
+    h.step(2);
+    CHECK(keys);
+}

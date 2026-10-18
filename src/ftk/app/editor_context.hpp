@@ -137,6 +137,11 @@ public:
     // Per-context dockspace ID and index (set by Engine)
     void set_dockspace_id(ui::Id id) { dockspace_id_ = id; }
     [[nodiscard]] ui::Id dockspace_id() const { return dockspace_id_; }
+    /// Whether the keys pressed are the context's: the keyboard is in one of
+    /// its windows, or in none (ui::keyboard_in_dockspace()). Its shortcuts
+    /// and undo act only then, so a key pressed in a window outside it, as
+    /// the project's settings, is that window's alone.
+    [[nodiscard]] bool has_keyboard() const;
     void set_context_index(int idx) { context_index_ = idx; }
     [[nodiscard]] int context_index() const { return context_index_; }
 

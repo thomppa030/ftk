@@ -88,6 +88,14 @@ struct DockspaceOptions {
 /// The dockspace `id`, filling what is left of the window being drawn.
 void dockspace(Id id, DockspaceOptions options = {});
 
+/// Whether the keys pressed are for what the dockspace `id` holds: the
+/// window that has the keyboard is docked in it or was torn out of it, or
+/// no window holds the keyboard (none was clicked, the one that was is no
+/// longer drawn, or it is a bar that takes no keys of its own). What the
+/// owner of a dockspace asks before its shortcuts act on what it edits, so
+/// a key pressed in a window outside it is that window's alone.
+[[nodiscard]] bool keyboard_in_dockspace(Id id);
+
 /// Whether the dockspace or dock node `id` exists.
 [[nodiscard]] bool dock_exists(Id id);
 

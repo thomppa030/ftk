@@ -600,6 +600,22 @@ bool torn_tab(Id id, core::Rect strip) {
 
 } // namespace corekit
 
+bool keyboard_in_dockspace(Id id) {
+    const Kit& k = kit();
+    const auto holder = k.windows.find(k.focused_window);
+    if (holder == k.windows.end()) return true;
+    const Window& window = holder->second;
+    if (window.frame + 1 < ui().frame() || !window.options.nav_focus) return true;
+    // Up from its leaf, or the leaf it was torn out of, to the dockspace.
+    for (Id part = window.root != 0 ? window.home : window.dock; part != 0;) {
+        if (part == id) return true;
+        const auto node = k.docks.find(part);
+        if (node == k.docks.end()) break;
+        part = node->second.parent;
+    }
+    return false;
+}
+
 void dockspace(Id id, DockspaceOptions options) {
     core::Context& context = ui();
     Kit& k = kit();
