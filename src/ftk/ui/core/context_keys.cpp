@@ -21,6 +21,20 @@ std::size_t slot(Key key) {
 
 } // namespace
 
+void Context::add_key_event(const KeyEvent& event) {
+    key_events_.push_back(event);
+    modifiers_next_ = event.modifiers;
+    if (event.kind == KeyEvent::Kind::Down) {
+        keystrokes_next_.push_back(
+            {.kind = Keystroke::Kind::Key, .key = event.key, .repeat = event.repeat, .modifiers = event.modifiers});
+    }
+}
+
+void Context::add_text(std::string_view text) {
+    typed_next_ += text;
+    keystrokes_next_.push_back({.kind = Keystroke::Kind::Text, .modifiers = modifiers_next_, .text = std::string(text)});
+}
+
 void Context::set_composition(std::string_view text, int cursor) {
     composition_next_ = std::pair{std::string(text), cursor};
 }
@@ -32,6 +46,8 @@ void Context::take_keys() {
     k.released.fill(false);
     k.typed = std::move(typed_next_);
     typed_next_.clear();
+    k.keystrokes = std::move(keystrokes_next_);
+    keystrokes_next_.clear();
     if (composition_next_) {
         k.composition = std::move(composition_next_->first);
         k.composition_cursor = composition_next_->second;
@@ -80,6 +96,10 @@ bool Context::any_key_pressed() const {
 
 std::string_view Context::typed() const {
     return keyboard_.ignored ? std::string_view{} : std::string_view{keyboard_.typed};
+}
+
+std::span<const Keystroke> Context::keystrokes() const {
+    return keyboard_.ignored ? std::span<const Keystroke>{} : std::span<const Keystroke>{keyboard_.keystrokes};
 }
 
 void Context::set_clipboard(std::string_view text) {
