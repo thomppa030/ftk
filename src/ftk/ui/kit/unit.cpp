@@ -27,6 +27,7 @@ const char* unit_symbol(Unit unit) {
         case Unit::ExposureValue:   return "EV";
         case Unit::Times:           return "\xc3\x97";
         case Unit::Megabytes:       return "MB";
+        case Unit::Lines:           return "lines";
     }
     return "";
 }

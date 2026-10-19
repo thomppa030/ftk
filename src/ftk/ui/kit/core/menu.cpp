@@ -98,12 +98,13 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     const glm::vec2 label_size = measure(label);
     const float natural = pad + ICON_COLUMN + pad + label_size.x + theme::GAP_L * 2.0f + pad;
 
-    // The entry, a line of text tall, opens its submenu under the mouse and
+    // The entry, as tall as any other, opens its submenu under the mouse and
     // stays lit while it is open.
     const std::string id = std::string("##") + label;
     const Id entry = context.id(id);
     const Id sub = core::hash_label("##submenu", entry);
-    const core::Rect rect = context.layout().next({std::max(space_left().x, natural), line_height()});
+    const float height = frame_height();
+    const core::Rect rect = context.layout().next({std::max(space_left().x, natural), height});
     const core::Rect bb = padded(rect, style.item_spacing);
     core::Interaction in{};
     {
@@ -124,11 +125,12 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     if (open || in.hovered) dl.rect_filled(bb.min, bb.max, faded(in.hovered ? theme::surface_hover() : theme::surface_raised()));
     Color colour = theme::text();
     if (!enabled) colour.a *= style.disabled_alpha;
-    if (icon != nullptr) draw_text({rect.min.x + pad, rect.min.y}, colour, icon);
-    draw_text({rect.min.x + pad + ICON_COLUMN + pad, rect.min.y}, colour, label);
+    const float y = rect.min.y + (height - label_size.y) * 0.5f;
+    if (icon != nullptr) draw_text({rect.min.x + pad, y}, colour, icon);
+    draw_text({rect.min.x + pad + ICON_COLUMN + pad, y}, colour, label);
     // The arrow saying a submenu opens from it, at its right end.
     const float half = std::floor(line_height() * 0.25f);
-    const glm::vec2 tip{rect.max.x - pad, rect.min.y + line_height() * 0.5f};
+    const glm::vec2 tip{rect.max.x - pad, rect.min.y + height * 0.5f};
     dl.triangle_filled({tip.x - half * 1.5f, tip.y - half}, {tip.x - half * 1.5f, tip.y + half}, tip, faded(colour));
 
     return corekit::begin_popup(sub, {.padding = style.window_padding});
@@ -145,6 +147,28 @@ void menu_heading(const char* label) {
     const glm::vec2 size = measure(upper);
     draw_text({min.x + pad + ICON_COLUMN + pad, min.y}, theme::text_disabled(), upper);
     reserve({pad + ICON_COLUMN + pad + size.x + pad, size.y + theme::GAP_XS});
+}
+
+void menu_title(const char* icon, std::string_view name, std::string_view kind) {
+    const float height = frame_height();
+    const float pad = theme::GAP_M;
+    glm::vec2 name_size{0.0f};
+    {
+        FontScope bold(Font::Bold, font_size());
+        name_size = measure(name);
+    }
+    const float kind_w = kind.empty() ? 0.0f : theme::GAP_M + measure(kind).x;
+    const glm::vec2 min = cursor();
+    reserve({pad + ICON_COLUMN + pad + name_size.x + kind_w + pad, height});
+
+    const float y = min.y + (height - name_size.y) * 0.5f;
+    const float label_x = min.x + pad + ICON_COLUMN + pad;
+    if (icon != nullptr) draw_text({min.x + pad, y}, theme::text_secondary(), icon);
+    {
+        FontScope bold(Font::Bold, font_size());
+        draw_text({label_x, y}, theme::text(), name);
+    }
+    if (!kind.empty()) draw_text({label_x + name_size.x + theme::GAP_M, y}, theme::text_secondary(), kind);
 }
 
 void end_menu() {

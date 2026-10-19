@@ -59,6 +59,10 @@ void open_popup(const char* id) {
     ui().open_popup(ui().id(id));
 }
 
+void open_popup(const char* id, glm::vec2 at) {
+    ui().open_popup(ui().id(id), at);
+}
+
 bool popup_open(const char* id) {
     return ui().popup_open(ui().id(id));
 }

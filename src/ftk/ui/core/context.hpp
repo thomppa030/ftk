@@ -501,9 +501,9 @@ public:
     void set_cursor_shape(MouseCursor cursor);
 
     /// Keys and text for the next frame, in the order they happened.
-    void add_key_event(const KeyEvent& event) { key_events_.push_back(event); }
+    void add_key_event(const KeyEvent& event);
     /// Text the system committed, UTF-8.
-    void add_text(std::string_view text) { typed_next_ += text; }
+    void add_text(std::string_view text);
     /// What an input method is composing, not yet committed, and its cursor
     /// in bytes; empty when it is done. Seen from the next frame.
     void set_composition(std::string_view text, int cursor);
@@ -518,6 +518,11 @@ public:
     [[nodiscard]] Modifiers modifiers() const { return keyboard_.modifiers; }
     /// The text committed this frame.
     [[nodiscard]] std::string_view typed() const;
+    /// The keys that went down or repeated this frame and the text
+    /// committed, in one list in the order they came: for a widget whose
+    /// keys mean something by the ones before them, as a modal editor's do.
+    /// Nothing while the keyboard is ignored.
+    [[nodiscard]] std::span<const Keystroke> keystrokes() const;
     /// What the input method is composing, and its cursor.
     [[nodiscard]] std::string_view composition() const { return keyboard_.composition; }
     [[nodiscard]] int composition_cursor() const { return keyboard_.composition_cursor; }
@@ -704,6 +709,8 @@ private:
         std::array<Id, KEY_COUNT> claims{};
         Modifiers modifiers{};
         std::string typed;
+        // The same keys and text again, in the order they came.
+        std::vector<Keystroke> keystrokes;
         std::string composition;
         int composition_cursor{0};
         // The window the keys went to last.
@@ -799,8 +806,10 @@ private:
     void begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal = false);
     // A fitting popup, tooltip or drag preview that doesn't fit inside the
     // window being drawn, begun in an OS popup window of its own once the
-    // program has opened it: true when it was.
-    bool begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
+    // program has opened it: there when it was, waiting while that window is
+    // still to open, inside when it fits or has no window to go to.
+    enum class Outside { inside, waiting, there };
+    Outside begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
     // Ends the innermost panel's or region's area, keeping what it held for
     // scrolling; returns that.
     glm::vec2 end_area();
@@ -916,6 +925,10 @@ private:
     std::string own_clipboard_;
     std::vector<KeyEvent> key_events_;
     std::string typed_next_;
+    std::vector<Keystroke> keystrokes_next_;
+    // The modifiers of the last key event added, which text added after it
+    // was typed with.
+    Modifiers modifiers_next_{};
     std::optional<std::pair<std::string, int>> composition_next_;
     // The widget with the keyboard, and whether it takes text.
     Id focused_{0};

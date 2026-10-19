@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
 #include <string>
 
 using ftk::test::KitHarness;
@@ -78,6 +79,48 @@ TEST_CASE("A state shows as a dot in its tone's colour, and a note says where it
     h.hover("state");
     h.step(60);
     CHECK(h.tooltip().has_value());
+}
+
+TEST_CASE("A pill needs no icon, and a mode's pill reads in the toggle or the accent colour", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_pill(nullptr, "Insert", ui::StatusTone::On);
+            h.mark("on");
+            ui::status_pill(nullptr, "Visual", ui::StatusTone::Selected);
+            h.mark("selected");
+            ui::status_pill(nullptr, "Normal", ui::StatusTone::Plain);
+            h.mark("plain");
+        }
+    });
+    h.step(2);
+    // Whether the last frame drew something in `colour` inside `item`.
+    const auto drawn_in = [&](const char* item, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(item).contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    ftk::ui::Color toggle = ftk::theme::toggle_on();
+    toggle.a = 1.0f;
+    CHECK(drawn_in("on", toggle));
+    CHECK(drawn_in("selected", ftk::theme::accent()));
+    CHECK(drawn_in("plain", ftk::theme::text_secondary()));
+    // Without an icon the text starts at the pill's own padding: no room is
+    // kept for one. A plain pill has no wash, so what it draws is its text.
+    const uint32_t secondary = ftk::ui::core::pack_colour(ftk::theme::text_secondary());
+    float text_left = h.rect("plain").max.x;
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (p.colour == secondary && h.rect("plain").contains((p.min + p.max) * 0.5f)) {
+                text_left = std::min(text_left, p.min.x);
+            }
+        }
+    }
+    CHECK(text_left - h.rect("plain").min.x < ftk::theme::GAP_M + 7.0f + 3.0f);
 }
 
 TEST_CASE("Work in the background shows its spinner before what it is", "[ui][kit]") {

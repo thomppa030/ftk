@@ -203,4 +203,10 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_TAGS               "\xee\x8d\x9c"  // U+E35C
 #define ICON_LC_BRACES             "\xee\x8d\xaa"  // U+E36A
 #define ICON_LC_COLUMNS_2          "\xee\x82\x98"  // U+E098
+
+#define ICON_LC_MAP_PIN            "\xee\x84\x91"  // U+E111
+#define ICON_LC_ARROW_DOWN_TO_DOT  "\xee\x91\x8d"  // U+E44D
+#define ICON_LC_CORNER_LEFT_UP     "\xee\x82\xa4"  // U+E0A4
+#define ICON_LC_PACKAGE_PLUS       "\xee\x89\xa8"  // U+E268
+#define ICON_LC_MOUNTAIN           "\xee\x88\xb1"  // U+E231
 // NOLINTEND(cppcoreguidelines-macro-usage)

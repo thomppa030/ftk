@@ -5,6 +5,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <span>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,64 @@ TEST_CASE("Text typed is the frame's, and an input method's composing comes apar
     h.type("\xe6\x97\xa5\xe6\x9c\xac");  // 日本, committed
     CHECK(composing.empty());
     CHECK(typed.back() == "\xe6\x97\xa5\xe6\x9c\xac");
+}
+
+TEST_CASE("A frame's keystrokes keep the order its keys and text came in", "[ui-core][keys]") {
+    using core::Keystroke;
+    UiHarness h;
+    std::vector<std::vector<Keystroke>> frames;
+    h.set_ui([&] {
+        const std::span<const Keystroke> keystrokes = h.ui().keystrokes();
+        frames.emplace_back(keystrokes.begin(), keystrokes.end());
+    });
+    const ftk::ui::Modifiers shift{.shift = true};
+    // Esc, then d typed twice, all in one frame; then D with Shift, held.
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::Escape});
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Up, .key = Key::Escape});
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::D});
+    h.ui().add_text("d");
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Up, .key = Key::D});
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::D});
+    h.ui().add_text("d");
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Modifiers, .modifiers = shift});
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::D, .modifiers = shift});
+    h.ui().add_text("D");
+    h.send(KeyEvent{.kind = KeyEvent::Kind::Down, .key = Key::D, .repeat = true, .modifiers = shift});
+    h.step();
+    h.step();
+
+    // Keys going up and the modifiers alone are no keystrokes; text takes the
+    // modifiers of the key before it.
+    REQUIRE(frames.size() == 2);
+    const std::vector<Keystroke> expected{
+        {.kind = Keystroke::Kind::Key, .key = Key::Escape},
+        {.kind = Keystroke::Kind::Key, .key = Key::D},
+        {.kind = Keystroke::Kind::Text, .text = "d"},
+        {.kind = Keystroke::Kind::Key, .key = Key::D},
+        {.kind = Keystroke::Kind::Text, .text = "d"},
+        {.kind = Keystroke::Kind::Key, .key = Key::D, .modifiers = shift},
+        {.kind = Keystroke::Kind::Text, .modifiers = shift, .text = "D"},
+        {.kind = Keystroke::Kind::Key, .key = Key::D, .repeat = true, .modifiers = shift},
+    };
+    CHECK(frames[0] == expected);
+    CHECK(frames[1].empty());
+
+    // Text typed after the modifiers alone changed takes them too: Ctrl held
+    // in a frame of its own, then a letter.
+    frames.clear();
+    h.hold({.ctrl = true});
+    h.type("q");
+    REQUIRE(frames.size() == 2);
+    CHECK(frames[1] == std::vector<Keystroke>{{.kind = Keystroke::Kind::Text, .modifiers = {.ctrl = true}, .text = "q"}});
+    h.hold({});
+
+    // Ignored, as while a game has the keys: none.
+    h.ui().set_keyboard_ignored(true);
+    frames.clear();
+    h.press(Key::S);
+    h.type("s");
+    for (const std::vector<Keystroke>& frame : frames) CHECK(frame.empty());
+    h.ui().set_keyboard_ignored(false);
 }
 
 TEST_CASE("The clipboard is the program's when it gives one, else the context's own", "[ui-core][keys]") {
