@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -50,6 +51,32 @@ inline constexpr const char* EXE_EXT = "";
 /// Windows. Not made here.
 [[nodiscard]] std::filesystem::path documents_dir();
 [[nodiscard]] std::filesystem::path pictures_dir();
+
+/// Where games keep their players' saved games, each in a folder of its own
+/// inside it: $XDG_DATA_HOME, else ~/.local/share, on Linux, where the user
+/// data that matters lives; the Saved Games known folder on Windows, which
+/// players find to back up or share a save. Not made here.
+[[nodiscard]] std::filesystem::path saved_games_dir();
+
+/// Opens the file at `path` as std::fopen does with `mode` ("rb", "wb"), by the
+/// path's own name on every system: on Windows a path made into a narrow string
+/// is read in the code page, which can't name every file. Null when it can't
+/// be opened, as std::fopen.
+[[nodiscard]] std::FILE* open_file(const std::filesystem::path& path, const char* mode);
+
+/// Puts everything written to `file` on the disk, so a power cut after this
+/// returns can't take it back: the C library's buffer first, then the
+/// system's (fsync on Linux, FlushFileBuffers on Windows). Fails, saying why.
+[[nodiscard]] Result<> sync_file(std::FILE* file);
+
+/// Puts the file `from` in place of `to`, so `to` names a whole file at every
+/// moment: the one it named before, then `from`. When `backup` isn't empty and
+/// `to` was there, `to`'s old file is also kept as `backup`, in place of any
+/// file there, before the new one takes its name. The folder's new names are
+/// on the disk when it returns. All three are in one folder. Fails, saying
+/// why, with `to` as it was.
+[[nodiscard]] Result<> replace_file(const std::filesystem::path& from, const std::filesystem::path& to,
+                                    const std::filesystem::path& backup = {});
 
 /// The file the program a command names is, found as starting the command
 /// would find it: the path itself when `program` names a folder, else the

@@ -1,5 +1,6 @@
 #include "ftk/platform/platform.hpp"
 
+#include "ftk/base/utf8.hpp"
 #include "ftk/platform/detail/command_line.hpp"
 #include "ftk/platform/windows/pipes.hpp"
 
@@ -18,9 +19,13 @@
 #include <ShlObj.h>
 #include <shellapi.h>
 
+#include <io.h>
+
 #include <array>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
+#include <system_error>
 
 namespace ftk::platform {
 namespace {
@@ -77,6 +82,44 @@ std::filesystem::path documents_dir() {
 
 std::filesystem::path pictures_dir() {
     return known_folder(FOLDERID_Pictures);
+}
+
+std::filesystem::path saved_games_dir() {
+    return known_folder(FOLDERID_SavedGames);
+}
+
+std::FILE* open_file(const std::filesystem::path& path, const char* mode) {
+    std::wstring wide_mode;
+    for (const char* c = mode; *c != '\0'; ++c) wide_mode += static_cast<wchar_t>(*c);
+    return _wfopen(path.c_str(), wide_mode.c_str());
+}
+
+Result<> sync_file(std::FILE* file) {
+    if (std::fflush(file) != 0) return make_error("can't write the file out");
+    const auto handle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)));
+    if (handle == INVALID_HANDLE_VALUE) return make_error("can't put the file on the disk: it has no handle");
+    if (!FlushFileBuffers(handle)) return make_error("can't put the file on the disk: " + detail::reason(GetLastError()));
+    return {};
+}
+
+Result<> replace_file(const std::filesystem::path& from, const std::filesystem::path& to,
+                      const std::filesystem::path& backup) {
+    std::error_code ec;
+    if (std::filesystem::exists(to, ec)) {
+        // ReplaceFileW keeps to's old file as the backup and puts from in its
+        // place, so to names a whole file throughout.
+        const wchar_t* kept = backup.empty() ? nullptr : backup.c_str();
+        if (!ReplaceFileW(to.c_str(), from.c_str(), kept, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
+            return make_error("can't put " + utf8::from_path(from) + " in place of " + utf8::from_path(to) + ": " +
+                              detail::reason(GetLastError()));
+        }
+        return {};
+    }
+    if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        return make_error("can't put " + utf8::from_path(from) + " in place of " + utf8::from_path(to) + ": " +
+                          detail::reason(GetLastError()));
+    }
+    return {};
 }
 
 std::optional<std::filesystem::path> find_program(std::string_view program) {

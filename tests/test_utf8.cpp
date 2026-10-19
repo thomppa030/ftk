@@ -71,3 +71,15 @@ TEST_CASE("Decoding always moves forward", "[utf8]") {
         }
     }
 }
+
+TEST_CASE("A path and its UTF-8 text turn into each other", "[utf8]") {
+    // Skógar, spelled as its UTF-8 bytes so any compiler reads the source alike.
+    const std::string_view text = "Sk\xc3\xb3gar/quick.fjsave";
+    const std::filesystem::path path = utf8::to_path(text);
+    const std::u8string bytes = path.generic_u8string();
+    CHECK(std::string(bytes.begin(), bytes.end()) == text);
+    CHECK(path.filename() == "quick.fjsave");
+    CHECK(utf8::from_path(path.filename()) == "quick.fjsave");
+    CHECK(utf8::from_path(utf8::to_path("Sk\xc3\xb3gar")) == "Sk\xc3\xb3gar");
+    CHECK(utf8::from_path(utf8::to_path("")).empty());
+}

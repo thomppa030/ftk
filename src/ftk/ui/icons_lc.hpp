@@ -168,6 +168,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_THERMOMETER_SUN    "\xee\x86\x88"  // U+E188
 #define ICON_LC_BOXES              "\xee\x8b\x90"  // U+E2D0
 #define ICON_LC_GAMEPAD_2          "\xee\x83\x9f"  // U+E0DF
+#define ICON_LC_ID_CARD            "\xee\x98\x97"  // U+E617
 #define ICON_LC_KEYBOARD           "\xee\x8a\x84"  // U+E284
 #define ICON_LC_MOUSE              "\xee\x8a\x8e"  // U+E28E
 #define ICON_LC_BONE               "\xee\x8d\x98"  // U+E358
