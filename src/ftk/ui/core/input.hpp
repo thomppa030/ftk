@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace ftk::ui {
@@ -122,6 +123,24 @@ struct KeyEvent {
     /// The modifiers held as it happened.
     Modifiers modifiers{};
     RootId root{0};
+};
+
+/// One of a frame's keystrokes: a key going down or repeating as it is
+/// held, or text the system committed. A key that types text comes before
+/// its text.
+struct Keystroke {
+    enum class Kind : uint8_t { Key, Text };
+    Kind kind{Kind::Key};
+    /// The key, for a key.
+    Key key{Key::A};
+    /// Down again while held, at the keyboard's repeat rate.
+    bool repeat{false};
+    /// The modifiers held as it happened.
+    Modifiers modifiers{};
+    /// What was typed, UTF-8, for text.
+    std::string text{};
+
+    bool operator==(const Keystroke&) const = default;
 };
 
 /// The distances and times pointers are judged by.
