@@ -6,6 +6,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <glm/vec2.hpp>
+
+#include <utility>
 #include <vector>
 
 using ftk::test::KitHarness;
@@ -205,4 +208,19 @@ TEST_CASE("A menu title takes an entry's place", "[ui][kit]") {
     });
     h.step(2);
     CHECK(h.rect("after").min.y - h.rect("before").min.y == h.rect("third").min.y - h.rect("first").min.y);
+}
+
+TEST_CASE("A popup opens where it is asked to, wherever the mouse is", "[ui][kit]") {
+    KitHarness h;
+    bool open_it = false;
+    h.set_ui([&] {
+        if (std::exchange(open_it, false)) ui::open_popup("##menu", {300.0f, 200.0f});
+        if (auto menu = ui::Popup("##menu")) ui::menu_item({.label = "Add"});
+    });
+    h.move_to({40.0f, 30.0f});
+    h.step(2);
+    open_it = true;
+    h.step(3);
+    REQUIRE(h.popup());
+    CHECK(h.popup()->min == glm::vec2{300.0f, 200.0f});
 }

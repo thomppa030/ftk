@@ -11,11 +11,17 @@
 //
 //     if (auto menu = ui::ContextMenu("##row")) { ... }  // right-click on the last item
 
+#include <glm/vec2.hpp>
+
 namespace ftk::ui {
 
 /// Opens the popup `id` at the mouse, to be drawn from the next Popup of
 /// that id. `id` is under the ids pushed around the call.
 void open_popup(const char* id);
+/// The same at `at` in the window's units: where something happened a frame
+/// or two before the popup could open (a click whose pick view answered
+/// since), wherever the mouse is now.
+void open_popup(const char* id, glm::vec2 at);
 
 /// Whether the popup `id` is open.
 [[nodiscard]] bool popup_open(const char* id);
