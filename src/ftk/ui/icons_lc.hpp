@@ -153,6 +153,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LINK_2             "\xee\x84\x83"  // U+E103
 #define ICON_LC_PIN                "\xee\x89\x99"  // U+E259
 #define ICON_LC_CROSSHAIR          "\xee\x82\xac"  // U+E0AC
+#define ICON_LC_GROUP              "\xee\x91\xa4"  // U+E464
 #define ICON_LC_CLOUD_FOG          "\xee\x88\x94"  // U+E214
 #define ICON_LC_TREES              "\xee\x8b\xb5"  // U+E2F5
 #define ICON_LC_MOUSE_POINTER_CLICK "\xee\x84\xa0"  // U+E120
