@@ -31,12 +31,20 @@ constexpr float STATE_DOT = 7.0f;
 constexpr float NEWEST_WIDTH = 280.0f;
 constexpr float COUNT_GAP = theme::GAP_S;
 
+Color with_alpha(Color colour, float alpha) {
+    colour.a = alpha;
+    return colour;
+}
+
 // The colour a tone reads in.
 Color tone_colour(StatusTone tone) {
     switch (tone) {
         case StatusTone::Success: return theme::success();
         case StatusTone::Warning: return theme::warning();
         case StatusTone::Error: return theme::error();
+        // The toggle colour is a wash; as text it reads whole.
+        case StatusTone::On: return with_alpha(theme::toggle_on(), 1.0f);
+        case StatusTone::Selected: return theme::accent();
         case StatusTone::Plain: break;
     }
     return theme::text_secondary();
@@ -45,11 +53,6 @@ Color tone_colour(StatusTone tone) {
 // Where text `height` tall sits on the bar's line, centred in its height.
 float line_y(float height) {
     return window_pos().y + (theme::STATUS_BAR - height) * 0.5f;
-}
-
-Color with_alpha(Color colour, float alpha) {
-    colour.a = alpha;
-    return colour;
 }
 
 const char* const RIGHT_WIDTH = "##right_width";
@@ -185,9 +188,10 @@ void status_pill(const char* icon, const char* text, StatusTone tone) {
     const float height = 18.0f;
     const glm::vec2 start = cursor();
     const float top = start.y + (theme::STATUS_BAR - height) * 0.5f;
-    const float icon_w = measure(icon).x;
+    // An icon and the gap after it, when there is one.
+    const float icon_w = icon != nullptr ? measure(icon).x + theme::GAP_S : 0.0f;
     const float text_w = measure(text).x;
-    const float width = inner + icon_w + theme::GAP_S + text_w + inner;
+    const float width = inner + icon_w + text_w + inner;
     const glm::vec2 min{start.x + pad, top};
     const glm::vec2 max{min.x + width, top + height};
 
@@ -195,8 +199,8 @@ void status_pill(const char* icon, const char* text, StatusTone tone) {
         ui().draw_list().rect_filled(min, max, faded(with_alpha(colour, 0.16f)), height * 0.5f);
     }
     const float text_y = line_y(line_height());
-    draw_text({min.x + inner, text_y}, colour, icon);
-    draw_text({min.x + inner + icon_w + theme::GAP_S, text_y}, colour, text);
+    if (icon != nullptr) draw_text({min.x + inner, text_y}, colour, icon);
+    draw_text({min.x + inner + icon_w, text_y}, colour, text);
     reserve({pad + width + pad, theme::STATUS_BAR});
 }
 

@@ -58,11 +58,14 @@ void status_note(std::string_view text, std::string_view where);
 /// A thin rule between groups of items.
 void status_rule();
 
-/// How a pill or a state reads: plain, or in a state's colour.
-enum class StatusTone { Plain, Success, Warning, Error };
+/// How a pill or a state reads: plain, in a state's colour, or as a mode
+/// that is on (the toggle colour: Vim's insert mode) or that selects (the
+/// accent: its visual mode).
+enum class StatusTone { Plain, Success, Warning, Error, On, Selected };
 
-/// A state that matters at a glance (Playing, Paused), in a small rounded
-/// pill tinted by `tone`.
+/// A state that matters at a glance (Playing, Paused, a modal editor's
+/// mode), in a small rounded pill tinted by `tone`: its icon, when it has
+/// one, then its text.
 void status_pill(const char* icon, const char* text, StatusTone tone);
 
 /// Something the program runs and how it is (a language server: running,
