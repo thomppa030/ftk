@@ -25,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,6 +49,11 @@ bool menu_item(const MenuItem& item);
 /// A heading over a group of entries ("Lighting", "Buffers"): uppercase,
 /// small and dim, lined up with the entries' labels. Not an entry.
 void menu_heading(const char* label);
+
+/// What the entries under it act on, named as an entry is laid out (the node
+/// a viewport's menu was opened on): its icon and kind in the secondary text
+/// colour, its name as written in bold. Not an entry.
+void menu_title(const char* icon, std::string_view name, std::string_view kind);
 
 /// An entry that opens a submenu ("Create new"), led by its icon, as tall as
 /// any other entry. Returns true while the submenu is open; the caller then

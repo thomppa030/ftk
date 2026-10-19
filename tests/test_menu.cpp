@@ -187,3 +187,22 @@ TEST_CASE("A submenu entry is as tall as any other entry", "[ui][kit]") {
     // It takes the room an entry takes: the one after starts as far below.
     CHECK(del.min.y - add.min.y == add.min.y - rename.min.y);
 }
+
+TEST_CASE("A menu title takes an entry's place", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        // Three entries, then an entry, a title and an entry.
+        ui::menu_item({.label = "Add"});
+        h.mark("first");
+        ui::menu_item({.label = "Add preset"});
+        ui::menu_item({.label = "Move here"});
+        h.mark("third");
+        ui::menu_item({.label = "Duplicate"});
+        h.mark("before");
+        ui::menu_title(nullptr, "Rock_03", "Mesh");
+        ui::menu_item({.label = "Frame"});
+        h.mark("after");
+    });
+    h.step(2);
+    CHECK(h.rect("after").min.y - h.rect("before").min.y == h.rect("third").min.y - h.rect("first").min.y);
+}

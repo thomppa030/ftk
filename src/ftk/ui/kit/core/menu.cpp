@@ -149,6 +149,28 @@ void menu_heading(const char* label) {
     reserve({pad + ICON_COLUMN + pad + size.x + pad, size.y + theme::GAP_XS});
 }
 
+void menu_title(const char* icon, std::string_view name, std::string_view kind) {
+    const float height = frame_height();
+    const float pad = theme::GAP_M;
+    glm::vec2 name_size{0.0f};
+    {
+        FontScope bold(Font::Bold, font_size());
+        name_size = measure(name);
+    }
+    const float kind_w = kind.empty() ? 0.0f : theme::GAP_M + measure(kind).x;
+    const glm::vec2 min = cursor();
+    reserve({pad + ICON_COLUMN + pad + name_size.x + kind_w + pad, height});
+
+    const float y = min.y + (height - name_size.y) * 0.5f;
+    const float label_x = min.x + pad + ICON_COLUMN + pad;
+    if (icon != nullptr) draw_text({min.x + pad, y}, theme::text_secondary(), icon);
+    {
+        FontScope bold(Font::Bold, font_size());
+        draw_text({label_x, y}, theme::text(), name);
+    }
+    if (!kind.empty()) draw_text({label_x + name_size.x + theme::GAP_M, y}, theme::text_secondary(), kind);
+}
+
 void end_menu() {
     corekit::end_popup();
 }
