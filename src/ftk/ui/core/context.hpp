@@ -799,8 +799,10 @@ private:
     void begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal = false);
     // A fitting popup, tooltip or drag preview that doesn't fit inside the
     // window being drawn, begun in an OS popup window of its own once the
-    // program has opened it: true when it was.
-    bool begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
+    // program has opened it: there when it was, waiting while that window is
+    // still to open, inside when it fits or has no window to go to.
+    enum class Outside { inside, waiting, there };
+    Outside begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
     // Ends the innermost panel's or region's area, keeping what it held for
     // scrolling; returns that.
     glm::vec2 end_area();

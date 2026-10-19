@@ -41,6 +41,17 @@ bool drawn(const UiHarness& h, ftk::ui::Color colour) {
     return false;
 }
 
+// Whether root `root` drew something in `colour` last frame.
+bool drawn_in(const UiHarness& h, core::RootId root, ftk::ui::Color colour) {
+    for (const core::RootOutput& out : h.output().roots) {
+        if (out.root != root) continue;
+        for (const core::Primitive& p : out.draw->primitives) {
+            if (p.colour == core::pack_colour(colour)) return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 TEST_CASE("A popup past its window's edge goes into an OS popup window of its own", "[ui-core][layers]") {
@@ -79,6 +90,34 @@ TEST_CASE("A popup past its window's edge goes into an OS popup window of its ow
     open = false;
     h.step(2);
     CHECK(h.windows().empty());
+}
+
+TEST_CASE("A popup on its way into a window of its own is never drawn in the one it leaves", "[ui-core][layers]") {
+    UiHarness h;
+    h.ui().set_popups_leave_window(true);
+    constexpr ftk::ui::Color MENU{0.6f, 0.1f, 0.3f, 1.0f};
+    glm::vec2 at{100.0f, 100.0f};
+    h.set_ui([&] {
+        core::Context& ui = h.ui();
+        ui.begin_panel("menu", {.min = at, .max = at}, {.layer = core::Layer::Popup, .fit = true});
+        plate(ui, MENU);
+        (void)widget(h, "entry", {200.0f, 24.0f});
+        ui.end_panel();
+    });
+    h.step(4);
+    REQUIRE(drawn_in(h, UiHarness::WINDOW, MENU));
+
+    // Past the right edge: from the frame it is asked to move out, nothing
+    // of it shows in the window it leaves, until it shows in its own.
+    at = {700.0f, 100.0f};
+    bool left_behind = false;
+    for (int frame = 0; frame < 6; ++frame) {
+        h.step();
+        left_behind = left_behind || drawn_in(h, UiHarness::WINDOW, MENU);
+    }
+    CHECK_FALSE(left_behind);
+    REQUIRE(h.windows().size() == 1);
+    CHECK(drawn_in(h, h.windows()[0].root, MENU));
 }
 
 TEST_CASE("A popup whose OS window the platform closes closes with it", "[ui-core][layers]") {

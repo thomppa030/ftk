@@ -201,13 +201,19 @@ Result<> UiLayer::keep_windows(const ui::core::FrameOutput& out) {
             open->asked = request;
             continue;
         }
+        // A popup whose window the platform cannot open is drawn inside the
+        // window it came from instead, and so is every popup after it.
+        const auto cannot_open = [&](std::string why) {
+            if (popup) ui_.set_popups_leave_window(false);
+            return make_error(std::move(why));
+        };
         try {
             auto window = popup ? std::make_unique<Window>(*near, at, size.x, size.y,
                                                            request.kind == ui::core::RootKind::Tooltip)
                                 : std::make_unique<Window>(request.title, size.x, size.y, window_);
             if (!popup) window->set_position(at);
             auto swapchain = gpu::Swapchain::create(device_, *window);
-            if (!swapchain) return make_error(swapchain.error());
+            if (!swapchain) return cannot_open(swapchain.error());
             auto input = std::make_unique<UiInput>(*window, ui_, request.root);
             extras_.push_back({.root = request.root,
                                .asked = request,
@@ -215,7 +221,7 @@ Result<> UiLayer::keep_windows(const ui::core::FrameOutput& out) {
                                .swapchain = std::move(*swapchain),
                                .input = std::move(input)});
         } catch (const std::exception& e) {
-            return make_error(e.what());
+            return cannot_open(e.what());
         }
         ui_.request_frame();
     }

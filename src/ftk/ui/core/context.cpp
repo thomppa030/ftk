@@ -299,10 +299,10 @@ void Context::begin_panel(std::string_view name, Rect rect, const PanelOptions& 
     begin_panel_id(ids_.id(name), rect, options);
 }
 
-bool Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal) {
-    if (!popups_leave_window_ || !options.fit || modal) return false;
+Context::Outside Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal) {
+    if (!popups_leave_window_ || !options.fit || modal) return Outside::inside;
     const Layer layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
-    if (layer != Layer::Popup && layer < Layer::Tooltip) return false;
+    if (layer != Layer::Popup && layer < Layer::Tooltip) return Outside::inside;
 
     // How big it came to: in its own window when it was drawn there, else
     // in this one. Not measured yet, it is measured here first.
@@ -317,13 +317,13 @@ bool Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool 
         if (const auto there = roots_.find(known->second); there != roots_.end()) measured = measured_in(*there->second);
     }
     if (measured == nullptr) measured = measured_in(*root_);
-    if (measured == nullptr) return false;
+    if (measured == nullptr) return Outside::inside;
     const glm::vec2 size = glm::clamp(measured->content + 2.0f * options.padding + glm::vec2{0.0f, options.bar},
                                       options.min_size, options.max_size);
     const Rect wanted{.min = rect.min, .max = rect.min + size};
     if (wanted.min.x >= 0.0f && wanted.min.y >= 0.0f && wanted.max.x <= root_->size.x && wanted.max.y <= root_->size.y) {
         outside_.erase(id);
-        return false;
+        return Outside::inside;
     }
 
     // Its window closed by the platform (Wayland dismisses popups): the
@@ -333,11 +333,11 @@ bool Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool 
         std::erase(closed_roots_, outside);
         outside_.erase(id);
         close_popup(id);
-        return false;
+        return Outside::inside;
     }
 
     // Asked for, or asked to move and size as it is now; drawn there once
-    // the program has opened it, inside this window until then.
+    // the program has opened it, hidden in this window until then.
     outside_[id] = outside;
     if (!std::ranges::contains(outside_now_, outside)) {
         open_root({.root = outside,
@@ -347,18 +347,19 @@ bool Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool 
                    .at = wanted.min});
         outside_now_.push_back(outside);
     }
-    if (!begin_other_root(outside)) return false;
+    if (!begin_other_root(outside)) return Outside::waiting;
     PanelOptions there = options;
     there.fit = false;
     begin_panel_id(id, {.min = {0.0f, 0.0f}, .max = root_->size}, there);
     panel_stack_.back()->outside = true;
-    return true;
+    return Outside::there;
 }
 
 void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool modal) {
     assert(root_ != nullptr && "UI: a panel begun outside a window");
     // Past the window's edge, into an OS popup window of its own.
-    if (begin_outside(id, rect, options, modal)) return;
+    const Outside outside = begin_outside(id, rect, options, modal);
+    if (outside == Outside::there) return;
     const Id parent_area = current_area();
     Panel& shown = panel(id);
     // Begun again this frame: drawn over what it holds, where it was.
@@ -387,6 +388,12 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
         const glm::vec2 over = glm::max(rect.max - root_->size, glm::vec2{0.0f});
         rect.min = glm::max(rect.min - over, glm::vec2{0.0f});
         rect.max = rect.min + size;
+    }
+    // On its way into a window of its own: hidden in this one meanwhile, so
+    // it is never seen over what it was opened from before it moves out.
+    if (outside == Outside::waiting && !shown.again) {
+        shown.hidden = true;
+        request_frame();
     }
     shown.rect = rect;
     shown.frame = frame_;
