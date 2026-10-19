@@ -40,6 +40,7 @@ enum class Unit {
     Times,  ///< a multiplier, "1.25 ×"
     Megabytes,
     Centimetres,
+    Lines,  ///< lines of text, as a code view counts them
 };
 
 /// The symbol drawn for a unit, empty for Unit::None.

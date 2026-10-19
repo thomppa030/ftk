@@ -162,7 +162,7 @@ TEST_CASE("Every unit but none has a symbol", "[ui][kit]") {
                       ui::Unit::Degrees, ui::Unit::Radians, ui::Unit::Milliseconds, ui::Unit::Seconds, ui::Unit::Minutes,
                       ui::Unit::Hertz,
                       ui::Unit::Kilograms, ui::Unit::Pixels, ui::Unit::Texels, ui::Unit::Percent, ui::Unit::ExposureValue,
-                      ui::Unit::Times}) {
+                      ui::Unit::Times, ui::Unit::Lines}) {
         CHECK_FALSE(std::string(ui::unit_symbol(unit)).empty());
     }
 }
