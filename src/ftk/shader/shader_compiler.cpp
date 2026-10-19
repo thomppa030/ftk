@@ -64,9 +64,10 @@ ShaderCompiler::ShaderCompiler(ShaderCompilerDesc desc)
     : include_dirs_{std::move(desc.include_dirs)}
     , generated_dir_{std::move(desc.generated_dir)}
     , cache_dir_{std::move(desc.cache_dir)}
-    , generator_version_{desc.generator_version} {
+    , generator_version_{desc.generator_version}
+    , program_{std::move(desc.program)} {
     std::filesystem::create_directories(generated_dir_);
-    std::filesystem::create_directories(cache_dir_);
+    if (!cache_dir_.empty()) std::filesystem::create_directories(cache_dir_);
     rehash_includes();
 }
 
@@ -84,6 +85,7 @@ void ShaderCompiler::rehash_includes() {
     // it. A directory that does not exist adds nothing, so a list in which
     // only one exists hashes as that one alone would, and what is cached under
     // that key stays good.
+    if (cache_dir_.empty()) return;
     uint64_t h = FNV1A_OFFSET;
     for (const auto& dir : include_dirs_) {
         const std::filesystem::path root = dir;
@@ -145,7 +147,8 @@ std::string ShaderCompiler::compile(const Job& job) const {
 
     // A hit skips glslc entirely: hashing costs about a millisecond against
     // the 64 ms a compile takes.
-    if (!source.empty() && std::filesystem::exists(cached)) {
+    const bool caches = !cache_dir_.empty();
+    if (caches && !source.empty() && std::filesystem::exists(cached)) {
         std::error_code ec;
         std::filesystem::copy_file(cached, spv_path,
                                    std::filesystem::copy_options::overwrite_existing, ec);
@@ -162,7 +165,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
     FTK_PROFILE_SCOPE_N("glslc");
     // glslc searches its -I directories in the order given, which is the
     // order read_include() and the hash take them in.
-    std::string cmd = "glslc --target-env=vulkan1.3";
+    std::string cmd = program_ + " --target-env=vulkan1.3";
     for (const auto& dir : include_dirs_) {
         cmd += " -I " + dir;
     }
@@ -192,7 +195,7 @@ std::string ShaderCompiler::compile(const Job& job) const {
     // so a process that dies mid-write leaves no half-file for a later run to
     // read as a valid cached shader. A failure to cache is not a failure to
     // compile: the SPIR-V is already where the caller wants it.
-    if (!source.empty()) {
+    if (caches && !source.empty()) {
         std::error_code ec;
         const std::string temp = cached + ".tmp";
         std::filesystem::copy_file(spv_path, temp,
