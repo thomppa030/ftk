@@ -98,12 +98,13 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     const glm::vec2 label_size = measure(label);
     const float natural = pad + ICON_COLUMN + pad + label_size.x + theme::GAP_L * 2.0f + pad;
 
-    // The entry, a line of text tall, opens its submenu under the mouse and
+    // The entry, as tall as any other, opens its submenu under the mouse and
     // stays lit while it is open.
     const std::string id = std::string("##") + label;
     const Id entry = context.id(id);
     const Id sub = core::hash_label("##submenu", entry);
-    const core::Rect rect = context.layout().next({std::max(space_left().x, natural), line_height()});
+    const float height = frame_height();
+    const core::Rect rect = context.layout().next({std::max(space_left().x, natural), height});
     const core::Rect bb = padded(rect, style.item_spacing);
     core::Interaction in{};
     {
@@ -124,11 +125,12 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     if (open || in.hovered) dl.rect_filled(bb.min, bb.max, faded(in.hovered ? theme::surface_hover() : theme::surface_raised()));
     Color colour = theme::text();
     if (!enabled) colour.a *= style.disabled_alpha;
-    if (icon != nullptr) draw_text({rect.min.x + pad, rect.min.y}, colour, icon);
-    draw_text({rect.min.x + pad + ICON_COLUMN + pad, rect.min.y}, colour, label);
+    const float y = rect.min.y + (height - label_size.y) * 0.5f;
+    if (icon != nullptr) draw_text({rect.min.x + pad, y}, colour, icon);
+    draw_text({rect.min.x + pad + ICON_COLUMN + pad, y}, colour, label);
     // The arrow saying a submenu opens from it, at its right end.
     const float half = std::floor(line_height() * 0.25f);
-    const glm::vec2 tip{rect.max.x - pad, rect.min.y + line_height() * 0.5f};
+    const glm::vec2 tip{rect.max.x - pad, rect.min.y + height * 0.5f};
     dl.triangle_filled({tip.x - half * 1.5f, tip.y - half}, {tip.x - half * 1.5f, tip.y + half}, tip, faded(colour));
 
     return corekit::begin_popup(sub, {.padding = style.window_padding});

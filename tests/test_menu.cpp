@@ -168,3 +168,22 @@ TEST_CASE("A menu's entry is found by its label", "[ui][kit]") {
     h.click("Delete track");
     CHECK(deleted == 1);
 }
+
+TEST_CASE("A submenu entry is as tall as any other entry", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::menu_item({.label = "Rename"});
+        h.mark("rename");
+        if (ui::begin_menu(nullptr, "Add")) ui::end_menu();
+        h.mark("add");
+        ui::menu_item({.label = "Delete"});
+        h.mark("delete");
+    });
+    h.step(2);
+    const auto rename = h.rect("rename");
+    const auto add = h.rect("add");
+    const auto del = h.rect("delete");
+    CHECK(add.max.y - add.min.y == rename.max.y - rename.min.y);
+    // It takes the room an entry takes: the one after starts as far below.
+    CHECK(del.min.y - add.min.y == add.min.y - rename.min.y);
+}
