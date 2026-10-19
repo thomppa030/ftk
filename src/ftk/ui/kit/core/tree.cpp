@@ -238,6 +238,11 @@ bool tree_row_open(const char* id, bool starts_open) {
     return stored_bool(ui().id("##open"), starts_open);
 }
 
+void open_tree_row(const char* id) {
+    IdScope scope(id);
+    store_bool(ui().id("##open"), true);
+}
+
 RowsInView::RowsInView(std::size_t count, std::optional<std::size_t> revealed)
     : RowsInView(count, RowPitch{.pitch = row_height()}) {
     if (revealed) reveal(*revealed);

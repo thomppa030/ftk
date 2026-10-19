@@ -271,6 +271,31 @@ TEST_CASE("A row's fold reads before the row is drawn as the row draws it", "[ui
     CHECK_FALSE(drawn_open);
 }
 
+TEST_CASE("An owner opens a folded row, as unfolding it from its chevron would", "[ui][kit]") {
+    KitHarness h;
+    bool open_it = false;
+    bool listed_open = true;
+    bool drawn_open = true;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            if (std::exchange(open_it, false)) ui::open_tree_row("2");
+            listed_open = ui::tree_row_open("2", false);
+            drawn_open = ui::tree_row({.id = "2", .name = "Yard", .has_children = true, .starts_open = false}).open;
+        }
+    });
+    h.step(2);
+    CHECK_FALSE(listed_open);
+    CHECK_FALSE(drawn_open);
+
+    open_it = true;
+    h.step();
+    CHECK(listed_open);
+    CHECK(drawn_open);
+    // It stays open, as a row unfolded by hand does.
+    h.step(2);
+    CHECK(drawn_open);
+}
+
 TEST_CASE("Rows in view draws only the rows its region shows, and the region scrolls over them all", "[ui][kit]") {
     KitHarness h;
     constexpr std::size_t COUNT = 1000;

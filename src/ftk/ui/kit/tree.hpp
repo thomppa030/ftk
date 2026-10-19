@@ -134,6 +134,10 @@ TreeRowResult tree_row(const TreeRowSpec& spec);
 /// ones in sight (RowsInView).
 [[nodiscard]] bool tree_row_open(const char* id, bool starts_open = true);
 
+/// Opens row `id` of the tree being drawn, as unfolding it from its chevron
+/// would: for an owner bringing a row under closed folds into view.
+void open_tree_row(const char* id);
+
 /// Where, over the last row drawn, a dragged row would land: in front of it
 /// (its top quarter), after it (its bottom quarter), or into it.
 enum class DropPlace { Before, Into, After };
