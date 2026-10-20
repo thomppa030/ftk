@@ -23,7 +23,10 @@
 
 namespace ftk::ui {
 
-enum class PlatePlace { TopRight, TopCenter };
+/// Where a plate floats: over the view's top right (find), its top centre
+/// (go to line), or its bottom right (the keys that can come next), its
+/// foot then where its last frame's height puts it.
+enum class PlatePlace { TopRight, TopCenter, BottomRight };
 
 /// How far a plate sits in from the edges of the view it is over.
 inline constexpr float PLATE_INSET = 8.0f;
