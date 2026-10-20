@@ -381,6 +381,8 @@ public:
     /// shows its tooltip, to say why.
     [[nodiscard]] bool tooltip_due();
     /// A tooltip at the pointer, fitting what it holds, until end_tooltip().
+    /// While a drag shows its preview, the tooltip goes below the preview
+    /// instead of behind it.
     /// The last begun in a frame is the one shown.
     void begin_tooltip();
     void end_tooltip() { end_panel(); }
@@ -814,6 +816,12 @@ private:
     // still to open, inside when it fits or has no window to go to.
     enum class Outside { inside, waiting, there };
     Outside begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal);
+    // The fitting panel `id` as last measured: in its own OS window when it
+    // was drawn there, else in the window being drawn; none before then.
+    [[nodiscard]] const Panel* measured_panel(Id id) const;
+    // How big a measured fitting panel is: what it held last frame inside
+    // its padding and bar, within its least and most size.
+    [[nodiscard]] static glm::vec2 fitted_size(const Panel& panel, const PanelOptions& options);
     // Ends the innermost panel's or region's area, keeping what it held for
     // scrolling; returns that.
     glm::vec2 end_area();
@@ -827,6 +835,11 @@ private:
     void settle_layers();
     // The pointer the drag is by, if it is still there.
     [[nodiscard]] const Tracked* drag_pointer() const;
+    // Where the drag preview's top-left sits this frame.
+    [[nodiscard]] glm::vec2 drag_preview_at() const;
+    // Where a tooltip begun during a drag sits, below the drag preview that
+    // would otherwise lie over it; none while no preview is drawn.
+    [[nodiscard]] std::optional<glm::vec2> below_drag_preview() const;
     // Whether the drag is let go over a target this frame: its pointer
     // released, or the files from outside dropped.
     [[nodiscard]] bool delivered(const Tracked& by) const;

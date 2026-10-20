@@ -301,27 +301,35 @@ void Context::begin_panel(std::string_view name, Rect rect, const PanelOptions& 
     begin_panel_id(ids_.id(name), rect, options);
 }
 
-Context::Outside Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal) {
-    if (!popups_leave_window_ || !options.fit || modal) return Outside::inside;
-    const Layer layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
-    if (layer != Layer::Popup && layer < Layer::Tooltip) return Outside::inside;
-
-    // How big it came to: in its own window when it was drawn there, else
-    // in this one. Not measured yet, it is measured here first.
+const Context::Panel* Context::measured_panel(Id id) const {
     const auto measured_in = [&](const Root& root) -> const Panel* {
         for (const auto& kept : root.panels) {
             if (kept->id == id && kept->measured) return kept.get();
         }
         return nullptr;
     };
-    const Panel* measured = nullptr;
     if (const auto known = outside_.find(id); known != outside_.end()) {
-        if (const auto there = roots_.find(known->second); there != roots_.end()) measured = measured_in(*there->second);
+        if (const auto there = roots_.find(known->second); there != roots_.end()) {
+            if (const Panel* measured = measured_in(*there->second)) return measured;
+        }
     }
-    if (measured == nullptr) measured = measured_in(*root_);
+    return root_ != nullptr ? measured_in(*root_) : nullptr;
+}
+
+glm::vec2 Context::fitted_size(const Panel& panel, const PanelOptions& options) {
+    const glm::vec2 fits = panel.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
+    return glm::clamp(fits, options.min_size, options.max_size);
+}
+
+Context::Outside Context::begin_outside(Id id, Rect rect, const PanelOptions& options, bool modal) {
+    if (!popups_leave_window_ || !options.fit || modal) return Outside::inside;
+    const Layer layer = panel_stack_.empty() ? options.layer : std::max(options.layer, panel_stack_.back()->layer);
+    if (layer != Layer::Popup && layer < Layer::Tooltip) return Outside::inside;
+
+    // Not measured yet, it is measured here first.
+    const Panel* measured = measured_panel(id);
     if (measured == nullptr) return Outside::inside;
-    const glm::vec2 size = glm::clamp(measured->content + 2.0f * options.padding + glm::vec2{0.0f, options.bar},
-                                      options.min_size, options.max_size);
+    const glm::vec2 size = fitted_size(*measured, options);
     const Rect wanted{.min = rect.min, .max = rect.min + size};
     if (wanted.min.x >= 0.0f && wanted.min.y >= 0.0f && wanted.max.x <= root_->size.x && wanted.max.y <= root_->size.y) {
         outside_.erase(id);
@@ -376,8 +384,7 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
     }
     if (options.fit && !shown.again) {
         if (shown.measured) {
-            const glm::vec2 fits = shown.content + 2.0f * options.padding + glm::vec2{0.0f, options.bar};
-            rect.max = rect.min + glm::clamp(fits, options.min_size, options.max_size);
+            rect.max = rect.min + fitted_size(shown, options);
         } else {
             // Not seen yet: as big as it is to be at least, while what it
             // holds is measured.
