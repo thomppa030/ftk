@@ -195,18 +195,31 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
         dot_x += DOT + DOT_GAP;
     }
 
-    // The tag before the dots, at the small size, centred on the row's text.
+    // The mark before the dots, its tooltip while the mouse is over it.
+    float mark_w = 0.0f;
+    if (spec.mark != nullptr) {
+        const float w = measure(spec.mark).x;
+        const float mark_x = max.x - ROW_PAD - dots_w - w;
+        draw_text({mark_x, text_y}, theme::text_secondary(), spec.mark);
+        mark_w = w + PART_GAP;
+        const float pointer = mouse_pos().x;
+        if (hovered && spec.mark_tip != nullptr && !context.dragging() && pointer >= mark_x && pointer < mark_x + w) {
+            item_tooltip(spec.mark_tip);
+        }
+    }
+
+    // The tag before the mark, at the small size, centred on the row's text.
     float tag_w = 0.0f;
     if (!spec.tag.empty()) {
         const float row_text = font_size();
         FontScope small(Font::Current, row_text * theme::SMALL_TEXT / theme::BODY_TEXT);
         const float w = measure(spec.tag).x;
-        draw_text({max.x - ROW_PAD - dots_w - w, std::floor(text_y + (row_text - font_size()) * 0.5f)},
+        draw_text({max.x - ROW_PAD - dots_w - mark_w - w, std::floor(text_y + (row_text - font_size()) * 0.5f)},
                   theme::text_disabled(), spec.tag);
         tag_w = w + PART_GAP;
     }
 
-    const float name_right = max.x - ROW_PAD - dots_w - tag_w;
+    const float name_right = max.x - ROW_PAD - dots_w - mark_w - tag_w;
     const Color ink = spec.dimmed ? theme::text_disabled() : theme::text();
     if (renaming) {
         set_cursor({x - kit().style.frame_padding.x, min.y + (row_height() - frame_height()) * 0.5f});

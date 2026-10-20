@@ -337,3 +337,26 @@ TEST_CASE("Rows in view draws only the rows its region shows, and the region scr
     CHECK(row->rect.min.y >= h.rect("list").min.y);
     CHECK(row->rect.max.y <= h.rect("list").max.y);
 }
+
+TEST_CASE("A row's mark sits at its end and says what it is when pointed at", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            (void)ui::tree_row({.id = "1", .name = "Enemy", .mark = "R", .mark_tip = "On scene reload: As authored"});
+            h.mark("enemy");
+        }
+    });
+    h.step(2);
+    const ftk::ui::core::Rect row = h.rect("enemy");
+    const float mid_y = (row.min.y + row.max.y) * 0.5f;
+
+    // Over the name: nothing to say, the name fits.
+    h.move_to({row.min.x + 30.0f, mid_y});
+    h.step(60);
+    CHECK_FALSE(h.tooltip().has_value());
+
+    // Over the mark at the row's end.
+    h.move_to({row.max.x - 4.0f - 3.0f, mid_y});
+    h.step(60);
+    CHECK(h.tooltip().has_value());
+}

@@ -125,6 +125,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 
 #define ICON_LC_MOVE               "\xee\x84\xa1"  // U+E121
 #define ICON_LC_ROTATE_3D          "\xee\x8b\xaa"  // U+E2EA
+#define ICON_LC_ROTATE_CCW         "\xee\x85\x88"  // U+E148
 #define ICON_LC_SCALE_3D           "\xee\x8b\xab"  // U+E2EB
 #define ICON_LC_MOVE_3D            "\xee\x8b\xa5"  // U+E2E5
 #define ICON_LC_GRID_3X3           "\xee\x83\xa9"  // U+E0E9
