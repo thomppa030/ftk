@@ -81,6 +81,13 @@ struct TreeRowSpec {
     /// disabled text colour: what kind of row it is ("persistent" on a
     /// scene's). A long name stops short of it.
     std::string_view tag{};
+    /// What the row stands for, after the name in the body face and the
+    /// secondary colour (the text colour on the row shown): a `:`
+    /// command's words beside its name. It begins `description_at` in from
+    /// where the name begins, so the rows' descriptions stand in a column,
+    /// or after a longer name; it is cut short of the tag.
+    std::string_view description{};
+    float description_at{0.0f};
     RowSelection selection{RowSelection::None};
     /// The search being shown: the match in the name is amber. A row kept
     /// only because something under it matches is `dimmed`.
