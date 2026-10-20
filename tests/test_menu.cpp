@@ -2,7 +2,9 @@
 
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/popup.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -13,6 +15,22 @@
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
+namespace core = ftk::ui::core;
+
+namespace {
+
+// Whether the last frame drew anything in `colour` inside `rect`.
+bool drew_in(const KitHarness& h, core::Rect rect, ui::Color colour) {
+    const uint32_t packed = core::pack_colour(colour);
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (p.colour == packed && rect.contains((p.min + p.max) * 0.5f)) return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 TEST_CASE("A menu entry reports its click, and a disabled one doesn't", "[ui][kit]") {
     KitHarness h;
@@ -223,4 +241,28 @@ TEST_CASE("A popup opens where it is asked to, wherever the mouse is", "[ui][kit
     h.step(3);
     REQUIRE(h.popup());
     CHECK(h.popup()->min == glm::vec2{300.0f, 200.0f});
+}
+
+
+TEST_CASE("A menu entry's icon takes its kind's colour, and its detail follows the label dimmed", "[ui][kit]") {
+    KitHarness h;
+    const ui::Color hue{0.49f, 0.69f, 0.87f, 1.0f};
+    h.set_ui([&] {
+        (void)ui::menu_item({.icon = ui::icon::checked, .icon_colour = hue, .label = "crate.fjmesh", .detail = "Model"});
+        h.mark("with");
+        (void)ui::menu_item({.icon = ui::icon::checked, .label = "crate.fjmesh"});
+        h.mark("without");
+    });
+    h.step(2);
+    const core::Rect with = h.rect("with");
+    const core::Rect without = h.rect("without");
+    // The icon column, left of the label.
+    const core::Rect with_icon{.min = with.min, .max = {with.min.x + 30.0f, with.max.y}};
+    const core::Rect without_icon{.min = without.min, .max = {without.min.x + 30.0f, without.max.y}};
+    CHECK(drew_in(h, with_icon, hue));
+    CHECK_FALSE(drew_in(h, without_icon, hue));
+    CHECK(drew_in(h, without_icon, ftk::theme::text()));
+    // The detail after the label, in the secondary colour; none without it.
+    CHECK(drew_in(h, with, ftk::theme::text_secondary()));
+    CHECK_FALSE(drew_in(h, without, ftk::theme::text_secondary()));
 }
