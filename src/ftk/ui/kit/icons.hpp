@@ -68,5 +68,6 @@ inline constexpr const char* warning = ICON_LC_TRIANGLE_ALERT;
 inline constexpr const char* error   = ICON_LC_CIRCLE_X;
 inline constexpr const char* success = ICON_LC_CIRCLE_CHECK;
 inline constexpr const char* refused = ICON_LC_BAN;
+inline constexpr const char* enter   = ICON_LC_CORNER_DOWN_LEFT;  // what Enter will do
 
 } // namespace ftk::ui::icon

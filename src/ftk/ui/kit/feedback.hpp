@@ -26,6 +26,16 @@ void status(Severity severity, const char* text);
 /// wrapping short of it. Returns true when it is clicked.
 bool status(Severity severity, const char* text, const char* action_icon, const char* action);
 
+/// One line under a field, while it is typed in, saying what entering it
+/// will do ("Replace every gust with wind on lines 44 to 46"): the Enter
+/// icon and the words in the secondary colour; with a
+/// `severity`, what will be refused (a warning) or won't run (an error), in
+/// its colour behind its icon. What `text` holds between \x01 and \x02, a
+/// name or a pattern, is in the mono face in the text colour. In the face
+/// and at the size of the text drawn now, on one line, cut with an
+/// ellipsis where it is too long.
+void outcome_line(std::optional<Severity> severity, std::string_view text);
+
 /// A problem that stops something working until it is fixed (a shader that
 /// failed to compile, a font that failed to bake): a box tinted in the
 /// severity's colour with that colour on its left edge, the icon and

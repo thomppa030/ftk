@@ -98,6 +98,7 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_LOG_OUT            "\xee\x84\x8e"  // U+E10E
 #define ICON_LC_LOG_IN             "\xee\x84\x8d"  // U+E10D
 #define ICON_LC_COPY               "\xee\x82\x9e"  // U+E09E
+#define ICON_LC_CORNER_DOWN_LEFT   "\xee\x82\xa1"  // U+E0A1
 #define ICON_LC_CORNER_DOWN_RIGHT  "\xee\x82\xa2"  // U+E0A2
 #define ICON_LC_CLIPBOARD          "\xee\x82\x85"  // U+E085
 #define ICON_LC_PENCIL             "\xee\x87\xb9"  // U+E1F9

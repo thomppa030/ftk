@@ -125,6 +125,44 @@ bool status(Severity severity, const char* text, const char* action_icon, const 
     return clicked;
 }
 
+void outcome_line(std::optional<Severity> severity, std::string_view text) {
+    const glm::vec2 origin = cursor();
+    const float width = space_left().x;
+    const float right = origin.x + width;
+    const float size = font_size();
+    const Color words = severity ? colour_of(*severity) : theme::text_secondary();
+    float x = origin.x;
+    {
+        // The icons are the body face's.
+        FontScope body(Font::Body, size);
+        const char* glyph = severity ? glyph_of(*severity) : icon::enter;
+        draw_text(origin, words, glyph);
+        x += measure(glyph).x + theme::GAP_S + theme::GAP_XS;
+    }
+    // The words and the marked runs in turn, until one doesn't fit, which
+    // is cut and ends the line.
+    bool marked = false;
+    while (!text.empty() && x < right) {
+        const std::size_t end = std::min(text.find(marked ? '\x02' : '\x01'), text.size());
+        const std::string_view run = text.substr(0, end);
+        text.remove_prefix(std::min(end + 1, text.size()));
+        FontScope face(marked ? Font::Mono : Font::Current, size);
+        const Color colour = marked ? theme::text() : words;
+        marked = !marked;
+        if (run.empty()) continue;
+        const float run_width = measure(run).x;
+        if (x + run_width > right) {
+            draw_text({x, origin.y}, colour, ellipsized(run, right - x));
+            break;
+        }
+        draw_text({x, origin.y}, colour, run);
+        x += run_width;
+    }
+    // The line is the item, for what follows to go under.
+    set_cursor(origin);
+    reserve({width, line_height()});
+}
+
 std::optional<std::size_t> notice_strip(Severity severity, const char* text, std::span<const char* const> answers) {
     core::Context& context = ui();
     const Style& style = kit().style;
