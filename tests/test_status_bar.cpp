@@ -154,6 +154,35 @@ TEST_CASE("A message reads in its tone's colour, an error after its icon", "[ui]
     CHECK(*std::ranges::min_element(error) - h.rect("error").min.x < ftk::theme::GAP_M + 3.0f);
 }
 
+TEST_CASE("A note in the warning tone leads with its icon in the warning colour", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_note(ui::StatusTone::Warning, "No command called files.recent", "keys.vim:12");
+            h.mark("warned");
+            ui::status_note("use of undeclared identifier", "coin.cpp:26");
+            h.mark("plain");
+        }
+    });
+    h.step(2);
+    const auto drawn_in = [&](const char* item, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<float> lefts;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(item).contains((p.min + p.max) * 0.5f)) lefts.push_back(p.min.x);
+            }
+        }
+        return lefts;
+    };
+    const std::vector<float> icon = drawn_in("warned", ftk::theme::warning());
+    const std::vector<float> text = drawn_in("warned", ftk::theme::text_secondary());
+    REQUIRE_FALSE(icon.empty());
+    REQUIRE_FALSE(text.empty());
+    CHECK(*std::ranges::max_element(icon) < *std::ranges::min_element(text));
+    CHECK(drawn_in("plain", ftk::theme::warning()).empty());
+}
+
 TEST_CASE("Work in the background shows its spinner before what it is", "[ui][kit]") {
     KitHarness h;
     h.set_ui([&] {
