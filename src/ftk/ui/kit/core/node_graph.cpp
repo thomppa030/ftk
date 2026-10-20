@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/selection_box.hpp"
 #include "ftk/ui/kit/text.hpp"
 
 #include <glm/common.hpp>
@@ -844,13 +845,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         if (edited) events.edited.push_back(nd.id);
     }
 
-    // A box being dragged: the accent's outline over a wash of it.
-    if (drag_ == Drag::Box) {
-        const glm::vec2 a = view_.to_screen(box_lo);
-        const glm::vec2 b = view_.to_screen(box_hi);
-        dl.rect_filled(a, b, with_alpha(theme::accent(), 0.08f));
-        dl.rect(a, b, faded(theme::accent()));
-    }
+    if (drag_ == Drag::Box) selection_box(view_.to_screen(box_lo), view_.to_screen(box_hi));
     dl.pop_clip();
 
     // The search palette, over it all at the mouse.
