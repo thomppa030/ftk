@@ -33,4 +33,9 @@ struct KeyCapResult {
 
 KeyCapResult key_cap(const KeyCapSpec& spec);
 
+/// A key shown, not to press: its name in the face drawn now on a raised
+/// cap with a darker lip, as a key cap is, sized to the name. A list of
+/// the keys that can come next shows each so (sheet 47, S2).
+void key_label(std::string_view label);
+
 } // namespace ftk::ui

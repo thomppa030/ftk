@@ -24,7 +24,22 @@ constexpr const char* CANCEL = "Esc cancels";
 constexpr const char* UNBOUND = "Not bound";
 constexpr float CHEVRON_PAD = 5.0f;
 constexpr float LIP = 2.0f;
+// A key label's room around its name.
+constexpr float LABEL_PAD_X = 5.0f;
+constexpr float LABEL_PAD_Y = 1.0f;
 } // namespace
+
+void key_label(std::string_view label) {
+    core::Context& context = ui();
+    const glm::vec2 size{measure(label).x + 2.0f * LABEL_PAD_X, line_height() + 2.0f * LABEL_PAD_Y + LIP};
+    const core::Rect rect = context.layout().next(size);
+    place_still(rect);
+    core::DrawList& dl = context.draw_list();
+    const float rounding = kit().style.frame_rounding;
+    dl.rect_filled(rect.min, rect.max, faded(theme::surface_raised()), rounding);
+    dl.rect_filled({rect.min.x, rect.max.y - LIP}, rect.max, faded(theme::border()), rounding, RoundCorners::Bottom);
+    draw_text({rect.min.x + LABEL_PAD_X, rect.min.y + LABEL_PAD_Y}, theme::text(), label);
+}
 
 KeyCapResult key_cap(const KeyCapSpec& spec) {
     KeyCapResult result;

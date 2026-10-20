@@ -3,6 +3,7 @@
 // A plate floating over a view (sheet 39): find over the top right of a code
 // view, go to line at its top centre. A card is its kin that hangs from a
 // place in the view instead, as a popup: a hover card, a completion list. It holds kit items laid out in rows,
+// inside its padding, so one that takes the room left ends there; it
 // takes the pointer everywhere over it, and moves nothing it covers. A press
 // on it, or on a button it holds, leaves the keyboard where it is: a find
 // field goes on taking the typing past a click on Replace. What it
@@ -22,7 +23,10 @@
 
 namespace ftk::ui {
 
-enum class PlatePlace { TopRight, TopCenter };
+/// Where a plate floats: over the view's top right (find), its top centre
+/// (go to line), or its bottom right (the keys that can come next), its
+/// foot then where its last frame's height puts it.
+enum class PlatePlace { TopRight, TopCenter, BottomRight };
 
 /// How far a plate sits in from the edges of the view it is over.
 inline constexpr float PLATE_INSET = 8.0f;
