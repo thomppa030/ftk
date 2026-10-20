@@ -220,6 +220,14 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
         // Not during a drag, whose preview would be replaced.
         if (hovered && !context.dragging()) item_tooltip(spec.name);
     }
+    if (!renaming && !spec.description.empty()) {
+        const float from = std::max(x + spec.description_at, x + measure(spec.name).x + 2.0f * PART_GAP);
+        if (from < name_right) {
+            const FontScope body(Font::Body, font_size());
+            const Color words = spec.selection == RowSelection::Primary ? theme::text() : theme::text_secondary();
+            draw_text({from, text_y}, words, ellipsized(spec.description, name_right - from));
+        }
+    }
 
     // Nothing but the rename field is an item after the row's own, so the
     // row stays the item just drawn for the owner's menus and drags. The

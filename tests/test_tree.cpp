@@ -10,9 +10,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
@@ -226,6 +228,57 @@ TEST_CASE("A tree given a text size scales its rows with it", "[ui][tree]") {
     CHECK(plain == ftk::theme::TREE_ROW);
     CHECK(sized == ftk::theme::TREE_ROW * 2.0f);
     CHECK(after == ftk::theme::TREE_ROW);
+}
+
+TEST_CASE("A row's description stands in a column after its name, in the text colour on the row shown",
+          "[ui][tree]") {
+    KitHarness h;
+    float width = 400.0f;
+    h.set_ui([&] {
+        if (auto region = ui::Region("##rows", {width, 100.0f})) {
+            ui::Tree tree("##names");
+            (void)ui::tree_row({.id = "w", .name = "w", .description = "Save", .description_at = 80.0f});
+            h.mark("short");
+            (void)ui::tree_row({.id = "wq", .name = "wq", .description = "Save and close", .description_at = 80.0f,
+                                .selection = ui::RowSelection::Primary});
+            h.mark("shown");
+        }
+    });
+    h.step(2);
+    // Where the last frame drew in `colour` inside the row marked `row`,
+    // left to right, and how far right it reached.
+    const auto lefts = [&](const char* row, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<float> out;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(row).contains((p.min + p.max) * 0.5f)) out.push_back(p.min.x);
+            }
+        }
+        std::ranges::sort(out);
+        return out;
+    };
+    const std::vector<float> plain = lefts("short", theme::text_secondary());
+    REQUIRE_FALSE(plain.empty());
+    // The descriptions begin together, past the names.
+    const std::vector<float> shown = lefts("shown", theme::text());
+    REQUIRE(shown.size() > 2);
+    const auto description_left = [&](const std::vector<float>& xs) {
+        return *std::ranges::find_if(xs, [&](float x) { return x >= h.rect("short").min.x + 60.0f; });
+    };
+    CHECK(plain.front() >= h.rect("short").min.x + 80.0f);
+    CHECK(description_left(shown) == plain.front());
+
+    // Too narrow for it all: cut short of the row's end.
+    width = 120.0f;
+    h.step(2);
+    float right = 0.0f;
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (h.rect("shown").contains((p.min + p.max) * 0.5f)) right = std::max(right, p.max.x);
+        }
+    }
+    CHECK(right <= h.rect("shown").max.x + 0.5f);
 }
 
 TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
