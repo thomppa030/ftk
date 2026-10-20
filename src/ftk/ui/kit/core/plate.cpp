@@ -43,18 +43,21 @@ Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace 
     Style style = kit().style;
     style.item_spacing = {ITEM_GAP, ROW_GAP};
     push_style(style);
-    set_cursor(min_ + glm::vec2{PAD});
-    context.layout().begin_group();
+    // What it holds is laid out inside it, in from its edges by its
+    // padding and down to the view's foot, so an item that takes the room
+    // left (a rule, a row) ends at its padding. It is no item of the
+    // layout it floats over.
+    context.layout().begin_area({.min = min_ + glm::vec2{PAD}, .max = {min_.x + width - PAD, view_max.y}});
 }
 
 Plate::~Plate() {
     core::Context& context = ui();
-    const core::Rect held = context.layout().end_group();
+    const glm::vec2 held = context.layout().end_area();
     pop_style();
     --kit().keeps_keyboard;
 
     // Its surface, drawn once what it holds is and put beneath that.
-    const glm::vec2 max{min_.x + width_, held.max.y + PAD};
+    const glm::vec2 max{min_.x + width_, min_.y + PAD + held.y + PAD};
     core::DrawList& dl = context.draw_list();
     const std::size_t split = dl.mark();
     const glm::vec2 drop{0.0f, SHADOW_DROP};
@@ -108,17 +111,18 @@ Card::Card(const char* id, const CardPlace& place) : width_(place.width), paddin
     Style style = kit().style;
     style.item_spacing = {ITEM_GAP, ROW_GAP};
     push_style(style);
-    set_cursor(min_ + padding_);
-    context.layout().begin_group();
+    // What it holds is laid out inside it, as on a plate.
+    context.layout().begin_area(
+        {.min = min_ + padding_, .max = {min_.x + width_ - padding_.x, std::max(place.view_max.y, min_.y + padding_.y)}});
 }
 
 Card::~Card() {
     core::Context& context = ui();
-    const core::Rect held = context.layout().end_group();
+    const glm::vec2 held = context.layout().end_area();
     pop_style();
     --kit().keeps_keyboard;
 
-    const glm::vec2 max{min_.x + width_, std::max(held.max.y, min_.y + padding_.y) + padding_.y};
+    const glm::vec2 max{min_.x + width_, min_.y + padding_.y + held.y + padding_.y};
     core::DrawList& dl = context.draw_list();
     const std::size_t split = dl.mark();
     const glm::vec2 drop{0.0f, CARD_SHADOW_DROP};

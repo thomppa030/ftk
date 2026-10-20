@@ -2,6 +2,7 @@
 
 #include "ftk/ui/core/context.hpp"
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/plate.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 
@@ -110,4 +111,32 @@ TEST_CASE("A card with no room under its anchor hangs over it", "[ui][kit][plate
     });
     h.step(3);
     CHECK(h.rect("go").max.y < 390.0f);
+}
+
+TEST_CASE("What a plate or a card holds keeps inside it, the room left ending at its padding", "[ui][kit][plate]") {
+    KitHarness h;
+    float plate_room = 0.0f;
+    float plate_inner = 0.0f;
+    float card_room = 0.0f;
+    float card_inner = 0.0f;
+    h.set_ui([&] {
+        if (auto plate = ui::Plate("##plate", {0.0f, 0.0f}, {600.0f, 400.0f}, ui::PlatePlace::TopCenter, 200.0f)) {
+            plate_room = ui::space_left().x;
+            plate_inner = plate.inner_width();
+            ui::separator();
+            h.mark("rule");
+        }
+        if (auto card = ui::Card("##card", {.view_min = {0.0f, 0.0f}, .view_max = {600.0f, 400.0f},
+                                            .anchor_min = {100.0f, 200.0f}, .anchor_max = {140.0f, 216.0f},
+                                            .width = 180.0f, .padding = {12.0f, 10.0f}})) {
+            card_room = ui::space_left().x;
+            card_inner = card.inner_width();
+        }
+    });
+    h.step(2);
+    CHECK(plate_room == plate_inner);
+    CHECK(card_room == card_inner);
+    // The rule across the room left ends inside the plate, centred in the
+    // view: 200 to 400, its padding in from each side.
+    CHECK(h.rect("rule").max.x <= 400.0f - (200.0f - plate_inner) * 0.5f + 0.5f);
 }
