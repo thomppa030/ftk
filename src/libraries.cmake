@@ -325,6 +325,7 @@ ftk_library(image
     SOURCES
         ftk/image/block_encoder.cpp
         ftk/image/mips.cpp
+        ftk/image/png.cpp
         ftk/image/resample.cpp
         ftk/image/stb_image.cpp
         ftk/image/stb_image_resize.cpp
@@ -332,6 +333,7 @@ ftk_library(image
     HEADERS
         ftk/image/block_encoder.hpp
         ftk/image/mips.hpp
+        ftk/image/png.hpp
         ftk/image/resample.hpp
     LINKS
         PRIVATE ftk::cmp-core ftk::math

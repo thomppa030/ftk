@@ -43,6 +43,7 @@ add_executable(ftk-tests
     test_local_time.cpp
     test_log.cpp
     test_mips.cpp
+    test_png.cpp
     test_problems.cpp
     test_range_allocator.cpp
     test_resample.cpp
