@@ -52,6 +52,8 @@ void Context::begin_frame(double time) {
     const bool input = !events_.empty() || !key_events_.empty() || !typed_next_.empty() || composition_next_;
     take_input();
     take_keys();
+    // Esc ends a drag from inside the program, with nothing dropped.
+    if (drag_.active && !drag_.outside && key_pressed(Key::Escape)) drag_.cancelled = true;
     if (input) request_frame();
     // Told it had the keyboard, then never drawn again: nothing to tell.
     if (told_focused_.size() > 4) told_focused_.erase(told_focused_.begin(), told_focused_.end() - 2);

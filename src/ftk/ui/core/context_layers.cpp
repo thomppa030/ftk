@@ -108,7 +108,8 @@ bool Context::drag_source() {
         drag_.pointer = in.pointer;
     }
     drag_.seen = true;
-    return true;
+    // Ended by Esc, it keeps its source from starting another while held.
+    return !drag_.cancelled;
 }
 
 void Context::carry(std::string_view type, const void* data, std::size_t size) {
@@ -146,14 +147,14 @@ void Context::outside_drag_left() {
 }
 
 std::optional<Drop> Context::drop_target(std::string_view type) {
-    if (!drag_.active || drag_.type != type || drag_.source == last_widget_) return std::nullopt;
+    if (!dragging() || drag_.type != type || drag_.source == last_widget_) return std::nullopt;
     const Tracked* by = drag_pointer();
     if (by == nullptr || by->top != last_widget_ || !last_interaction_.under) return std::nullopt;
     return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = delivered(*by)};
 }
 
 std::optional<Drop> Context::drop_target(Rect rect, std::string_view type) {
-    if (!drag_.active || drag_.type != type || root_ == nullptr) return std::nullopt;
+    if (!dragging() || drag_.type != type || root_ == nullptr) return std::nullopt;
     const Tracked* by = drag_pointer();
     if (by == nullptr || by->pointer.root != root_->id) return std::nullopt;
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});

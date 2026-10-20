@@ -390,8 +390,9 @@ public:
     bool drag_source();
     /// What the drag carries: `size` bytes of `type`, copied.
     void carry(std::string_view type, const void* data, std::size_t size);
-    /// Something is being dragged, and of what type.
-    [[nodiscard]] bool dragging() const { return drag_.active; }
+    /// Something is being dragged, and of what type. Esc ends a drag from
+    /// inside the program with nothing dropped.
+    [[nodiscard]] bool dragging() const { return drag_.active && !drag_.cancelled; }
     [[nodiscard]] std::string_view drag_type() const { return drag_.type; }
     /// What of `type` is dragged over the widget last passed to interact(),
     /// or over `rect` in the panel being drawn: offered while it is over,
@@ -669,6 +670,9 @@ private:
         // this frame.
         bool outside{false};
         bool dropped{false};
+        // Ended by Esc: it carries nothing anywhere, and its source starts
+        // no other until the pointer is let go.
+        bool cancelled{false};
         Id source{0};
         PointerType pointer_type{PointerType::Mouse};
         PointerId pointer{0};
