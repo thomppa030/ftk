@@ -81,11 +81,6 @@ struct TreeRowSpec {
     /// disabled text colour: what kind of row it is ("persistent" on a
     /// scene's). A long name stops short of it.
     std::string_view tag{};
-    /// A glyph between the tag and the dots, in the secondary text colour,
-    /// for something set on the node that changes what it does; `mark_tip`
-    /// says what in a tooltip while the mouse is over it.
-    const char* mark{nullptr};
-    const char* mark_tip{nullptr};
     RowSelection selection{RowSelection::None};
     /// The search being shown: the match in the name is amber. A row kept
     /// only because something under it matches is `dimmed`.
