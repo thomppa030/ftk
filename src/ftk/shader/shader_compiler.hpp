@@ -16,16 +16,21 @@ struct ShaderCompilerDesc {
     std::vector<std::string> include_dirs;
     /// Where generated GLSL and compiled SPIR-V are written.
     std::string generated_dir;
-    /// Where compiled SPIR-V is kept between runs, by its cache key.
+    /// Where compiled SPIR-V is kept between runs, by its cache key. Empty
+    /// keeps nothing: every job is compiled, for a program that compiles to
+    /// check and has no use for the SPIR-V later.
     std::string cache_dir;
     /// The version of whatever writes the GLSL this compiles (see
     /// ShaderCompiler::cache_key()).
     uint32_t generator_version{0};
+    /// The compiler it runs: a name looked up on the PATH, or a path.
+    std::string program{"glslc"};
 };
 
 /// Compiles GLSL to SPIR-V with glslc into the generated directory. Compiled
-/// SPIR-V is kept in the cache directory, keyed by everything that produced
-/// it, so a source compiled before is copied back rather than compiled again.
+/// SPIR-V is kept in the cache directory, when there is one, keyed by
+/// everything that produced it, so a source compiled before is copied back
+/// rather than compiled again.
 class ShaderCompiler {
 public:
     /// Creates the generated and cache directories.
@@ -33,7 +38,8 @@ public:
 
     /// Hashes the include directories again, for after an include has
     /// changed or a directory has appeared: until then a shader that includes
-    /// it finds its old SPIR-V under an unchanged key.
+    /// it finds its old SPIR-V under an unchanged key. A compiler that keeps
+    /// no cache hashes nothing.
     void rehash_includes();
 
     /// Looks for includes in `dirs` from now on, in that order, and hashes
@@ -90,6 +96,7 @@ private:
     std::string generated_dir_;
     std::string cache_dir_;
     uint32_t generator_version_;
+    std::string program_;
     /// One hash over every file under the include directories, their
     /// subdirectories too.
     ///

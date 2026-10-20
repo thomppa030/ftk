@@ -451,6 +451,7 @@ ftk_library(ui-kit
         ftk/ui/kit/dock.hpp
         ftk/ui/kit/drag_drop.hpp
         ftk/ui/kit/drop_cue.hpp
+        ftk/ui/kit/selection_box.hpp
         ftk/ui/kit/edit.hpp
         ftk/ui/kit/edit_record.hpp
         ftk/ui/kit/feedback.hpp
@@ -534,6 +535,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/dock.cpp
         ftk/ui/kit/core/drag_drop.cpp
         ftk/ui/kit/core/drop_cue.cpp
+        ftk/ui/kit/core/selection_box.cpp
         ftk/ui/kit/core/draw_list.cpp
         ftk/ui/kit/core/feedback.cpp
         ftk/ui/kit/core/field.cpp

@@ -816,6 +816,59 @@ TEST_CASE("A note line says what the fields under it stand for, on the raised su
     CHECK(h.rect("below").min.y >= h.rect("note").max.y);
 }
 
+TEST_CASE("An outcome line says what entering a field will do, its names in the text colour, cut to its width",
+          "[ui][kit]") {
+    KitHarness h;
+    float width = 400.0f;
+    std::optional<ui::Severity> severity;
+    h.set_ui([&] {
+        if (auto region = ui::Region("##outcome", {width, 80.0f})) {
+            ui::outcome_line(severity, "Replace every \x01gust\x02 with \x01wind\x02 on line 44");
+            h.mark("line");
+            ui::text("below");
+            h.mark("below");
+        }
+    });
+    h.step(2);
+    CHECK(h.rect("below").min.y >= h.rect("line").max.y);
+    // Drawn inside the line in `colour`; and the right edge of all it drew.
+    const auto drew = [&](ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect("line").contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    const auto right_edge = [&] {
+        float right = 0.0f;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (h.rect("line").contains((p.min + p.max) * 0.5f)) right = std::max(right, p.max.x);
+            }
+        }
+        return right;
+    };
+    CHECK(drew(ftk::theme::text_secondary()));
+    CHECK(drew(ftk::theme::text()));
+
+    // What will be refused: the words in the warning colour, the names as
+    // they were.
+    severity = ui::Severity::Warning;
+    h.step(2);
+    CHECK(drew(ftk::theme::warning()));
+    CHECK(drew(ftk::theme::text()));
+    CHECK_FALSE(drew(ftk::theme::text_secondary()));
+
+    // Too narrow for it all: one line, cut short of the edge.
+    severity.reset();
+    width = 120.0f;
+    h.step(2);
+    CHECK(h.rect("below").min.y >= h.rect("line").max.y);
+    CHECK(right_edge() <= h.rect("line").max.x + 0.5f);
+}
+
 TEST_CASE("A region that resizes keeps the width its right edge is dragged to", "[ui][kit]") {
     KitHarness h;
     h.set_ui([&] {
