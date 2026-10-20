@@ -130,6 +130,23 @@ void status_item(const char* icon, std::string_view text, bool unsaved) {
     if (unsaved && item_hovered()) tooltip("Unsaved changes");
 }
 
+void status_message(StatusTone tone, std::string_view text) {
+    same_line();
+    const float pad = theme::GAP_M;
+    const glm::vec2 start = cursor();
+    const float text_y = line_y(line_height());
+    const Color colour = tone_colour(tone);
+    float x = start.x + pad;
+    const char* icon = tone == StatusTone::Error ? icon::error : tone == StatusTone::Warning ? icon::warning : nullptr;
+    if (icon != nullptr) {
+        draw_text({x, text_y}, colour, icon);
+        x += measure(icon).x + theme::GAP_S + 1.0f;
+    }
+    draw_text({x, text_y}, colour, text);
+    x += measure(text).x;
+    reserve({x + pad - start.x, theme::STATUS_BAR});
+}
+
 void status_figure(std::string_view text, std::string_view widest) {
     same_line();
     const float pad = theme::GAP_M;
