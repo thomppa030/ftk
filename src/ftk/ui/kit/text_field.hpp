@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/edit.hpp"
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -47,6 +48,25 @@ struct TextEntryOptions {
 ///
 ///     if (ui::text_entry("##name", name, {.hint = "Project name"})) create(name);
 bool text_entry(const char* id, std::string& value, TextEntryOptions options = {});
+
+struct ShownEntryOptions {
+    /// What the field begins with before the text, in the secondary text
+    /// colour: a command line's `:`, `/` or `?`.
+    const char* prompt{nullptr};
+    /// Where the caret stands in the text, in bytes; after the text when
+    /// past its end.
+    std::size_t caret{std::string_view::npos};
+    /// Text inside the field's right end, in the secondary colour: a
+    /// search's match count.
+    std::string_view note;
+};
+
+/// A field drawn as one the keyboard is in, edged in the accent, for text
+/// the keyboard edits elsewhere: a command line whose keys a code view
+/// reads. It takes neither the keyboard nor the mouse.
+///
+///     ui::shown_entry("Command line##vim", line.text, {.prompt = "/", .note = "3 of 17"});
+void shown_entry(const char* id, std::string_view text, ShownEntryOptions options = {});
 
 struct TextAreaOptions {
     /// Shown dimmed while the area is empty.

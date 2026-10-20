@@ -4,9 +4,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -164,4 +166,36 @@ TEST_CASE("A compile takes an include from the first directory that has it", "[s
         tree.compiler({tree.path("game/include"), tree.path("shaders/include")});
     const std::string spv = compiler.compile({tree.path("shaders/generated/x.frag"), "x"});
     CHECK(std::filesystem::exists(spv));
+}
+
+TEST_CASE("A compiler given no cache folder compiles every time and keeps nothing else", "[shader][compiler]") {
+    std::string version;
+    if (platform::run_command("glslc --version", version) != 0) SKIP("glslc not available");
+    ShaderTree tree;
+    tree.write("shaders/generated/x.frag",
+               "#version 460\nlayout(location = 0) out vec4 color;\nvoid main() { color = vec4(1.0); }\n");
+    const ShaderCompiler compiler({.include_dirs = {tree.path("shaders/include")},
+                                   .generated_dir = tree.path("shaders/generated"),
+                                   .cache_dir = {},
+                                   .generator_version = 1});
+    for (int i = 0; i < 2; ++i) CHECK(std::filesystem::exists(compiler.compile({tree.path("shaders/generated/x.frag"), "x"})));
+    // The source and the SPIR-V the job asked for, and nothing kept beside.
+    std::vector<std::string> written;
+    for (const auto& entry : std::filesystem::directory_iterator(tree.path("shaders/generated"))) {
+        written.push_back(entry.path().filename().string());
+    }
+    std::ranges::sort(written);
+    CHECK(written == std::vector<std::string>{"x.frag", "x.spv"});
+}
+
+TEST_CASE("A compiler runs the program it is given, and fails with what was said when that isn't there",
+          "[shader][compiler]") {
+    ShaderTree tree;
+    tree.write("shaders/generated/x.frag", "void main() {}\n");
+    const ShaderCompiler compiler({.include_dirs = {tree.path("shaders/include")},
+                                   .generated_dir = tree.path("shaders/generated"),
+                                   .cache_dir = {},
+                                   .generator_version = 1,
+                                   .program = "ftk-no-such-glslc"});
+    CHECK_THROWS_AS(compiler.compile({tree.path("shaders/generated/x.frag"), "x"}), std::runtime_error);
 }

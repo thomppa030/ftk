@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
@@ -121,6 +122,36 @@ TEST_CASE("A pill needs no icon, and a mode's pill reads in the toggle or the ac
         }
     }
     CHECK(text_left - h.rect("plain").min.x < ftk::theme::GAP_M + 7.0f + 3.0f);
+}
+
+TEST_CASE("A message reads in its tone's colour, an error after its icon", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_message(ui::StatusTone::Error, "E486: Pattern not found: spin");
+            h.mark("error");
+            ui::status_message(ui::StatusTone::Plain, "search hit BOTTOM, continuing at TOP");
+            h.mark("note");
+        }
+    });
+    h.step(2);
+    // What the last frame drew in `colour` inside `item`, left to right.
+    const auto drawn_in = [&](const char* item, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<float> lefts;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(item).contains((p.min + p.max) * 0.5f)) lefts.push_back(p.min.x);
+            }
+        }
+        return lefts;
+    };
+    CHECK_FALSE(drawn_in("error", ftk::theme::error()).empty());
+    CHECK(drawn_in("error", ftk::theme::text_secondary()).empty());
+    CHECK_FALSE(drawn_in("note", ftk::theme::text_secondary()).empty());
+    // The error's icon comes first, from the item's own padding.
+    const std::vector<float> error = drawn_in("error", ftk::theme::error());
+    CHECK(*std::ranges::min_element(error) - h.rect("error").min.x < ftk::theme::GAP_M + 3.0f);
 }
 
 TEST_CASE("Work in the background shows its spinner before what it is", "[ui][kit]") {

@@ -73,6 +73,11 @@ void status_pill(const char* icon, const char* text, StatusTone tone);
 /// `tip` says more.
 void status_state(StatusTone tone, std::string_view name, std::string_view tip = {});
 
+/// What the program has to say for a moment (Vim's "E486: Pattern not
+/// found"): an error in the error colour after its icon, a warning in the
+/// warning colour after its, anything else in the secondary colour.
+void status_message(StatusTone tone, std::string_view text);
+
 /// What is broken (sheet 15): the errors' icon and count in the error
 /// colour, the warnings' in the warning colour, then the newest problem's
 /// sentence and, small in the mono face, where it is. All one button, which

@@ -289,6 +289,32 @@ TEST_CASE("A text entry's prompt comes before the typing and isn't part of it", 
     CHECK(entered);
 }
 
+TEST_CASE("A shown entry shows text typed elsewhere, edged in the accent, and takes no keys", "[ui][kit]") {
+    KitHarness h;
+    std::string command = "spin";
+    h.set_ui([&] {
+        ui::next_width(240.0f);
+        ui::shown_entry("Command line##command", command, {.prompt = "/", .note = "3 of 17"});
+        h.mark("command");
+    });
+    h.step(2);
+    const auto* field = h.find("Command line", ftk::ui::core::Role::TextField);
+    REQUIRE(field != nullptr);
+    CHECK(field->value == "spin");
+    // The accent edge is drawn.
+    const uint32_t accent = ftk::ui::core::pack_colour(ftk::theme::accent());
+    bool edged = false;
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) edged = edged || p.colour == accent;
+    }
+    CHECK(edged);
+    // Clicked and typed at, it keeps the text it is given.
+    h.click("command");
+    h.type("x");
+    h.step();
+    CHECK(h.find("Command line", ftk::ui::core::Role::TextField)->value == "spin");
+}
+
 TEST_CASE("stop_typing drops what a field held, and the value set stays", "[ui][text_field]") {
     KitHarness h;
     std::string query;
