@@ -2,9 +2,11 @@
 
 #include "ftk/base/result.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -27,6 +29,10 @@ inline constexpr const char* EXE_EXT = "";
 /// Returns the OS process id of the running process. Unique among
 /// concurrently running processes, so it can key per-process scratch names.
 [[nodiscard]] std::uint32_t process_id();
+
+/// The calendar date and time `when` falls on in this machine's time zone, as
+/// std::localtime() gives them, but safe to ask from any thread.
+[[nodiscard]] std::tm local_time(std::chrono::system_clock::time_point when);
 
 /// Where programs keep this user's settings on this machine, a folder of
 /// their own inside it: $XDG_CONFIG_HOME, else ~/.config, on Linux;

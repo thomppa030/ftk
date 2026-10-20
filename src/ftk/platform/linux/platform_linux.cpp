@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -32,6 +33,13 @@ std::filesystem::path executable_path() {
 
 std::uint32_t process_id() {
     return static_cast<std::uint32_t>(::getpid());
+}
+
+std::tm local_time(std::chrono::system_clock::time_point when) {
+    const std::time_t at = std::chrono::system_clock::to_time_t(when);
+    std::tm local{};
+    ::localtime_r(&at, &local);
+    return local;
 }
 
 namespace {

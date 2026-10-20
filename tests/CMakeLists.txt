@@ -40,6 +40,7 @@ add_executable(ftk-tests
     test_hash.cpp
     test_handle_pool.cpp
     test_jsonrpc.cpp
+    test_local_time.cpp
     test_log.cpp
     test_mips.cpp
     test_problems.cpp

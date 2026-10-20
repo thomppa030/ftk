@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cstdio>
+#include <ctime>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -49,6 +50,13 @@ std::filesystem::path executable_path() {
 
 std::uint32_t process_id() {
     return static_cast<std::uint32_t>(GetCurrentProcessId());
+}
+
+std::tm local_time(std::chrono::system_clock::time_point when) {
+    const std::time_t at = std::chrono::system_clock::to_time_t(when);
+    std::tm local{};
+    localtime_s(&local, &at);
+    return local;
 }
 
 namespace {
