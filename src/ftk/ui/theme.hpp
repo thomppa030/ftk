@@ -37,6 +37,7 @@ enum class Token : uint8_t {
     layout_margin, layout_padding, layout_box,
     sdf_inside_near, sdf_inside_far, sdf_outside_near, sdf_outside_far,
     heat_none, heat_low, heat_mid, heat_high, heat_peak, hatch,
+    brush_sculpt, brush_paint, brush_foliage, brush_erase,
     code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
     code_punctuation, code_member, code_builtin,
     code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
@@ -199,6 +200,14 @@ inline ui::Color heat_peak() { return palette()[Token::heat_peak]; }
 // The stripes over what a saving leaves out of a whole: a meter's
 // uncompressed share.
 inline ui::Color hatch() { return palette()[Token::hatch]; }
+
+// A viewport brush's cursor, saying at a glance which brush is in hand:
+// sculpting a surface, painting a layer on it, laying things on it, and
+// erasing what any of them laid.
+inline ui::Color brush_sculpt()  { return palette()[Token::brush_sculpt]; }
+inline ui::Color brush_paint()   { return palette()[Token::brush_paint]; }
+inline ui::Color brush_foliage() { return palette()[Token::brush_foliage]; }
+inline ui::Color brush_erase()   { return palette()[Token::brush_erase]; }
 
 /// Where along the heat ramp each of its colours stands, heat_none to
 /// heat_peak; between two, the ramp blends them.
