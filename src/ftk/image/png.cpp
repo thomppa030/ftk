@@ -1,6 +1,9 @@
 #include "ftk/image/png.hpp"
 
+#include <stb_image.h>
 #include <stb_image_write.h>
+
+#include <limits>
 
 #include <cstring>
 
@@ -24,6 +27,20 @@ std::vector<std::byte> encode_png(std::span<const uint8_t> texels, uint32_t widt
         png.clear();
     }
     return png;
+}
+
+std::optional<Rgba8> decode_png(std::span<const std::byte> bytes) {
+    if (bytes.empty() || bytes.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) return std::nullopt;
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* texels = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(bytes.data()), static_cast<int>(bytes.size()),
+                                            &width, &height, &channels, 4);
+    if (texels == nullptr) return std::nullopt;
+    Rgba8 image{.texels = {}, .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height)};
+    image.texels.assign(texels, texels + static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+    stbi_image_free(texels);
+    return image;
 }
 
 } // namespace ftk::image
