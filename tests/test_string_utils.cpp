@@ -12,3 +12,11 @@ TEST_CASE("A size in bytes reads in the largest unit it fills", "[string_utils]"
     CHECK(ftk::size_text(3ULL << 40) == "3.0 TiB");
     CHECK(ftk::size_text(2048ULL << 40) == "2048.0 TiB");
 }
+
+TEST_CASE("A count's digits stand in threes", "[string_utils]") {
+    CHECK(ftk::group_digits(0) == "0");
+    CHECK(ftk::group_digits(999) == "999");
+    CHECK(ftk::group_digits(1000) == "1,000");
+    CHECK(ftk::group_digits(691'263) == "691,263");
+    CHECK(ftk::group_digits(12'345'678) == "12,345,678");
+}

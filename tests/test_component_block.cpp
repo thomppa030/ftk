@@ -58,3 +58,19 @@ TEST_CASE("A block with a switch turns off without folding or removing", "[ui][k
     CHECK(open);
     CHECK_FALSE(removed);
 }
+
+TEST_CASE("A block nothing removes folds from its header to the row's end and has no trash icon", "[ui][kit]") {
+    KitHarness h;
+    bool open = false;
+    h.set_ui([&] {
+        open = ui::component_block("Rigidbody", ftk::theme::Hue::coral);
+        h.mark("header");  // the last item is the header itself
+    });
+    h.step(2);
+    CHECK(open);
+    CHECK(h.find("Remove Rigidbody") == nullptr);
+    // Where another block's trash icon sits, this one's header folds.
+    const ftk::ui::core::Rect header = h.rect("header");
+    h.click_at({header.max.x - 10.0f, header.centre().y});
+    CHECK_FALSE(open);
+}

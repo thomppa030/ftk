@@ -13,6 +13,7 @@
 
 #include <array>
 #include <string>
+#include <utility>
 
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
@@ -194,4 +195,45 @@ TEST_CASE("The context bar takes the top of the work area, as tall as a tab and 
     CHECK(h.rect("scene").height() == line + 16.0f);
     CHECK(area.pos.y == line + 20.0f);
     CHECK(area.pos.y + area.size.y == h.size().y);
+}
+
+TEST_CASE("A section's heading can say how much it holds, carry a button while open, and be opened", "[ui][kit]") {
+    KitHarness h;
+    bool open = false;
+    bool pressed = false;
+    int presses = 0;
+    bool open_it = false;
+    h.set_ui([&] {
+        if (std::exchange(open_it, false)) ui::open_section("What it keeps");
+        pressed = false;
+        open = ui::section_foldable({.label = "What it keeps",
+                                     .icon = nullptr,
+                                     .count = "5 scenes · 2 left",
+                                     .end_icon = "+",
+                                     .end_tooltip = "What it keeps: settings",
+                                     .end_pressed = &pressed},
+                                    false);
+        h.mark("heading");
+        if (pressed) ++presses;
+    });
+    h.step(2);
+    // Folded: no button.
+    CHECK_FALSE(open);
+    CHECK(h.find("+", ftk::ui::core::Role::Button) == nullptr);
+
+    // Opened from the owner, as a click on its heading would.
+    open_it = true;
+    h.step(2);
+    CHECK(open);
+    const auto* button = h.find("+", ftk::ui::core::Role::Button);
+    REQUIRE(button != nullptr);
+
+    // Its button answers and leaves the section open.
+    h.click_at((button->rect.min + button->rect.max) * 0.5f);
+    CHECK(presses == 1);
+    CHECK(open);
+
+    // The rest of the row still folds it.
+    h.click("heading");
+    CHECK_FALSE(open);
 }

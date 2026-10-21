@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -39,6 +40,16 @@ inline std::string size_text(std::uint64_t bytes) {
         ++unit;
     }
     return std::format("{:.1f} {}", value, UNITS[unit]);
+}
+
+/// A count with its digits in threes, so six- and seven-digit counts read
+/// at a glance: "691,263".
+inline std::string group_digits(std::uint64_t value) {
+    std::string text = std::to_string(value);
+    for (auto at = static_cast<std::ptrdiff_t>(text.size()) - 3; at > 0; at -= 3) {
+        text.insert(static_cast<std::size_t>(at), ",");
+    }
+    return text;
 }
 
 } // namespace ftk

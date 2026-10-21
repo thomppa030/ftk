@@ -137,6 +137,7 @@ add_executable(ftk-kit-tests
     test_edit_record.cpp
     test_fields.cpp
     test_find.cpp
+    test_floating_window.cpp
     test_grouped_picker.cpp
     test_tree_picker.cpp
     test_chip_field.cpp

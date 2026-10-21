@@ -3,6 +3,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tree.hpp"
@@ -389,4 +390,53 @@ TEST_CASE("Rows in view draws only the rows its region shows, and the region scr
     REQUIRE(row != nullptr);
     CHECK(row->rect.min.y >= h.rect("list").min.y);
     CHECK(row->rect.max.y <= h.rect("list").max.y);
+}
+
+TEST_CASE("An open row's inset holds its rows at the window's spacing, and the tree goes on under it", "[ui][kit]") {
+    KitHarness h;
+    float spacing = 0.0f;
+    float frame = 0.0f;
+    float row_bottom = 0.0f;
+    std::vector<float> tops;
+    float after = 0.0f;
+    bool open = false;
+    h.set_ui([&] {
+        spacing = ui::item_spacing().y;
+        frame = ui::frame_height();
+        tops.clear();
+        if (auto tree = ui::Tree("##kept")) {
+            const auto row = ui::tree_row({.id = "rack", .name = "Net Rack", .has_children = true});
+            row_bottom = ui::cursor().y;
+            open = row.open;
+            if (row.open) {
+                if (auto inset = ui::TreeInset("##rack")) {
+                    for (const char* name : {"Position", "Left"}) {
+                        tops.push_back(ui::cursor().y);
+                        ui::button(name);
+                    }
+                }
+            }
+            after = ui::cursor().y;
+            (void)ui::tree_row({.id = "gull", .name = "Gull"});
+        }
+    });
+    h.step(3);
+    REQUIRE(open);
+    REQUIRE(tops.size() == 2);
+    // Inside its padding, under the row.
+    CHECK(tops[0] > row_bottom);
+    // Its rows apart as the window's are, though the tree's rows touch.
+    CHECK(tops[1] - tops[0] == frame + spacing);
+    // The next row of the tree goes under it.
+    CHECK(after > tops[1] + frame);
+    const auto* gull = h.find("Gull", ftk::ui::core::Role::TreeItem);
+    REQUIRE(gull != nullptr);
+    CHECK(gull->rect.min.y >= after);
+
+    // Folded, it holds nothing and the next row follows the row.
+    h.click_at({h.find("Net Rack", ftk::ui::core::Role::TreeItem)->rect.min.x + 10.0f,
+                h.find("Net Rack", ftk::ui::core::Role::TreeItem)->rect.min.y + 6.0f});
+    h.step(2);
+    CHECK_FALSE(open);
+    CHECK(after == row_bottom);
 }
