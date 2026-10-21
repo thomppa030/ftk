@@ -177,6 +177,13 @@ struct NextItem {
     bool text_on_frame{false};
 };
 
+/// What a window's title bar shows beside its name (next_window_title()).
+struct WindowTitle {
+    const char* icon{nullptr};
+    Color icon_colour{};
+    std::string detail{};
+};
+
 /// What the next window is to be.
 struct NextWindow {
     std::optional<glm::vec2> pos{};
@@ -185,6 +192,7 @@ struct NextWindow {
     std::optional<glm::vec2> size{};
     std::optional<glm::vec2> size_once{};
     std::optional<std::pair<glm::vec2, glm::vec2>> size_limits{};
+    std::optional<WindowTitle> title{};
 };
 
 /// What the bars along the program window's top and bottom take from it: a
