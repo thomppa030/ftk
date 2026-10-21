@@ -20,6 +20,10 @@ bool component_block(const char* name, theme::Hue hue, bool& remove);
 /// goes grey and the name dims; draw the body in a FadedBody.
 bool component_block(const char* name, theme::Hue hue, bool& remove, bool& enabled);
 
+/// The same with no trash icon, for a block nothing removes: in a view that
+/// only reads what it shows (a save's).
+bool component_block(const char* name, theme::Hue hue);
+
 /// While it lives, what is drawn is faded: the body of a block switched off,
 /// still editable so it can be set up before it is switched on.
 class FadedBody {

@@ -17,8 +17,9 @@ namespace {
 
 constexpr float BAR_ROUNDING = 1.0f;
 
-// The block, with a switch when `enabled` is given.
-bool draw_block(const char* name, theme::Hue hue, bool& remove, bool* enabled) {
+// The block, with a switch when `enabled` is given and a trash icon when
+// `remove` is.
+bool draw_block(const char* name, theme::Hue hue, bool* remove, bool* enabled) {
     core::Context& context = ui();
     const Style& style = kit().style;
     const Id open_id = context.id("##block_open");
@@ -42,7 +43,7 @@ bool draw_block(const char* name, theme::Hue hue, bool& remove, bool* enabled) {
     // block.
     constexpr float SWITCH_W = 28.0f;
     p = cursor();
-    const float trash_x = p.x + width - theme::GAP_S - height;
+    const float trash_x = remove != nullptr ? p.x + width - theme::GAP_S - height : p.x + width;
     const float switch_x = enabled != nullptr ? trash_x - theme::GAP_S - SWITCH_W : trash_x;
     const core::Rect header = context.layout().next({switch_x - p.x, height});
     const core::Interaction in = place(context.id("##block_header"), header);
@@ -67,20 +68,26 @@ bool draw_block(const char* name, theme::Hue hue, bool& remove, bool* enabled) {
         const std::string tooltip = std::string(*enabled ? "Switch off " : "Switch on ") + name;
         (void)on_off("##block_enabled", *enabled, tooltip.c_str());
     }
-    set_cursor({trash_x, p.y});
-    const std::string tooltip = std::string("Remove ") + name;
-    if (icon_button("##block_remove", icon::remove, tooltip.c_str(), ButtonKind::GhostDanger)) remove = true;
+    if (remove != nullptr) {
+        set_cursor({trash_x, p.y});
+        const std::string tooltip = std::string("Remove ") + name;
+        if (icon_button("##block_remove", icon::remove, tooltip.c_str(), ButtonKind::GhostDanger)) *remove = true;
+    }
     return open;
 }
 
 } // namespace
 
 bool component_block(const char* name, theme::Hue hue, bool& remove) {
-    return draw_block(name, hue, remove, nullptr);
+    return draw_block(name, hue, &remove, nullptr);
 }
 
 bool component_block(const char* name, theme::Hue hue, bool& remove, bool& enabled) {
-    return draw_block(name, hue, remove, &enabled);
+    return draw_block(name, hue, &remove, &enabled);
+}
+
+bool component_block(const char* name, theme::Hue hue) {
+    return draw_block(name, hue, nullptr, nullptr);
 }
 
 FadedBody::FadedBody(bool faded) : faded_{faded} {
