@@ -633,3 +633,45 @@ TEST_CASE("Status lines that go somewhere stand apart as status lines do, by the
     CHECK(tops[4] - tops[3] == Approx(tops[3] - tops[2]));
     CHECK(tops[5] - tops[4] == Approx(tops[3] - tops[2]));
 }
+
+TEST_CASE("A status line that goes somewhere names where after its words, on their line while it fits",
+          "[ui][kit]") {
+    constexpr const char* WORDS = "LampScript no longer has a field wick";
+    KitHarness h;
+    float words_width = 0.0f;
+    std::vector<float> tops;
+    int clicks = 0;
+    const auto lines = [&] {
+        tops.push_back(ui::cursor().y);
+        (void)ui::status_link(ui::Severity::Warning, "##plain", WORDS);
+        tops.push_back(ui::cursor().y);
+        if (ui::status_link(ui::Severity::Warning, "##where", WORDS, "coast")) ++clicks;
+        tops.push_back(ui::cursor().y);
+    };
+    h.set_ui([&] {
+        {
+            const ui::FontScope small(ui::Font::Current, ftk::theme::SMALL_TEXT);
+            words_width = ui::text_size(WORDS).x;
+        }
+        tops.clear();
+        lines();
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 3);
+    const float one_line = tops[1] - tops[0];
+    // Room enough: the scene follows on the words' line.
+    CHECK(tops[2] - tops[1] == Approx(one_line));
+    // Where it is named answers as the rest of the line does.
+    h.click_at({words_width + 50.0f, tops[1] + 6.0f});
+    CHECK(clicks == 1);
+
+    // No room after the words: it goes under them.
+    h.set_ui([&] {
+        tops.clear();
+        if (auto narrow = ui::Region("##narrow", {words_width + 50.0f, 400.0f})) lines();
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 3);
+    REQUIRE(tops[1] - tops[0] == Approx(one_line));
+    CHECK(tops[2] - tops[1] > one_line);
+}

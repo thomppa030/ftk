@@ -127,7 +127,7 @@ bool status(Severity severity, const char* text, const char* action_icon, const 
     return clicked;
 }
 
-bool status_link(Severity severity, const char* id, const char* text) {
+bool status_link(Severity severity, const char* id, const char* text, std::string_view where) {
     core::Context& context = ui();
     IdScope scope(id);
     const Id line = context.id("##line");
@@ -150,7 +150,21 @@ bool status_link(Severity severity, const char* id, const char* text) {
         set_cursor({start.x + theme::GAP_XS, start.y + theme::GAP_XS});
         ui::text(glyph_of(severity), colour);
         same_line(theme::GAP_S + theme::GAP_XS);
-        bottom = wrapped(text, colour, start.x + width - theme::GAP_XS).max.y;
+        const float left = cursor().x;
+        const float right = start.x + width - theme::GAP_XS;
+        const core::Rect words = wrapped(text, colour, right);
+        bottom = words.max.y;
+        if (!where.empty()) {
+            // After the words' last line, or on a line of its own under them.
+            const std::string named = "\xc2\xb7 " + std::string(where);
+            const glm::vec2 size = measure(named);
+            const auto lines = context.text().break_lines(text, text_style(), std::max(right - left, 1.0f));
+            const float last = lines.empty() ? 0.0f : lines.back().width;
+            glm::vec2 at{left + last + measure(" ").x, words.max.y - size.y};
+            if (lines.empty() || at.x + size.x > right) at = {left, words.max.y};
+            draw_text(at, theme::text_disabled(), named);
+            bottom = std::max(bottom, at.y + size.y);
+        }
     }
     bottom += theme::GAP_XS;
     store_float(height_id, bottom - start.y);
