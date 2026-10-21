@@ -33,7 +33,13 @@ namespace ftk::ui {
 
 struct MenuItem {
     const char* icon{nullptr};      ///< from ui::icon; null leaves the column empty
+    /// The icon's colour where it stands for a kind with a hue of its own (a
+    /// file's kind, as the content browser colours it); the label's when unset.
+    std::optional<Color> icon_colour{};
     const char* label{""};          ///< a verb in sentence case: "Fit to mesh"
+    /// What the entry is to what the menu acts on ("Model", a slot's name),
+    /// after the label in the secondary text colour; null for none.
+    const char* detail{nullptr};
     const char* shortcut{nullptr};  ///< "Ctrl D", when the action has one
     bool enabled{true};
     const char* disabled_reason{nullptr};  ///< the tooltip while disabled
@@ -112,6 +118,8 @@ struct MenuEntry {
     Kind kind{Kind::Action};
     std::string label{};
     const char* icon{nullptr};
+    std::optional<Color> icon_colour{};
+    std::string detail{};
     std::string shortcut{};
     bool enabled{true};
     std::string disabled_reason{};
@@ -144,7 +152,9 @@ inline void menu_entries(std::span<const MenuEntry> entries) {
         switch (entry.kind) {
         case MenuEntry::Kind::Action:
             if (menu_item({.icon = entry.icon,
+                           .icon_colour = entry.icon_colour,
                            .label = entry.label.c_str(),
+                           .detail = entry.detail.empty() ? nullptr : entry.detail.c_str(),
                            .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str(),
                            .enabled = entry.enabled,
                            .disabled_reason = entry.disabled_reason.empty() ? nullptr : entry.disabled_reason.c_str(),

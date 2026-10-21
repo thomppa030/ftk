@@ -26,15 +26,18 @@ Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace 
     context.ids().push(id);
     height_id_ = context.id("##height");
     cursor_ = cursor();
-    const float x = where == PlatePlace::TopRight ? view_max.x - PLATE_INSET - width
-                                                  : (view_min.x + view_max.x - width) * 0.5f;
-    min_ = {std::round(x), view_min.y + PLATE_INSET};
+    // As tall as it was last frame, which is how tall it is but on the
+    // frame it opens.
+    const float height = stored_float(height_id_, 0.0f);
+    const float x = where == PlatePlace::TopCenter ? (view_min.x + view_max.x - width) * 0.5f
+                                                   : view_max.x - PLATE_INSET - width;
+    const float y = where == PlatePlace::BottomRight ? view_max.y - PLATE_INSET - height : view_min.y + PLATE_INSET;
+    min_ = {std::round(x), std::round(y)};
 
     // It takes the pointer over all of it, beneath what it holds: placed
-    // first, letting what follows go over it. As tall as it was last frame,
-    // which is how tall it is but on the frame it opens. A press on it, or
-    // on a button it holds, leaves the keyboard where it is.
-    const core::Rect area{.min = min_, .max = min_ + glm::vec2{width, stored_float(height_id_, 0.0f)}};
+    // first, letting what follows go over it. A press on it, or on a button
+    // it holds, leaves the keyboard where it is.
+    const core::Rect area{.min = min_, .max = min_ + glm::vec2{width, height}};
     ++kit().keeps_keyboard;
     kit().next.allow_overlap = true;
     (void)place(context.id("##plate"), area, {.left = true, .right = true, .middle = true});

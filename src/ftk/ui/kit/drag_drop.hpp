@@ -4,7 +4,9 @@
 // onto rows, an asset onto a field or a folder. A source says what it
 // carries, a payload type such as "ASSET_PATH" and its bytes; a target
 // takes what is of a type it knows. drag_preview() and draw_drop()
-// (ui/kit/tree.hpp) draw what is dragged and where it would go.
+// (ui/kit/tree.hpp) draw what is dragged and where it would go. Esc ends a
+// drag with nothing dropped: from then on no target is offered it and its
+// source draws no preview, until the button is let go.
 //
 //     ui::tree_row({...});
 //     if (auto drag = ui::DragSource()) {

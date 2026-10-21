@@ -13,9 +13,19 @@ namespace ftk::ui::core {
 
 namespace {
 
-// Where a tooltip and a drag preview sit from the pointer.
+// Where a tooltip and a drag preview sit from the pointer, and a tooltip
+// below a drag preview.
 constexpr glm::vec2 TOOLTIP_OFFSET{16.0f, 18.0f};
 constexpr glm::vec2 PREVIEW_OFFSET{12.0f, 12.0f};
+constexpr float BELOW_PREVIEW_GAP = 4.0f;
+
+Id drag_preview_id() {
+    return hash_label("##drag preview", 0);
+}
+
+PanelOptions drag_preview_options() {
+    return {.scroll = false, .layer = Layer::DragPreview, .fit = true};
+}
 
 } // namespace
 
@@ -84,7 +94,7 @@ bool Context::tooltip_due() {
 }
 
 void Context::begin_tooltip() {
-    const glm::vec2 at = last_pointer_position_ + TOOLTIP_OFFSET;
+    const glm::vec2 at = below_drag_preview().value_or(last_pointer_position_ + TOOLTIP_OFFSET);
     begin_panel_id(hash_label("##tooltip", 0), {.min = at, .max = at},
                    {.scroll = false, .layer = Layer::Tooltip, .fit = true});
 }
@@ -108,7 +118,8 @@ bool Context::drag_source() {
         drag_.pointer = in.pointer;
     }
     drag_.seen = true;
-    return true;
+    // Ended by Esc, it keeps its source from starting another while held.
+    return !drag_.cancelled;
 }
 
 void Context::carry(std::string_view type, const void* data, std::size_t size) {
@@ -146,14 +157,14 @@ void Context::outside_drag_left() {
 }
 
 std::optional<Drop> Context::drop_target(std::string_view type) {
-    if (!drag_.active || drag_.type != type || drag_.source == last_widget_) return std::nullopt;
+    if (!dragging() || drag_.type != type || drag_.source == last_widget_) return std::nullopt;
     const Tracked* by = drag_pointer();
     if (by == nullptr || by->top != last_widget_ || !last_interaction_.under) return std::nullopt;
     return Drop{.payload = {.data = drag_.data.data(), .size = drag_.data.size()}, .delivered = delivered(*by)};
 }
 
 std::optional<Drop> Context::drop_target(Rect rect, std::string_view type) {
-    if (!drag_.active || drag_.type != type || root_ == nullptr) return std::nullopt;
+    if (!dragging() || drag_.type != type || root_ == nullptr) return std::nullopt;
     const Tracked* by = drag_pointer();
     if (by == nullptr || by->pointer.root != root_->id) return std::nullopt;
     const Rect visible = rect.intersect({.min = root_->list.clip_min(), .max = root_->list.clip_max()});
@@ -166,11 +177,25 @@ bool Context::delivered(const Tracked& by) const {
     return drag_.outside ? drag_.dropped : by.pointer.released != 0;
 }
 
-void Context::begin_drag_preview() {
+glm::vec2 Context::drag_preview_at() const {
     const Tracked* by = drag_pointer();
-    const glm::vec2 at = (by != nullptr ? by->pointer.now.position : last_pointer_position_) + PREVIEW_OFFSET;
-    begin_panel_id(hash_label("##drag preview", 0), {.min = at, .max = at},
-                   {.scroll = false, .layer = Layer::DragPreview, .fit = true});
+    return (by != nullptr ? by->pointer.now.position : last_pointer_position_) + PREVIEW_OFFSET;
+}
+
+std::optional<glm::vec2> Context::below_drag_preview() const {
+    if (!dragging()) return std::nullopt;
+    // Drawn this frame or the last, whichever of the two is begun first;
+    // as big as it fits, which its rectangle is not yet the frame it is
+    // first measured.
+    const Panel* preview = measured_panel(drag_preview_id());
+    if (preview == nullptr || preview->frame + 1 < frame_) return std::nullopt;
+    const glm::vec2 at = drag_preview_at();
+    return glm::vec2{at.x, at.y + fitted_size(*preview, drag_preview_options()).y + BELOW_PREVIEW_GAP};
+}
+
+void Context::begin_drag_preview() {
+    const glm::vec2 at = drag_preview_at();
+    begin_panel_id(drag_preview_id(), {.min = at, .max = at}, drag_preview_options());
 }
 
 void Context::settle_layers() {

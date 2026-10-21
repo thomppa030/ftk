@@ -309,6 +309,34 @@ TEST_CASE("A key cap listens from its name and lists from its chevron", "[ui][ki
     CHECK(long_end - long_start > short_end - start.x);
 }
 
+TEST_CASE("A key label shows a key on a raised cap with a lip, sized to its name, not to press", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::key_label("w");
+        h.mark("short");
+        ui::key_label("Ctrl W");
+        h.mark("long");
+    });
+    h.step(2);
+    CHECK(h.rect("long").width() > h.rect("short").width());
+    // Drawn inside the short label in `colour`.
+    const auto drew = [&](ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect("short").contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(drew(ftk::theme::surface_raised()));
+    CHECK(drew(ftk::theme::border()));
+    CHECK(drew(ftk::theme::text()));
+    // Nothing to press.
+    h.click("short");
+    CHECK(h.find("w", ftk::ui::core::Role::Button) == nullptr);
+}
+
 TEST_CASE("A viewport pill sits inside the image's corner it is placed in", "[ui][kit]") {
     KitHarness h;
     const glm::vec2 image_min{20.0f, 30.0f};

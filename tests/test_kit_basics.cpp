@@ -476,6 +476,57 @@ TEST_CASE("A drag carries its payload to a target that takes its type", "[ui][ki
     CHECK(dropped_on_window == "textures/rock.png");
 }
 
+TEST_CASE("Esc ends a drag with nothing dropped, and no other starts until the button is let go", "[ui][kit]") {
+    KitHarness h;
+    std::string dropped;
+    bool offered = false;
+    bool previewed = false;
+    h.set_ui([&] {
+        offered = false;
+        previewed = false;
+        ui::button("Source");
+        h.mark("source");
+        if (auto drag = ui::DragSource()) {
+            previewed = true;
+            drag.carry("ASSET_PATH", std::string_view("textures/rock.png"));
+            ui::text("rock.png");
+        }
+        ui::button("Target");
+        h.mark("target");
+        if (auto drop = ui::DropTarget()) {
+            offered = drop.offered("ASSET_PATH").has_value();
+            if (auto payload = drop.dropped("ASSET_PATH")) dropped = payload->text();
+        }
+    });
+    h.step(2);
+    const glm::vec2 source = centre(h, "source");
+    const glm::vec2 target = centre(h, "target");
+    h.move_to(source);
+    h.button_down();
+    h.move_to(source + glm::vec2{20.0f, 0.0f});
+    h.move_to(target);
+    h.move_to(target + glm::vec2{1.0f, 0.0f});
+    REQUIRE(previewed);
+    REQUIRE(offered);
+
+    h.press(ui::Key::Escape);
+    CHECK_FALSE(previewed);
+    CHECK_FALSE(offered);
+    // Still held and moving: its source starts no new drag.
+    h.move_to(target + glm::vec2{3.0f, 0.0f});
+    h.move_to(target);
+    CHECK_FALSE(previewed);
+    CHECK_FALSE(offered);
+    h.button_up();
+    h.step();
+    CHECK(dropped.empty());
+
+    // The next drag carries as any does.
+    h.drag(source, target);
+    h.step();
+    CHECK(dropped == "textures/rock.png");
+}
+
 TEST_CASE("A payload reads as text without the zero that ends it", "[ui][kit]") {
     const char with_zero[] = "rock.png";
     CHECK(ui::Payload{with_zero, sizeof(with_zero)}.text() == "rock.png");

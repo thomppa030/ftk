@@ -113,6 +113,22 @@ TEST_CASE("A card with no room under its anchor hangs over it", "[ui][kit][plate
     CHECK(h.rect("go").max.y < 390.0f);
 }
 
+TEST_CASE("A plate at the bottom right sits its foot in from the view's corner", "[ui][kit][plate]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto plate = ui::Plate("##plate", {0.0f, 0.0f}, {600.0f, 400.0f}, ui::PlatePlace::BottomRight, 200.0f)) {
+            (void)ui::button("Go");
+            h.mark("go");
+        }
+    });
+    h.step(3);
+    const ui::core::Rect go = h.rect("go");
+    CHECK(go.max.x < 600.0f - ui::PLATE_INSET);
+    CHECK(go.min.x > 600.0f - ui::PLATE_INSET - 200.0f);
+    CHECK(go.max.y < 400.0f - ui::PLATE_INSET);
+    CHECK(go.max.y > 400.0f - ui::PLATE_INSET - 20.0f);
+}
+
 TEST_CASE("What a plate or a card holds keeps inside it, the room left ending at its padding", "[ui][kit][plate]") {
     KitHarness h;
     float plate_room = 0.0f;

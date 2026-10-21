@@ -173,10 +173,19 @@ void status_busy(std::string_view text) {
 }
 
 void status_note(std::string_view text, std::string_view where) {
+    status_note(StatusTone::Plain, text, where);
+}
+
+void status_note(StatusTone tone, std::string_view text, std::string_view where) {
     same_line();
     const float pad = theme::GAP_M;
     const glm::vec2 start = cursor();
     float x = start.x + pad;
+    const char* icon = tone == StatusTone::Error ? icon::error : tone == StatusTone::Warning ? icon::warning : nullptr;
+    if (icon != nullptr) {
+        draw_text({x, line_y(line_height())}, tone_colour(tone), icon);
+        x += measure(icon).x + theme::GAP_S + 1.0f;
+    }
     draw_text({x, line_y(line_height())}, theme::text_secondary(), text);
     x += measure(text).x;
     if (!where.empty()) {

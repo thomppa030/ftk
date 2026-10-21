@@ -54,14 +54,15 @@ bool menu_item(const MenuItem& item) {
     const float height = frame_height();
     const float pad = theme::GAP_M;
     const glm::vec2 label_size = measure(item.label);
+    const float detail_w = item.detail != nullptr ? theme::GAP_M + measure(item.detail).x : 0.0f;
     float shortcut_w = 0.0f;
     if (item.shortcut != nullptr) {
         FontScope mono(Font::Mono, theme::SMALL_TEXT);
         shortcut_w = measure(item.shortcut).x;
     }
-    // The widest entry sets the menu's width: icon column, label, and the
-    // shortcut kept clear of it.
-    const float natural = pad + ICON_COLUMN + pad + label_size.x +
+    // The widest entry sets the menu's width: icon column, label and its
+    // detail, and the shortcut kept clear of them.
+    const float natural = pad + ICON_COLUMN + pad + label_size.x + detail_w +
                           (shortcut_w > 0.0f ? theme::GAP_L * 2.0f + shortcut_w : 0.0f) + pad;
 
     const glm::vec2 min = cursor();
@@ -79,8 +80,18 @@ bool menu_item(const MenuItem& item) {
     if (!item.enabled) colour.a *= style.disabled_alpha;
     const float y = min.y + (height - label_size.y) * 0.5f;
     const char* glyph = item.checked ? (*item.checked ? icon::checked : nullptr) : item.icon;
-    if (glyph != nullptr) draw_text({min.x + pad, y}, colour, glyph);
-    draw_text({min.x + pad + ICON_COLUMN + pad, y}, colour, item.label);
+    if (glyph != nullptr) {
+        Color ink = item.icon_colour && !item.checked ? *item.icon_colour : colour;
+        if (!item.enabled && item.icon_colour) ink.a *= style.disabled_alpha;
+        draw_text({min.x + pad, y}, ink, glyph);
+    }
+    const float label_x = min.x + pad + ICON_COLUMN + pad;
+    draw_text({label_x, y}, colour, item.label);
+    if (item.detail != nullptr) {
+        Color dim = theme::text_secondary();
+        if (!item.enabled) dim.a *= style.disabled_alpha;
+        draw_text({label_x + label_size.x + theme::GAP_M, y}, dim, item.detail);
+    }
     if (item.shortcut != nullptr) {
         Color dim = theme::text_secondary();
         if (!item.enabled) dim.a *= style.disabled_alpha;

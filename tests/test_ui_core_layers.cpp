@@ -528,6 +528,50 @@ TEST_CASE("A drag carries a typed payload, offered while over a target and deliv
     CHECK_FALSE(h.ui().dragging());
 }
 
+TEST_CASE("A tooltip during a drag sits below the drag preview, not behind it", "[ui-core][layers]") {
+    // Begun before the preview in the frame or after it: a drop target
+    // drawn before or after the drag's source.
+    for (const bool tooltip_first : {false, true}) {
+        CAPTURE(tooltip_first);
+        UiHarness h;
+        h.set_ui([&] {
+            core::Context& ui = h.ui();
+            const auto refusal = [&] {
+                if (!ui.dragging()) return;
+                ui.begin_tooltip();
+                (void)widget(h, "refusal", {150.0f, 16.0f});
+                ui.end_tooltip();
+            };
+            if (tooltip_first) refusal();
+            (void)widget(h, "asset");
+            if (ui.drag_source()) {
+                ui.begin_drag_preview();
+                (void)widget(h, "preview", {80.0f, 20.0f});
+                ui.end_drag_preview();
+            }
+            if (!tooltip_first) refusal();
+        });
+        h.step();
+        h.send({.kind = PointerEvent::Kind::Down, .sample = {.position = h.rect("asset").centre()}});
+        h.step();
+        for (const glm::vec2 at : {glm::vec2{300.0f, 300.0f}, glm::vec2{420.0f, 260.0f}}) {
+            h.send({.kind = PointerEvent::Kind::Move, .sample = {.position = at}});
+            h.step(2);
+            const core::Rect preview = h.rect("preview");
+            const core::Rect tooltip = h.rect("refusal");
+            CHECK(tooltip.min.x == Catch::Approx(preview.min.x));
+            CHECK(tooltip.min.y > preview.max.y);
+            // Moved with the pointer in the frame it moved, not a frame behind.
+            h.send({.kind = PointerEvent::Kind::Move, .sample = {.position = at + glm::vec2{30.0f, 10.0f}}});
+            h.step();
+            CHECK(h.rect("refusal").min.x == Catch::Approx(h.rect("preview").min.x));
+            CHECK(h.rect("refusal").min.y - h.rect("preview").max.y == Catch::Approx(tooltip.min.y - preview.max.y));
+        }
+        h.send({.kind = PointerEvent::Kind::Up, .sample = {.position = {420.0f, 260.0f}}});
+        h.step(2);
+    }
+}
+
 TEST_CASE("A window's UI knows how many pixels make one of its units", "[ui-core][layers]") {
     UiHarness h({400.0f, 300.0f}, 2.0f);
     float scale = 0.0f;
