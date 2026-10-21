@@ -16,6 +16,7 @@
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
@@ -171,6 +172,21 @@ TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
     });
     h.step(2);
     // Past the tooltip delay.
+    h.hover("button");
+    CHECK(h.tooltip().has_value());
+}
+
+TEST_CASE("A disabled action says why in its tooltip", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        {
+            ui::Disabled off;
+            (void)ui::action("+", "Play from this save", ui::ButtonKind::Primary);
+            h.mark("button");
+        }
+        ui::item_tooltip("Saved by a newer version of the game");
+    });
+    h.step(2);
     h.hover("button");
     CHECK(h.tooltip().has_value());
 }
