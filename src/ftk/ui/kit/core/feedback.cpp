@@ -7,6 +7,8 @@
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/state.hpp"
 #include "ftk/ui/kit/text.hpp"
 
 #include <algorithm>
@@ -123,6 +125,37 @@ bool status(Severity severity, const char* text, const char* action_icon, const 
     set_cursor({start.x, std::max(text_bottom, cursor().y)});
     reserve({0.0f, 0.0f});
     return clicked;
+}
+
+bool status_link(Severity severity, const char* id, const char* text) {
+    core::Context& context = ui();
+    IdScope scope(id);
+    const Id line = context.id("##line");
+    const Id height_id = context.id("##height");
+    const glm::vec2 start = cursor();
+    const float width = space_left().x;
+    // The line as it came out the frame before is what the mouse is over, so
+    // its light lies under the text drawn now.
+    const float height = std::max(stored_float(height_id), frame_height());
+    const core::Rect rect{start, {start.x + width, start.y + height}};
+    const core::Interaction in = place(line, rect);
+    context.semantics(line, core::Role::Button, text);
+    if (in.hovered) {
+        context.draw_list().rect_filled(rect.min, rect.max, faded(theme::surface_hover()), kit().style.frame_rounding);
+    }
+    {
+        FontScope small(Font::Current, theme::SMALL_TEXT);
+        const Color colour = colour_of(severity);
+        set_cursor({start.x + theme::GAP_XS, start.y + theme::GAP_XS});
+        ui::text(glyph_of(severity), colour);
+        same_line(theme::GAP_S + theme::GAP_XS);
+        (void)wrapped(text, colour, start.x + width - theme::GAP_XS);
+    }
+    const float bottom = cursor().y + theme::GAP_XS;
+    store_float(height_id, bottom - start.y);
+    set_cursor({start.x, bottom});
+    reserve({0.0f, 0.0f});
+    return in.clicked;
 }
 
 void outcome_line(std::optional<Severity> severity, std::string_view text) {

@@ -26,6 +26,11 @@ void status(Severity severity, const char* text);
 /// wrapping short of it. Returns true when it is clicked.
 bool status(Severity severity, const char* text, const char* action_icon, const char* action);
 
+/// A status line about something shown elsewhere (a node in a list, a
+/// field), which goes to it: the whole line lights under the mouse and
+/// returns true when clicked. `id` keeps it apart from the lines beside it.
+bool status_link(Severity severity, const char* id, const char* text);
+
 /// One line under a field, while it is typed in, saying what entering it
 /// will do ("Replace every gust with wind on lines 44 to 46"): the Enter
 /// icon and the words in the secondary colour; with a

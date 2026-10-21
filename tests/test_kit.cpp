@@ -22,6 +22,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <vector>
+
 #include <cmath>
 #include <string>
 
@@ -578,4 +580,32 @@ TEST_CASE("A status line with an action keeps its text short of the button and r
     // The text does not answer for it.
     h.click_at({start.x + 30.0f, start.y + frame * 0.5f});
     CHECK(clicks == 1);
+}
+
+TEST_CASE("A status line that goes somewhere answers anywhere on it, each by its own id", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 start{};
+    float between = 0.0f;
+    float after = 0.0f;
+    std::vector<int> clicked;
+    h.set_ui([&] {
+        start = ui::cursor();
+        if (ui::status_link(ui::Severity::Warning, "##first",
+                            "'Net Rack' ran a script DryingTimer, which the game no longer has; what was kept of it "
+                            "is dropped")) {
+            clicked.push_back(0);
+        }
+        between = ui::cursor().y;
+        if (ui::status_link(ui::Severity::Warning, "##second", "LampScript on 'Lamp' no longer has a field wick")) {
+            clicked.push_back(1);
+        }
+        after = ui::cursor().y;
+    });
+    h.step(3);
+    CHECK(between > start.y);
+    CHECK(after > between);
+    // Its text answers, and the space after it on the line.
+    h.click_at({start.x + 40.0f, start.y + 6.0f});
+    h.click_at({start.x + 600.0f, between + 6.0f});
+    CHECK(clicked == std::vector<int>{0, 1});
 }
