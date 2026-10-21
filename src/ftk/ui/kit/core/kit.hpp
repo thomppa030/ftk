@@ -417,6 +417,9 @@ public:
     /// The text size around the tree being drawn, before it set its own;
     /// zero outside a tree given a size.
     float tree_base_size{0.0f};
+    /// The spacing down the window around the tree being drawn, which its
+    /// rows set to none, for what an open row holds (TreeInset).
+    float tree_outer_gap{0.0f};
     /// Every dockspace's nodes, by id.
     std::unordered_map<Id, DockPart> docks{};
     /// The window being carried, and the splitter being dragged: where its
