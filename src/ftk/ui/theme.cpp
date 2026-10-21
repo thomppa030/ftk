@@ -78,6 +78,7 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::brush_sculpt, "brush_sculpt"},
     {Token::brush_paint, "brush_paint"},
     {Token::brush_foliage, "brush_foliage"},
+    {Token::brush_move, "brush_move"},
     {Token::brush_erase, "brush_erase"},
     {Token::code_keyword, "code_keyword"},
     {Token::code_type, "code_type"},
