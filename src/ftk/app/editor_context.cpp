@@ -130,12 +130,16 @@ void EditorContext::draw_header() {
         .unsaved = has_unsaved_changes(),
         .saves = saved_files(),
         .error = save_error_,
+        .read_only = read_only(),
+        .notice = header_notice(),
     };
     auto header = ui::AssetHeaderBar(spec);
     if (!header) return;
     header.begin_actions();
     draw_header_actions();
-    switch (header.finish()) {
+    const ui::SaveAction action = header.finish();
+    if (header.notice_pressed()) header_notice_pressed();
+    switch (action) {
         case ui::SaveAction::Save:
             if (auto saved = save(); !saved) {
                 FTK_CORE_ERROR("Couldn't save {}: {}", name(), saved.error());

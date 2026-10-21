@@ -6,6 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
@@ -75,4 +77,61 @@ TEST_CASE("A header naming several says which they are when its name is hovered"
     h.mark("name", {.min = {12.0f, save.min.y}, .max = {20.0f, save.max.y}});
     h.hover("name");
     CHECK(h.tooltip().has_value());
+}
+
+// An action button's label as the kit records it: its icon, then its text.
+std::string action_label(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
+
+TEST_CASE("A header of a file only read says so where Revert and Save would be", "[ui][kit]") {
+    KitHarness h;
+    // Unsaved means nothing to a file that is never written.
+    ui::AssetHeaderSpec spec{.name = "quick.fjsave", .folder = "Saved", .unsaved = true, .read_only = true};
+    ui::SaveAction last = ui::SaveAction::None;
+    h.set_ui([&] {
+        if (auto header = ui::AssetHeaderBar(spec)) {
+            header.begin_actions();
+            const auto action = header.finish();
+            if (action != ui::SaveAction::None) last = action;
+        }
+    });
+    h.step(3);
+    CHECK(h.find(action_label(ui::icon::save, "Save")) == nullptr);
+    CHECK(h.find(action_label(ui::icon::revert, "Revert")) == nullptr);
+    CHECK(last == ui::SaveAction::None);
+
+    spec.read_only = false;
+    h.step(2);
+    CHECK(h.find(action_label(ui::icon::save, "Save")) != nullptr);
+}
+
+TEST_CASE("A notice shows under the header, and its button answers", "[ui][kit]") {
+    KitHarness h;
+    ui::AssetHeaderSpec spec{.name = "quick.fjsave", .read_only = true};
+    spec.notice = ui::AssetHeaderNotice{.severity = ui::Severity::Error,
+                                        .title = "The migration from save version 1 failed",
+                                        .text = "best_from_count threw while carrying the save on to version 2.",
+                                        .action_icon = ui::icon::file,
+                                        .action = "Open best_from_count"};
+    bool pressed = false;
+    float bottom = 0.0f;
+    h.set_ui([&] {
+        if (auto header = ui::AssetHeaderBar(spec)) {
+            header.begin_actions();
+            (void)header.finish();
+            pressed = pressed || header.notice_pressed();
+            bottom = ui::window_pos().y + ui::window_size().y;
+        }
+    });
+    h.step(3);
+    // The strip grew to hold it.
+    CHECK(bottom > 60.0f);
+    const std::string open = action_label(ui::icon::file, "Open best_from_count");
+    REQUIRE(h.find(open) != nullptr);
+    h.click(open);
+    CHECK(pressed);
+
+    // Without an action it is a callout alone.
+    spec.notice->action.clear();
+    h.step(2);
+    CHECK(h.find(open) == nullptr);
 }
