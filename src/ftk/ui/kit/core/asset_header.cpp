@@ -4,7 +4,6 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/feedback.hpp"
-#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -36,9 +35,8 @@ Id remembered_id(const char* what) {
 
 AssetHeaderBar::AssetHeaderBar(const AssetHeaderSpec& spec) : spec_{spec} {
     core::Context& context = ui();
-    // The strip, plus the callouts under it measured the frame before.
-    const bool callouts = !spec.error.empty() || spec.notice.has_value();
-    const float callout = callouts ? stored_float(remembered_id("asset_header_callout")) : 0.0f;
+    // The strip, plus the callout under it measured the frame before.
+    const float callout = spec.error.empty() ? 0.0f : stored_float(remembered_id("asset_header_callout"));
     const core::Rect rect = take_edge_bar(true, STRIP_HEIGHT + callout);
     next_window_place(rect.min, rect.size());
     open_ = begin_window(WINDOW,
@@ -75,13 +73,6 @@ AssetHeaderBar::AssetHeaderBar(const AssetHeaderSpec& spec) : spec_{spec} {
         same_line(theme::GAP_M + 2.0f);
         align_text_to_frame();
         text(spec.folder, theme::text_secondary());
-    }
-    if (spec.read_only) {
-        // Nothing here writes it: no unsaved state, nothing to revert or save.
-        same_line(theme::GAP_M + 2.0f);
-        align_text_to_frame();
-        tag("Read only", "Nothing here writes this file");
-        return;
     }
     if (spec.unsaved) {
         same_line(theme::GAP_M + 2.0f);
@@ -125,21 +116,14 @@ SaveAction AssetHeaderBar::finish() {
     store_float(remembered_id("asset_header_right"), cursor().x - right_start_);
     new_line();
 
-    // A failed save, until the next one works, then what the editor says of
-    // its file.
-    if (!spec_.error.empty() || spec_.notice) {
+    // A failed save, until the next one works.
+    if (!spec_.error.empty()) {
         // Under the strip's rule, a little way down.
         const float top = cursor().y;
         const float padding = (STRIP_HEIGHT - frame_height()) * 0.5f;
         set_cursor({ui().area_inside().min.x, ui().area_rect().min.y + STRIP_HEIGHT - padding + theme::GAP_S});
-        if (!spec_.error.empty() &&
-            callout(Severity::Error, "Couldn't save", spec_.error.c_str(), icon::save, "Try again")) {
+        if (callout(Severity::Error, "Couldn't save", spec_.error.c_str(), icon::save, "Try again")) {
             action_ = SaveAction::Save;
-        }
-        if (const auto& notice = spec_.notice) {
-            notice_pressed_ = callout(notice->severity, notice->title.c_str(), notice->text.c_str(),
-                                      notice->action.empty() ? nullptr : notice->action_icon,
-                                      notice->action.empty() ? nullptr : notice->action.c_str());
         }
         store_float(remembered_id("asset_header_callout"), cursor().y - top + theme::GAP_S);
     }

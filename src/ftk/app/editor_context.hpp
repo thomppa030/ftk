@@ -4,11 +4,9 @@
 #include "ftk/app/document_history.hpp"
 #include "ftk/app/history_panel.hpp"
 #include "ftk/base/result.hpp"
-#include "ftk/ui/kit/asset_header.hpp"
 #include "ftk/ui/types.hpp"
 
 #include <cstdio>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,18 +83,6 @@ public:
     /// What hovering the header's name says: nothing, or for a context
     /// holding several, which they are.
     [[nodiscard]] virtual std::string header_tooltip() const { return {}; }
-
-    /// The context only reads its file: the header says so in place of
-    /// Revert and Save. One that never changes its document never has
-    /// unsaved changes either.
-    [[nodiscard]] virtual bool read_only() const { return false; }
-
-    /// What the context says of its file under the header: why it can't be
-    /// used as it is, and what fixes it. Nothing by default.
-    [[nodiscard]] virtual std::optional<ui::AssetHeaderNotice> header_notice() const { return std::nullopt; }
-
-    /// The header notice's button was clicked.
-    virtual void header_notice_pressed() {}
 
     // Saving. A context's document is what it saves, written as text: the
     // JSON its file holds, or for a binary file the parts the context edits.
