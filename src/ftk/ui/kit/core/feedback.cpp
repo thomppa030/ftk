@@ -143,15 +143,16 @@ bool status_link(Severity severity, const char* id, const char* text) {
     if (in.hovered) {
         context.draw_list().rect_filled(rect.min, rect.max, faded(theme::surface_hover()), kit().style.frame_rounding);
     }
+    float bottom = 0.0f;
     {
         FontScope small(Font::Current, theme::SMALL_TEXT);
         const Color colour = colour_of(severity);
         set_cursor({start.x + theme::GAP_XS, start.y + theme::GAP_XS});
         ui::text(glyph_of(severity), colour);
         same_line(theme::GAP_S + theme::GAP_XS);
-        (void)wrapped(text, colour, start.x + width - theme::GAP_XS);
+        bottom = wrapped(text, colour, start.x + width - theme::GAP_XS).max.y;
     }
-    const float bottom = cursor().y + theme::GAP_XS;
+    bottom += theme::GAP_XS;
     store_float(height_id, bottom - start.y);
     set_cursor({start.x, bottom});
     reserve({0.0f, 0.0f});

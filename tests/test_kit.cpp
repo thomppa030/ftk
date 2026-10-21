@@ -609,3 +609,27 @@ TEST_CASE("A status line that goes somewhere answers anywhere on it, each by its
     h.click_at({start.x + 600.0f, between + 6.0f});
     CHECK(clicked == std::vector<int>{0, 1});
 }
+
+TEST_CASE("Status lines that go somewhere stand apart as status lines do, by their light's room", "[ui][kit]") {
+    KitHarness h;
+    std::vector<float> tops;
+    h.set_ui([&] {
+        tops.clear();
+        for (int i = 0; i < 2; ++i) {
+            tops.push_back(ui::cursor().y);
+            ui::status(ui::Severity::Success, "Carried on from save version 1 to 2");
+        }
+        for (const char* id : {"##a", "##b", "##c"}) {
+            tops.push_back(ui::cursor().y);
+            (void)ui::status_link(ui::Severity::Warning, id, "LampScript on 'Lamp' no longer has a field wick");
+        }
+        tops.push_back(ui::cursor().y);
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 6);
+    const float status_pitch = tops[1] - tops[0];
+    // A link's light reaches a little past its words, above and below.
+    CHECK(tops[3] - tops[2] == Approx(status_pitch + 2.0f * ftk::theme::GAP_XS));
+    CHECK(tops[4] - tops[3] == Approx(tops[3] - tops[2]));
+    CHECK(tops[5] - tops[4] == Approx(tops[3] - tops[2]));
+}
