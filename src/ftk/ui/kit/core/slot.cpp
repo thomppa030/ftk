@@ -142,7 +142,7 @@ SlotFace asset_face(std::string_view name, AssetPresence presence, std::string_v
                                                    ? slot_extension
                                                    : std::filesystem::path(name).extension().string());
             face.glyph = kind.icon;
-            face.glyph_colour = theme::hue(kind.hue);
+            face.glyph_colour = kind_colour(kind);
             text = name;
             face.text_colour = theme::text();
             break;

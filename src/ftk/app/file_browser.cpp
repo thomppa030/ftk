@@ -577,7 +577,7 @@ void FileBrowser::draw_file_list() {
         // Its icon in its kind's colour: a folder in the structure grey.
         const ui::AssetKind& kind = ui::asset_kind(fs::path(entry.name).extension().string());
         const char* icon = entry.is_directory ? ui::icon::folder : kind.icon;
-        const ui::Color tint = theme::hue(entry.is_directory ? theme::Hue::grey : kind.hue);
+        const ui::Color tint = entry.is_directory ? theme::hue(theme::Hue::grey) : ui::kind_colour(kind);
 
         const glm::vec2 row = ui::cursor();
         {

@@ -16,7 +16,7 @@ constexpr AssetKind TEXTURE{"texture", icon::texture, H::blue};
 constexpr AssetKind HDRI{"HDRI", icon::texture, H::cyan};
 constexpr AssetKind FONT{"font", icon::font, H::lilac};
 constexpr AssetKind AUDIO{"audio clip", icon::audio, H::orange};
-constexpr AssetKind UNKNOWN{"file", icon::file, H::grey};
+constexpr AssetKind UNKNOWN{"file", icon::file, std::nullopt};
 
 // Every kind by extension: the general file types, then what programs
 // registered. A map, so what asset_kind() hands out stays where it is when
@@ -41,6 +41,10 @@ const AssetKind& asset_kind(std::string_view extension) {
 
 void register_asset_kind(std::string_view extension, const AssetKind& kind) {
     kinds().insert_or_assign(std::string(extension), kind);
+}
+
+Color kind_colour(const AssetKind& kind) {
+    return kind.hue ? theme::hue(*kind.hue) : theme::text_secondary();
 }
 
 } // namespace ftk::ui
