@@ -2,6 +2,7 @@
 
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 
 #include <algorithm>
 
@@ -42,6 +43,12 @@ void text(std::string_view text) {
 
 void text(std::string_view text, Color colour) {
     text_item(text, colour);
+}
+
+void cut_text(std::string_view text, float width, Color colour) {
+    const std::string fitted = ellipsized(text, std::max(width, 0.0f));
+    text_item(fitted, colour);
+    if (fitted != text) item_tooltip(text);
 }
 
 void bullet_text(std::string_view text) {

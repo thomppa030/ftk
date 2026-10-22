@@ -21,6 +21,10 @@ enum class ButtonKind {
 /// fills the row. Returns true when clicked.
 bool button(const char* label, ButtonKind kind = ButtonKind::Secondary, glm::vec2 size = {0.0f, 0.0f});
 
+/// How wide button() draws `label` at its own size, to leave room for it
+/// after something on the same line.
+[[nodiscard]] float button_width(const char* label);
+
 /// A button as tall as a line of text, for the line it sits in ("Stop",
 /// "Replay" after a status). Returns true when clicked.
 bool small_button(const char* label);
