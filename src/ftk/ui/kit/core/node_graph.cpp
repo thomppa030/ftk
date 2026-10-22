@@ -869,7 +869,7 @@ NodeGraphEvents NodeGraph::draw(const NodeGraphDesc& desc, const MenuItems& menu
         for (grouped_picker::Group& group : offered.groups) groups.push_back(std::move(group));
         const grouped_picker::Config config{.empty_message = "Nothing takes it.",
                                             .size = {300.0f, 360.0f},
-                                            .caption = std::move(offered.caption),
+                                            .caption = offered.caption,
                                             .caption_colour = offered.caption_colour,
                                             .enter_does = "places"};
         std::string picked;

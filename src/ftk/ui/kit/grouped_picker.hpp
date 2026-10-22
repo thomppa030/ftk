@@ -9,6 +9,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace ftk::ui {
@@ -89,12 +91,16 @@ struct Config {
     glm::vec2 size{320.0F, 400.0F};
     /// A line over the search naming what the choices are for ("Takes a
     /// vec3, from Mix · Result"), after a dot in `caption_colour` when set.
-    std::string caption{};
+    std::string_view caption{};
     std::optional<Color> caption_colour{};
     /// What Enter does to the highlighted item ("places"): set, a line under
     /// the list says it, and that Esc closes.
     const char* enter_does{nullptr};
 };
+// Callers keep a Config as a static constexpr, which MSVC cannot make of
+// anything that owns memory: its std::string allocates in a constant
+// expression even when empty.
+static_assert(std::is_trivially_destructible_v<Config>, "a Config holds views, never owned text");
 
 /// Open the picker owned by `widget_id` on the next draw. A picker is known by
 /// `widget_id` under the ids the caller has pushed, so `widget_id` only
