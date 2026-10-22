@@ -19,6 +19,9 @@ if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_EXTENSIONS OFF)
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+    # No C++ modules: no source is preprocessed a second time looking for
+    # imports.
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 endif()
 
 include(cmake/FtkTargetDefaults.cmake)
