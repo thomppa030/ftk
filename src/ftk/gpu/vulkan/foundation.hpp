@@ -134,6 +134,11 @@ public:
     [[nodiscard]] uint32_t mesh_shader_max_workgroups() const {
         return mesh_shader_max_workgroups_;
     }
+    /// Floats a mesh shader may hand the fragment shader per vertex and
+    /// primitive; 0 without mesh shaders.
+    [[nodiscard]] uint32_t mesh_shader_max_output_components() const {
+        return mesh_shader_max_output_components_;
+    }
     [[nodiscard]] PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_fn() const { return pfn_draw_mesh_tasks_; }
     [[nodiscard]] PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect_fn() const {
         return pfn_draw_mesh_tasks_indirect_;
@@ -229,6 +234,7 @@ private:
     uint32_t mesh_shader_max_output_vertices_{0};
     uint32_t mesh_shader_max_output_primitives_{0};
     uint32_t mesh_shader_max_workgroups_{0};
+    uint32_t mesh_shader_max_output_components_{0};
     PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT pfn_draw_mesh_tasks_indirect_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};

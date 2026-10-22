@@ -18,6 +18,15 @@ std::vector<std::string> missing_caps(const Caps& caps, const Caps& required) {
     if (caps.max_push_size < required.max_push_size) {
         missing.push_back(std::format("{} bytes of push data", required.max_push_size));
     }
+    if (caps.vertex_max_output_components < required.vertex_max_output_components) {
+        missing.push_back(std::format("vertex shaders that output {} floats", required.vertex_max_output_components));
+    }
+    if (caps.mesh_max_output_components < required.mesh_max_output_components) {
+        missing.push_back(std::format("mesh shaders that output {} floats", required.mesh_max_output_components));
+    }
+    if (caps.fragment_max_input_components < required.fragment_max_input_components) {
+        missing.push_back(std::format("fragment shaders that read {} floats", required.fragment_max_input_components));
+    }
     if (required.async_compute && !caps.async_compute) {
         missing.emplace_back("a compute queue of its own");
     }

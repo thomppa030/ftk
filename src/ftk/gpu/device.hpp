@@ -43,6 +43,13 @@ struct Caps {
     /// Bytes of push data a pipeline may take: at least 128 on every GPU,
     /// which is what every pipeline keeps to.
     uint32_t max_push_size{128};
+    /// Floats a stage may hand the next, four to an interface location: what
+    /// a vertex or mesh shader outputs and a fragment shader reads. At least
+    /// 64 on every GPU and 128 on desktop ones; the mesh limit is 0 without
+    /// mesh shaders.
+    uint32_t vertex_max_output_components{64};
+    uint32_t mesh_max_output_components{0};
+    uint32_t fragment_max_input_components{64};
     /// Whether there is a compute queue beside the graphics one, which lists
     /// for `Queue::compute` run on.
     bool async_compute{false};

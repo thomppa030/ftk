@@ -42,3 +42,18 @@ TEST_CASE("A limit is met by any GPU that reaches it", "[gpu][caps]") {
     CHECK(missing_caps(gpu, Caps{.mesh_max_output_vertices = 257}) ==
           std::vector<std::string>{"mesh shaders that output 257 vertices"});
 }
+
+TEST_CASE("A GPU whose stages hand on too few floats is named short of them", "[gpu][caps]") {
+    const Caps required{.mesh_shaders = true,
+                        .vertex_max_output_components = 68,
+                        .mesh_max_output_components = 68,
+                        .fragment_max_input_components = 68};
+    const Caps desktop{.mesh_shaders = true,
+                       .vertex_max_output_components = 128,
+                       .mesh_max_output_components = 128,
+                       .fragment_max_input_components = 128};
+    CHECK(missing_caps(desktop, required).empty());
+    CHECK(missing_caps(Caps{.mesh_shaders = true}, required) ==
+          std::vector<std::string>{"vertex shaders that output 68 floats", "mesh shaders that output 68 floats",
+                                   "fragment shaders that read 68 floats"});
+}

@@ -279,6 +279,7 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
         // A draw launching its workgroups along X alone is held by both.
         mesh_shader_max_workgroups_ =
             std::min(mesh_props.maxMeshWorkGroupCount[0], mesh_props.maxMeshWorkGroupTotalCount);
+        mesh_shader_max_output_components_ = mesh_props.maxMeshOutputComponents;
         FTK_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims, "
                      "{} workgroups a draw)",
                      mesh_props.maxMeshWorkGroupSize[0],
