@@ -82,6 +82,6 @@ the line:
 
 ## Fonts
 
-`fonts/` holds the theme's fonts, each with its licence beside it: Geist and
-Geist Mono, Inter and JetBrains Mono under the SIL Open Font License, and the
-Lucide icons under ISC.
+`fonts/` holds the theme's fonts, each with its licence beside it: Geist, Inter
+and JetBrains Mono under the SIL Open Font License, and the Lucide icons under
+ISC.
