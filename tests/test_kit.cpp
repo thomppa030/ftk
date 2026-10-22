@@ -154,6 +154,13 @@ TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
     CHECK(std::string(ui::asset_kind(".xyz").noun) == "file");
 }
 
+TEST_CASE("A plain file has no hue, and its icon is drawn as any icon without one", "[ui][kit]") {
+    using ftk::theme::Hue;
+    CHECK_FALSE(ui::asset_kind(".xyz").hue.has_value());
+    CHECK(ui::kind_colour(ui::asset_kind(".xyz")) == ftk::theme::text_secondary());
+    CHECK(ui::kind_colour(ui::asset_kind(".png")) == ftk::theme::hue(Hue::blue));
+}
+
 TEST_CASE("A program's own file types show as it registered them", "[ui][kit]") {
     using ftk::theme::Hue;
     ui::register_asset_kind(".kittest", {"kit test", ui::icon::file, Hue::slate});

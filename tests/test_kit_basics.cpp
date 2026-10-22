@@ -321,6 +321,23 @@ TEST_CASE("A font scope sets the size of the text drawn in it, and a colour scop
     CHECK(text_inside == ftk::theme::text_secondary());
 }
 
+TEST_CASE("The mono face keeps each character to a cell, ligatures too", "[ui][kit]") {
+    KitHarness h;
+    float cell = 0.0f;
+    float arrow = 0.0f;
+    float equals = 0.0f;
+    h.set_ui([&] {
+        const ui::FontScope mono(ftk::theme::mono_font(), ftk::theme::SMALL_TEXT);
+        cell = ui::text_size("a").x;
+        arrow = ui::text_size("a->b").x;
+        equals = ui::text_size("===").x;
+    });
+    h.step(2);
+    REQUIRE(cell > 0.0f);
+    CHECK(arrow == Catch::Approx(4.0f * cell));
+    CHECK(equals == Catch::Approx(3.0f * cell));
+}
+
 TEST_CASE("The window being drawn knows where it is and whether the mouse is on it", "[ui][kit]") {
     KitHarness h;
     glm::vec2 pos{-1.0f};

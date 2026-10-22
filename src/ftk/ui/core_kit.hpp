@@ -12,8 +12,8 @@
 namespace ftk::ui {
 
 /// Adds the kit's faces from `directory` to `ui`'s text: Geist Medium for
-/// the body, with lucide's icons, Geist Bold and Geist Mono, or Inter and
-/// JetBrains Mono where Geist isn't there; each falls back to the system's
+/// the body, with lucide's icons, Geist Bold, or Inter where Geist isn't
+/// there, and JetBrains Mono; each falls back to the system's
 /// fonts and then to the last resort. The body is the text drawn when no
 /// face is asked for. False, and logged, when the body's face can't be read.
 bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory);

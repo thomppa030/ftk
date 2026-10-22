@@ -2,6 +2,7 @@
 
 #include "ftk/ui/theme.hpp"
 
+#include <optional>
 #include <string_view>
 
 namespace ftk::ui {
@@ -13,13 +14,18 @@ namespace ftk::ui {
 struct AssetKind {
     const char* noun;  ///< "material", "mesh"
     const char* icon;  ///< from ui::icon
-    theme::Hue hue;
+    /// Its category's hue; none for a plain file, of no kind.
+    std::optional<theme::Hue> hue;
 };
 
 /// The kind of the file with this extension (".png", ".mesh"). The kit knows
 /// the file types any program has: images, fonts and audio clips. Anything
-/// else is what a program registered, or a plain "file" in grey.
+/// else is what a program registered, or a plain "file" with no hue.
 [[nodiscard]] const AssetKind& asset_kind(std::string_view extension);
+
+/// The colour `kind`'s icon is drawn in: its hue, else `text_secondary`, as
+/// the kit draws any icon without one.
+[[nodiscard]] Color kind_colour(const AssetKind& kind);
 
 /// Shows files with `extension` (".mesh") as `kind` wherever a kind is
 /// shown, in place of what was there. A program registers its own file types

@@ -382,7 +382,10 @@ bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory) {
     corekit::Faces& faces = corekit::kit_of(ui).faces;
     faces.body = ui.text().add_font(chain(body));
     faces.bold = ui.text().add_font(chain(face(directory, {"Geist-Bold.ttf", "Inter-Bold.ttf"})));
-    faces.mono = ui.text().add_font(chain(face(directory, {"GeistMono-Regular.ttf", "JetBrainsMono-Regular.ttf"})));
+    // JetBrains Mono, not Geist Mono: its ligatures keep a cell for each
+    // character, where Geist Mono's draw "->" in one and pull the rest of
+    // the line off the grid.
+    faces.mono = ui.text().add_font(chain(face(directory, {"JetBrainsMono-Regular.ttf"})));
     faces.loaded = true;
     ui.text().set_default_style({.font = faces.body, .size = theme::BODY_TEXT});
     return true;

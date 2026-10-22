@@ -123,7 +123,7 @@ void EditorContext::draw_header() {
     }
     const ui::AssetHeaderSpec spec{
         .icon = kind.icon,
-        .icon_colour = theme::hue(kind.hue),
+        .icon_colour = ui::kind_colour(kind),
         .name = header_name(),
         .name_tooltip = header_tooltip(),
         .folder = std::move(folder),
