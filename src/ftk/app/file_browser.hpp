@@ -137,8 +137,6 @@ private:
     void confirm_selection();
     void remember_folder();
 
-    static std::string format_size(uintmax_t bytes);
-
     gpu::Device* device_{nullptr};
     UiPrepare prepare_;
     RecentFolders recent_;

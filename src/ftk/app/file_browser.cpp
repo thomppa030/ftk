@@ -2,6 +2,7 @@
 
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/log.hpp"
+#include "ftk/base/string_utils.hpp"
 #include "ftk/base/time_text.hpp"
 #include "ftk/platform/file_names.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
@@ -73,13 +74,6 @@ std::string shown(const fs::path& dir) {
 
 FileBrowser::~FileBrowser() {
     close();
-}
-
-std::string FileBrowser::format_size(uintmax_t bytes) {
-    if (bytes < 1024) return std::to_string(bytes) + " B";
-    if (bytes < 1024 * 1024) return std::to_string(bytes / 1024) + " KB";
-    if (bytes < 1024 * 1024 * 1024) return std::to_string(bytes / (1024 * 1024)) + " MB";
-    return std::to_string(bytes / (1024 * 1024 * 1024)) + " GB";
 }
 
 // ── Window lifecycle ────────────────────────────────────────────────────
@@ -611,7 +605,7 @@ void FileBrowser::draw_file_list() {
         if (show_size) {
             ui::table_next_column();
             if (!entry.is_directory) {
-                const std::string size = format_size(entry.size);
+                const std::string size = size_text(entry.size);
                 ui::set_cursor({ui::cursor().x + ui::space_left().x - ui::text_size(size).x, ui::cursor().y});
                 ui::text(size);
             }
