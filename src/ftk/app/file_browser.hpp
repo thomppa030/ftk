@@ -138,7 +138,6 @@ private:
     void remember_folder();
 
     static std::string format_size(uintmax_t bytes);
-    static std::string format_time(std::filesystem::file_time_type time);
 
     gpu::Device* device_{nullptr};
     UiPrepare prepare_;

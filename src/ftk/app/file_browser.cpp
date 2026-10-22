@@ -2,6 +2,7 @@
 
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/log.hpp"
+#include "ftk/base/time_text.hpp"
 #include "ftk/platform/file_names.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
@@ -79,15 +80,6 @@ std::string FileBrowser::format_size(uintmax_t bytes) {
     if (bytes < 1024 * 1024) return std::to_string(bytes / 1024) + " KB";
     if (bytes < 1024 * 1024 * 1024) return std::to_string(bytes / (1024 * 1024)) + " MB";
     return std::to_string(bytes / (1024 * 1024 * 1024)) + " GB";
-}
-
-std::string FileBrowser::format_time(fs::file_time_type time) {
-    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-        time - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
-    auto tt = std::chrono::system_clock::to_time_t(sctp);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
-    return buf;
 }
 
 // ── Window lifecycle ────────────────────────────────────────────────────
@@ -567,6 +559,7 @@ void FileBrowser::draw_file_list() {
     }
 
     std::optional<std::string> named;
+    const auto now = std::chrono::system_clock::now();
     for (int fi = 0; fi < static_cast<int>(filtered_indices_.size()); ++fi) {
         const auto& entry = entries_[filtered_indices_[static_cast<size_t>(fi)]];
         ui::table_next_row();
@@ -624,7 +617,7 @@ void FileBrowser::draw_file_list() {
             }
         }
         ui::table_next_column();
-        ui::text(format_time(entry.modified));
+        ui::text(time_text(system_time(entry.modified), now));
     }
     // Named once the rows are drawn: naming reads the folder again.
     if (named) name_folder(*named);
