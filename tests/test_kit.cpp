@@ -16,11 +16,14 @@
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <vector>
 
 #include <cmath>
 #include <string>
@@ -169,6 +172,21 @@ TEST_CASE("A disabled icon button still shows its tooltip", "[ui][kit]") {
     });
     h.step(2);
     // Past the tooltip delay.
+    h.hover("button");
+    CHECK(h.tooltip().has_value());
+}
+
+TEST_CASE("A disabled action says why in its tooltip", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        {
+            ui::Disabled off;
+            (void)ui::action("+", "Play from this save", ui::ButtonKind::Primary);
+            h.mark("button");
+        }
+        ui::item_tooltip("Saved by a newer version of the game");
+    });
+    h.step(2);
     h.hover("button");
     CHECK(h.tooltip().has_value());
 }
@@ -578,4 +596,98 @@ TEST_CASE("A status line with an action keeps its text short of the button and r
     // The text does not answer for it.
     h.click_at({start.x + 30.0f, start.y + frame * 0.5f});
     CHECK(clicks == 1);
+}
+
+TEST_CASE("A status line that goes somewhere answers anywhere on it, each by its own id", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 start{};
+    float between = 0.0f;
+    float after = 0.0f;
+    std::vector<int> clicked;
+    h.set_ui([&] {
+        start = ui::cursor();
+        if (ui::status_link(ui::Severity::Warning, "##first",
+                            "'Net Rack' ran a script DryingTimer, which the game no longer has; what was kept of it "
+                            "is dropped")) {
+            clicked.push_back(0);
+        }
+        between = ui::cursor().y;
+        if (ui::status_link(ui::Severity::Warning, "##second", "LampScript on 'Lamp' no longer has a field wick")) {
+            clicked.push_back(1);
+        }
+        after = ui::cursor().y;
+    });
+    h.step(3);
+    CHECK(between > start.y);
+    CHECK(after > between);
+    // Its text answers, and the space after it on the line.
+    h.click_at({start.x + 40.0f, start.y + 6.0f});
+    h.click_at({start.x + 600.0f, between + 6.0f});
+    CHECK(clicked == std::vector<int>{0, 1});
+}
+
+TEST_CASE("Status lines that go somewhere stand apart as status lines do, by their light's room", "[ui][kit]") {
+    KitHarness h;
+    std::vector<float> tops;
+    h.set_ui([&] {
+        tops.clear();
+        for (int i = 0; i < 2; ++i) {
+            tops.push_back(ui::cursor().y);
+            ui::status(ui::Severity::Success, "Carried on from save version 1 to 2");
+        }
+        for (const char* id : {"##a", "##b", "##c"}) {
+            tops.push_back(ui::cursor().y);
+            (void)ui::status_link(ui::Severity::Warning, id, "LampScript on 'Lamp' no longer has a field wick");
+        }
+        tops.push_back(ui::cursor().y);
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 6);
+    const float status_pitch = tops[1] - tops[0];
+    // A link's light reaches a little past its words, above and below.
+    CHECK(tops[3] - tops[2] == Approx(status_pitch + 2.0f * ftk::theme::GAP_XS));
+    CHECK(tops[4] - tops[3] == Approx(tops[3] - tops[2]));
+    CHECK(tops[5] - tops[4] == Approx(tops[3] - tops[2]));
+}
+
+TEST_CASE("A status line that goes somewhere names where after its words, on their line while it fits",
+          "[ui][kit]") {
+    constexpr const char* WORDS = "LampScript no longer has a field wick";
+    KitHarness h;
+    float words_width = 0.0f;
+    std::vector<float> tops;
+    int clicks = 0;
+    const auto lines = [&] {
+        tops.push_back(ui::cursor().y);
+        (void)ui::status_link(ui::Severity::Warning, "##plain", WORDS);
+        tops.push_back(ui::cursor().y);
+        if (ui::status_link(ui::Severity::Warning, "##where", WORDS, "coast")) ++clicks;
+        tops.push_back(ui::cursor().y);
+    };
+    h.set_ui([&] {
+        {
+            const ui::FontScope small(ui::Font::Current, ftk::theme::SMALL_TEXT);
+            words_width = ui::text_size(WORDS).x;
+        }
+        tops.clear();
+        lines();
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 3);
+    const float one_line = tops[1] - tops[0];
+    // Room enough: the scene follows on the words' line.
+    CHECK(tops[2] - tops[1] == Approx(one_line));
+    // Where it is named answers as the rest of the line does.
+    h.click_at({words_width + 50.0f, tops[1] + 6.0f});
+    CHECK(clicks == 1);
+
+    // No room after the words: it goes under them.
+    h.set_ui([&] {
+        tops.clear();
+        if (auto narrow = ui::Region("##narrow", {words_width + 50.0f, 400.0f})) lines();
+    });
+    h.step(3);
+    REQUIRE(tops.size() == 3);
+    REQUIRE(tops[1] - tops[0] == Approx(one_line));
+    CHECK(tops[2] - tops[1] > one_line);
 }

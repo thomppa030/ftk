@@ -83,6 +83,12 @@
   "heat_peak": "#F6ECC8",
   "hatch": "#FFFFFF 5%",
 
+  "brush_sculpt": "#95FFAA",
+  "brush_paint": "#AAD3FF",
+  "brush_foliage": "#C4F395",
+  "brush_move": "#D2B4FF",
+  "brush_erase": "#FFB3AA",
+
   "code_keyword": "#BD9CD2",
   "code_type": "#6FBDA5",
   "code_function": "#7DB1DD",

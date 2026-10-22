@@ -4,6 +4,8 @@
 #include "ftk/ui/theme.hpp"
 #include "ftk/ui/types.hpp"
 
+#include <glm/vec2.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -132,9 +134,36 @@ public:
 private:
     bool sized_{false};
     float outer_size_{0.0f};
+    float outer_gap_{0.0f};
 };
 
 TreeRowResult tree_row(const TreeRowSpec& spec);
+
+/// What an open row holds that is no row of the tree (what a save keeps of a
+/// node, sheet 54), for as long as it lives: a sunken box under the row,
+/// across the tree, what it holds inside its padding at the spacing the window
+/// has around the tree and on the inset field colours, as an inset group's
+/// is. The rows after it go on under it.
+///
+///     const auto row = ui::tree_row({.id = "7", .name = "Net Rack", .has_children = true});
+///     if (row.open) {
+///         if (auto inset = ui::TreeInset("##kept")) draw_kept(node);
+///     }
+class TreeInset {
+public:
+    explicit TreeInset(const char* id);
+    ~TreeInset();
+    TreeInset(const TreeInset&) = delete;
+    TreeInset& operator=(const TreeInset&) = delete;
+    TreeInset(TreeInset&&) = delete;
+    TreeInset& operator=(TreeInset&&) = delete;
+    explicit operator bool() const { return true; }
+
+private:
+    Id height_id_{0};
+    glm::vec2 min_{};
+    float width_{0.0f};
+};
 
 /// Whether row `id` of the tree being drawn is open, as tree_row() would
 /// draw it: for an owner listing the rows its tree shows before drawing the

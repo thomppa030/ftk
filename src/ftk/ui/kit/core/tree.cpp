@@ -36,6 +36,9 @@ constexpr float ROUNDING = 3.0f;
 // The insert line's thickness and the ring at its start.
 constexpr float INSERT_LINE = 2.0f;
 constexpr float RING = 8.0f;
+// An inset's room inside it, and the gap between it and the row after it.
+constexpr float INSET_PAD = theme::GAP_S + theme::GAP_XS;
+constexpr float INSET_GAP = theme::GAP_XS;
 
 // The tree's metrics are drawn for the text size around it, and scale with
 // the size its rows are drawn at.
@@ -92,7 +95,9 @@ std::optional<std::string> RenameBox::finish() {
 
 Tree::Tree(const char* id, float text_size) : sized_{text_size > 0.0f} {
     ui().ids().push(id);
-    // Rows sit edge to edge.
+    // Rows sit edge to edge; what a row holds that is no row keeps the
+    // window's spacing.
+    outer_gap_ = std::exchange(kit().tree_outer_gap, kit().style.item_spacing.y);
     Style style = kit().style;
     style.item_spacing.y = 0.0f;
     push_style(style);
@@ -110,7 +115,41 @@ Tree::~Tree() {
         kit().tree_base_size = outer_size_;
     }
     pop_style();
+    kit().tree_outer_gap = outer_gap_;
     ui().ids().pop();
+}
+
+TreeInset::TreeInset(const char* id) {
+    core::Context& context = ui();
+    context.ids().push(id);
+    height_id_ = context.id("##height");
+    min_ = cursor();
+    width_ = std::max(space_left().x, 1.0f);
+    // The box goes behind what it holds, whose height is only known once it
+    // is drawn: it is drawn at the height it had last frame.
+    const float height = stored_float(height_id_, INSET_PAD * 2.0f);
+    context.draw_list().rect_filled(min_, {min_.x + width_, min_.y + height}, faded(theme::surface_sunken()),
+                                    kit().style.frame_rounding);
+    Style style = kit().style;
+    style.item_spacing.y = kit().tree_outer_gap;
+    push_style(style);
+    core::Layout& layout = context.layout();
+    const glm::vec2 start{min_.x + INSET_PAD, min_.y + INSET_PAD};
+    layout.begin_area({.min = start, .max = {min_.x + width_ - INSET_PAD, std::max(layout.area().max.y, start.y)}});
+    kit().frames.push_back(
+        {.rest = theme::surface_inset(), .hover = theme::surface_base(), .active = theme::surface_raised()});
+}
+
+TreeInset::~TreeInset() {
+    core::Context& context = ui();
+    kit().frames.pop_back();
+    const glm::vec2 held = context.layout().end_area();
+    pop_style();
+    const float height = INSET_PAD + held.y + INSET_PAD;
+    store_float(height_id_, height);
+    set_cursor({min_.x, min_.y + height + INSET_GAP});
+    reserve({width_, 0.0f});
+    context.ids().pop();
 }
 
 TreeRowResult tree_row(const TreeRowSpec& spec) {

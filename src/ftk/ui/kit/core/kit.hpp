@@ -177,6 +177,13 @@ struct NextItem {
     bool text_on_frame{false};
 };
 
+/// What a window's title bar shows beside its name (next_window_title()).
+struct WindowTitle {
+    const char* icon{nullptr};
+    Color icon_colour{};
+    std::string detail{};
+};
+
 /// What the next window is to be.
 struct NextWindow {
     std::optional<glm::vec2> pos{};
@@ -185,6 +192,7 @@ struct NextWindow {
     std::optional<glm::vec2> size{};
     std::optional<glm::vec2> size_once{};
     std::optional<std::pair<glm::vec2, glm::vec2>> size_limits{};
+    std::optional<WindowTitle> title{};
 };
 
 /// What the bars along the program window's top and bottom take from it: a
@@ -409,6 +417,9 @@ public:
     /// The text size around the tree being drawn, before it set its own;
     /// zero outside a tree given a size.
     float tree_base_size{0.0f};
+    /// The spacing down the window around the tree being drawn, which its
+    /// rows set to none, for what an open row holds (TreeInset).
+    float tree_outer_gap{0.0f};
     /// Every dockspace's nodes, by id.
     std::unordered_map<Id, DockPart> docks{};
     /// The window being carried, and the splitter being dragged: where its

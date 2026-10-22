@@ -4,9 +4,12 @@
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
 
 #include <algorithm>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace ftk::ui {
@@ -24,6 +27,22 @@ Id window_id(const char* name) {
 
 bool any_button_pressed() {
     return mouse_clicked(MouseButton::Left) || mouse_clicked(MouseButton::Right) || mouse_clicked(MouseButton::Middle);
+}
+
+// A title bar's words from `at`: the icon in its colour, the name in bold,
+// then the detail in the secondary colour.
+void draw_title(const WindowTitle& title, glm::vec2 at, std::string_view name) {
+    const float gap = kit().style.item_inner_spacing.x;
+    if (title.icon != nullptr) {
+        draw_text(at, title.icon_colour, title.icon);
+        at.x += measure(title.icon).x + gap;
+    }
+    {
+        FontScope bold(Font::Bold, 0.0f);
+        draw_text(at, theme::text(), name);
+        at.x += measure(name).x + gap;
+    }
+    if (!title.detail.empty()) draw_text(at, theme::text_secondary(), title.detail);
 }
 
 // The window's scrollbar down its right edge, while what it holds is
@@ -193,7 +212,11 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
             title_right = at.x - k.style.item_inner_spacing.x;
         }
         dl.push_clip(bar.min, {title_right, bar.max.y});
-        draw_text(bar.min + k.style.frame_padding, theme::text(), shown(name));
+        if (next.title) {
+            draw_title(*next.title, bar.min + k.style.frame_padding, shown(name));
+        } else {
+            draw_text(bar.min + k.style.frame_padding, theme::text(), shown(name));
+        }
         dl.pop_clip();
         // Dragged by its title bar, it is carried from the next frame. Not
         // on the frame it is let go, when carry() has just let go of it.
@@ -239,6 +262,10 @@ void next_window_place(glm::vec2 pos, glm::vec2 size) {
 
 void next_window_size_once(glm::vec2 size) {
     kit().next_window.size_once = size;
+}
+
+void next_window_title(const char* icon, Color icon_colour, std::string_view detail) {
+    kit().next_window.title = WindowTitle{.icon = icon, .icon_colour = icon_colour, .detail = std::string(detail)};
 }
 
 void next_window_pos(glm::vec2 pos) {

@@ -110,6 +110,10 @@ bool button(const char* label, ButtonKind kind, glm::vec2 size) {
     return draw(label, look_of(kind), size, kit().style.frame_padding);
 }
 
+float button_width(const char* label) {
+    return measure(shown(label)).x + kit().style.frame_padding.x * 2.0f;
+}
+
 bool small_button(const char* label) {
     // A line of text tall: no padding above or below.
     return draw(label, look_of(ButtonKind::Secondary), {0.0f, 0.0f}, {kit().style.frame_padding.x, 0.0f});

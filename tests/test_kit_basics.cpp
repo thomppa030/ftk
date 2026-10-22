@@ -105,6 +105,52 @@ TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
     CHECK(ui::frame_height() > ui::line_height());
 }
 
+TEST_CASE("Cut text is whole when it fits, else cut to its width and whole in the tooltip", "[ui][kit]") {
+    KitHarness h;
+    const std::string path = "~/.config/fjedit/a/folder/a/long/way/down/keys.vim";
+    float whole = 0.0f;
+    float measured = 0.0f;
+    float cut = 0.0f;
+    h.set_ui([&] {
+        ui::cut_text(path, 10000.0f, ftk::theme::text_secondary());
+        whole = (ui::item_max() - ui::item_min()).x;
+        measured = ui::text_size(path).x;
+        h.mark("whole");
+        ui::cut_text(path, 120.0f, ftk::theme::text_secondary());
+        cut = (ui::item_max() - ui::item_min()).x;
+        h.mark("cut");
+    });
+    h.step(2);
+    CHECK(whole == measured);
+    CHECK(cut > 0.0f);
+    CHECK(cut <= 120.0f);
+    h.hover("whole");
+    h.step(30);
+    CHECK_FALSE(h.tooltip().has_value());
+    h.hover("cut");
+    h.step(30);
+    CHECK(h.tooltip().has_value());
+}
+
+TEST_CASE("A button is as wide as button_width says", "[ui][kit]") {
+    KitHarness h;
+    float said = 0.0f;
+    float said_again = 0.0f;
+    h.set_ui([&] {
+        said = ui::button_width("Open");
+        (void)ui::button("Open");
+        h.mark("open");
+        said_again = ui::button_width("Open##again");
+        (void)ui::button("Open##again");
+        h.mark("again");
+    });
+    h.step(2);
+    CHECK(said > 0.0f);
+    CHECK(h.rect("open").width() == Catch::Approx(said));
+    CHECK(said_again == Catch::Approx(said));
+    CHECK(h.rect("again").width() == Catch::Approx(said));
+}
+
 TEST_CASE("A change's marked text is the size of its text without the marks", "[ui][kit]") {
     KitHarness h;
     const std::string change = "Mass \x01" "1.00 kg\x02 -> \x03" "2.50 kg\x04";

@@ -12,6 +12,11 @@
 #
 # A platform backend's own code is exempt by its place: any platform/linux/ or
 # platform/windows/ directory.
+#
+# It also refuses a test named with a character past ASCII. CTest runs a test
+# by passing its name to the program as an argument, and Windows hands a
+# program its arguments in the system's ANSI code page rather than UTF-8: the
+# name arrives changed and matches no test.
 
 # Scans `roots` under `base` and fails with every offender. Also run on its
 # own by the build step (script mode below).
@@ -33,6 +38,7 @@ function(_ftk_scan_portability base)
     set(call_pattern "(^|[^A-Za-z0-9_:])(popen|pclose|getpid|fork|execv|execvp|execl|readlink|usleep)[ \t]*\\(")
     set(path_pattern "\"/(proc|dev|tmp)/")
     set(pattern "(${header_pattern})|(${call_pattern})|(${path_pattern})")
+    set(test_name_pattern "(TEST_CASE|SCENARIO)[ \t]*\\([ \t]*\"[^\"]*[^\t -~]")
 
     # CONFIGURE_DEPENDS makes a new file re-run the check on the next build,
     # but script mode does not accept it.
@@ -42,6 +48,7 @@ function(_ftk_scan_portability base)
     endif()
 
     set(offenders "")
+    set(test_names "")
     foreach(root IN LISTS ARGN)
         cmake_path(ABSOLUTE_PATH root BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE dir)
         file(GLOB_RECURSE sources ${glob_flags} "${dir}/*.cpp" "${dir}/*.hpp" "${dir}/*.h")
@@ -49,22 +56,39 @@ function(_ftk_scan_portability base)
             if(source MATCHES "/platform/(linux|windows)/")
                 continue()
             endif()
+            file(RELATIVE_PATH rel "${base}" "${source}")
             file(STRINGS "${source}" hits REGEX "${pattern}" ENCODING UTF-8)
             foreach(hit IN LISTS hits)
                 string(STRIP "${hit}" hit)
-                file(RELATIVE_PATH rel "${base}" "${source}")
                 list(APPEND offenders "  ${rel}: ${hit}")
+            endforeach()
+            file(STRINGS "${source}" hits REGEX "${test_name_pattern}" ENCODING UTF-8)
+            foreach(hit IN LISTS hits)
+                string(STRIP "${hit}" hit)
+                list(APPEND test_names "  ${rel}: ${hit}")
             endforeach()
         endforeach()
     endforeach()
 
+    set(report "")
     if(offenders)
         list(JOIN offenders "\n" offenders)
-        message(FATAL_ERROR
+        string(APPEND report
             "POSIX-only headers, calls or paths outside src/ftk/platform/ (MSVC cannot build these):\n"
             "${offenders}\n"
             "Use the platform library (src/ftk/platform/platform.hpp) instead, or add a platform/ "
-            "backend for what is missing.")
+            "backend for what is missing.\n")
+    endif()
+    if(test_names)
+        list(JOIN test_names "\n" test_names)
+        string(APPEND report
+            "Test names with a character past ASCII (on Windows CTest's argument arrives in the ANSI "
+            "code page and matches no test):\n"
+            "${test_names}\n"
+            "Name the test in ASCII.\n")
+    endif()
+    if(report)
+        message(FATAL_ERROR "${report}")
     endif()
 endfunction()
 

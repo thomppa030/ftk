@@ -28,6 +28,12 @@ void text(std::string_view text);
 /// In `colour`, a theme token.
 void text(std::string_view text, Color colour);
 
+/// On one line at most `width` pixels wide, in `colour`: whole when it
+/// fits, else cut with an ellipsis and whole in the tooltip, as a tree row
+/// cuts its name. For text that leaves room beside it, as a path before
+/// its button.
+void cut_text(std::string_view text, float width, Color colour);
+
 /// Led by a bullet: a line of a list in a dialog.
 void bullet_text(std::string_view text);
 

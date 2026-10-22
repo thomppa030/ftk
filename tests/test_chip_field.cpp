@@ -35,7 +35,7 @@ struct Field {
 
 } // namespace
 
-TEST_CASE("A chip field shows a chip a name and takes one off by its ×", "[ui][kit]") {
+TEST_CASE("A chip field shows a chip a name and takes one off by its cross", "[ui][kit]") {
     Field f({"tree.oak", "shade"});
     REQUIRE(f.h.find("tree.oak"));
     REQUIRE(f.h.find("shade"));

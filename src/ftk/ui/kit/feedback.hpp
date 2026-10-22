@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string_view>
 
 // How the editor tells you something that isn't a value.
 
@@ -25,6 +26,14 @@ void status(Severity severity, const char* text);
 /// button led by `action_icon` (an unused value's Remove), the text
 /// wrapping short of it. Returns true when it is clicked.
 bool status(Severity severity, const char* text, const char* action_icon, const char* action);
+
+/// A status line about something shown elsewhere (a node in a list, a
+/// field), which goes to it: the whole line lights under the mouse and
+/// returns true when clicked. `id` keeps it apart from the lines beside it.
+/// `where`, the place it is in (a node's scene), follows the words muted,
+/// on their last line while it fits and under them when it doesn't; empty
+/// leaves it out.
+bool status_link(Severity severity, const char* id, const char* text, std::string_view where = {});
 
 /// One line under a field, while it is typed in, saying what entering it
 /// will do ("Replace every gust with wind on lines 44 to 46"): the Enter

@@ -8,10 +8,13 @@
 //
 //     if (ui::window_focused() && ui::key_pressed(ui::Key::Delete)) remove_selected();
 
+#include "ftk/ui/types.hpp"
+
 #include <glm/vec2.hpp>
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ftk::ui {
@@ -42,6 +45,12 @@ void next_window_place(glm::vec2 pos, glm::vec2 size);
 /// The next window's size the first time it opens with no layout saved;
 /// after that it keeps the size it is left at.
 void next_window_size_once(glm::vec2 size);
+
+/// The next window's title bar leads with `icon` in `icon_colour`, has its
+/// name in bold, and follows it with `detail` in the secondary colour: a
+/// window showing one file, its folder after its name (sheet 54). Given each
+/// frame the window is drawn.
+void next_window_title(const char* icon, Color icon_colour, std::string_view detail = {});
 
 /// The next window goes at `pos` this frame, wherever it was left: a
 /// panel pinned to an edge.

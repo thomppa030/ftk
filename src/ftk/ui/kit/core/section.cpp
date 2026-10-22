@@ -1,7 +1,9 @@
 #include "ftk/ui/kit/section.hpp"
 
+#include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
@@ -31,10 +33,11 @@ std::string uppercase(const char* label) {
 }
 
 // One heading row: an optional rule above, then chevron, icon or hue
-// dot, and label in the secondary text colour. Folds when `foldable`;
-// returns whether open.
+// dot, and label in the secondary text colour, and what `extra` adds: the
+// count after the label, the button at the row's end. Folds when
+// `foldable`; returns whether open.
 bool heading(const char* label, const char* icon, float size, bool rule, bool foldable, bool default_open,
-             std::optional<theme::Hue> dot = std::nullopt) {
+             std::optional<theme::Hue> dot = std::nullopt, const SectionHeading* extra = nullptr) {
     // Under a search the matching rows stand on their own, every group open.
     if (detail::filtering()) return true;
     core::Context& context = ui();
@@ -50,14 +53,25 @@ bool heading(const char* label, const char* icon, float size, bool rule, bool fo
     }
 
     FontScope bold(Font::Bold, size);
+    // The button at the row's end, while it is open; the fold stops short of
+    // it.
+    const bool end = extra != nullptr && extra->end_pressed != nullptr && open;
+    const float end_w = end ? frame_height() : 0.0f;
     if (foldable) {
         // The whole row is the click target, not just the chevron.
         const glm::vec2 start = cursor();
-        const core::Rect row = context.layout().next({std::max(space_left().x, 1.0f), line_height()});
+        const float row_w = std::max(space_left().x - end_w, 1.0f);
+        const core::Rect row = context.layout().next({row_w, line_height()});
         if (place(context.id("##fold"), row).clicked) {
             open = !open;
             store_bool(open_id, open);
         }
+        set_cursor(start);
+    }
+    if (end) {
+        const glm::vec2 start = cursor();
+        set_cursor({start.x + space_left().x - end_w, start.y + (line_height() - end_w) * 0.5f});
+        if (icon_button("##end", extra->end_icon, extra->end_tooltip)) *extra->end_pressed = true;
         set_cursor(start);
     }
 
@@ -80,6 +94,13 @@ bool heading(const char* label, const char* icon, float size, bool rule, bool fo
     // a test aims at the heading row, and item spacing separates what
     // follows.
     text(uppercase(label));
+    if (extra != nullptr && !extra->count.empty()) {
+        // Drawn, not placed: the label stays the item just drawn.
+        FontScope body(Font::Body, theme::SMALL_TEXT);
+        const float x = item_max().x + theme::GAP_S + theme::GAP_XS;
+        draw_text({x, item_min().y + (item_max().y - item_min().y - line_height()) * 0.5f}, theme::text_disabled(),
+                  extra->count);
+    }
     detail::heading_drawn();
     return open;
 }
@@ -92,6 +113,15 @@ void section(const char* label, const char* icon) {
 
 bool section_foldable(const char* label, const char* icon, bool default_open) {
     return heading(label, icon, SECTION_SIZE, true, true, default_open);
+}
+
+bool section_foldable(const SectionHeading& section, bool default_open) {
+    return heading(section.label, section.icon, SECTION_SIZE, true, true, default_open, std::nullopt, &section);
+}
+
+void open_section(const char* label) {
+    IdScope scope(label);
+    store_bool(ui().id("##open"), true);
 }
 
 void subheading(const char* label) {
