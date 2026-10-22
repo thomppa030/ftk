@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 
 namespace {
 
@@ -28,4 +29,12 @@ TEST_CASE("A file's time reads as today, a day this year, or a day before it", "
     CHECK(ftk::time_text(local(2026, 10, 15, 23, 59), now) == "15 Oct 23:59");
     CHECK(ftk::time_text(local(2026, 1, 2, 14, 20), now) == "2 Jan 14:20");
     CHECK(ftk::time_text(local(2025, 10, 16, 9, 12), now) == "16 Oct 2025");
+}
+
+TEST_CASE("A file written now reads as now on the system clock", "[time_text]") {
+    // Both clocks are read within a second of each other; the file clock's
+    // own epoch would put the time unconverted years away.
+    const auto system_now = std::chrono::system_clock::now();
+    const auto file_now = ftk::system_time(std::filesystem::file_time_type::clock::now());
+    CHECK(std::chrono::abs(file_now - system_now) < std::chrono::seconds(1));
 }

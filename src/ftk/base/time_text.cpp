@@ -6,6 +6,11 @@
 
 namespace ftk {
 
+std::chrono::system_clock::time_point system_time(std::filesystem::file_time_type time) {
+    return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        std::chrono::clock_cast<std::chrono::system_clock>(time));
+}
+
 std::string time_text(std::chrono::system_clock::time_point when, std::chrono::system_clock::time_point now) {
     static constexpr std::array<const char*, 12> MONTHS{"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
