@@ -32,15 +32,22 @@ std::string numbered(std::size_t index) {
 
 } // namespace
 
-std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits) {
+std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits, std::size_t per_line) {
     std::optional<std::size_t> clicked;
     core::Context& context = ui();
     IdScope scope(id);
     const float h = frame_height();
     core::DrawList& dl = context.draw_list();
+    const glm::vec2 origin = cursor();
     for (std::size_t i = 0; i < bits.size(); ++i) {
         const Bit& bit = bits[i];
-        if (i > 0) same_line(SQUARE_GAP);
+        // A line's first square under the first line's, as far below it as
+        // the squares are apart.
+        if (per_line > 0 && i > 0 && i % per_line == 0) {
+            set_cursor({origin.x, origin.y + static_cast<float>(i / per_line) * (h + SQUARE_GAP)});
+        } else if (i > 0) {
+            same_line(SQUARE_GAP);
+        }
         IdScope square(static_cast<int>(i));
         const core::Rect rect = context.layout().next({SQUARE_W, h});
         const Id bit_id = context.id("##bit");

@@ -47,6 +47,36 @@ TEST_CASE("A bit that can be set or cleared reports its click", "[ui][kit]") {
     CHECK(f.clicked == 2);
 }
 
+TEST_CASE("A strip of eight in lines of four numbers on into the second line", "[ui][kit]") {
+    KitHarness h;
+    std::array<ui::Bit, 8> bits{};
+    bits.fill(ui::Bit{.state = ui::BitState::off});
+    int clicked = -1;
+    glm::vec2 origin{};
+    float frame = 0.0f;
+    h.set_ui([&] {
+        origin = ui::cursor();
+        frame = ui::frame_height();
+        if (const auto bit = ui::bit_strip("##bits", bits, 4)) clicked = static_cast<int>(*bit);
+    });
+    h.step(3);
+    // Square 5 is under square 1, a gap below it; square 8 under square 4.
+    const auto square = [&](int column, int line) {
+        return glm::vec2{origin.x + 15.0f + 34.0f * static_cast<float>(column),
+                         origin.y + frame * 0.5f + (frame + 4.0f) * static_cast<float>(line)};
+    };
+    h.click_at(square(0, 1));
+    CHECK(clicked == 4);
+    h.click_at(square(3, 1));
+    CHECK(clicked == 7);
+    h.click_at(square(2, 0));
+    CHECK(clicked == 2);
+    // Nothing is to the right of square 4 on the first line.
+    clicked = -1;
+    h.click_at(square(4, 0));
+    CHECK(clicked == -1);
+}
+
 TEST_CASE("An inherited or unnamed bit does nothing when clicked", "[ui][kit]") {
     Fixture f;
     f.h.click_at(f.square(1));

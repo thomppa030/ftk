@@ -32,9 +32,12 @@ struct Bit {
     const char* tooltip{nullptr};
 };
 
-/// The strip, its squares numbered from 1. Returns the index of the square
+/// The strip, its squares numbered from 1, `per_line` to a line and the
+/// numbers running on into the next, all on one line when 0: a value column
+/// too narrow for every square, one that leaves an inherited row's reset its
+/// room, takes them in lines of four. Returns the index of the square
 /// clicked, to turn on or off; none while nothing is.
-std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits);
+std::optional<std::size_t> bit_strip(const char* id, std::span<const Bit> bits, std::size_t per_line = 0);
 
 /// A line under a bit_strip() for one bit the thing carries: the bit's number
 /// (`index` + 1), its `label`, and, for one that comes from elsewhere, the
