@@ -327,20 +327,11 @@ TEST_CASE("A new folder far down the list is scrolled into sight", "[file_browse
 
 TEST_CASE("A folder that can't be made says why and leaves nothing", "[file_browser][new_folder]") {
     Browser b;
-    const fs::path locked = b.folder.root / "kit";
     b.h.double_click_at(b.row("kit")->rect.centre());
     b.h.step();
-    fs::permissions(locked, fs::perms::owner_read | fs::perms::owner_exec);
-    // Written to again as the test ends, however it ends, so it can be removed.
-    struct Unlock {
-        fs::path folder;
-        ~Unlock() {
-            std::error_code ec;
-            fs::permissions(folder, fs::perms::owner_all, ec);
-        }
-    } unlock{locked};
-    // Where writing is allowed anyway (an administrator), there is nothing to see.
-    if (std::ofstream(locked / "probe").good()) SKIP("the folder can be written to however its permissions are set");
+    // The folder shown is taken away from under the browser, as when it is
+    // deleted outside the program: nothing can be made in it on any system.
+    fs::remove_all(b.folder.root / "kit");
     b.new_folder();
     CHECK_FALSE(b.browser.problem().empty());
     CHECK(b.listed() == std::vector<std::string>{"walls"});
