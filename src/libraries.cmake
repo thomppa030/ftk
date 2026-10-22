@@ -3,8 +3,8 @@
 
 # ftk-base holds what any program needs before it has a window: the log and
 # the problem list, results, delegates, handles and handle pools, range
-# allocation, the thread pool, the profiler, and the string, time and UTF-8
-# helpers.
+# allocation, the thread pool, the profiler, and the file, string, time and
+# UTF-8 helpers.
 ftk_library(base
     SOURCES
         ftk/base/compression.cpp
@@ -17,6 +17,7 @@ ftk_library(base
     HEADERS
         ftk/base/compression.hpp
         ftk/base/delegate.hpp
+        ftk/base/file_io.hpp
         ftk/base/handle.hpp
         ftk/base/hash.hpp
         ftk/base/handle_pool.hpp
