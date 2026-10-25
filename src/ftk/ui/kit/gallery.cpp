@@ -410,6 +410,14 @@ void KitGallery::lists() {
                 picked_row_ = i;
             }
         }
+        (void)picture_row({.id = "large", .icon = ICON_LC_FOLDER, .name = "Harbour", .detail = "Opened 2 hours ago",
+                           .size = PictureRowSize::large, .path = "~/games/harbour"},
+                          false);
+        (void)picture_row({.id = "large_gone", .icon = ICON_LC_FOLDER, .name = "Storm prototype",
+                           .size = PictureRowSize::large, .path = "/run/media/archive/storm-proto",
+                           .problem = "Folder not found", .unavailable = true,
+                           .tooltip = "Moved, renamed, or on a drive that isn't connected"},
+                          false);
 
         subheading("Tree");
         search_field("##gallery_search", query_);
