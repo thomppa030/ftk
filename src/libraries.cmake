@@ -706,6 +706,7 @@ ftk_library(app
         ftk/app/app_window.cpp
         ftk/app/change_list.cpp
         ftk/app/command_history.cpp
+        ftk/app/desktop_entry.cpp
         ftk/app/document_history.cpp
         ftk/app/picture.cpp
         ftk/app/ui_input.cpp
@@ -716,6 +717,7 @@ ftk_library(app
         ftk/app/command.hpp
         ftk/app/change_list.hpp
         ftk/app/command_history.hpp
+        ftk/app/desktop_entry.hpp
         ftk/app/document_history.hpp
         ftk/app/picture.hpp
         ftk/app/ui_input.hpp

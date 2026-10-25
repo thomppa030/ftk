@@ -23,6 +23,7 @@ add_executable(ftk-tests
     test_command_group.cpp
     test_command_history.cpp
     test_compression.cpp
+    test_desktop_entry.cpp
     test_delegate.cpp
     test_document_history.cpp
     test_file_io.cpp
