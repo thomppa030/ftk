@@ -27,7 +27,7 @@ library it does not link; the build checks that.
 | `ftk::ui-kit` | The kit's headers, the editor theme and its icons |
 | `ftk::app-ui` | The kit of widgets drawn by the UI core, and its gallery |
 | `ftk::gpu-ui` | The UI core's frames drawn through the GPU interface |
-| `ftk::app` | The main window, or a layer for a program running its own loop, its input and undo; pictures made textures, and SVG files drawn at the pixels they cover |
+| `ftk::app` | The main window, or a layer for a program running its own loop, its input and undo; pictures made textures, SVG files drawn at the pixels they cover, and who the program is to the desktop (its id and icon) |
 | `ftk::app-editor` | Standalone windows, undo's history panel, the console, the file browser, the icon cache and editor contexts |
 | `ftk::ui-harness` | The UI core with no window, to step frames and feed it the mouse and keys |
 | `ftk::kit-harness` | That harness with the kit and its fonts, for a program's tests to drive its UI |

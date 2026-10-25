@@ -702,6 +702,7 @@ endforeach()
 # document histories.
 ftk_library(app
     SOURCES
+        ftk/app/app_identity.cpp
         ftk/app/app_window.cpp
         ftk/app/change_list.cpp
         ftk/app/command_history.cpp
@@ -710,6 +711,7 @@ ftk_library(app
         ftk/app/ui_input.cpp
         ftk/app/ui_layer.cpp
     HEADERS
+        ftk/app/app_identity.hpp
         ftk/app/app_window.hpp
         ftk/app/command.hpp
         ftk/app/change_list.hpp
@@ -719,8 +721,8 @@ ftk_library(app
         ftk/app/ui_input.hpp
         ftk/app/ui_layer.hpp
     LINKS
-        PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::text ftk::ui-core
-        PRIVATE ftk::image SDL3::SDL3
+        PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::image ftk::text ftk::ui-core
+        PRIVATE SDL3::SDL3
 )
 
 # ftk-app-editor is what an editor's windows need around the kit on the UI

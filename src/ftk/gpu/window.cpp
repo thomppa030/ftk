@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -13,6 +14,26 @@ namespace ftk {
 namespace {
 
 /// Every open window, so an event reaches the one it belongs to.
+// The program's icon, its sizes as one surface with alternates, for every
+// window to come; none until set_icon().
+SDL_Surface*& program_icon() {
+    static SDL_Surface* icon = nullptr;
+    return icon;
+}
+
+// A surface of its own holding `icon`'s texels; none when SDL can't make it.
+SDL_Surface* surface_of(const WindowIcon& icon) {
+    SDL_Surface* surface = SDL_CreateSurface(static_cast<int>(icon.width), static_cast<int>(icon.height),
+                                             SDL_PIXELFORMAT_RGBA32);
+    if (surface == nullptr) return nullptr;
+    const std::size_t row = static_cast<std::size_t>(icon.width) * 4;
+    auto* texels = static_cast<uint8_t*>(surface->pixels);
+    for (uint32_t y = 0; y < icon.height; ++y) {
+        std::memcpy(texels + static_cast<std::size_t>(y) * surface->pitch, icon.rgba.data() + y * row, row);
+    }
+    return surface;
+}
+
 std::vector<Window*>& open_windows() {
     static std::vector<Window*> windows;
     return windows;
@@ -124,6 +145,8 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height, const Wi
         }
         SDL_ShowWindow(window_);
     }
+    if (SDL_Surface* icon = program_icon(); icon != nullptr) SDL_SetWindowIcon(window_, icon);
+    takes_icon_ = true;
     adopt(window_);
 }
 
@@ -140,6 +163,39 @@ Window::Window(const Window& parent, glm::ivec2 offset, uint32_t width, uint32_t
         throw failure;
     }
     adopt(window_);
+}
+
+void Window::set_app_id(std::string_view id, std::string_view name) {
+    if (!SDL_SetAppMetadata(std::string{name}.c_str(), nullptr, std::string{id}.c_str())) {
+        FTK_CORE_WARN("The program's id couldn't be told to the platform: {}", SDL_GetError());
+    }
+}
+
+void Window::set_icon(std::span<const WindowIcon> sizes) {
+    if (sizes.empty()) return;
+    for (const WindowIcon& size : sizes) {
+        if (size.width == 0 || size.height == 0 ||
+            size.rgba.size() < static_cast<std::size_t>(size.width) * size.height * 4) {
+            FTK_CORE_WARN("An icon of {}x{} has {} bytes", size.width, size.height, size.rgba.size());
+            return;
+        }
+    }
+    SDL_Surface* icon = surface_of(sizes.front());
+    if (icon == nullptr) {
+        FTK_CORE_WARN("The program's icon couldn't be made: {}", SDL_GetError());
+        return;
+    }
+    for (const WindowIcon& smaller : sizes.subspan(1)) {
+        if (SDL_Surface* alternate = surface_of(smaller); alternate != nullptr) {
+            SDL_AddSurfaceAlternateImage(icon, alternate);
+            SDL_DestroySurface(alternate);
+        }
+    }
+    if (program_icon() != nullptr) SDL_DestroySurface(program_icon());
+    program_icon() = icon;
+    for (Window* window : open_windows()) {
+        if (window->takes_icon_) SDL_SetWindowIcon(window->window_, icon);
+    }
 }
 
 void Window::adopt(SDL_Window* made) {
