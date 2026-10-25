@@ -7,6 +7,7 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
+#include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -75,6 +76,28 @@ TEST_CASE("An inset group folds from its heading and keeps its contents inside i
     h.click_at({field_min.x + 40.0f, field_min.y - frame * 0.5f - 2.0f});
     h.step();
     CHECK_FALSE(drawn);
+}
+
+TEST_CASE("An inset group can start folded, and opens from its heading", "[ui][kit]") {
+    KitHarness h;
+    bool drawn = false;
+    glm::vec2 top_left{};
+    float frame = 0.0f;
+    h.set_ui([&] {
+        top_left = ui::cursor();
+        frame = ui::frame_height();
+        drawn = false;
+        if (auto box = ui::InsetGroup("##box", {.text = "Material", .starts_open = false})) {
+            drawn = true;
+            ui::text("contents");
+        }
+    });
+    h.step(2);
+    CHECK_FALSE(drawn);
+    // The heading is the box's first line.
+    h.click_at({top_left.x + 40.0f, top_left.y + frame * 0.5f + 2.0f});
+    h.step();
+    CHECK(drawn);
 }
 
 TEST_CASE("A named box's remove icon removes without folding it", "[ui][kit]") {
