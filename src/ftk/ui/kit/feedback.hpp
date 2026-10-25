@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/types.hpp"
 
 #include <glm/vec2.hpp>
 
@@ -81,6 +82,17 @@ inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;
 /// left in the window. With an `action`, a button for the one obvious thing
 /// to do; returns true when it is clicked. Plain statements, no full stops.
 bool empty_state(const char* icon, const char* title, const char* what_to_do,
+                 const char* action = nullptr);
+
+/// How tall a picture stands over an empty state's words: a program's
+/// logomark where nothing is open, drawn at this height for its own pixels.
+inline constexpr float EMPTY_PICTURE_HEIGHT = 64.0f;
+
+/// The same with `picture`, `size` units big, in the icon's place: where
+/// nothing is open in a program, its logomark in its own colours,
+/// EMPTY_PICTURE_HEIGHT tall. A picture that isn't ready keeps its room, so
+/// the words stand where they will stay.
+bool empty_state(Texture picture, glm::vec2 size, const char* title, const char* what_to_do,
                  const char* action = nullptr);
 
 } // namespace ftk::ui

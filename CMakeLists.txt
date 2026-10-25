@@ -43,6 +43,8 @@ include(cmake/EditorData.cmake)
 include(cmake/EmbedFile.cmake)
 
 include(src/libraries.cmake)
+# ftk_app_icon(), a Windows program's icon from its SVG, through ftk-ico.
+include(cmake/AppIcon.cmake)
 
 # ftk's shader includes (the colour space), for a program that compiles
 # shaders at run time against them as well as through ftk_compile_shaders().

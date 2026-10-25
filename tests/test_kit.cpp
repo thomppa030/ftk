@@ -25,6 +25,7 @@
 
 #include <vector>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -143,6 +144,55 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
     CHECK(max.y < area_max.y - 100.0f);
     h.click("action");
     CHECK(clicks == 1);
+}
+
+TEST_CASE("An empty state's picture stands centred over its words, the block in the middle", "[ui][kit]") {
+    KitHarness h;
+    const ui::Texture mark{77};
+    const glm::vec2 size{ui::EMPTY_PICTURE_HEIGHT, ui::EMPTY_PICTURE_HEIGHT};
+    glm::vec2 area_min{};
+    glm::vec2 area_max{};
+    h.set_ui([&] {
+        area_min = ui::cursor();
+        area_max = area_min + ui::space_left();
+        ui::empty_state(mark, size, "No file open", "Open one from the file menu", "Open file");
+        h.mark("action");
+    });
+    h.step(2);
+
+    const ftk::ui::core::DrawData& drawn = *h.output().roots.front().draw;
+    const auto listed = std::ranges::find(drawn.textures, mark);
+    REQUIRE(listed != drawn.textures.end());
+    const auto index = static_cast<uint32_t>(listed - drawn.textures.begin());
+    // Glyphs name their atlas page in the same field; a picture is a rectangle.
+    const auto picture = std::ranges::find_if(drawn.primitives, [&](const ftk::ui::core::Primitive& primitive) {
+        return primitive.kind == ftk::ui::core::PrimitiveKind::Rect && primitive.texture == index;
+    });
+    REQUIRE(picture != drawn.primitives.end());
+
+    CHECK(picture->max - picture->min == size);
+    CHECK(std::abs((picture->min.x + picture->max.x) * 0.5f - (area_min.x + area_max.x) * 0.5f) <= 1.0f);
+    const ftk::ui::core::Rect action = h.rect("action");
+    CHECK(picture->max.y < action.min.y);
+    // As much room above the picture as below the action.
+    CHECK(std::abs((picture->min.y - area_min.y) - (area_max.y - action.max.y)) <= 2.0f);
+}
+
+TEST_CASE("An empty state's picture that isn't ready keeps its room", "[ui][kit]") {
+    const glm::vec2 size{ui::EMPTY_PICTURE_HEIGHT, ui::EMPTY_PICTURE_HEIGHT};
+    const auto action_with = [&](ui::Texture picture) {
+        KitHarness h;
+        h.set_ui([&] {
+            ui::empty_state(picture, size, "No file open", "Open one from the file menu", "Open file");
+            h.mark("action");
+        });
+        h.step(2);
+        return h.rect("action");
+    };
+    const ftk::ui::core::Rect ready = action_with(ui::Texture{77});
+    const ftk::ui::core::Rect waiting = action_with(ui::Texture{});
+    CHECK(waiting.min == ready.min);
+    CHECK(waiting.max == ready.max);
 }
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {

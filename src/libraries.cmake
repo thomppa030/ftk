@@ -376,6 +376,7 @@ add_library(ftk::lunasvg ALIAS ftk-lunasvg)
 ftk_library(image
     SOURCES
         ftk/image/block_encoder.cpp
+        ftk/image/ico.cpp
         ftk/image/mips.cpp
         ftk/image/png.cpp
         ftk/image/resample.cpp
@@ -385,6 +386,7 @@ ftk_library(image
         ftk/image/stb_image_write.cpp
     HEADERS
         ftk/image/block_encoder.hpp
+        ftk/image/ico.hpp
         ftk/image/mips.hpp
         ftk/image/png.hpp
         ftk/image/resample.hpp
