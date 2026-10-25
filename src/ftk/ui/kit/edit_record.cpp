@@ -31,6 +31,15 @@ void edit_scope(std::string scope) {
     g_label.clear();
 }
 
+EditScope::EditScope(std::string scope) : outer_scope_{std::move(g_scope)}, outer_label_{std::move(g_label)} {
+    edit_scope(std::move(scope));
+}
+
+EditScope::~EditScope() {
+    g_scope = std::move(outer_scope_);
+    g_label = std::move(outer_label_);
+}
+
 std::optional<EditRecord> take_edit_record(const std::string& scope) {
     if (g_pending.scope != scope || g_pending.count != 1 || g_pending.record.label.empty()) {
         if (g_pending.scope == scope) g_pending = {};

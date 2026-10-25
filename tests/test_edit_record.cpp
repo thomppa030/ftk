@@ -126,3 +126,39 @@ TEST_CASE("Two finished edits, or one outside a row or a scope, name no single f
     CHECK_FALSE(ui::take_edit_record(SCOPE).has_value());
     CHECK_FALSE(ui::take_edit_record("").has_value());
 }
+
+TEST_CASE("A block in its own scope records apart from the block around it, which records again after it",
+          "[ui][kit]") {
+    KitHarness h;
+    bool outer = false;
+    bool inner = false;
+    bool after = false;
+    h.set_ui([&] {
+        ui::edit_scope(SCOPE);
+        if (auto t = ui::PropertyTable("##t")) {
+            ui::row("Outer", [&] { (void)ui::checkbox("##outer", outer); h.mark("outer"); });
+        }
+        {
+            const ui::EditScope own("material/7");
+            if (auto t = ui::PropertyTable("##own")) {
+                ui::row("Inner", [&] { (void)ui::checkbox("##inner", inner); h.mark("inner"); });
+            }
+        }
+        if (auto t = ui::PropertyTable("##after")) {
+            ui::row("After", [&] { (void)ui::checkbox("##after", after); h.mark("after"); });
+        }
+        ui::edit_scope({});
+    });
+    h.step(2);
+    h.click("inner");
+    CHECK_FALSE(ui::take_edit_record(SCOPE).has_value());
+    const auto own = ui::take_edit_record("material/7");
+    REQUIRE(own.has_value());
+    CHECK(own->label == "Inner");
+
+    h.click("after");
+    const auto outside = ui::take_edit_record(SCOPE);
+    REQUIRE(outside.has_value());
+    CHECK(outside->label == "After");
+    CHECK_FALSE(ui::take_edit_record("material/7").has_value());
+}

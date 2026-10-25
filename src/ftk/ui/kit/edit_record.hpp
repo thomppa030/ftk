@@ -34,6 +34,24 @@ struct EditRecord {
 /// the next call. An empty scope records nothing.
 void edit_scope(std::string scope);
 
+/// While it lives, the fields drawn record their edits under `scope`; the
+/// scope and row label they were drawn under before come back when it ends.
+/// For a block of fields inside another block that is edited, and undone,
+/// on its own: a material's values in a component's.
+class EditScope {
+public:
+    explicit EditScope(std::string scope);
+    ~EditScope();
+    EditScope(const EditScope&) = delete;
+    EditScope& operator=(const EditScope&) = delete;
+    EditScope(EditScope&&) = delete;
+    EditScope& operator=(EditScope&&) = delete;
+
+private:
+    std::string outer_scope_;
+    std::string outer_label_;
+};
+
 /// The field edit finished in `scope` since the last take, when there is
 /// exactly one and it happened under a row label. None when the edit
 /// spanned several fields or none (Fit to mesh, adding a list item).
