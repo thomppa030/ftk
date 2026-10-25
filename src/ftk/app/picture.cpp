@@ -1,5 +1,6 @@
 #include "ftk/app/picture.hpp"
 #include "ftk/app/ui_layer.hpp"
+#include "ftk/base/file_io.hpp"
 #include "ftk/base/log.hpp"
 #include "ftk/base/profiler.hpp"
 #include "ftk/gpu/device.hpp"
@@ -8,8 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
-#include <fstream>
-#include <iterator>
 
 namespace ftk {
 
@@ -42,11 +41,9 @@ SvgPicture::SvgPicture(std::string text, std::string name, float own_width, floa
     : text_(std::move(text)), name_(std::move(name)), own_width_(own_width), own_height_(own_height) {}
 
 Result<SvgPicture> SvgPicture::load(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return make_error(std::format("{} doesn't read", path.string()));
-    std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-    if (file.bad()) return make_error(std::format("{} doesn't read to its end", path.string()));
-    return from_text(std::move(text), path.filename().string());
+    auto text = read_text(path);
+    if (!text) return std::unexpected(std::move(text).error());
+    return from_text(std::move(*text), path.filename().string());
 }
 
 Result<SvgPicture> SvgPicture::from_text(std::string text, std::string name) {

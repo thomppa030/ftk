@@ -1,8 +1,12 @@
 #pragma once
 
+#include "ftk/base/result.hpp"
+
 #include <cstddef>
 #include <cstdio>
+#include <filesystem>
 #include <ranges>
+#include <string>
 #include <type_traits>
 
 namespace ftk {
@@ -32,5 +36,9 @@ template <FileItems Items>
     if (count == 0) return true;
     return std::fread(std::ranges::data(items), sizeof(std::ranges::range_value_t<Items>), count, file) == count;
 }
+
+/// The whole of the file at `path`, as its bytes; why not when it can't be
+/// opened or read to its end.
+[[nodiscard]] Result<std::string> read_text(const std::filesystem::path& path);
 
 } // namespace ftk

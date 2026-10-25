@@ -8,6 +8,7 @@
 ftk_library(base
     SOURCES
         ftk/base/compression.cpp
+        ftk/base/file_io.cpp
         ftk/base/log.cpp
         ftk/base/problems.cpp
         ftk/base/range_allocator.cpp

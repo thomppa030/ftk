@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using namespace std::string_literals;
 
 namespace {
 
@@ -66,4 +67,23 @@ TEST_CASE("A file shorter than the values asked for reads as not all of them", "
     std::rewind(file.get());
     std::vector<std::uint16_t> three(3);
     CHECK_FALSE(ftk::read_all(file.get(), three));
+}
+
+TEST_CASE("A file reads whole as its bytes", "[file_io]") {
+    const fs::path folder = fs::temp_directory_path() / ("ftk_file_io_" + std::to_string(ftk::platform::process_id()));
+    fs::create_directories(folder);
+    const fs::path path = folder / "lines.txt";
+    const std::string written = "one line\r\nand a second, ending in a null\0"s;
+    {
+        const File file{ftk::platform::open_file(path, "wb"), &std::fclose};
+        REQUIRE(file != nullptr);
+        CHECK(ftk::write_all(file.get(), written));
+    }
+    const auto read = ftk::read_text(path);
+    REQUIRE(read.has_value());
+    CHECK(*read == written);
+
+    const auto missing = ftk::read_text(folder / "missing.txt");
+    REQUIRE_FALSE(missing.has_value());
+    CHECK(missing.error().find("missing.txt") != std::string::npos);
 }
