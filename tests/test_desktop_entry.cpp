@@ -28,7 +28,9 @@ struct Folder {
     Folder() {
         fs::remove_all(root);
         fs::create_directories(root);
-        std::ofstream(icon) << TILE;
+        // As its bytes: the entry keeps the icon as it reads, and a text
+        // stream on Windows would write the tile's newline as "\r\n".
+        std::ofstream(icon, std::ios::binary) << TILE;
     }
     ~Folder() { fs::remove_all(root); }
     Folder(const Folder&) = delete;
