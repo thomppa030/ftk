@@ -195,6 +195,31 @@ TEST_CASE("An empty state's picture that isn't ready keeps its room", "[ui][kit]
     CHECK(waiting.max == ready.max);
 }
 
+TEST_CASE("What loading draws stands within the height it gives", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 top{};
+    float height = 0.0f;
+    h.set_ui([&] {
+        top = ui::cursor() + glm::vec2{200.0f, 40.0f};
+        height = ui::loading_height();
+        ui::loading(ui::DrawList::window(), top, "Opening harbour\xe2\x80\xa6", 0.5f);
+    });
+    h.step(2);
+
+    const ftk::ui::core::DrawData& drawn = *h.output().roots.front().draw;
+    float lowest = top.y;
+    bool caption = false;
+    for (const ftk::ui::core::Primitive& primitive : drawn.primitives) {
+        if (primitive.min.y < top.y - 2.0f) continue;  // the window behind
+        CHECK(primitive.max.y <= top.y + height + 1.0f);
+        lowest = std::max(lowest, primitive.max.y);
+        caption = caption || primitive.kind == ftk::ui::core::PrimitiveKind::Glyph;
+    }
+    CHECK(caption);
+    // Not taller than it draws by more than a line's leading.
+    CHECK(lowest >= top.y + height - ui::line_height() * 0.5f);
+}
+
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {
     using ftk::theme::Hue;
     CHECK(ui::asset_kind(".png").hue == Hue::blue);
