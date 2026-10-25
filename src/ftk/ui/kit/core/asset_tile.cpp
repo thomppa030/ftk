@@ -37,6 +37,8 @@ constexpr float PAD_BOTTOM = 6.0f;
 constexpr float NAME_GAP = 5.0f;
 constexpr float NAME_LINES = 2.0f;
 constexpr float ROUNDING = 4.0f;
+// How much of its picture and name a cut tile shows.
+constexpr float CUT_ALPHA = 0.42f;
 
 // One line of the name, centred, with the part of the search's match that
 // falls in it in amber. `begin` and `end` are the line's bytes in `name`;
@@ -101,16 +103,24 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
         dl.rect_filled(min, max, faded(theme::surface_hover()), ROUNDING);
     }
 
+    // A cut tile's picture and name are dimmed until it is pasted.
+    const float shown = spec.cut ? CUT_ALPHA : 1.0f;
+    const auto dimmed = [shown](Color colour) {
+        colour.a *= shown;
+        return colour;
+    };
+
     // The picture, or the kind's icon, on a sunken square only while the
     // tile is hovered or selected: at rest the icon stands on the panel.
     const glm::vec2 pic_min{std::floor(min.x + (size.x - PICTURE) * 0.5f), min.y + PAD_TOP};
     const glm::vec2 pic_max = pic_min + glm::vec2{PICTURE};
     if (spec.picture) {
-        dl.image(spec.picture, pic_min, pic_max, ROUNDING);
+        dl.image(spec.picture, pic_min, pic_max, ROUNDING, {0.0f, 0.0f}, {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, shown});
     } else {
         if (spec.selected || hovered) dl.rect_filled(pic_min, pic_max, faded(theme::surface_sunken()), ROUNDING);
         if (spec.icon != nullptr) {
-            const Color colour = spec.tint.value_or(spec.hue ? theme::hue(*spec.hue) : theme::text_secondary());
+            const Color colour =
+                dimmed(spec.tint.value_or(spec.hue ? theme::hue(*spec.hue) : theme::text_secondary()));
             FontScope big(Font::Current, ICON);
             const glm::vec2 icon = measure(spec.icon);
             draw_text({std::floor(pic_min.x + (PICTURE - icon.x) * 0.5f), std::floor(pic_min.y + (PICTURE - icon.y) * 0.5f)},
@@ -165,10 +175,10 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
         std::size_t end = lines[i].end;
         while (end > begin && spec.name[end - 1] == ' ') --end;
         if (i == 1 && lines.size() > 2) {
-            const std::string cut = ellipsized(spec.name.substr(begin), name_width);
-            draw_text({name_left, y}, theme::text(), cut);
+            const std::string shortened = ellipsized(spec.name.substr(begin), name_width);
+            draw_text({name_left, y}, dimmed(theme::text()), shortened);
         } else {
-            draw_line(spec.name, name_left, name_width, y, begin, end, match, match_end, theme::text());
+            draw_line(spec.name, name_left, name_width, y, begin, end, match, match_end, dimmed(theme::text()));
         }
         y += line_height();
     }
