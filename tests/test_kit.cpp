@@ -15,6 +15,7 @@
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/theme.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
@@ -218,6 +219,65 @@ TEST_CASE("What loading draws stands within the height it gives", "[ui][kit]") {
     CHECK(caption);
     // Not taller than it draws by more than a line's leading.
     CHECK(lowest >= top.y + height - ui::line_height() * 0.5f);
+}
+
+TEST_CASE("An offer that fits stands on one line, its answer before its close", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] { (void)ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now"); });
+    h.step(2);
+    const ftk::ui::core::Rect take = h.rect("Create desktop entry");
+    const ftk::ui::core::Rect close = h.rect(ui::icon::clear);
+    CHECK(take.min.y == Approx(close.min.y));
+    CHECK(take.max.x <= close.min.x);
+    CHECK(close.max.x > h.size().x - 60.0f);
+}
+
+TEST_CASE("An offer too wide for its line puts its answer under the words, at the right end", "[ui][kit]") {
+    KitHarness h({260.0f, 400.0f});
+    h.set_ui([&] { (void)ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now"); });
+    h.step(2);
+    const ftk::ui::core::Rect take = h.rect("Create desktop entry");
+    const ftk::ui::core::Rect close = h.rect(ui::icon::clear);
+    CHECK(take.min.y >= close.max.y);
+    CHECK(take.max.x > close.min.x);
+    CHECK(take.max.x <= close.max.x + 10.0f);
+}
+
+TEST_CASE("An offer's path takes a line for each part it breaks into after a slash", "[ui][kit]") {
+    const auto take_top = [](std::string_view detail) {
+        KitHarness h({260.0f, 400.0f});
+        h.set_ui([&] { (void)ui::offer_strip("Your desktop entry opens another fjell", detail, "Point it here", "Not now"); });
+        h.step(2);
+        return h.rect("Point it here").min.y;
+    };
+    float mono_line = 0.0f;
+    {
+        KitHarness h;
+        h.set_ui([&] {
+            const ui::FontScope mono(ftk::ui::Font::Mono, ftk::theme::SMALL_TEXT);
+            mono_line = ui::line_height();
+        });
+        h.step(1);
+    }
+    const float none = take_top("");
+    const float one = take_top("~/fjell-hub");
+    const float two = take_top("~/Fjell/build-release/src/fjell-hub");
+    CHECK(one - none == Approx(mono_line));
+    CHECK(two - none == Approx(mono_line * 2.0f));
+}
+
+TEST_CASE("An offer says which answer was given", "[ui][kit]") {
+    KitHarness h;
+    ui::OfferAnswer answer = ui::OfferAnswer::None;
+    h.set_ui([&] {
+        const ui::OfferAnswer given = ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now");
+        if (given != ui::OfferAnswer::None) answer = given;
+    });
+    h.step(2);
+    h.click("Create desktop entry");
+    CHECK(answer == ui::OfferAnswer::Take);
+    h.click(ui::icon::clear);
+    CHECK(answer == ui::OfferAnswer::PutOff);
 }
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {

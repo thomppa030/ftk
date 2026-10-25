@@ -64,6 +64,19 @@ bool callout(Severity severity, const char* title, const char* text,
 /// answer clicked.
 std::optional<std::size_t> notice_strip(Severity severity, const char* text, std::span<const char* const> answers);
 
+/// What an offer strip was answered with.
+enum class OfferAnswer { None, Take, PutOff };
+
+/// Something that can be done now or put off, offered over what it is about
+/// ("fjell isn't in your app launcher"): no problem, so no severity's tint, but
+/// a sunken strip with the info icon and `text` in the secondary colour, and
+/// `detail` under them in the mono face when there is one (a path), broken
+/// after a slash where it doesn't fit and never cut. Then `take` as a
+/// secondary button, after the words while it fits on their line and under
+/// them at the right end when it doesn't, and a × in the corner whose tooltip
+/// is `put_off` ("Not now"). Returns the answer clicked.
+OfferAnswer offer_strip(std::string_view text, std::string_view detail, const char* take, const char* put_off);
+
 /// A line on the raised surface, led by `icon`, saying what the fields under
 /// it stand for: "Settings for the 179 picked" over a form that edits
 /// several things (sheet 46). `text` is in the secondary colour and `strong`
