@@ -16,7 +16,6 @@ FetchContent_GetProperties(Catch2)
 # --- Unit tests ---
 # The kit's tests are ftk-kit-tests, below.
 add_executable(ftk-tests
-    test_app_identity.cpp
     test_block_encoder.cpp
     test_child_process.cpp
     test_color_space.cpp
@@ -39,6 +38,7 @@ add_executable(ftk-tests
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
     test_half.cpp
+    test_ico.cpp
     test_color_gradient.cpp
     test_hash.cpp
     test_handle_pool.cpp
