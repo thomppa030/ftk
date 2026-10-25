@@ -62,9 +62,10 @@ void menu_heading(const char* label);
 void menu_title(const char* icon, std::string_view name, std::string_view kind);
 
 /// An entry that opens a submenu ("Create new"), led by its icon, as tall as
-/// any other entry. Returns true while the submenu is open; the caller then
-/// draws its entries and calls end_menu().
-bool begin_menu(const char* icon, const char* label, bool enabled = true);
+/// any other entry; `icon_colour` as MenuItem's. Returns true while the
+/// submenu is open; the caller then draws its entries and calls end_menu().
+bool begin_menu(const char* icon, const char* label, bool enabled = true,
+                std::optional<Color> icon_colour = std::nullopt);
 
 /// Ends a submenu begin_menu() or a menu begin_bar_menu() opened.
 void end_menu();
@@ -168,7 +169,7 @@ inline void menu_entries(std::span<const MenuEntry> entries) {
         case MenuEntry::Kind::Heading: menu_heading(entry.label.c_str()); break;
         case MenuEntry::Kind::Note: text(entry.label, theme::text_disabled()); break;
         case MenuEntry::Kind::Submenu:
-            if (begin_menu(entry.icon, entry.label.c_str(), entry.enabled)) {
+            if (begin_menu(entry.icon, entry.label.c_str(), entry.enabled, entry.icon_colour)) {
                 menu_entries(entry.entries);
                 end_menu();
             }
