@@ -70,6 +70,10 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     const glm::vec2 max = min + size;
     const bool renaming = spec.rename != nullptr && spec.rename->editing(spec.key);
 
+    // The rename field is an item of its own over the tile: with it the
+    // tile is one item to the layout, so the next tile on its line goes
+    // after the tile, not after the field.
+    if (renaming) context.layout().begin_group();
     // Only the rename field may sit over the tile. Allowing overlap
     // otherwise would let whatever the owner draws behind the grid (a
     // background taking right-clicks and drops) take the tile's mouse.
@@ -142,7 +146,8 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     if (renaming) {
         set_cursor({name_left, name_top});
         result.renamed = spec.rename->draw(name_width);
-        set_cursor({min.x, max.y});
+        (void)context.layout().end_group();
+        // The tile stays the item just drawn, for the owner's menus and drags.
         kit().item = {.id = tile_id, .rect = tile, .takes = true, .in = in};
         return result;
     }
