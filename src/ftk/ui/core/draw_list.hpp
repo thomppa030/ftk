@@ -78,9 +78,25 @@ struct Primitive {
     /// A glyph's atlas page; a picture's index into DrawData::textures,
     /// where zero is none.
     uint32_t texture{0};
-    uint32_t reserved{0};
+    /// PRIMITIVE_GREY, or none.
+    uint32_t flags{0};
 };
 static_assert(sizeof(Primitive) == 80, "Primitive is uploaded as it is");
+
+/// A picture drawn in greys, each texel at its own luminance.
+inline constexpr uint32_t PRIMITIVE_GREY = 1u;
+
+/// How a picture is shown, beyond where and its corners.
+struct ImageLook {
+    /// The part of the picture that fills the rectangle, in its own 0 to 1.
+    glm::vec2 uv_min{0.0f, 0.0f};
+    glm::vec2 uv_max{1.0f, 1.0f};
+    /// Its texels times this: an alpha below one fades it.
+    Color tint{1.0f, 1.0f, 1.0f, 1.0f};
+    /// Its colour taken out, as a picture of something that can't be used
+    /// now is shown.
+    bool grey{false};
+};
 
 struct ClipRect {
     glm::vec2 min{0.0f};
@@ -146,10 +162,8 @@ public:
     void glyph(glm::vec2 min, glm::vec2 max, glm::vec2 uv_min, glm::vec2 uv_max, uint32_t page, Color colour);
 
     /// `texture` filling `min`..`max`, its corners rounded by `rounding`,
-    /// its texels times `tint`: an alpha below one fades it.
-    void image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding = 0.0f,
-               glm::vec2 uv_min = {0.0f, 0.0f}, glm::vec2 uv_max = {1.0f, 1.0f},
-               Color tint = {1.0f, 1.0f, 1.0f, 1.0f});
+    /// shown as `look` says.
+    void image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding = 0.0f, const ImageLook& look = {});
 
     /// What follows is drawn only within `min`..`max` and the clip already
     /// there, until the matching pop_clip().

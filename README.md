@@ -4,7 +4,7 @@ ftk is a toolkit for desktop programs with a GPU and an editor-style UI,
 written in C++23: an SDL window and a GPU interface with a Vulkan backend, a
 frame graph, an immediate-mode UI of its own drawn through it with a theme
 and a kit of widgets, undo, a console, and the plumbing such programs share. It began as the
-foundation of the Fjell engine and is meant for programs like it: editors,
+foundation of the fjell engine and is meant for programs like it: editors,
 tools and creative apps. It builds on Linux and Windows.
 
 ## Libraries
@@ -21,7 +21,7 @@ library it does not link; the build checks that.
 | `ftk::gpu` | The GPU interface and the window; its Vulkan backend, `src/ftk/gpu/vulkan/`, is the only code that names Vulkan |
 | `ftk::framegraph` | Pass ordering, barriers, transient images and the import catalogue |
 | `ftk::shader` | GLSL to SPIR-V through `glslc`, kept by content in a cache, with glslc's errors read back |
-| `ftk::image` | Image loading, saving and resizing (stb), encoding to BC4, BC5, BC6H and BC7 (CMP_Core), and drawing SVG files (lunasvg) |
+| `ftk::image` | Image loading, saving and resizing (stb), encoding to BC4, BC5, BC6H and BC7 (CMP_Core), drawing SVG files (lunasvg), and writing ICO files, a Windows program's icon |
 | `ftk::text` | Font faces, fallback chains, shaping and glyph rasterising (FreeType, HarfBuzz) |
 | `ftk::ui-core` | The immediate-mode UI: ids and kept state, layout, input, OS windows and popups, draw lists; no GPU code |
 | `ftk::ui-kit` | The kit's headers, the editor theme and its icons |
@@ -65,6 +65,11 @@ ftk_stage_editor_data(my_program)
 
 `ftk_stage_editor_data()` puts the theme's fonts in `ftk/fonts/` beside the
 program's binary, and the program hands that path to `ui::use_kit_fonts()`.
+`ftk_app_icon(my_program icon.svg)` gives a program its Windows icon, the
+one Explorer and the taskbar show: the SVG drawn into an ICO file as the
+program builds and built into it. Elsewhere a program's icon is its window's
+and its desktop entry's (`ftk::set_app_identity()`,
+`ftk::create_desktop_entry()`), and the call does nothing.
 When working on ftk and a program at once,
 point the fetch at a checkout with `-DFETCHCONTENT_SOURCE_DIR_FTK=<path>`.
 

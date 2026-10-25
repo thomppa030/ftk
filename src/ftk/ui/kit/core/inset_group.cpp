@@ -35,7 +35,7 @@ InsetGroup::InsetGroup(const char* id, const InsetHeading& heading) {
     context.ids().push(id);
     const Id open_id = context.id("##open");
     height_id_ = context.id("##height");
-    open_ = stored_bool(open_id, true);
+    open_ = stored_bool(open_id, heading.starts_open);
 
     min_ = cursor();
     width_ = space_left().x;

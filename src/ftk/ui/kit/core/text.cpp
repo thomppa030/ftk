@@ -116,6 +116,7 @@ FontScope::FontScope(Font font, float size) {
     case Font::Body: style.font = faces.body; break;
     case Font::Bold: style.font = faces.bold; break;
     case Font::Mono: style.font = faces.mono; break;
+    case Font::Italic: style.font = faces.italic; break;
     }
     if (size > 0.0f) style.size = size;
     text.push_style(style);

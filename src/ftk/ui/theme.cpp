@@ -104,7 +104,7 @@ static_assert(std::size(TOKEN_NAMES) == static_cast<std::size_t>(Token::count));
 
 // The hues, by name, in Hue's order.
 constexpr std::string_view HUE_NAMES[] = {
-    "blue", "ochre", "teal", "cyan", "coral", "pink", "orange", "periwinkle", "lilac", "slate", "grey",
+    "blue", "ochre", "teal", "green", "cyan", "coral", "pink", "orange", "periwinkle", "lilac", "slate", "grey",
 };
 static_assert(std::size(HUE_NAMES) == HUE_COUNT);
 

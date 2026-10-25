@@ -1,6 +1,7 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/button.hpp"
+#include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
@@ -282,6 +283,42 @@ TEST_CASE("A row's description stands in a column after its name, in the text co
     CHECK(right <= h.rect("shown").max.x + 0.5f);
 }
 
+TEST_CASE("A row named in its hue draws its name in its icon's colour, and dimmed in the disabled one",
+          "[ui][tree]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::Tree tree("##placed");
+        (void)ui::tree_row({.id = "a", .name = "Lamp", .icon = "*", .hue = theme::Hue::green});
+        h.mark("plain");
+        (void)ui::tree_row({.id = "b", .name = "Lamp", .icon = "*", .hue = theme::Hue::green, .name_in_hue = true});
+        h.mark("named");
+        (void)ui::tree_row(
+            {.id = "c", .name = "Lamp", .icon = "*", .hue = theme::Hue::green, .name_in_hue = true, .dimmed = true});
+        h.mark("dimmed");
+    });
+    h.step(2);
+    // How many shapes the last frame drew in `colour` inside the row marked `row`.
+    const auto drawn_in = [&](const char* row, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        int count = 0;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(row).contains((p.min + p.max) * 0.5f)) ++count;
+            }
+        }
+        return count;
+    };
+    const ftk::ui::Color green = theme::hue(theme::Hue::green);
+    const int icon = drawn_in("plain", green);
+    const int name = drawn_in("plain", theme::text());
+    REQUIRE(icon > 0);
+    REQUIRE(name > 0);
+    CHECK(drawn_in("named", theme::text()) == 0);
+    CHECK(drawn_in("named", green) == icon + name);
+    CHECK(drawn_in("dimmed", green) == icon);
+    CHECK(drawn_in("dimmed", theme::text_disabled()) == name);
+}
+
 TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     KitHarness h;
     bool folded_open = true;
@@ -439,4 +476,52 @@ TEST_CASE("An open row's inset holds its rows at the window's spacing, and the t
     h.step(2);
     CHECK_FALSE(open);
     CHECK(after == row_bottom);
+}
+
+TEST_CASE("A drag resting on a folded row opens it after a while, and it stays open", "[ui][kit]") {
+    KitHarness h;
+    bool child_drawn = false;
+    h.set_ui([&] {
+        ui::button("carry");
+        h.mark("carry");
+        if (auto drag = ui::DragSource()) drag.carry("THING", "crate");
+        if (auto tree = ui::Tree("##tree")) {
+            const auto yard = ui::tree_row({.id = "1", .name = "Yard", .has_children = true, .starts_open = false});
+            h.mark("yard");
+            child_drawn = yard.open;
+            if (yard.open) (void)ui::tree_row({.id = "2", .name = "Shed", .depth = 1});
+        }
+    });
+    h.step(2);
+    const glm::vec2 from = h.rect("carry").centre();
+    const glm::vec2 over = h.rect("yard").centre();
+    h.move_to(from);
+    h.button_down();
+    h.move_to(from + glm::vec2(20.0f, 0.0f));
+    h.move_to(over);
+    // A moment passing over it opens nothing.
+    h.step(10);
+    CHECK_FALSE(child_drawn);
+    // Resting there past 0.6 s does.
+    h.step(40);
+    CHECK(child_drawn);
+    h.button_up();
+    h.step(3);
+    CHECK(child_drawn);
+}
+
+TEST_CASE("A folded row the mouse rests on without a drag stays folded", "[ui][kit]") {
+    KitHarness h;
+    bool child_drawn = false;
+    h.set_ui([&] {
+        if (auto tree = ui::Tree("##tree")) {
+            const auto yard = ui::tree_row({.id = "1", .name = "Yard", .has_children = true, .starts_open = false});
+            h.mark("yard");
+            child_drawn = yard.open;
+        }
+    });
+    h.step(2);
+    h.move_to(h.rect("yard").centre());
+    h.step(60);
+    CHECK_FALSE(child_drawn);
 }

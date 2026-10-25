@@ -398,7 +398,10 @@ Composed composed(const TextEditing& state) {
 }
 
 void finish_item(const core::Focus& focus, const TextInput& out) {
-    Item& item = kit().item;
+    Kit& k = kit();
+    Item& item = k.item;
+    // Typed into, it is active as a held item is: a group holding it is too.
+    if (focus.focused) ++k.holds_placed;
     item.keyboard = true;
     item.focused = focus.focused;
     item.focus_gained = focus.gained;

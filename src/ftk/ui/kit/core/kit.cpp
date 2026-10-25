@@ -191,6 +191,7 @@ core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
     k.next = {};
     const core::Interaction in = ui().interact(id, rect, sense);
     k.item = {.id = id, .rect = rect, .takes = true, .in = in};
+    if (in.held) ++k.holds_placed;
     // What a pointer holds or the keyboard is in keeps its row drawn.
     if (k.row_drawn != 0 && (in.held || ui().focused() == id)) live_rows(k).now = k.row_drawn;
     return in;
@@ -382,6 +383,7 @@ bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory) {
     corekit::Faces& faces = corekit::kit_of(ui).faces;
     faces.body = ui.text().add_font(chain(body));
     faces.bold = ui.text().add_font(chain(face(directory, {"Geist-Bold.ttf", "Inter-Bold.ttf"})));
+    faces.italic = ui.text().add_font(chain(face(directory, {"Geist-MediumItalic.ttf"})));
     // JetBrains Mono, not Geist Mono: its ligatures keep a cell for each
     // character, where Geist Mono's draw "->" in one and pull the rest of
     // the line off the grid.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ftk/ui/draw_list.hpp"
+#include "ftk/ui/types.hpp"
 
 #include <glm/vec2.hpp>
 
@@ -63,6 +64,19 @@ bool callout(Severity severity, const char* title, const char* text,
 /// answer clicked.
 std::optional<std::size_t> notice_strip(Severity severity, const char* text, std::span<const char* const> answers);
 
+/// What an offer strip was answered with.
+enum class OfferAnswer { None, Take, PutOff };
+
+/// Something that can be done now or put off, offered over what it is about
+/// ("fjell isn't in your app launcher"): no problem, so no severity's tint, but
+/// a sunken strip with the info icon and `text` in the secondary colour, and
+/// `detail` under them in the mono face when there is one (a path), broken
+/// after a slash where it doesn't fit and never cut. Then `take` as a
+/// secondary button, after the words while it fits on their line and under
+/// them at the right end when it doesn't, and a × in the corner whose tooltip
+/// is `put_off` ("Not now"). Returns the answer clicked.
+OfferAnswer offer_strip(std::string_view text, std::string_view detail, const char* take, const char* put_off);
+
 /// A line on the raised surface, led by `icon`, saying what the fields under
 /// it stand for: "Settings for the 179 picked" over a form that edits
 /// several things (sheet 46). `text` is in the secondary colour and `strong`
@@ -81,6 +95,17 @@ inline constexpr float UNSAVED_DOT_RADIUS = 4.0f;
 /// left in the window. With an `action`, a button for the one obvious thing
 /// to do; returns true when it is clicked. Plain statements, no full stops.
 bool empty_state(const char* icon, const char* title, const char* what_to_do,
+                 const char* action = nullptr);
+
+/// How tall a picture stands over an empty state's words: a program's
+/// logomark where nothing is open, drawn at this height for its own pixels.
+inline constexpr float EMPTY_PICTURE_HEIGHT = 64.0f;
+
+/// The same with `picture`, `size` units big, in the icon's place: where
+/// nothing is open in a program, its logomark in its own colours,
+/// EMPTY_PICTURE_HEIGHT tall. A picture that isn't ready keeps its room, so
+/// the words stand where they will stay.
+bool empty_state(Texture picture, glm::vec2 size, const char* title, const char* what_to_do,
                  const char* action = nullptr);
 
 } // namespace ftk::ui

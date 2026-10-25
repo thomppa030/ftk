@@ -47,6 +47,8 @@ struct AssetTileSpec {
     TileBadge badge{TileBadge::none};
     /// Said under the name in the tooltip: why the badge is there.
     std::string_view note{};
+    /// Cut, waiting for a Paste: its picture and its name dimmed.
+    bool cut{false};
 };
 
 struct AssetTileResult {

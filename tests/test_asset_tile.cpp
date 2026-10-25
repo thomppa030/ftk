@@ -117,3 +117,32 @@ TEST_CASE("A tile's badge marks work going on, failed or a file not imported, an
     REQUIRE(h.tooltip().has_value());
     CHECK(h.tooltip()->height() > one_line);
 }
+
+TEST_CASE("A tile being renamed keeps the tiles after it on its line, and stays the item drawn", "[ui][kit]") {
+    // The content browser lays its tiles a line at a time, each after the
+    // last with same_line().
+    KitHarness h;
+    ui::RenameBox rename;
+    constexpr float GAP = 8.0f;
+    h.set_ui([&] {
+        (void)ui::asset_tile({.id = "1", .name = "crate.fjmesh", .icon = "*", .rename = &rename, .key = 1});
+        h.mark("first");
+        ui::same_line(GAP);
+        (void)ui::asset_tile({.id = "2", .name = "barrel.fjmesh", .icon = "*", .rename = &rename, .key = 2});
+        h.mark("second");
+        ui::same_line(GAP);
+        (void)ui::asset_tile({.id = "3", .name = "lamp.fjmesh", .icon = "*", .rename = &rename, .key = 3});
+        h.mark("third");
+    });
+    h.step(2);
+    const ftk::ui::core::Rect first = h.rect("first");
+    rename.start(1, "crate.fjmesh");
+    h.step(2);
+    REQUIRE(rename.editing(1));
+    CHECK(h.rect("first").min == first.min);
+    CHECK(h.rect("first").max == first.max);
+    CHECK(h.rect("second").min.y == first.min.y);
+    CHECK(h.rect("second").min.x == first.max.x + GAP);
+    CHECK(h.rect("third").min.y == first.min.y);
+    CHECK(h.rect("third").min.x == h.rect("second").max.x + GAP);
+}

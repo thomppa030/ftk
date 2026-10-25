@@ -14,6 +14,13 @@ namespace ftk::ui {
 
 using namespace corekit;
 
+namespace {
+
+// The spinner loading() draws over its caption.
+constexpr float LOADING_RADIUS = 14.0f;
+
+} // namespace
+
 void spinner(DrawList list, glm::vec2 centre, float radius, float seconds) {
     constexpr float TURN = 4.0f;  // radians a second
     const float start = seconds * TURN;
@@ -24,11 +31,14 @@ void spinner(DrawList list, glm::vec2 centre, float radius, float seconds) {
 }
 
 void loading(DrawList list, glm::vec2 top_centre, std::string_view what, float seconds) {
-    constexpr float RADIUS = 14.0f;
-    spinner(list, {top_centre.x, top_centre.y + RADIUS}, RADIUS, seconds);
+    spinner(list, {top_centre.x, top_centre.y + LOADING_RADIUS}, LOADING_RADIUS, seconds);
     const float w = measure(what).x;
-    list.text({std::floor(top_centre.x - w * 0.5f), top_centre.y + RADIUS * 2.0f + theme::GAP_L},
+    list.text({std::floor(top_centre.x - w * 0.5f), top_centre.y + LOADING_RADIUS * 2.0f + theme::GAP_L},
               theme::text_secondary(), what);
+}
+
+float loading_height() {
+    return LOADING_RADIUS * 2.0f + theme::GAP_L + line_height();
 }
 
 void progress_bar(float fraction, float width, const char* label) {

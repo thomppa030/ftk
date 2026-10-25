@@ -69,8 +69,8 @@ void rectangles(Painter& p, vec2 at, std::size_t& chip) {
                      theme::hue(theme::Hue::pink));
     const ui::Id chips = ui.id("##chips");
     for (std::size_t h = 0; h < theme::HUE_COUNT; ++h) {
-        const vec2 min = at + vec2{static_cast<float>(h) * 31.5f, 168.0f};
-        const vec2 max = min + vec2{26.0f, 26.0f};
+        const vec2 min = at + vec2{static_cast<float>(h) * 28.5f, 168.0f};
+        const vec2 max = min + vec2{24.0f, 24.0f};
         const core::Interaction in = ui.interact(core::hash_int(static_cast<int>(h), chips), {.min = min, .max = max});
         if (in.clicked) chip = h;
         if (in.hovered) ui.set_cursor_shape(ui::MouseCursor::Hand);

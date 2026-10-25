@@ -85,12 +85,14 @@ glm::vec2 window_padding() {
     return kit().style.window_padding;
 }
 
-Group::Group() {
+Group::Group() : holds_at_start_{kit().holds_placed} {
     ui().layout().begin_group();
 }
 
 Group::~Group() {
+    const bool holds = kit().holds_placed != holds_at_start_;
     place_still(ui().layout().end_group());
+    kit().item.holds = holds;
 }
 
 } // namespace ftk::ui

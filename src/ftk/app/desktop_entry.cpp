@@ -115,12 +115,18 @@ std::string desktop_exec(const fs::path& program) {
 }
 
 fs::path desktop_data_home() {
-    if constexpr (!HAS_DESKTOP_ENTRIES) return {};
-    if (const char* data = std::getenv("XDG_DATA_HOME"); data != nullptr && fs::path(data).is_absolute()) return data;
-    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-        return fs::path(home) / ".local" / "share";
+    if constexpr (!HAS_DESKTOP_ENTRIES) {
+        return {};
+    } else {
+        if (const char* data = std::getenv("XDG_DATA_HOME");
+            data != nullptr && fs::path(data).is_absolute()) {
+            return data;
+        }
+        if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+            return fs::path(home) / ".local" / "share";
+        }
+        return {};
     }
-    return {};
 }
 
 std::optional<fs::path> desktop_entry_program(std::string_view id, const fs::path& data_home) {

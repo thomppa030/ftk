@@ -28,6 +28,8 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 // concatenation with adjacent text, e.g. ICON_LC_PLAY " Play".
 #define ICON_LC_APP_WINDOW           "\xee\x90\xa6"  // U+E426
 #define ICON_LC_CLIPBOARD_COPY       "\xee\x88\xa5"  // U+E225
+#define ICON_LC_CLIPBOARD_PASTE      "\xee\x8f\xa8"  // U+E3E8
+#define ICON_LC_SCISSORS             "\xee\x85\x8e"  // U+E14E
 #define ICON_LC_EXTERNAL_LINK        "\xee\x82\xb9"  // U+E0B9
 #define ICON_LC_FILE_PLUS            "\xee\x83\x89"  // U+E0C9
 #define ICON_LC_FLAME                "\xee\x83\x92"  // U+E0D2

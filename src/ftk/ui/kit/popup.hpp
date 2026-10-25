@@ -49,7 +49,8 @@ private:
     bool open_{false};
 };
 
-/// The popup of the item just drawn, opened by a right click on it.
+/// The popup of the item just drawn, opened by a right click on it. Each
+/// item has its own: the rows of a list may all name theirs `id`.
 class ContextMenu {
 public:
     explicit ContextMenu(const char* id);

@@ -2,7 +2,7 @@
 # part of a program: windowing, maths, logging, JSON, stb, zstd, CMP_Core for
 # block compression, FreeType and HarfBuzz for text, lunasvg for SVG files,
 # Vulkan with VMA, and Tracy when it is switched on.
-# Fjell's libraries
+# fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
 

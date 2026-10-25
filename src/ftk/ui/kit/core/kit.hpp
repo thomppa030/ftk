@@ -22,6 +22,7 @@
 #include <glm/vec3.hpp>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -56,6 +57,7 @@ struct Faces {
     core::FontId body{0};
     core::FontId bold{0};
     core::FontId mono{0};
+    core::FontId italic{0};
     bool loaded{false};
 };
 
@@ -77,6 +79,9 @@ struct Item {
     /// An item the keyboard edits, a text field: active while it has the
     /// keyboard, not while the mouse holds it.
     bool keyboard{false};
+    /// A group (Group) with an item in it that a pointer holds or the
+    /// keyboard is in: active, as the item is.
+    bool holds{false};
 };
 
 /// The text of the field that has the keyboard, as it is being edited.
@@ -345,6 +350,10 @@ public:
     std::vector<Style> styles{};
     Faces faces{};
     Item item{};
+    /// How many items placed so far were active (item_active()): held by a
+    /// pointer, or a text field the keyboard is in. A group holds one of its
+    /// own when the count moves while it lives.
+    uint64_t holds_placed{0};
     /// How far below its line's top text sits on the line of the item just
     /// drawn: a field's padding once the line holds a field or was set
     /// level with one, as ImGui keeps a line's text offset.
@@ -389,6 +398,10 @@ public:
     /// The row whose contents are being drawn, while they are; zero
     /// outside a row.
     Id row_drawn{0};
+    /// The folded tree row a drag rests on and when it came to rest there,
+    /// to open it once it has rested long enough; zero for none.
+    Id unfold_row{0};
+    double unfold_since{0.0};
     LiveRow live_row{};
     PickedColour picked{};
     EdgeBars bars{};

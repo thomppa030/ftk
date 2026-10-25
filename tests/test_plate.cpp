@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/plate.hpp"
+#include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/text_field.hpp"
 
 #include <string>
@@ -155,4 +156,108 @@ TEST_CASE("What a plate or a card holds keeps inside it, the room left ending at
     // The rule across the room left ends inside the plate, centred in the
     // view: 200 to 400, its padding in from each side.
     CHECK(h.rect("rule").max.x <= 400.0f - (200.0f - plate_inner) * 0.5f + 0.5f);
+}
+
+TEST_CASE("A card holding more than its view has room for stays inside it, what it holds scrolling under the wheel",
+          "[ui][kit][plate]") {
+    KitHarness h;
+    const glm::vec2 view_max{600.0f, 300.0f};
+    bool shown = true;
+    glm::vec2 card_min{0.0f};
+    glm::vec2 card_max{0.0f};
+    int clicked = -1;
+    h.set_ui([&] {
+        // What it hangs over scrolls too: the wheel over the card is the card's.
+        if (auto under = ui::Region("##under", {600.0f, 300.0f})) {
+            for (int i = 0; i < 40; ++i) {
+                (void)ui::button(("Under " + std::to_string(i)).c_str());
+                if (i == 0) h.mark("under");
+            }
+        }
+        if (!shown) return;
+        if (auto card = ui::Card("##card", {.view_min = {0.0f, 0.0f}, .view_max = view_max,
+                                            .anchor_min = {100.0f, 20.0f}, .anchor_max = {140.0f, 36.0f},
+                                            .width = 200.0f, .padding = {12.0f, 10.0f}})) {
+            const glm::vec2 top = ui::cursor();
+            for (int i = 0; i < 30; ++i) {
+                if (ui::button(("Row " + std::to_string(i)).c_str())) clicked = i;
+                h.mark("row " + std::to_string(i));
+            }
+            card_min = card.min();
+            card_max = card.max(ui::cursor().y - top.y);
+        }
+    });
+    h.step(3);
+
+    // No taller than the room under its anchor, in from the view's foot.
+    CHECK(card_min.y > 36.0f);
+    CHECK(card_max.y <= view_max.y - ui::PLATE_INSET + 0.5f);
+    const ui::core::Rect first = h.rect("row 0");
+    const ui::core::Rect last = h.rect("row 29");
+    CHECK(last.min.y > card_max.y);
+    // A row past its foot is out of sight, and takes no click.
+    h.click_at({h.rect("row 12").centre().x, h.rect("row 12").max.y - 2.0f});
+    if (h.rect("row 12").min.y > card_max.y) CHECK(clicked == -1);
+
+    // The wheel over it scrolls what it holds, and nothing under it.
+    const float under_before = h.rect("under").min.y;
+    h.wheel({card_min.x + 60.0f, card_min.y + 60.0f}, -2.0f);
+    h.step(30);
+    CHECK(h.rect("row 0").min.y < first.min.y - 40.0f);
+    CHECK(h.rect("under").min.y == under_before);
+
+    // As far as it goes: its last row shows, and takes a click.
+    h.wheel({card_min.x + 60.0f, card_min.y + 60.0f}, -100.0f);
+    h.step(30);
+    const ui::core::Rect bottom = h.rect("row 29");
+    CHECK(bottom.max.y <= card_max.y);
+    CHECK(bottom.max.y > card_max.y - 40.0f);
+    h.click("row 29");
+    CHECK(clicked == 29);
+
+    // Its scrollbar down its right edge: a press near its top takes what it
+    // holds back up.
+    h.click_at({card_max.x - 4.0f, card_min.y + 10.0f});
+    h.step(10);
+    CHECK(h.rect("row 0").min.y > first.min.y - 30.0f);
+
+    // Shut and opened again, it starts at its top.
+    h.wheel({card_min.x + 60.0f, card_min.y + 60.0f}, -100.0f);
+    h.step(30);
+    shown = false;
+    h.step(2);
+    shown = true;
+    h.step(3);
+    CHECK(h.rect("row 0").min.y == first.min.y);
+}
+
+TEST_CASE("A card that fits takes the pointer as tall as what it holds, and has no scrollbar", "[ui][kit][plate]") {
+    KitHarness h;
+    int under = 0;
+    glm::vec2 card_max{0.0f};
+    h.set_ui([&] {
+        ui::core::Context& context = ui::core::current();
+        const auto in = context.interact(context.id("##view"), {.min = {0.0f, 0.0f}, .max = {600.0f, 400.0f}},
+                                         {.beneath = true, .overlap = true});
+        under += in.pressed ? 1 : 0;
+        if (auto card = ui::Card("##card", {.view_min = {0.0f, 0.0f}, .view_max = {600.0f, 400.0f},
+                                            .anchor_min = {100.0f, 20.0f}, .anchor_max = {140.0f, 36.0f},
+                                            .width = 200.0f, .padding = {12.0f, 10.0f}})) {
+            (void)ui::button("Go");
+            h.mark("go");
+            card_max = card.max(1000.0f);
+        }
+    });
+    h.step(3);
+    const ui::core::Rect go = h.rect("go");
+    // The most it may show reaches the view's foot, but it takes the pointer
+    // only down to its padding under the button.
+    CHECK(card_max.y == 400.0f - ui::PLATE_INSET);
+    h.click_at({go.centre().x, go.max.y + 10.0f - 2.0f});
+    CHECK(under == 0);
+    h.click_at({go.centre().x, go.max.y + 10.0f + 4.0f});
+    CHECK(under == 1);
+    // At its right edge, where a scrollbar would be, nothing scrolls.
+    h.click_at({card_max.x - 4.0f, go.centre().y});
+    CHECK(h.rect("go").min.y == go.min.y);
 }

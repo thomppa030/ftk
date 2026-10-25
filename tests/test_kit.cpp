@@ -1,5 +1,6 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/core/context.hpp"
 #include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
@@ -15,6 +16,7 @@
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/row.hpp"
 #include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/theme.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/viewport_toolbar.hpp"
@@ -25,6 +27,7 @@
 
 #include <vector>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -143,6 +146,156 @@ TEST_CASE("An empty state sits in the middle of the space and offers its action"
     CHECK(max.y < area_max.y - 100.0f);
     h.click("action");
     CHECK(clicks == 1);
+}
+
+TEST_CASE("An empty state's picture stands centred over its words, the block in the middle", "[ui][kit]") {
+    KitHarness h;
+    const ui::Texture mark{77};
+    const glm::vec2 size{ui::EMPTY_PICTURE_HEIGHT, ui::EMPTY_PICTURE_HEIGHT};
+    glm::vec2 area_min{};
+    glm::vec2 area_max{};
+    h.set_ui([&] {
+        area_min = ui::cursor();
+        area_max = area_min + ui::space_left();
+        ui::empty_state(mark, size, "No file open", "Open one from the file menu", "Open file");
+        h.mark("action");
+    });
+    h.step(2);
+
+    const ftk::ui::core::DrawData& drawn = *h.output().roots.front().draw;
+    const auto listed = std::ranges::find(drawn.textures, mark);
+    REQUIRE(listed != drawn.textures.end());
+    const auto index = static_cast<uint32_t>(listed - drawn.textures.begin());
+    // Glyphs name their atlas page in the same field; a picture is a rectangle.
+    const auto picture = std::ranges::find_if(drawn.primitives, [&](const ftk::ui::core::Primitive& primitive) {
+        return primitive.kind == ftk::ui::core::PrimitiveKind::Rect && primitive.texture == index;
+    });
+    REQUIRE(picture != drawn.primitives.end());
+
+    CHECK(picture->max - picture->min == size);
+    CHECK(std::abs((picture->min.x + picture->max.x) * 0.5f - (area_min.x + area_max.x) * 0.5f) <= 1.0f);
+    const ftk::ui::core::Rect action = h.rect("action");
+    CHECK(picture->max.y < action.min.y);
+    // As much room above the picture as below the action.
+    CHECK(std::abs((picture->min.y - area_min.y) - (area_max.y - action.max.y)) <= 2.0f);
+}
+
+TEST_CASE("An empty state's picture that isn't ready keeps its room", "[ui][kit]") {
+    const glm::vec2 size{ui::EMPTY_PICTURE_HEIGHT, ui::EMPTY_PICTURE_HEIGHT};
+    const auto action_with = [&](ui::Texture picture) {
+        KitHarness h;
+        h.set_ui([&] {
+            ui::empty_state(picture, size, "No file open", "Open one from the file menu", "Open file");
+            h.mark("action");
+        });
+        h.step(2);
+        return h.rect("action");
+    };
+    const ftk::ui::core::Rect ready = action_with(ui::Texture{77});
+    const ftk::ui::core::Rect waiting = action_with(ui::Texture{});
+    CHECK(waiting.min == ready.min);
+    CHECK(waiting.max == ready.max);
+}
+
+TEST_CASE("What loading draws stands within the height it gives", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 top{};
+    float height = 0.0f;
+    h.set_ui([&] {
+        top = ui::cursor() + glm::vec2{200.0f, 40.0f};
+        height = ui::loading_height();
+        ui::loading(ui::DrawList::window(), top, "Opening harbour\xe2\x80\xa6", 0.5f);
+    });
+    h.step(2);
+
+    const ftk::ui::core::DrawData& drawn = *h.output().roots.front().draw;
+    float lowest = top.y;
+    bool caption = false;
+    for (const ftk::ui::core::Primitive& primitive : drawn.primitives) {
+        if (primitive.min.y < top.y - 2.0f) continue;  // the window behind
+        CHECK(primitive.max.y <= top.y + height + 1.0f);
+        lowest = std::max(lowest, primitive.max.y);
+        caption = caption || primitive.kind == ftk::ui::core::PrimitiveKind::Glyph;
+    }
+    CHECK(caption);
+    // Not taller than it draws by more than a line's leading.
+    CHECK(lowest >= top.y + height - ui::line_height() * 0.5f);
+}
+
+TEST_CASE("An offer that fits stands on one line, its answer before its close", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] { (void)ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now"); });
+    h.step(2);
+    const ftk::ui::core::Rect take = h.rect("Create desktop entry");
+    const ftk::ui::core::Rect close = h.rect(ui::icon::clear);
+    CHECK(take.min.y == Approx(close.min.y));
+    CHECK(take.max.x <= close.min.x);
+    CHECK(close.max.x > h.size().x - 60.0f);
+}
+
+TEST_CASE("An offer too wide for its line puts its answer under the words, at the right end", "[ui][kit]") {
+    KitHarness h({260.0f, 400.0f});
+    h.set_ui([&] { (void)ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now"); });
+    h.step(2);
+    const ftk::ui::core::Rect take = h.rect("Create desktop entry");
+    const ftk::ui::core::Rect close = h.rect(ui::icon::clear);
+    CHECK(take.min.y >= close.max.y);
+    CHECK(take.max.x > close.min.x);
+    CHECK(take.max.x <= close.max.x + 10.0f);
+}
+
+TEST_CASE("An offer's path takes a line for each part it breaks into after a slash", "[ui][kit]") {
+    const auto take_top = [](std::string_view detail) {
+        KitHarness h({260.0f, 400.0f});
+        h.set_ui([&] { (void)ui::offer_strip("Your desktop entry opens another fjell", detail, "Point it here", "Not now"); });
+        h.step(2);
+        return h.rect("Point it here").min.y;
+    };
+    float mono_line = 0.0f;
+    {
+        KitHarness h;
+        h.set_ui([&] {
+            const ui::FontScope mono(ftk::ui::Font::Mono, ftk::theme::SMALL_TEXT);
+            mono_line = ui::line_height();
+        });
+        h.step(1);
+    }
+    const float none = take_top("");
+    const float one = take_top("~/fjell-hub");
+    const float two = take_top("~/Fjell/build-release/src/fjell-hub");
+    CHECK(one - none == Approx(mono_line));
+    CHECK(two - none == Approx(mono_line * 2.0f));
+}
+
+TEST_CASE("Each of the kit's faces is its own, the italic one for emphasis", "[ui][kit]") {
+    KitHarness h;
+    std::vector<ui::core::FontId> faces;
+    h.set_ui([&] {
+        faces.clear();
+        for (const ui::Font font : {ui::Font::Body, ui::Font::Bold, ui::Font::Mono, ftk::theme::italic_font()}) {
+            const ui::FontScope scope(font, 0.0f);
+            faces.push_back(ui::core::current().text().style().font);
+        }
+    });
+    h.step(1);
+    REQUIRE(faces.size() == 4);
+    std::vector<ui::core::FontId> apart = faces;
+    std::ranges::sort(apart);
+    CHECK(std::ranges::adjacent_find(apart) == apart.end());
+}
+
+TEST_CASE("An offer says which answer was given", "[ui][kit]") {
+    KitHarness h;
+    ui::OfferAnswer answer = ui::OfferAnswer::None;
+    h.set_ui([&] {
+        const ui::OfferAnswer given = ui::offer_strip("fjell isn't in your app launcher", "", "Create desktop entry", "Not now");
+        if (given != ui::OfferAnswer::None) answer = given;
+    });
+    h.step(2);
+    h.click("Create desktop entry");
+    CHECK(answer == ui::OfferAnswer::Take);
+    h.click(ui::icon::clear);
+    CHECK(answer == ui::OfferAnswer::PutOff);
 }
 
 TEST_CASE("An asset's kind comes from its extension, by domain", "[ui][kit]") {

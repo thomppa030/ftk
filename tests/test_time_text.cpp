@@ -31,6 +31,34 @@ TEST_CASE("A file's time reads as today, a day this year, or a day before it", "
     CHECK(ftk::time_text(local(2025, 10, 16, 9, 12), now) == "16 Oct 2025");
 }
 
+TEST_CASE("Something done lately reads as minutes or hours ago, then yesterday, then its day", "[time_text]") {
+    // A day without a clock change, so hours on the clock are hours gone by.
+    const auto now = local(2026, 10, 16, 14, 0);
+    CHECK(ftk::ago_text(now - std::chrono::seconds(20), now) == "just now");
+    CHECK(ftk::ago_text(local(2026, 10, 16, 13, 59), now) == "1 minute ago");
+    CHECK(ftk::ago_text(local(2026, 10, 16, 13, 1), now) == "59 minutes ago");
+    CHECK(ftk::ago_text(local(2026, 10, 16, 13, 0), now) == "1 hour ago");
+    CHECK(ftk::ago_text(local(2026, 10, 16, 11, 30), now) == "2 hours ago");
+    CHECK(ftk::ago_text(local(2026, 10, 16, 0, 10), now) == "13 hours ago");
+    CHECK(ftk::ago_text(local(2026, 10, 15, 23, 30), now) == "yesterday");
+    CHECK(ftk::ago_text(local(2026, 10, 15, 0, 5), now) == "yesterday");
+    CHECK(ftk::ago_text(local(2026, 10, 14, 9, 0), now) == "14 Oct");
+    CHECK(ftk::ago_text(local(2026, 1, 2, 14, 20), now) == "2 Jan");
+    CHECK(ftk::ago_text(local(2025, 3, 3, 9, 12), now) == "3 Mar 2025");
+}
+
+TEST_CASE("Just after midnight, the hour before reads in minutes and earlier hours as yesterday", "[time_text]") {
+    const auto now = local(2026, 10, 16, 0, 20);
+    CHECK(ftk::ago_text(local(2026, 10, 15, 23, 50), now) == "30 minutes ago");
+    CHECK(ftk::ago_text(local(2026, 10, 15, 22, 0), now) == "yesterday");
+}
+
+TEST_CASE("A time after now reads as just now", "[time_text]") {
+    const auto now = local(2026, 10, 16, 14, 0);
+    CHECK(ftk::ago_text(now + std::chrono::minutes(5), now) == "just now");
+    CHECK(ftk::ago_text(local(2027, 1, 1, 0, 0), now) == "just now");
+}
+
 TEST_CASE("A file written now reads as now on the system clock", "[time_text]") {
     // Both clocks are read within a second of each other; the file clock's
     // own epoch would put the time unconverted years away.

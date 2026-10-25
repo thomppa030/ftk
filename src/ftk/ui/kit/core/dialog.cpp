@@ -22,7 +22,9 @@
 #include <cmath>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ftk::ui {
@@ -308,6 +310,22 @@ void change_lines(UnsavedItem& item, float indent) {
     }
 }
 
+// A list dialog's rows, drawn by `rows`, in a list as tall as they were
+// drawn last frame, up to LIST_TALLEST, past which it scrolls. `count`
+// guesses the height the first frame.
+template <typename Rows>
+void tall_list(const char* id, std::size_t count, Rows&& rows) {
+    core::Context& context = ui();
+    const Id tall = context.id("#LIST_HEIGHT");
+    const float guess = static_cast<float>(count) * frame_height();
+    const float height = std::min(stored_float(tall, guess), LIST_TALLEST);
+    context.begin_region(id, {core::FILL, height});
+    const float top = cursor().y;
+    std::forward<Rows>(rows)();
+    store_float(tall, cursor().y - top);
+    context.end_region();
+}
+
 // The things a list dialog asks about, a checkbox each before the icon, the
 // name and the dimmed detail, and what changed under them. Returns how many
 // are ticked.
@@ -343,17 +361,8 @@ UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<U
                                   const char* going) {
     if (!begin_dialog_as_wide(id, {.title = title}, LIST_WIDTH)) return UnsavedAnswer::None;
     end_body();
-    // The list as tall as it was drawn last frame, up to LIST_TALLEST, past
-    // which it scrolls.
-    core::Context& context = ui();
-    const Id tall = context.id("#LIST_HEIGHT");
-    const float guess = static_cast<float>(items.size()) * frame_height();
-    const float height = std::min(stored_float(tall, guess), LIST_TALLEST);
-    context.begin_region("##unsaved", {core::FILL, height});
-    const float top = cursor().y;
-    const int ticked = item_rows(items);
-    store_float(tall, cursor().y - top);
-    context.end_region();
+    int ticked = 0;
+    tall_list("##unsaved", items.size(), [&] { ticked = item_rows(items); });
 
     std::string verb;
     if (ticked == 0) {
@@ -392,7 +401,7 @@ bool clash_choice(const char* id, int& index, bool replaceable, float width) {
 
 // One name asked about, a row on the sunken surface: its icon, name and a
 // note, over what is there and what comes, the choice at the right.
-void clash_row(ClashItem& item) {
+void clash_row(ClashItem& item, const char* coming) {
     core::Context& context = ui();
     const float name_h = line_height();
     float facts_h = 0.0f;
@@ -448,7 +457,7 @@ void clash_row(ClashItem& item) {
         };
         part("here ", theme::text_secondary());
         part(item.here, theme::text_disabled());
-        part(" \xc2\xb7 dropped ", theme::text_secondary());
+        part(std::string(" \xc2\xb7 ") + coming + " ", theme::text_secondary());
         part(item.dropped, theme::text_disabled());
     }
 }
@@ -483,18 +492,21 @@ DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<Clash
     if (!spec.copied.empty()) status(Severity::Success, spec.copied.c_str());
     reserve({0.0f, theme::GAP_S});
 
-    // "Every file": lit where every row agrees, and setting them all; Replace
-    // leaves the rows that can't write over what is there as they are.
+    // "Every file": lit where every row agrees, and setting them all; Replace,
+    // offered while some row can take it, leaves the rows that can't write
+    // over what is there as they are.
     {
         const bool agree = !items.empty() && std::ranges::all_of(items, [&](const ClashItem& item) {
             return item.choice == items.front().choice;
         });
+        const bool replaceable = std::ranges::any_of(items, [](const ClashItem& item) { return item.replaceable; });
+        const float width = replaceable ? CLASH_CHOICE_WIDTH : CLASH_CHOICE_WIDTH * 2.0f / 3.0f;
         int every = agree ? static_cast<int>(items.front().choice) : -1;
         const glm::vec2 start = cursor();
         align_text_to_frame();
         text("Every file", theme::text());
-        set_cursor({start.x + space_left().x - CLASH_PAD_X - CLASH_CHOICE_WIDTH, start.y});
-        if (clash_choice("##every", every, true, CLASH_CHOICE_WIDTH)) {
+        set_cursor({start.x + space_left().x - CLASH_PAD_X - width, start.y});
+        if (clash_choice("##every", every, replaceable, width)) {
             for (ClashItem& item : items) {
                 if (every != static_cast<int>(ClashChoice::Replace) || item.replaceable) {
                     item.choice = static_cast<ClashChoice>(every);
@@ -504,7 +516,7 @@ DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<Clash
     }
     for (std::size_t i = 0; i < items.size(); ++i) {
         IdScope scope(static_cast<int>(i));
-        clash_row(items[i]);
+        clash_row(items[i], spec.coming);
     }
 
     // Counted once the rows have taken this frame's clicks, so the buttons
@@ -515,7 +527,7 @@ DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<Clash
         });
     };
     const auto copies = counted(ClashChoice::Replace) + counted(ClashChoice::KeepBoth);
-    const std::string verb = copies == 1 ? std::string("Copy 1 file") : "Copy " + std::to_string(copies) + " files";
+    const std::string verb = std::string(spec.verb) + (copies == 1 ? std::string(" 1 file") : " " + std::to_string(copies) + " files");
     const DialogSpec dialog{
         .title = spec.title, .confirm = verb.c_str(), .destructive = counted(ClashChoice::Replace) > 0};
     const std::string warning = written_over(items, spec.folder);
@@ -526,6 +538,58 @@ DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<Clash
                                   align_text_to_frame();
                                   status(Severity::Warning, warning.c_str());
                               });
+}
+
+namespace {
+
+// The things a list dialog names, a row each: the icon, the name and the
+// dimmed detail, and under them, after a warning mark, the warning.
+void listed_rows(std::span<const ListedItem> items) {
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        const ListedItem& item = items[i];
+        IdScope scope(static_cast<int>(i));
+        if (item.icon != nullptr) {
+            align_text_to_frame();
+            text(item.icon, item.icon_colour);
+            same_line(theme::GAP_S + 2.0f);
+        }
+        const float name_x = cursor().x;
+        align_text_to_frame();
+        text(item.name);
+        if (!item.detail.empty()) {
+            same_line();
+            align_text_to_frame();
+            text(item.detail, theme::text_secondary());
+        }
+        if (item.warning.empty()) continue;
+        FontScope small(Font::Current, theme::SMALL_TEXT);
+        set_cursor({name_x, cursor().y});
+        text(icon::warning, theme::warning());
+        same_line(theme::GAP_S);
+        Kit& k = kit();
+        k.text_wraps.push_back(0.0f);
+        text(item.warning, theme::text_secondary());
+        k.text_wraps.pop_back();
+    }
+}
+
+} // namespace
+
+DialogAnswer list_dialog(const char* id, const DialogSpec& spec, std::string_view text_line,
+                         std::span<const ListedItem> items, std::string_view warning) {
+    if (!begin_dialog_as_wide(id, spec, LIST_WIDTH)) return DialogAnswer::None;
+    if (!text_line.empty()) text(text_line);
+    // The rows in their own colours, unwrapped; the body's again for the
+    // buttons' line, which lets it go.
+    end_body();
+    tall_list("##listed", items.size(), [&] { listed_rows(items); });
+    begin_body();
+    return detail::end_dialog(spec, {}, [&](float) {
+        if (warning.empty()) return;
+        align_text_to_frame();
+        const std::string said(warning);
+        status(Severity::Warning, said.c_str());
+    });
 }
 
 RecoverAnswer recover_dialog(const char* id, const char* title, const char* text, std::span<UnsavedItem> items) {

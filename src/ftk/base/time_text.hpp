@@ -18,4 +18,14 @@ namespace ftk {
 [[nodiscard]] std::string time_text(std::chrono::system_clock::time_point when,
                                     std::chrono::system_clock::time_point now);
 
+/// How long before `now` something was done, as a person says it of what
+/// they did lately: "just now" under a minute, "12 minutes ago" under an
+/// hour, "2 hours ago" on the day `now` falls on, "yesterday" on the day
+/// before, then the day as time_text() writes it, "19 Oct" earlier that year
+/// and "3 Mar 2025" before it, in local time. A time after `now` reads as
+/// "just now". On the main thread: it reads the local time through
+/// std::localtime.
+[[nodiscard]] std::string ago_text(std::chrono::system_clock::time_point when,
+                                   std::chrono::system_clock::time_point now);
+
 } // namespace ftk

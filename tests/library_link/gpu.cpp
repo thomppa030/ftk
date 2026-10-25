@@ -7,7 +7,7 @@
 // lists, two of them at once on two threads, and acceleration structure
 // builds and a ray query where the GPU has them,
 // which takes a GPU and a display: it is run by hand, not as a test. It uses
-// the interface alone, as a program outside Fjell would, and counts what the
+// the interface alone, as a program outside fjell would, and counts what the
 // device refuses by the errors it logs.
 
 #include "ftk/base/log.hpp"
