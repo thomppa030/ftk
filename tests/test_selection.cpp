@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 using ftk::ui::Modifiers;
@@ -77,4 +78,45 @@ TEST_CASE("A selection keeps only what is still there", "[ui][selection]") {
     selection.clear();
     CHECK(selection.empty());
     CHECK_FALSE(selection.primary().has_value());
+}
+
+TEST_CASE("A box picks what it took, the one nearest where it began the primary", "[ui][selection]") {
+    Selection<uint32_t> selection;
+    selection.click(10, PLAIN, SHOWN);
+    const std::array<uint32_t, 3> took{30, 40, 50};
+    selection.boxed(took, 40U, PLAIN);
+    CHECK(picked(selection) == std::vector<uint32_t>{30, 50, 40});
+    CHECK(selection.primary() == 40U);
+
+    // One that took nothing leaves nothing picked.
+    selection.boxed({}, std::nullopt, PLAIN);
+    CHECK(selection.empty());
+}
+
+TEST_CASE("A box with Shift adds what it took, the primary staying", "[ui][selection]") {
+    Selection<uint32_t> selection;
+    selection.click(10, PLAIN, SHOWN);
+    selection.click(20, CTRL, SHOWN);
+    const std::array<uint32_t, 2> took{40, 50};
+    selection.boxed(took, 50U, SHIFT);
+    CHECK(picked(selection) == std::vector<uint32_t>{10, 20, 40, 50});
+    CHECK(selection.primary() == 20U);
+
+    // With nothing picked, the nearest becomes the primary.
+    Selection<uint32_t> none;
+    none.boxed(took, 40U, SHIFT);
+    CHECK(none.primary() == 40U);
+}
+
+TEST_CASE("A box with Ctrl takes away what it took, Ctrl winning over Shift", "[ui][selection]") {
+    Selection<uint32_t> selection;
+    selection.click(10, PLAIN, SHOWN);
+    selection.click(30, SHIFT, SHOWN);
+    const std::array<uint32_t, 2> took{20, 30};
+    selection.boxed(took, 30U, CTRL);
+    CHECK(picked(selection) == std::vector<uint32_t>{10});
+
+    const std::array<uint32_t, 1> one{10};
+    selection.boxed(one, 10U, {.ctrl = true, .shift = true});
+    CHECK(selection.empty());
 }

@@ -2,8 +2,9 @@
 
 // What is picked in a list, a tree or a grid, by one model everywhere: a
 // click picks one alone, Ctrl-click adds or takes away one, Shift-click
-// picks the run from the last one clicked to it, in the order shown. The
-// one picked last is the primary, which what acts on a single item shows.
+// picks the run from the last one clicked to it, in the order shown, and a
+// box dragged over them picks, adds or takes away what it covers. The one
+// picked last is the primary, which what acts on a single item shows.
 //
 //     ui::Selection<uint32_t> picked;
 //     if (ui::item_clicked()) picked.click(id, ui::modifiers(), shown_ids);
@@ -76,6 +77,25 @@ public:
         }
         primary_ = key;
         anchor_ = anchor;
+    }
+
+    /// What a box dragged over the items does, by the keys held: what it
+    /// `took` becomes what is picked, the one `nearest` where the box began
+    /// the primary; with Shift it is added, the primary staying (`nearest`
+    /// when there was none); with Ctrl it is taken away (Ctrl wins over
+    /// Shift). A plain box that took nothing leaves nothing picked.
+    void boxed(std::span<const Key> took, const std::optional<Key>& nearest, Modifiers modifiers) {
+        if (modifiers.ctrl) {
+            keep_if([&](const Key& key) { return std::find(took.begin(), took.end(), key) == took.end(); });
+            return;
+        }
+        const std::optional<Key> kept_primary = modifiers.shift ? primary_ : std::nullopt;
+        if (!modifiers.shift) clear();
+        for (const Key& key : took) {
+            if (key != nearest) add(key);
+        }
+        if (nearest) add(*nearest);
+        if (kept_primary) add(*kept_primary);
     }
 
     /// `key` added, made the primary and the anchor.
