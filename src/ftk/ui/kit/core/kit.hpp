@@ -22,6 +22,7 @@
 #include <glm/vec3.hpp>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -77,6 +78,9 @@ struct Item {
     /// An item the keyboard edits, a text field: active while it has the
     /// keyboard, not while the mouse holds it.
     bool keyboard{false};
+    /// A group (Group) with an item in it that a pointer holds or the
+    /// keyboard is in: active, as the item is.
+    bool holds{false};
 };
 
 /// The text of the field that has the keyboard, as it is being edited.
@@ -345,6 +349,10 @@ public:
     std::vector<Style> styles{};
     Faces faces{};
     Item item{};
+    /// How many items placed so far were active (item_active()): held by a
+    /// pointer, or a text field the keyboard is in. A group holds one of its
+    /// own when the count moves while it lives.
+    uint64_t holds_placed{0};
     /// How far below its line's top text sits on the line of the item just
     /// drawn: a field's padding once the line holds a field or was set
     /// level with one, as ImGui keeps a line's text offset.

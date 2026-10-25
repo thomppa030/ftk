@@ -82,7 +82,10 @@ Popup::~Popup() {
 }
 
 ContextMenu::ContextMenu(const char* id) {
-    const Id popup = ui().id(id);
+    // Keyed to the item just drawn as well as to `id`: each row of a list
+    // opens a menu of its own, though every row names it alike.
+    const Id item = kit().item.id;
+    const Id popup = item != 0 ? core::hash_label(id, item) : ui().id(id);
     // A right click let go on the item just drawn opens it there.
     if (item_hovered() && mouse_released(MouseButton::Right)) ui().open_popup(popup);
     open_ = begin(popup);

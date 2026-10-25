@@ -24,7 +24,8 @@ bool item_under_mouse() {
 bool item_active() {
     const Item& item = kit().item;
     if (item.keyboard) return item.focused;
-    return item.takes && (item.in.held || item.focused);
+    if (!item.takes) return item.holds;
+    return item.in.held || item.focused;
 }
 
 bool item_activated() {

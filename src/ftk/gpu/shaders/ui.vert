@@ -17,7 +17,7 @@ struct Primitive {
     uint kind;
     uint clip;
     uint texture;
-    uint reserved;
+    uint flags;
 };
 
 layout(std430, set = 0, binding = 0) readonly buffer UiPrimitives {

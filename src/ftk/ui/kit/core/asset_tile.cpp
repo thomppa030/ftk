@@ -115,7 +115,7 @@ AssetTileResult asset_tile(const AssetTileSpec& spec) {
     const glm::vec2 pic_min{std::floor(min.x + (size.x - PICTURE) * 0.5f), min.y + PAD_TOP};
     const glm::vec2 pic_max = pic_min + glm::vec2{PICTURE};
     if (spec.picture) {
-        dl.image(spec.picture, pic_min, pic_max, ROUNDING, {0.0f, 0.0f}, {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, shown});
+        dl.image(spec.picture, pic_min, pic_max, ROUNDING, {.tint = {1.0f, 1.0f, 1.0f, shown}});
     } else {
         if (spec.selected || hovered) dl.rect_filled(pic_min, pic_max, faded(theme::surface_sunken()), ROUNDING);
         if (spec.icon != nullptr) {

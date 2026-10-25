@@ -45,16 +45,16 @@ enum class Token : uint8_t {
     count,
 };
 
-/// The palette a program tells kinds of things apart by: eleven hues, each
+/// The palette a program tells kinds of things apart by: twelve hues, each
 /// given to one kind (Fjell gives one to each domain, rendering, physics and
-/// the rest). The same hue marks a thing wherever it shows: a tree row's icon
-/// or dots, a component block's bar, a tab's edge, a canvas node's header, a
-/// tag.
+/// the rest, and one to presets). The same hue marks a thing wherever it
+/// shows: a tree row's icon or dots, a component block's bar, a tab's edge, a
+/// canvas node's header, a tag.
 enum class Hue {
-    blue, ochre, teal, cyan, coral, pink,
+    blue, ochre, teal, green, cyan, coral, pink,
     orange, periwinkle, lilac, slate, grey,
 };
-inline constexpr std::size_t HUE_COUNT = 11;
+inline constexpr std::size_t HUE_COUNT = 12;
 
 /// A colour with a name to show, as a folder's in the content browser.
 struct NamedColour {

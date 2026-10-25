@@ -14,6 +14,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstdint>
 #include <limits>
 #include <string_view>
 
@@ -84,7 +85,9 @@ void align_text_to_frame();
 [[nodiscard]] glm::vec2 window_padding();
 
 /// While it lives, what is drawn is one item to same_line() and the item_
-/// queries: a field with its unit, a pill of buttons.
+/// queries: a field with its unit, a pill of buttons. The group is active
+/// while an item in it is: a field held or typed into, so a block of fields
+/// knows when its edit is under way.
 class Group {
 public:
     Group();
@@ -93,6 +96,9 @@ public:
     Group& operator=(const Group&) = delete;
     Group(Group&&) = delete;
     Group& operator=(Group&&) = delete;
+
+private:
+    uint64_t holds_at_start_{0};
 };
 
 } // namespace ftk::ui

@@ -191,6 +191,7 @@ core::Interaction place(Id id, core::Rect rect, core::Sense sense) {
     k.next = {};
     const core::Interaction in = ui().interact(id, rect, sense);
     k.item = {.id = id, .rect = rect, .takes = true, .in = in};
+    if (in.held) ++k.holds_placed;
     // What a pointer holds or the keyboard is in keeps its row drawn.
     if (k.row_drawn != 0 && (in.held || ui().focused() == id)) live_rows(k).now = k.row_drawn;
     return in;

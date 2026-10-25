@@ -41,6 +41,9 @@ struct InsetHeading {
     const char* remove_tooltip{"Remove"};
     /// Shown at the heading's right while the box is folded: what it holds.
     const char* folded_summary{nullptr};
+    /// Whether the box is open the first time it is drawn; a fold after that
+    /// is kept either way.
+    bool starts_open{true};
 };
 
 class InsetGroup {

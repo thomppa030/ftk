@@ -209,12 +209,27 @@ TEST_CASE("A picture's texels can be tinted, an alpha below one fading it", "[ui
     core::Context ui;
     const Color faded{1.0f, 1.0f, 1.0f, 0.35f};
     const core::DrawData& data = drawn(ui, [&](core::DrawList& dl) {
-        dl.image(ftk::ui::Texture{9}, {0.0f, 0.0f}, {32.0f, 32.0f}, 0.0f, {0.25f, 0.5f}, {0.75f, 1.0f}, faded);
+        dl.image(ftk::ui::Texture{9}, {0.0f, 0.0f}, {32.0f, 32.0f}, 0.0f,
+                 {.uv_min = {0.25f, 0.5f}, .uv_max = {0.75f, 1.0f}, .tint = faded});
     });
     REQUIRE(data.primitives.size() == 1);
     CHECK(data.primitives[0].colour == core::pack_colour(faded));
     CHECK(data.primitives[0].colour2 == core::pack_colour(faded));
     CHECK(data.primitives[0].extra == glm::vec4{0.25f, 0.5f, 0.75f, 1.0f});
+    CHECK(data.primitives[0].flags == 0u);
+}
+
+TEST_CASE("A picture can be drawn in greys", "[ui-core]") {
+    core::Context ui;
+    const core::DrawData& data = drawn(ui, [&](core::DrawList& dl) {
+        dl.image(ftk::ui::Texture{9}, {0.0f, 0.0f}, {32.0f, 32.0f}, 3.0f, {.grey = true});
+        dl.image(ftk::ui::Texture{9}, {40.0f, 0.0f}, {72.0f, 32.0f}, 3.0f);
+    });
+    REQUIRE(data.primitives.size() == 2);
+    CHECK(data.primitives[0].flags == core::PRIMITIVE_GREY);
+    CHECK(data.primitives[1].flags == 0u);
+    // The same picture either way: one texture slot.
+    CHECK(data.primitives[0].texture == data.primitives[1].texture);
 }
 
 TEST_CASE("Each frame starts each window's drawing afresh", "[ui-core]") {

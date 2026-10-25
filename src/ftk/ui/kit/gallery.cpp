@@ -146,15 +146,10 @@ void tokens() {
         swatch("danger_hov", theme::danger_hov());
 
         subheading("Hues");
-        constexpr std::pair<const char*, theme::Hue> hues[] = {
-            {"blue", theme::Hue::blue},     {"ochre", theme::Hue::ochre},
-            {"teal", theme::Hue::teal},     {"cyan", theme::Hue::cyan},
-            {"coral", theme::Hue::coral},   {"pink", theme::Hue::pink},
-            {"orange", theme::Hue::orange}, {"periwinkle", theme::Hue::periwinkle},
-            {"lilac", theme::Hue::lilac},   {"slate", theme::Hue::slate},
-            {"grey", theme::Hue::grey},
-        };
-        for (const auto& [name, h] : hues) swatch(name, theme::hue(h));
+        for (std::size_t i = 0; i < theme::HUE_COUNT; ++i) {
+            const auto h = static_cast<theme::Hue>(i);
+            swatch(std::string(theme::name(h)).c_str(), theme::hue(h));
+        }
 
         subheading("Axes and canvas");
         swatch("axis_x", theme::axis_x());
@@ -410,6 +405,14 @@ void KitGallery::lists() {
                 picked_row_ = i;
             }
         }
+        (void)picture_row({.id = "large", .icon = ICON_LC_FOLDER, .name = "Harbour", .detail = "Opened 2 hours ago",
+                           .size = PictureRowSize::large, .path = "~/games/harbour"},
+                          false);
+        (void)picture_row({.id = "large_gone", .icon = ICON_LC_FOLDER, .name = "Storm prototype",
+                           .size = PictureRowSize::large, .path = "/run/media/archive/storm-proto",
+                           .problem = "Folder not found", .unavailable = true,
+                           .tooltip = "Moved, renamed, or on a drive that isn't connected"},
+                          false);
 
         subheading("Tree");
         search_field("##gallery_search", query_);
