@@ -142,6 +142,7 @@ TEST_CASE("A large picture row holds a 128 by 72 picture with room around it", "
     LargeRows r;
     // Sheet 55: the picture and six units above and below it.
     CHECK(r.h.rect("fjara").height() == 84.0f);
+    CHECK(ui::picture_row_height(ui::PictureRowSize::large) == 84.0f);
     const auto pictures = r.showing(5);
     REQUIRE(pictures.size() == 1);
     CHECK(pictures[0].max.x - pictures[0].min.x == 128.0f);

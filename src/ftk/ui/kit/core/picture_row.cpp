@@ -39,6 +39,10 @@ constexpr float UNAVAILABLE_PICTURE = 0.4f;
 // The size of the lines under the name.
 constexpr float SMALL_LINE = theme::SMALL_TEXT - 1.0f;
 
+const Measures& measures(PictureRowSize size) {
+    return size == PictureRowSize::large ? LARGE : SMALL;
+}
+
 float line_height_in(Font font, float size) {
     FontScope scope(font, size);
     return line_height();
@@ -49,9 +53,9 @@ float line_height_in(Font font, float size) {
 PictureRowResult picture_row(const PictureRowSpec& spec, bool selected) {
     PictureRowResult result;
     core::Context& context = ui();
-    const Measures& m = spec.size == PictureRowSize::large ? LARGE : SMALL;
+    const Measures& m = measures(spec.size);
     IdScope scope(spec.id);
-    const glm::vec2 size{space_left().x, m.picture.y + (m.pad * 2.0f)};
+    const glm::vec2 size{space_left().x, picture_row_height(spec.size)};
     const core::Rect row = context.layout().next(size);
     const Id row_id = context.id("##row");
     const core::Interaction in = place(row_id, row);
@@ -120,6 +124,11 @@ PictureRowResult picture_row(const PictureRowSpec& spec, bool selected) {
     kit().item = {.id = row_id, .rect = row, .takes = true, .in = in};
     if (in.hovered && !context.dragging() && !spec.tooltip.empty()) item_tooltip(spec.tooltip);
     return result;
+}
+
+float picture_row_height(PictureRowSize size) {
+    const Measures& m = measures(size);
+    return m.picture.y + (m.pad * 2.0f);
 }
 
 } // namespace ftk::ui

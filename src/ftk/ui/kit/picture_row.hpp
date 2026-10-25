@@ -69,4 +69,8 @@ struct PictureRowResult {
 /// A row as wide as the space left.
 PictureRowResult picture_row(const PictureRowSpec& spec, bool selected);
 
+/// How tall a row of `size` is, for a long list that places the rows it
+/// doesn't draw (RowsInView).
+[[nodiscard]] float picture_row_height(PictureRowSize size);
+
 } // namespace ftk::ui
