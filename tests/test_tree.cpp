@@ -282,6 +282,42 @@ TEST_CASE("A row's description stands in a column after its name, in the text co
     CHECK(right <= h.rect("shown").max.x + 0.5f);
 }
 
+TEST_CASE("A row named in its hue draws its name in its icon's colour, and dimmed in the disabled one",
+          "[ui][tree]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::Tree tree("##placed");
+        (void)ui::tree_row({.id = "a", .name = "Lamp", .icon = "*", .hue = theme::Hue::green});
+        h.mark("plain");
+        (void)ui::tree_row({.id = "b", .name = "Lamp", .icon = "*", .hue = theme::Hue::green, .name_in_hue = true});
+        h.mark("named");
+        (void)ui::tree_row(
+            {.id = "c", .name = "Lamp", .icon = "*", .hue = theme::Hue::green, .name_in_hue = true, .dimmed = true});
+        h.mark("dimmed");
+    });
+    h.step(2);
+    // How many shapes the last frame drew in `colour` inside the row marked `row`.
+    const auto drawn_in = [&](const char* row, ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        int count = 0;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect(row).contains((p.min + p.max) * 0.5f)) ++count;
+            }
+        }
+        return count;
+    };
+    const ftk::ui::Color green = theme::hue(theme::Hue::green);
+    const int icon = drawn_in("plain", green);
+    const int name = drawn_in("plain", theme::text());
+    REQUIRE(icon > 0);
+    REQUIRE(name > 0);
+    CHECK(drawn_in("named", theme::text()) == 0);
+    CHECK(drawn_in("named", green) == icon + name);
+    CHECK(drawn_in("dimmed", green) == icon);
+    CHECK(drawn_in("dimmed", theme::text_disabled()) == name);
+}
+
 TEST_CASE("A row can start folded; rows start open by default", "[ui][tree]") {
     KitHarness h;
     bool folded_open = true;

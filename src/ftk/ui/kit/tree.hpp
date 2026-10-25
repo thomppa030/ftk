@@ -75,8 +75,12 @@ struct TreeRowSpec {
     /// plain node (an empty, a mesh) is in the secondary text colour.
     const char* icon{nullptr};
     std::optional<theme::Hue> hue{};
-    /// Colours the icon in place of its hue (a preset).
+    /// Colours the icon in place of its hue (a folder the user coloured).
     std::optional<Color> tint{};
+    /// The name in the icon's colour too, in place of the text colour, so the
+    /// rows of something placed whole read as one (a placed preset's nodes).
+    /// A `dimmed` row's name stays in the disabled colour.
+    bool name_in_hue{false};
     /// One dot per hue composed onto the node, in this order.
     std::span<const theme::Hue> dots{};
     /// A quiet word at the row's end, before the dots, small and in the

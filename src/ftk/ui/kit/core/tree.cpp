@@ -218,8 +218,8 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     }
 
     float x = twisty_x + twisty() + PART_GAP;
+    const Color tint = spec.tint.value_or(spec.hue ? theme::hue(*spec.hue) : theme::text_secondary());
     if (spec.icon != nullptr) {
-        const Color tint = spec.tint.value_or(spec.hue ? theme::hue(*spec.hue) : theme::text_secondary());
         draw_text({x, text_y}, tint, spec.icon);
         x += measure(spec.icon).x + PART_GAP;
     }
@@ -246,7 +246,7 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     }
 
     const float name_right = max.x - ROW_PAD - dots_w - tag_w;
-    const Color ink = spec.dimmed ? theme::text_disabled() : theme::text();
+    const Color ink = spec.dimmed ? theme::text_disabled() : spec.name_in_hue ? tint : theme::text();
     if (renaming) {
         set_cursor({x - kit().style.frame_padding.x, min.y + (row_height() - frame_height()) * 0.5f});
         result.renamed = spec.rename->draw(std::max(name_right - x, 1.0f));
