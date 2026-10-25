@@ -91,7 +91,9 @@ inline constexpr const char* EXE_EXT = "";
 /// there is none.
 [[nodiscard]] std::optional<std::filesystem::path> find_program(std::string_view program);
 
-/// Runs a shell command, captures stdout+stderr. Returns exit code.
+/// Runs a shell command and captures what it prints to its standard output;
+/// a command ending `2>&1` has its errors captured too. Returns its exit code,
+/// -1 when it can't be run.
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);
 
 /// Spawn a detached child process. The child runs independently and is
