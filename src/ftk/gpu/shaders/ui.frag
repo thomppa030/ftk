@@ -19,7 +19,7 @@ struct Primitive {
     uint kind;
     uint clip;
     uint texture;
-    uint reserved;
+    uint flags;
 };
 
 layout(std430, set = 0, binding = 0) readonly buffer UiPrimitives {
@@ -47,6 +47,9 @@ const uint KIND_SEGMENT = 1u;
 const uint KIND_ARC = 2u;
 const uint KIND_TRIANGLE = 3u;
 const uint KIND_GLYPH = 4u;
+
+// A picture drawn in greys (PRIMITIVE_GREY).
+const uint FLAG_GREY = 1u;
 
 const float TAU = 6.28318530718;
 
@@ -104,6 +107,10 @@ vec3 encode_srgb(vec3 light) {
     return mix(light * 12.92, 1.055 * pow(light, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), light));
 }
 
+vec3 decode_srgb(vec3 value) {
+    return mix(value / 12.92, pow((value + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), value));
+}
+
 // How much of the pixel the shape covers, from its distance.
 float coverage(float distance, float softness) {
     if (softness > 0.0) return 1.0 - smoothstep(-softness, softness, distance);
@@ -131,6 +138,10 @@ void main() {
             vec4 texel = texture(pictures[nonuniformEXT(slot)], uv);
             // Light, encoded into the sRGB values the canvas holds.
             if (((view.linear >> slot) & 1u) != 0u) texel.rgb = encode_srgb(texel.rgb);
+            // Each texel at its own luminance, weighed in light (Rec. 709).
+            if ((p.flags & FLAG_GREY) != 0u) {
+                texel.rgb = encode_srgb(vec3(dot(decode_srgb(texel.rgb), vec3(0.2126, 0.7152, 0.0722))));
+            }
             colour *= texel;
         }
     } else if (p.kind == KIND_SEGMENT) {

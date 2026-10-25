@@ -229,8 +229,7 @@ void DrawList::glyph(glm::vec2 min, glm::vec2 max, glm::vec2 uv_min, glm::vec2 u
          .texture = page});
 }
 
-void DrawList::image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding, glm::vec2 uv_min,
-                     glm::vec2 uv_max, Color tint) {
+void DrawList::image(Texture texture, glm::vec2 min, glm::vec2 max, float rounding, const ImageLook& look) {
     if (!texture) return;
     // Each picture once per frame, however often it is shown.
     auto& textures = data_->textures;
@@ -239,14 +238,15 @@ void DrawList::image(Texture texture, glm::vec2 min, glm::vec2 max, float roundi
         textures.push_back(texture);
         found = textures.end() - 1;
     }
-    const uint32_t packed = pack_colour(tint);
+    const uint32_t packed = pack_colour(look.tint);
     add({.min = min,
          .max = max,
          .shape = radii(min, max, rounding, RoundCorners::All),
-         .extra = {uv_min, uv_max},
+         .extra = {look.uv_min, look.uv_max},
          .colour = packed,
          .colour2 = packed,
-         .texture = static_cast<uint32_t>(found - textures.begin())});
+         .texture = static_cast<uint32_t>(found - textures.begin()),
+         .flags = look.grey ? PRIMITIVE_GREY : 0u});
 }
 
 void DrawList::push_clip(glm::vec2 min, glm::vec2 max) {
