@@ -389,6 +389,10 @@ public:
     /// The row whose contents are being drawn, while they are; zero
     /// outside a row.
     Id row_drawn{0};
+    /// The folded tree row a drag rests on and when it came to rest there,
+    /// to open it once it has rested long enough; zero for none.
+    Id unfold_row{0};
+    double unfold_since{0.0};
     LiveRow live_row{};
     PickedColour picked{};
     EdgeBars bars{};

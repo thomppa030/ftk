@@ -17,7 +17,8 @@
 // px with a chevron when it has children, a guide line per level, the
 // node's icon tinted in its hue, its name, and a dot per hue of
 // what is composed onto it. The owner walks its own tree and decides what
-// is selected; the row draws and reports.
+// is selected; the row draws and reports. A drag resting on a folded row
+// for 0.6 s opens it, so a row inside it can be reached.
 //
 //     if (auto tree = ui::Tree("##scene")) {
 //         const auto row = ui::tree_row({.id = "12", .name = node.name, .depth = 1, ...});

@@ -33,6 +33,8 @@ constexpr float DOT = 7.0f;
 constexpr float DOT_GAP = 4.0f;
 constexpr float DOTS_LEAD = 8.0f;
 constexpr float ROUNDING = 3.0f;
+// How long a drag rests on a folded row before the row opens.
+constexpr double UNFOLD_SECONDS = 0.6;
 // The insert line's thickness and the ring at its start.
 constexpr float INSERT_LINE = 2.0f;
 constexpr float RING = 8.0f;
@@ -181,6 +183,25 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     if (renaming) next_item_allows_overlap();
     const core::Rect row = context.layout().next({width, row_height()});
     const core::Interaction in = place(row_id, row);
+    // A drag resting on a folded row opens it once it has rested a while, as
+    // a click on its chevron would, so a row inside it can be reached; it
+    // stays open after.
+    if (spec.has_children && !open && !spec.force_open && in.under && context.dragging()) {
+        if (k.unfold_row != row_id) {
+            k.unfold_row = row_id;
+            k.unfold_since = context.time();
+        }
+        const double at = k.unfold_since + UNFOLD_SECONDS;
+        if (context.time() >= at) {
+            open = true;
+            store_bool(open_id, true);
+            k.unfold_row = 0;
+        } else {
+            context.request_frame_at(at);
+        }
+    } else if (k.unfold_row == row_id) {
+        k.unfold_row = 0;
+    }
     context.semantics(row_id, core::Role::TreeItem, spec.name, {},
                       {.selected = spec.selection != RowSelection::None, .expanded = open || spec.force_open});
     const bool hovered = in.hovered;
