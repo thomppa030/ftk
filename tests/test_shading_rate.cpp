@@ -86,7 +86,7 @@ TEST_CASE("Of two rates as large, the squarer is taken, then the wider", "[gpu][
     ShadingRates no_square{};
     no_square.offer({2, 1}, Samples::x1);
     no_square.offer({1, 2}, Samples::x1);
-    // A GPU may take either of 2x1 and 1x2; Fjell names the wide one.
+    // A GPU may take either of 2x1 and 1x2; fjell names the wide one.
     CHECK(rate_for(no_square, Samples::x1, {2, 2}) == ShadingRate{2, 1});
 }
 

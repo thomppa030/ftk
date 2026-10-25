@@ -4,7 +4,7 @@ ftk is a toolkit for desktop programs with a GPU and an editor-style UI,
 written in C++23: an SDL window and a GPU interface with a Vulkan backend, a
 frame graph, an immediate-mode UI of its own drawn through it with a theme
 and a kit of widgets, undo, a console, and the plumbing such programs share. It began as the
-foundation of the Fjell engine and is meant for programs like it: editors,
+foundation of the fjell engine and is meant for programs like it: editors,
 tools and creative apps. It builds on Linux and Windows.
 
 ## Libraries

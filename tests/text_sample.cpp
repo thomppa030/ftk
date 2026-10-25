@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     const float column = static_cast<float>(WIDTH - 2 * MARGIN);
     const float left = static_cast<float>(MARGIN);
     float y = static_cast<float>(MARGIN);
-    y = draw(image, atlas, heading, "Fjell text, through ftk-text", 28.0f, left, y, column, INK);
+    y = draw(image, atlas, heading, "fjell text, through ftk-text", 28.0f, left, y, column, INK);
     y = draw(image, atlas, body,
              "Kerning in AV, To and WA; marks in caf\xc3\xa9, na\xc3\xafve and e\xcc\x81 composed. "
              "Icons sit in the line: \xee\x90\xa6 Save scene, \xee\x86\x8e Delete. "
