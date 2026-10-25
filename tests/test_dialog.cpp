@@ -470,3 +470,69 @@ TEST_CASE("Every file sets every row, Replace leaving a folder as it is", "[ui][
     h.press(ui::Key::Escape);
     CHECK(clashes.answer == ui::DialogAnswer::Cancel);
 }
+
+namespace {
+
+// A list dialog that deletes, opened on the first frame; `answer` keeps the
+// last answer it gave.
+struct DeleteList {
+    std::vector<ui::ListedItem> items;
+    bool open_now{true};
+    ui::DialogAnswer answer{ui::DialogAnswer::None};
+
+    void draw() {
+        if (open_now) {
+            ui::open_dialog("##delete");
+            open_now = false;
+        }
+        const auto given = ui::list_dialog("##delete", {.title = "Delete 2 files?", .confirm = "Delete 2 files",
+                                                        .destructive = true},
+                                           "They are deleted from disk. This can't be undone.", items,
+                                           "1 other file uses them");
+        if (given != ui::DialogAnswer::None) answer = given;
+    }
+};
+
+} // namespace
+
+TEST_CASE("A list dialog that destroys cancels on Enter and deletes only from its button", "[ui][kit]") {
+    KitHarness h;
+    DeleteList dialog{.items = {{.name = "rock_01.fjmesh", .detail = "and rock_01.glb, its source",
+                                 .warning = "Used by scenes/shore.fjell"},
+                                {.name = "moss.fjmat"}}};
+    h.set_ui([&] { dialog.draw(); });
+    h.step(3);
+    REQUIRE(h.find("Delete 2 files") != nullptr);
+    h.press(ui::Key::Enter);
+    CHECK(dialog.answer == ui::DialogAnswer::Cancel);
+
+    dialog.answer = ui::DialogAnswer::None;
+    dialog.open_now = true;
+    h.step(3);
+    h.click("Delete 2 files");
+    CHECK(dialog.answer == ui::DialogAnswer::Confirm);
+}
+
+TEST_CASE("A warning under a listed thing takes a line of its own", "[ui][kit]") {
+    KitHarness h;
+    DeleteList dialog{.items = {{.name = "rock_01.fjmesh"}, {.name = "moss.fjmat"}}};
+    h.set_ui([&] { dialog.draw(); });
+    h.step(3);
+    const float plain = h.rect("Cancel").min.y;
+    dialog.items[0].warning = "Used by scenes/shore.fjell";
+    h.step(3);
+    CHECK(h.rect("Cancel").min.y > plain + 8.0f);
+}
+
+TEST_CASE("A list dialog stops growing at its tallest and scrolls", "[ui][kit]") {
+    KitHarness h{{800.0f, 1400.0f}};
+    DeleteList dialog{.items = {{.name = "rock_01.fjmesh"}}};
+    h.set_ui([&] { dialog.draw(); });
+    h.step(3);
+    const float one = h.rect("Cancel").min.y;
+    for (int i = 0; i < 40; ++i) dialog.items.push_back({.name = "rock_" + std::to_string(i) + ".fjmesh"});
+    h.step(3);
+    // Forty rows would push the buttons far further down.
+    CHECK(h.rect("Cancel").min.y - one <= 330.0f);
+    CHECK(h.rect("Cancel").min.y - one > 100.0f);
+}

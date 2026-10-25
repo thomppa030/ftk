@@ -10,6 +10,7 @@
 #include <span>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <utility>
 
 // A dialog that asks before something that can't be undone: the editor
@@ -145,6 +146,24 @@ struct UnsavedItem {
 /// tall. Returns the answer on the frame it is given.
 UnsavedAnswer unsaved_list_dialog(const char* id, const char* title, std::span<UnsavedItem> items,
                                   const char* going = "quit");
+
+/// One thing a list dialog names: a file a delete of several takes.
+struct ListedItem {
+    const char* icon{nullptr};
+    Color icon_colour{};
+    std::string name{};     ///< "rock_01.fjmesh"
+    std::string detail{};   ///< dimmed after the name: "and rock_01.glb, its source"
+    std::string warning{};  ///< under it, after a warning mark: "Used by scenes/shore.fjell"
+};
+
+/// Asks about several things at once, as deleting several files does:
+/// `spec`'s title and `text` under it, then a row each, the kind's icon, the
+/// name and its detail dimmed after it, a warning under it where it has one,
+/// in a list that scrolls once it is tall; `warning`, when given, on the
+/// buttons' line, left of Cancel and the verb, which are confirm_dialog()'s.
+/// Returns the answer on the frame it is given.
+DialogAnswer list_dialog(const char* id, const DialogSpec& spec, std::string_view text,
+                         std::span<const ListedItem> items, std::string_view warning = {});
 
 /// How a name a copy finds already there is answered.
 enum class ClashChoice : std::uint8_t { Replace, KeepBoth, Skip };
