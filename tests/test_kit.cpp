@@ -1,5 +1,6 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/core/context.hpp"
 #include "ftk/ui/draw_list.hpp"
 #include "ftk/ui/kit/asset_kind.hpp"
 #include "ftk/ui/kit/button.hpp"
@@ -264,6 +265,23 @@ TEST_CASE("An offer's path takes a line for each part it breaks into after a sla
     const float two = take_top("~/Fjell/build-release/src/fjell-hub");
     CHECK(one - none == Approx(mono_line));
     CHECK(two - none == Approx(mono_line * 2.0f));
+}
+
+TEST_CASE("Each of the kit's faces is its own, the italic one for emphasis", "[ui][kit]") {
+    KitHarness h;
+    std::vector<ui::core::FontId> faces;
+    h.set_ui([&] {
+        faces.clear();
+        for (const ui::Font font : {ui::Font::Body, ui::Font::Bold, ui::Font::Mono, ftk::theme::italic_font()}) {
+            const ui::FontScope scope(font, 0.0f);
+            faces.push_back(ui::core::current().text().style().font);
+        }
+    });
+    h.step(1);
+    REQUIRE(faces.size() == 4);
+    std::vector<ui::core::FontId> apart = faces;
+    std::ranges::sort(apart);
+    CHECK(std::ranges::adjacent_find(apart) == apart.end());
 }
 
 TEST_CASE("An offer says which answer was given", "[ui][kit]") {

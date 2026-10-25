@@ -20,6 +20,8 @@ enum class Font : uint8_t {
     Bold,
     /// For the console and code.
     Mono,
+    /// For emphasis: the body's face, slanted.
+    Italic,
 };
 
 } // namespace ftk::ui

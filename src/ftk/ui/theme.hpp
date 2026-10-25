@@ -308,4 +308,7 @@ inline float label_column(float width) {
 /// The monospace face, for the console and code.
 [[nodiscard]] constexpr ui::Font mono_font() { return ui::Font::Mono; }
 
+/// The italic face, for emphasis.
+[[nodiscard]] constexpr ui::Font italic_font() { return ui::Font::Italic; }
+
 } // namespace ftk::theme

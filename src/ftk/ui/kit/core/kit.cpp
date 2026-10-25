@@ -383,6 +383,7 @@ bool use_kit_fonts(core::Context& ui, const std::filesystem::path& directory) {
     corekit::Faces& faces = corekit::kit_of(ui).faces;
     faces.body = ui.text().add_font(chain(body));
     faces.bold = ui.text().add_font(chain(face(directory, {"Geist-Bold.ttf", "Inter-Bold.ttf"})));
+    faces.italic = ui.text().add_font(chain(face(directory, {"Geist-MediumItalic.ttf"})));
     // JetBrains Mono, not Geist Mono: its ligatures keep a cell for each
     // character, where Geist Mono's draw "->" in one and pull the rest of
     // the line off the grid.

@@ -57,6 +57,7 @@ struct Faces {
     core::FontId body{0};
     core::FontId bold{0};
     core::FontId mono{0};
+    core::FontId italic{0};
     bool loaded{false};
 };
 
