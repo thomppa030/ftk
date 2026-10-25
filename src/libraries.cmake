@@ -705,6 +705,7 @@ ftk_library(app
         ftk/app/change_list.cpp
         ftk/app/command_history.cpp
         ftk/app/document_history.cpp
+        ftk/app/picture.cpp
         ftk/app/ui_input.cpp
         ftk/app/ui_layer.cpp
     HEADERS
@@ -713,11 +714,12 @@ ftk_library(app
         ftk/app/change_list.hpp
         ftk/app/command_history.hpp
         ftk/app/document_history.hpp
+        ftk/app/picture.hpp
         ftk/app/ui_input.hpp
         ftk/app/ui_layer.hpp
     LINKS
         PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::text ftk::ui-core
-        PRIVATE SDL3::SDL3
+        PRIVATE ftk::image SDL3::SDL3
 )
 
 # ftk-app-editor is what an editor's windows need around the kit on the UI

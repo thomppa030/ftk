@@ -90,11 +90,6 @@ public:
     [[nodiscard]] gpu::Owned<gpu::Texture> upload_rgba(std::span<const uint8_t> pixels, uint32_t width,
                                                        uint32_t height, const std::string& name);
 
-    /// The same on any `device`, for a window that keeps no icon cache.
-    [[nodiscard]] static gpu::Owned<gpu::Texture> upload_picture(gpu::Device& device, std::span<const uint8_t> pixels,
-                                                                 uint32_t width, uint32_t height,
-                                                                 const std::string& name);
-
     /// Nearest filtering, clamped: for showing a picture enlarged pixel by
     /// pixel.
     [[nodiscard]] gpu::Sampler pixel_sampler() const { return pixel_sampler_; }
