@@ -60,7 +60,9 @@ public:
     /// One GLSL source to compile.
     struct Job {
         std::string source_path;
-        /// The SPIR-V goes to `generated_dir/<output_name>.spv`.
+        /// The SPIR-V goes to `generated_dir/<output_name>.spv`; what
+        /// preprocess() reads, to `generated_dir/<output_name>.i` while glslc
+        /// runs.
         std::string output_name;
         /// Passed as -D, for a source compiled in more than one shape.
         std::vector<std::string> defines{};
@@ -81,6 +83,13 @@ public:
     /// order. Throws the first failure, in that order, once all have ended.
     [[nodiscard]] std::vector<std::string> compile_all(std::span<const Job> jobs) const;
 
+    /// `job`'s source as glslc preprocesses it with the flags it is compiled
+    /// with: its macros expanded and its includes taken in, a
+    /// `#line N "file"` before each run of lines saying where they are from.
+    /// Nothing is compiled or kept. Throws std::runtime_error carrying
+    /// glslc's output when it fails.
+    [[nodiscard]] std::string preprocess(const Job& job) const;
+
     /// What `job`'s SPIR-V is kept under: a hash of the includes, the source,
     /// the defines, the stage, whether it is optimised (only when it is, so
     /// an unoptimised job keeps the key it always had) and the generator's
@@ -92,6 +101,10 @@ public:
     [[nodiscard]] uint64_t cache_key(const Job& job) const;
 
 private:
+    /// glslc with what every run of `job` passes it: the target, the include
+    /// directories, the stage and the defines.
+    [[nodiscard]] std::string glslc(const Job& job) const;
+
     std::vector<std::string> include_dirs_;
     std::string generated_dir_;
     std::string cache_dir_;

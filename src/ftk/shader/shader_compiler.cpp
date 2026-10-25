@@ -163,19 +163,8 @@ std::string ShaderCompiler::compile(const Job& job) const {
     // The largest startup cost in the renderer: ~64 ms per invocation, once
     // per shader, every launch the cache does not cover.
     FTK_PROFILE_SCOPE_N("glslc");
-    // glslc searches its -I directories in the order given, which is the
-    // order read_include() and the hash take them in.
-    std::string cmd = program_ + " --target-env=vulkan1.3";
-    for (const auto& dir : include_dirs_) {
-        cmd += " -I " + dir;
-    }
-    if (!job.stage.empty()) {
-        cmd += " -fshader-stage=" + job.stage;
-    }
+    std::string cmd = glslc(job);
     if (job.optimize) cmd += OPTIMIZE_FLAGS;
-    for (const auto& define : job.defines) {
-        cmd += " -D" + define;
-    }
     cmd += " " + job.source_path + " -o " + spv_path + " 2>&1";
 
     std::string output;
@@ -208,6 +197,36 @@ std::string ShaderCompiler::compile(const Job& job) const {
 
     FTK_GFX_DEBUG("Compiled shader: {} -> {}", job.source_path, spv_path);
     return spv_path;
+}
+
+std::string ShaderCompiler::preprocess(const Job& job) const {
+    const std::string out_path = generated_dir_ + "/" + job.output_name + ".i";
+    const std::string cmd = glslc(job) + " -E " + job.source_path + " -o " + out_path + " 2>&1";
+    std::string output;
+    const int status = platform::run_command(cmd, output);
+    std::string text = status == 0 ? read_file(out_path) : std::string();
+    std::error_code ec;
+    std::filesystem::remove(out_path, ec);
+    if (status != 0) {
+        throw std::runtime_error(output.empty() ? "shader preprocessing failed for: " + job.source_path : output);
+    }
+    return text;
+}
+
+std::string ShaderCompiler::glslc(const Job& job) const {
+    // glslc searches its -I directories in the order given, which is the
+    // order read_include() and the hash take them in.
+    std::string cmd = program_ + " --target-env=vulkan1.3";
+    for (const auto& dir : include_dirs_) {
+        cmd += " -I " + dir;
+    }
+    if (!job.stage.empty()) {
+        cmd += " -fshader-stage=" + job.stage;
+    }
+    for (const auto& define : job.defines) {
+        cmd += " -D" + define;
+    }
+    return cmd;
 }
 
 std::vector<std::string> ShaderCompiler::compile_all(std::span<const Job> jobs) const {

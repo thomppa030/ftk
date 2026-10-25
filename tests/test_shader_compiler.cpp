@@ -188,6 +188,39 @@ TEST_CASE("A compiler given no cache folder compiles every time and keeps nothin
     CHECK(written == std::vector<std::string>{"x.frag", "x.spv"});
 }
 
+TEST_CASE("A preprocessed source has its macros expanded and its includes taken in, each file's lines marked",
+          "[shader][compiler]") {
+    std::string version;
+    if (platform::run_command("glslc --version", version) != 0) SKIP("glslc not available");
+    ShaderTree tree;
+    tree.write("shaders/include/value.glsl", "#define TWICE(x) (2.0 * (x))\nconst float VALUE = TWICE(1.0);\n");
+    tree.write("shaders/generated/x.frag", "#version 460\n"
+                                           "#include \"value.glsl\"\n"
+                                           "#define HALF 0.5\n"
+                                           "layout(location = 0) out vec4 color;\n"
+                                           "void main() { color = vec4(VALUE * HALF); }\n");
+    const ShaderCompiler compiler({.include_dirs = {tree.path("shaders/include")},
+                                   .generated_dir = tree.path("shaders/generated"),
+                                   .cache_dir = {},
+                                   .generator_version = 1});
+    const std::string text = compiler.preprocess({tree.path("shaders/generated/x.frag"), "x"});
+    CHECK(text.find("const float VALUE = (2.0 * (1.0));") != std::string::npos);
+    CHECK(text.find("void main() { color = vec4(VALUE * 0.5); }") != std::string::npos);
+    // The include's lines, then back to the source's third.
+    const std::size_t include = text.find("value.glsl\"\n");
+    REQUIRE(include != std::string::npos);
+    CHECK(text.find("#line 3 \"", include) != std::string::npos);
+    // Nothing is left beside the source.
+    std::vector<std::string> written;
+    for (const auto& entry : std::filesystem::directory_iterator(tree.path("shaders/generated"))) {
+        written.push_back(entry.path().filename().string());
+    }
+    CHECK(written == std::vector<std::string>{"x.frag"});
+
+    tree.write("shaders/generated/bad.frag", "#version 460\n#error not this one\n");
+    CHECK_THROWS_AS(compiler.preprocess({tree.path("shaders/generated/bad.frag"), "bad"}), std::runtime_error);
+}
+
 TEST_CASE("A compiler runs the program it is given, and fails with what was said when that isn't there",
           "[shader][compiler]") {
     ShaderTree tree;
