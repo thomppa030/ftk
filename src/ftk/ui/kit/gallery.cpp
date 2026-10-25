@@ -146,15 +146,10 @@ void tokens() {
         swatch("danger_hov", theme::danger_hov());
 
         subheading("Hues");
-        constexpr std::pair<const char*, theme::Hue> hues[] = {
-            {"blue", theme::Hue::blue},     {"ochre", theme::Hue::ochre},
-            {"teal", theme::Hue::teal},     {"cyan", theme::Hue::cyan},
-            {"coral", theme::Hue::coral},   {"pink", theme::Hue::pink},
-            {"orange", theme::Hue::orange}, {"periwinkle", theme::Hue::periwinkle},
-            {"lilac", theme::Hue::lilac},   {"slate", theme::Hue::slate},
-            {"grey", theme::Hue::grey},
-        };
-        for (const auto& [name, h] : hues) swatch(name, theme::hue(h));
+        for (std::size_t i = 0; i < theme::HUE_COUNT; ++i) {
+            const auto h = static_cast<theme::Hue>(i);
+            swatch(std::string(theme::name(h)).c_str(), theme::hue(h));
+        }
 
         subheading("Axes and canvas");
         swatch("axis_x", theme::axis_x());
