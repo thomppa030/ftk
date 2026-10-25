@@ -5,7 +5,7 @@
 //
 //     auto mark = ftk::SvgPicture::load(brand / "fjell-mark-dark.svg");
 //     ...in the UI:
-//     const float scale = ftk::ui::current().root_scale();
+//     const float scale = ftk::ui::core::current().root_scale();
 //     ftk::ui::image(mark->texture(device, 92.0f, scale), mark->size(92.0f));
 
 #include "ftk/base/result.hpp"
