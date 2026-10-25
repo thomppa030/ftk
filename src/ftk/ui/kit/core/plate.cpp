@@ -95,37 +95,70 @@ Card::Card(const char* id, const CardPlace& place) : width_(place.width), paddin
     cursor_ = cursor();
 
     // Under its anchor, or over it when it doesn't fit under and there is
-    // more room above; as tall as it was last frame. Kept inside the view.
-    const float height = stored_float(height_id_, 0.0f);
-    const float room_below = place.view_max.y - place.anchor_max.y - CARD_GAP;
-    const float room_above = place.anchor_min.y - place.view_min.y - CARD_GAP;
-    const bool above = height > room_below && room_above > room_below;
-    const float top = above ? place.anchor_min.y - CARD_GAP - height : place.anchor_max.y + CARD_GAP;
+    // more room above; as tall as what it held last frame, but no taller
+    // than the room on that side. Kept inside the view, in from its edges.
+    const float held = stored_float(height_id_, 0.0f);
+    const float room_below = place.view_max.y - PLATE_INSET - place.anchor_max.y - CARD_GAP;
+    const float room_above = place.anchor_min.y - CARD_GAP - place.view_min.y - PLATE_INSET;
+    const bool above = held > room_below && room_above > room_below;
+    const float shown = std::round(std::min(held, std::max(above ? room_above : room_below, 0.0f)));
+    const float top = above ? place.anchor_min.y - CARD_GAP - shown : place.anchor_max.y + CARD_GAP;
     const float left = std::clamp(place.anchor_min.x, place.view_min.x + PLATE_INSET,
                                   std::max(place.view_min.x + PLATE_INSET, place.view_max.x - PLATE_INSET - width_));
     min_ = {std::round(left), std::round(top)};
+    // Under its anchor it may grow down to the room's end this frame; over
+    // it, its foot stays at the anchor, and it grows from the next.
+    room_ = above ? shown : std::round(std::max(room_below, 0.0f));
 
-    const core::Rect area{.min = min_, .max = min_ + glm::vec2{width_, height}};
     ++kit().keeps_keyboard;
-    kit().next.allow_overlap = true;
-    (void)corekit::place(context.id("##card"), area, {.left = true, .right = true, .middle = true});
-
     mark_ = context.draw_list().mark();
     Style style = kit().style;
     style.item_spacing = {ITEM_GAP, ROW_GAP};
     push_style(style);
-    // What it holds is laid out inside it, as on a plate.
-    context.layout().begin_area(
-        {.min = min_ + padding_, .max = {min_.x + width_ - padding_.x, std::max(place.view_max.y, min_.y + padding_.y)}});
+
+    // What it holds is laid out in a region of its own, the room it has
+    // tall: clipped at its edge, and scrolled by the wheel over it. A new
+    // region each time it opens, so what it holds starts at its top.
+    const auto frame = static_cast<int>(context.frame() & 0x3fffffffU);
+    const Id drawn_id = context.id("##drawn");
+    const Id opened_id = context.id("##opened");
+    const bool shown_before = stored_int(drawn_id, -1) == ((frame - 1) & 0x3fffffff);
+    store_int(drawn_id, frame);
+    const int opened = stored_int(opened_id, 0) + (shown_before ? 0 : 1);
+    store_int(opened_id, opened);
+    context.layout().begin_area({.min = min_, .max = min_ + glm::vec2{width_, room_}});
+    context.ids().push_id(static_cast<Id>(opened));
+    context.begin_region("##held", {width_, room_}, {.wheel_scrolls = true, .padding = padding_});
+    // It takes the pointer over all of it, as tall as it was, beneath what
+    // it holds. Placed in its region, the wheel over it turns what it holds,
+    // never the view under it.
+    const core::Rect area{.min = min_, .max = min_ + glm::vec2{width_, shown}};
+    kit().next.allow_overlap = true;
+    (void)corekit::place(context.id("##card"), area, {.left = true, .right = true, .middle = true});
+    context.layout().begin_group();
+    inner_min_ = context.layout().cursor();
 }
 
 Card::~Card() {
     core::Context& context = ui();
-    const glm::vec2 held = context.layout().end_area();
+    const float held = context.layout().end_group().height();
+    const glm::vec2 max = this->max(held);
+
+    // While it holds more than it shows, the window's scrollbar down its
+    // right edge, inside its border and clear of its corners.
+    const core::Rect track{.min = {max.x - 1.0f - kit().style.scrollbar_size, min_.y + CARD_ROUNDING},
+                           .max = {max.x - 1.0f, max.y - CARD_ROUNDING}};
+    float offset = context.scroll().y;
+    if (scrollbar_at(context.id("##scroll"), track, offset, track.height(), context.scroll_max().y)) {
+        context.set_scroll({context.scroll().x, offset});
+    }
+    context.end_region();
+    context.ids().pop();
+    (void)context.layout().end_area();
     pop_style();
     --kit().keeps_keyboard;
 
-    const glm::vec2 max{min_.x + width_, min_.y + padding_.y + held.y + padding_.y};
+    // Its surface as it shows, drawn once what it holds is and put beneath.
     core::DrawList& dl = context.draw_list();
     const std::size_t split = dl.mark();
     const glm::vec2 drop{0.0f, CARD_SHADOW_DROP};
@@ -134,9 +167,17 @@ Card::~Card() {
     dl.rect(min_, max, faded(theme::surface_raised()), CARD_ROUNDING);
     dl.put_under(mark_, split);
 
-    store_float(height_id_, max.y - min_.y);
+    // How tall it holds is where it goes next frame: a new height is drawn
+    // there at once.
+    const float full = padding_.y + held + padding_.y;
+    if (full != stored_float(height_id_, 0.0f)) context.request_frame();
+    store_float(height_id_, full);
     set_cursor(cursor_);
     context.ids().pop();
+}
+
+glm::vec2 Card::max(float held) const {
+    return {min_.x + width_, min_.y + std::min(padding_.y + held + padding_.y, room_)};
 }
 
 float Card::inner_width() const {

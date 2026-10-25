@@ -72,9 +72,12 @@ struct CardPlace {
 
 /// A card hanging from a place in a view (sheet 39): a hover card under a
 /// word, a completion list under the caret. A popup's look, as tall as
-/// what it holds, which is laid out in it as on a plate; like a plate it
-/// takes the pointer everywhere over it, moves nothing it covers, and
-/// leaves the keyboard where it is.
+/// what it holds, which is laid out in it as on a plate, but no taller than
+/// the room the view has on the side it hangs: past that, what it holds
+/// scrolls inside it, under the wheel and a scrollbar down its right edge.
+/// Like a plate it takes the pointer everywhere over it, moves nothing it
+/// covers, and leaves the keyboard where it is. Each time it opens, what it
+/// holds starts at its top.
 ///
 ///     if (auto card = ui::Card("##hover", {.view_min = min, .view_max = max, .anchor_min = word_min,
 ///                                          .anchor_max = word_max, .width = 340.0f, .padding = {12.0f, 10.0f}})) {
@@ -93,14 +96,25 @@ public:
 
     /// How wide what it holds may be: its width inside its padding.
     [[nodiscard]] float inner_width() const;
-    /// Where what it holds starts, its top-left inside its padding.
-    [[nodiscard]] glm::vec2 inner_min() const { return min_ + padding_; }
+    /// Where what it holds starts: its top-left inside its padding, moved up
+    /// as far as what it holds is scrolled.
+    [[nodiscard]] glm::vec2 inner_min() const { return inner_min_; }
+    /// Its top-left corner.
+    [[nodiscard]] glm::vec2 min() const { return min_; }
+    /// Its bottom-right corner while what it holds is `held` tall inside its
+    /// padding: as tall as that and its padding, or as the room it has, past
+    /// which what it holds scrolls.
+    [[nodiscard]] glm::vec2 max(float held) const;
 
 private:
     Id height_id_{0};
     glm::vec2 min_{};
     float width_{0.0f};
     glm::vec2 padding_{};
+    // How tall it may be this frame: the room it has under its anchor, or
+    // over it as tall as it was.
+    float room_{0.0f};
+    glm::vec2 inner_min_{};
     std::size_t mark_{0};
     glm::vec2 cursor_{};
 };
