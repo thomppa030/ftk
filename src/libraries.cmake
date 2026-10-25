@@ -318,16 +318,67 @@ endif()
 ftk_target_optimised(ftk-cmp-core)
 add_library(ftk::cmp-core ALIAS ftk-cmp-core)
 
+# ftk-lunasvg is lunasvg and plutovg, its drawing library, from lunasvg's
+# release, with their warnings off. Text in an SVG goes unused: no system fonts
+# are looked for and no font cache is read. plutovg compiles its own copies of
+# stb's reader, writer and font code static, so they never meet ftk-image's.
+set(lunasvg_dir ${lunasvg_SOURCE_DIR})
+add_library(ftk-lunasvg STATIC
+    ${lunasvg_dir}/source/graphics.cpp
+    ${lunasvg_dir}/source/lunasvg.cpp
+    ${lunasvg_dir}/source/svgelement.cpp
+    ${lunasvg_dir}/source/svggeometryelement.cpp
+    ${lunasvg_dir}/source/svglayoutstate.cpp
+    ${lunasvg_dir}/source/svgpaintelement.cpp
+    ${lunasvg_dir}/source/svgparser.cpp
+    ${lunasvg_dir}/source/svgproperty.cpp
+    ${lunasvg_dir}/source/svgrenderstate.cpp
+    ${lunasvg_dir}/source/svgtextelement.cpp
+    ${lunasvg_dir}/plutovg/source/plutovg-blend.c
+    ${lunasvg_dir}/plutovg/source/plutovg-canvas.c
+    ${lunasvg_dir}/plutovg/source/plutovg-font.c
+    ${lunasvg_dir}/plutovg/source/plutovg-ft-math.c
+    ${lunasvg_dir}/plutovg/source/plutovg-ft-raster.c
+    ${lunasvg_dir}/plutovg/source/plutovg-ft-stroker.c
+    ${lunasvg_dir}/plutovg/source/plutovg-matrix.c
+    ${lunasvg_dir}/plutovg/source/plutovg-paint.c
+    ${lunasvg_dir}/plutovg/source/plutovg-path.c
+    ${lunasvg_dir}/plutovg/source/plutovg-rasterize.c
+    ${lunasvg_dir}/plutovg/source/plutovg-surface.c
+)
+target_include_directories(ftk-lunasvg SYSTEM PUBLIC ${lunasvg_dir}/include)
+target_include_directories(ftk-lunasvg SYSTEM PRIVATE
+    ${lunasvg_dir}/source
+    ${lunasvg_dir}/plutovg/include
+    ${lunasvg_dir}/plutovg/source
+)
+target_compile_definitions(ftk-lunasvg
+    PUBLIC LUNASVG_BUILD_STATIC
+    PRIVATE LUNASVG_BUILD LUNASVG_DISABLE_LOAD_SYSTEM_FONTS
+            PLUTOVG_BUILD PLUTOVG_BUILD_STATIC PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD)
+set_target_properties(ftk-lunasvg PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+if(MSVC)
+    target_compile_options(ftk-lunasvg PRIVATE /w)
+else()
+    target_compile_options(ftk-lunasvg PRIVATE -w)
+endif()
+if(UNIX AND NOT APPLE)
+    target_link_libraries(ftk-lunasvg PRIVATE m)
+endif()
+add_library(ftk::lunasvg ALIAS ftk-lunasvg)
+
 # ftk-image loads, saves and scales images: stb's reader, writer and resizer,
 # compiled once for everything that uses them, with stb's headers handed on
 # as system headers. It also encodes images to the block-compressed formats
-# through CMP_Core, which it keeps to itself.
+# through CMP_Core and draws SVG files through lunasvg, both of which it keeps
+# to itself.
 ftk_library(image
     SOURCES
         ftk/image/block_encoder.cpp
         ftk/image/mips.cpp
         ftk/image/png.cpp
         ftk/image/resample.cpp
+        ftk/image/svg.cpp
         ftk/image/stb_image.cpp
         ftk/image/stb_image_resize.cpp
         ftk/image/stb_image_write.cpp
@@ -336,8 +387,11 @@ ftk_library(image
         ftk/image/mips.hpp
         ftk/image/png.hpp
         ftk/image/resample.hpp
+        ftk/image/rgba8.hpp
+        ftk/image/svg.hpp
     LINKS
-        PRIVATE ftk::cmp-core ftk::math
+        PUBLIC ftk::base
+        PRIVATE ftk::cmp-core ftk::lunasvg ftk::math
 )
 target_include_directories(ftk-image SYSTEM PUBLIC ${stb_SOURCE_DIR})
 # Mips and image decoding are a texture bake's other work.

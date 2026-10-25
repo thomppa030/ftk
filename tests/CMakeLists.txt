@@ -55,6 +55,7 @@ add_executable(ftk-tests
     test_split_jobs.cpp
     test_staging_ring.cpp
     test_string_utils.cpp
+    test_svg.cpp
     test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp

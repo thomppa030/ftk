@@ -1,7 +1,7 @@
 # What ftk's libraries need, fetched whether ftk is built on its own or as
 # part of a program: windowing, maths, logging, JSON, stb, zstd, CMP_Core for
-# block compression, FreeType and HarfBuzz for text, Vulkan with VMA, and Tracy
-# when it is switched on.
+# block compression, FreeType and HarfBuzz for text, lunasvg for SVG files,
+# Vulkan with VMA, and Tracy when it is switched on.
 # Fjell's libraries
 # preset (CMakePresets.json) points at these sources in the debug build, so a
 # dependency added here is listed there too.
@@ -134,6 +134,18 @@ FetchContent_Declare(
     SOURCE_SUBDIR  no-cmake-here
 )
 
+# lunasvg draws SVG files (ftk-image's rasterize_svg) with plutovg, the drawing
+# library it carries in a folder of its own. Consumed as plain sources, compiled
+# into ftk-lunasvg in src/libraries.cmake: through their own CMake both would
+# install their headers, libraries and package files into every program's
+# package.
+FetchContent_Declare(
+    lunasvg
+    URL            https://github.com/sammycage/lunasvg/archive/refs/tags/v3.5.0.tar.gz
+    URL_HASH       SHA256=1abf1472ee6c4d19797916e8cc3c2e4b628e0d81178ffac60bdb0d457e32c690
+    SOURCE_SUBDIR  no-cmake-here
+)
+
 # zstd compresses and decompresses bytes (ftk-base's compression.hpp). Built
 # from its own CMake as a static library and nothing else: no programs, no
 # dictionary builder, no frames from before 1.0, and no threads of its own,
@@ -154,7 +166,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz compressonator zstd)
+FetchContent_MakeAvailable(SDL3 glm spdlog stb json tracy freetype harfbuzz compressonator lunasvg zstd)
 
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)

@@ -1,9 +1,10 @@
 // Links ftk-image alone and whole (tests/CMakeLists.txt), so it builds only if
 // everything in the library finds what it needs in the library and its own
 // dependencies. Running it writes a small image to memory, reads it back,
-// scales it, and encodes it to BC7 and back.
+// scales it, encodes it to BC7 and back, and draws a small SVG.
 
 #include "ftk/image/block_encoder.hpp"
+#include "ftk/image/svg.hpp"
 
 #include <stb_image.h>
 #include <stb_image_resize2.h>
@@ -45,8 +46,11 @@ int main() {
     const bool encoded = encoder.encode(ftk::image::Rgba8Image{pixels, 2, 2}, 0, 1, blocks);
     const bool round_trip = ftk::image::decode(ftk::image::BlockFormat::bc7, blocks, 2, 2).size() == sizeof(pixels);
 
+    const auto drawn = ftk::image::rasterize_svg(
+        R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="2" height="2" fill="#fff"/></svg>)", 2, 2);
+
     const bool ran = written != 0 && decoded != nullptr && width == 2 && height == 2 &&
-                     scaled != nullptr && encoded && round_trip;
+                     scaled != nullptr && encoded && round_trip && drawn.has_value() && drawn->texels.size() == 16;
     stbi_image_free(decoded);
     return ran ? 0 : 1;
 }
