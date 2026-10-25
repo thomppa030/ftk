@@ -101,7 +101,7 @@ bool menu_item(const MenuItem& item) {
     return chosen;
 }
 
-bool begin_menu(const char* icon, const char* label, bool enabled) {
+bool begin_menu(const char* icon, const char* label, bool enabled, std::optional<Color> icon_colour) {
     core::Context& context = ui();
     Kit& k = kit();
     const Style& style = k.style;
@@ -137,7 +137,11 @@ bool begin_menu(const char* icon, const char* label, bool enabled) {
     Color colour = theme::text();
     if (!enabled) colour.a *= style.disabled_alpha;
     const float y = rect.min.y + (height - label_size.y) * 0.5f;
-    if (icon != nullptr) draw_text({rect.min.x + pad, y}, colour, icon);
+    if (icon != nullptr) {
+        Color ink = icon_colour ? *icon_colour : colour;
+        if (!enabled && icon_colour) ink.a *= style.disabled_alpha;
+        draw_text({rect.min.x + pad, y}, ink, icon);
+    }
     draw_text({rect.min.x + pad + ICON_COLUMN + pad, y}, colour, label);
     // The arrow saying a submenu opens from it, at its right end.
     const float half = std::floor(line_height() * 0.25f);

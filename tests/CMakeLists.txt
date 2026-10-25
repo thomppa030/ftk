@@ -22,6 +22,7 @@ add_executable(ftk-tests
     test_command_group.cpp
     test_command_history.cpp
     test_compression.cpp
+    test_desktop_entry.cpp
     test_delegate.cpp
     test_document_history.cpp
     test_file_io.cpp
@@ -37,6 +38,7 @@ add_executable(ftk-tests
     test_gpu_texture_view.cpp
     test_gpu_transient_memory.cpp
     test_half.cpp
+    test_ico.cpp
     test_color_gradient.cpp
     test_hash.cpp
     test_handle_pool.cpp
@@ -55,6 +57,8 @@ add_executable(ftk-tests
     test_split_jobs.cpp
     test_staging_ring.cpp
     test_string_utils.cpp
+    test_svg.cpp
+    test_svg_picture.cpp
     test_text_atlas.cpp
     test_text_face.cpp
     test_text_fallback.cpp

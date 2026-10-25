@@ -266,3 +266,26 @@ TEST_CASE("A menu entry's icon takes its kind's colour, and its detail follows t
     CHECK(drew_in(h, with, ftk::theme::text_secondary()));
     CHECK_FALSE(drew_in(h, without, ftk::theme::text_secondary()));
 }
+
+TEST_CASE("A submenu entry's icon takes its kind's colour as an entry's does", "[ui][kit]") {
+    KitHarness h;
+    const ui::Color hue{0.49f, 0.69f, 0.87f, 1.0f};
+    h.set_ui([&] {
+        if (ui::begin_menu(ui::icon::checked, "Shader (.fjsl)", true, hue)) ui::end_menu();
+        h.mark("with");
+        if (ui::begin_menu(ui::icon::checked, "Create new")) ui::end_menu();
+        h.mark("without");
+    });
+    h.step(2);
+    const core::Rect with = h.rect("with");
+    const core::Rect without = h.rect("without");
+    const core::Rect with_icon{.min = with.min, .max = {with.min.x + 30.0f, with.max.y}};
+    const core::Rect without_icon{.min = without.min, .max = {without.min.x + 30.0f, without.max.y}};
+    CHECK(drew_in(h, with_icon, hue));
+    CHECK_FALSE(drew_in(h, without_icon, hue));
+    CHECK(drew_in(h, without_icon, ftk::theme::text()));
+    // The label, after the icon column, keeps the text colour whatever the icon's.
+    const core::Rect with_label{.min = {with.min.x + 30.0f, with.min.y}, .max = {with.min.x + 120.0f, with.max.y}};
+    CHECK(drew_in(h, with_label, ftk::theme::text()));
+    CHECK_FALSE(drew_in(h, with_label, hue));
+}

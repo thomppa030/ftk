@@ -1,4 +1,5 @@
 #include "ftk/app/icon_cache.hpp"
+#include "ftk/app/picture.hpp"
 #include "ftk/base/log.hpp"
 #include "ftk/base/profiler.hpp"
 #include "ftk/base/thread_pool.hpp"
@@ -139,32 +140,6 @@ IconCache::Picture IconCache::read_picture(const std::string& path) {
 gpu::Owned<gpu::Texture> IconCache::upload_rgba(std::span<const uint8_t> pixels, uint32_t width, uint32_t height,
                                                 const std::string& name) {
     return upload_picture(device_, pixels, width, height, name);
-}
-
-gpu::Owned<gpu::Texture> IconCache::upload_picture(gpu::Device& device, std::span<const uint8_t> pixels,
-                                                   uint32_t width, uint32_t height, const std::string& name) {
-    FTK_PROFILE_SCOPE_N("icon_upload");
-    const size_t size = static_cast<size_t>(width) * height * 4;
-    if (width == 0 || height == 0 || pixels.size() < size) {
-        FTK_CORE_ERROR("Icon cache: {} has {} bytes for {}x{} pixels", name, pixels.size(), width, height);
-        return {};
-    }
-    // PNG pixels are sRGB; sampling through an sRGB format hands the UI
-    // light, which it encodes back to the authored colour.
-    auto made = device.create(gpu::TextureDesc{
-        .format = gpu::Format::rgba8_srgb,
-        .width = width,
-        .height = height,
-        .use = gpu::TextureUse::sampled,
-        .name = name,
-    });
-    if (!made) {
-        FTK_CORE_ERROR("Icon cache: {}: {}", name, made.error());
-        return {};
-    }
-    device.upload().to_texture(*made, {}, std::as_bytes(pixels.first(size)),
-                                {.after = gpu::Access::sampled_fragment});
-    return std::move(*made);
 }
 
 void IconCache::load_icon(const std::string& name, const std::string& path) {

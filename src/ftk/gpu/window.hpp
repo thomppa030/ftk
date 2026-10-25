@@ -5,6 +5,7 @@
 #include <glm/vec2.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,6 +26,14 @@ enum class WindowSizing : uint8_t {
     /// Covers the display it opens on, without borders; the size asked is
     /// not used.
     fullscreen,
+};
+
+/// One size of a program's icon: `width` × `height` texels of 8-bit RGBA,
+/// sRGB, row after row from the top, alpha apart from the colours.
+struct WindowIcon {
+    uint32_t width{0};
+    uint32_t height{0};
+    std::span<const uint8_t> rgba{};
 };
 
 /// An OS window on SDL. SDL has one event queue for the whole program, so
@@ -66,6 +75,15 @@ public:
     /// The same, giving up after `seconds`: for a loop that has something to
     /// do by then even without an event, such as a tooltip coming due.
     void wait_events_for(double seconds);
+    /// Tells the platform which program this is, before its first window
+    /// opens: `id` is what the window manager and a desktop entry know it by
+    /// (on Wayland the window's app id), `name` what people read.
+    static void set_app_id(std::string_view id, std::string_view name);
+    /// The program's icon, `sizes` largest first: every window opened from now
+    /// on, and every one open but popups and tooltips, carries it (the title
+    /// bar, the taskbar, a window switcher). Kept as a copy.
+    static void set_icon(std::span<const WindowIcon> sizes);
+
     /// Ends a wait for events as an event would, from any thread: for work
     /// done on another thread that the next frame should show, such as an
     /// answer from a language server. No window takes the event it sends.
@@ -131,6 +149,9 @@ private:
     uint32_t height_{0};
     bool framebuffer_resized_{false};
     bool close_requested_{false};
+    /// A window of the program's own, or one torn out of it: it carries the
+    /// program's icon, as a popup or a tooltip doesn't.
+    bool takes_icon_{false};
     /// The files of a drop in progress, gathered until it completes.
     std::vector<std::string> dropping_;
 };

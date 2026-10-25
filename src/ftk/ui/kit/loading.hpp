@@ -20,6 +20,9 @@ void spinner(DrawList draw_list, glm::vec2 centre, float radius, float seconds);
 /// under it in the secondary colour ("Opening harbour…"), centred on
 /// `top_centre`, the middle of the spinner's top edge.
 void loading(DrawList draw_list, glm::vec2 top_centre, std::string_view what, float seconds);
+/// How tall loading() draws in the current font, from the spinner's top to
+/// its caption's bottom, to lay out what stands around it.
+[[nodiscard]] float loading_height();
 
 /// How far something has got, `fraction` of the way, as a bar `width` wide
 /// (less than zero leaves that much room at the right) with `label` on it.

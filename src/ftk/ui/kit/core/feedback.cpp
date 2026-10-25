@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace ftk::ui {
 
@@ -34,6 +36,12 @@ constexpr float NOTICE_PAD_X = 10.0f;
 constexpr float NOTICE_PAD_Y = 6.0f;
 constexpr float NOTICE_TINT = 0.10f;
 constexpr float NOTICE_LINE = 0.35f;
+
+// An offer strip's room inside it, and how far its × stands in from the
+// right edge.
+constexpr float OFFER_PAD_X = 10.0f;
+constexpr float OFFER_PAD_Y = 7.0f;
+constexpr float OFFER_CLOSE_INSET = 4.0f;
 
 // A note line's room inside it.
 constexpr float NOTE_PAD_X = 8.0f;
@@ -66,6 +74,31 @@ void centred(std::string_view text, Color colour, float left, float width, float
         ui::text(drawn, colour);
     }
     pop_style();
+}
+
+// `path` in lines no wider than `width` in the current face, each broken
+// after a slash; a part with no slash to break at is broken where it must be,
+// between two characters.
+std::vector<std::string_view> path_lines(std::string_view path, float width) {
+    std::vector<std::string_view> lines;
+    while (!path.empty()) {
+        std::size_t end = path.size();
+        if (measure(path).x > width) {
+            std::size_t fits = 0;
+            std::size_t after_slash = 0;
+            for (std::size_t i = 1; i <= path.size(); ++i) {
+                // Whole characters only: a UTF-8 continuation byte ends none.
+                if (i < path.size() && (static_cast<unsigned char>(path[i]) & 0xC0u) == 0x80u) continue;
+                if (measure(path.substr(0, i)).x > width) break;
+                fits = i;
+                if (path[i - 1] == '/') after_slash = i;
+            }
+            end = after_slash > 0 ? after_slash : std::max<std::size_t>(fits, 1);
+        }
+        lines.push_back(path.substr(0, end));
+        path.remove_prefix(end);
+    }
+    return lines;
 }
 
 // Moves down by `gap` from the end of the last item.
@@ -249,6 +282,65 @@ std::optional<std::size_t> notice_strip(Severity severity, const char* text, std
     return chosen;
 }
 
+OfferAnswer offer_strip(std::string_view text, std::string_view detail, const char* take, const char* put_off) {
+    core::Context& context = ui();
+    const Style& style = kit().style;
+    const IdScope scope("##offer");
+    const glm::vec2 origin = cursor();
+    const float right = origin.x + space_left().x;
+    const float side = frame_height();
+    const float close_x = right - OFFER_CLOSE_INSET - side;
+    const float take_width = button_width(take);
+    const float text_x = origin.x + OFFER_PAD_X + measure(icon::info).x + theme::GAP_S + theme::GAP_XS;
+    const float words_right = close_x - theme::GAP_S;
+
+    // The words, the button and the × on one line while they fit there;
+    // else the button under the words, after the detail.
+    const bool one_line =
+        detail.empty() && text_x + measure(text).x + theme::GAP_M + take_width + theme::GAP_S <= close_x;
+    std::vector<std::string_view> path;
+    float detail_line = 0.0f;
+    float take_y = origin.y + OFFER_PAD_Y;
+    if (!one_line) {
+        const float words_height = measure(text, std::max(words_right - text_x, 1.0f)).y + style.frame_padding.y * 2.0f;
+        {
+            FontScope mono(Font::Mono, theme::SMALL_TEXT);
+            path = path_lines(detail, std::max(words_right - text_x, 1.0f));
+            detail_line = line_height();
+        }
+        take_y += words_height + detail_line * static_cast<float>(path.size()) + theme::GAP_S;
+    }
+    const float bottom = take_y + side + OFFER_PAD_Y;
+    context.draw_list().rect_filled(origin, {right, bottom}, faded(theme::surface_sunken()), style.frame_rounding);
+
+    // The icon and the words, level with the line's buttons.
+    set_cursor({origin.x + OFFER_PAD_X, origin.y + OFFER_PAD_Y});
+    align_text_to_frame();
+    ui::text(icon::info, theme::text_secondary());
+    same_line(theme::GAP_S + theme::GAP_XS);
+    if (one_line) {
+        ui::text(text, theme::text_secondary());
+    } else {
+        const core::Rect words = wrapped(text, theme::text_secondary(), words_right, style.frame_padding.y);
+        FontScope mono(Font::Mono, theme::SMALL_TEXT);
+        float y = words.max.y;
+        for (const std::string_view line : path) {
+            draw_text({text_x, y}, theme::text_secondary(), line);
+            y += detail_line;
+        }
+    }
+
+    OfferAnswer answer = OfferAnswer::None;
+    set_cursor({one_line ? close_x - theme::GAP_S - take_width : right - OFFER_PAD_X - take_width, take_y});
+    if (button(take)) answer = OfferAnswer::Take;
+    set_cursor({close_x, origin.y + OFFER_PAD_Y});
+    if (icon_button("##put_off", icon::clear, put_off, ButtonKind::Ghost)) answer = OfferAnswer::PutOff;
+
+    set_cursor({origin.x, bottom});
+    reserve({0.0f, 0.0f});
+    return answer;
+}
+
 void note_line(const char* icon, std::string_view text, std::string_view strong) {
     core::Context& context = ui();
     const glm::vec2 origin = cursor();
@@ -326,17 +418,27 @@ bool callout(Severity severity, const char* title, const char* text, const char*
     return clicked;
 }
 
-bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {
+namespace {
+
+// What stands over an empty state's words: its icon, or a picture in the
+// icon's place.
+struct EmptyHead {
+    const char* icon = nullptr;
+    Texture picture{};
+    glm::vec2 size{0.0f};
+};
+
+bool empty_block(const EmptyHead& head, const char* title, const char* what_to_do, const char* action) {
     const glm::vec2 origin = cursor();
     const glm::vec2 avail = space_left();
     const float wrap = std::min(EMPTY_TEXT_WIDTH, avail.x);
     const float gap = theme::GAP_M;
 
     // The height of the whole block, to centre it.
-    float icon_h = 0.0f;
-    {
+    float head_h = head.size.y;
+    if (head.icon != nullptr) {
         FontScope big(Font::Current, EMPTY_ICON_SIZE);
-        icon_h = line_height();
+        head_h = line_height();
     }
     const float title_h = measure(title, wrap).y;
     float text_h = 0.0f;
@@ -344,13 +446,17 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
         FontScope small(Font::Current, theme::SMALL_TEXT);
         text_h = measure(what_to_do, wrap).y;
     }
-    float height = icon_h + gap + title_h + gap + text_h;
+    float height = head_h + gap + title_h + gap + text_h;
     if (action != nullptr) height += gap + frame_height();
 
     set_cursor({origin.x, origin.y + std::max((avail.y - height) * 0.5f, 0.0f)});
-    {
+    if (head.icon != nullptr) {
         FontScope big(Font::Current, EMPTY_ICON_SIZE);
-        centred(icon, theme::text_disabled(), origin.x, avail.x, wrap);
+        centred(head.icon, theme::text_disabled(), origin.x, avail.x, wrap);
+    } else {
+        // A picture that isn't ready draws nothing in the room it takes.
+        set_cursor({origin.x + std::max((avail.x - head.size.x) * 0.5f, 0.0f), cursor().y});
+        image(head.picture, head.size);
     }
     gap_below(gap);
     centred(title, corekit::text_colour(), origin.x, avail.x, wrap);
@@ -368,6 +474,16 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
         clicked = button(action);
     }
     return clicked;
+}
+
+} // namespace
+
+bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {
+    return empty_block({.icon = icon}, title, what_to_do, action);
+}
+
+bool empty_state(Texture picture, glm::vec2 size, const char* title, const char* what_to_do, const char* action) {
+    return empty_block({.picture = picture, .size = size}, title, what_to_do, action);
 }
 
 void unsaved_dot(DrawList list, glm::vec2 centre) {

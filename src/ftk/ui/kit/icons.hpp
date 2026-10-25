@@ -64,6 +64,7 @@ inline constexpr const char* dropdown    = ICON_LC_CHEVRON_DOWN;
 
 // Feedback
 inline constexpr const char* help    = ICON_LC_CIRCLE_HELP;
+inline constexpr const char* info    = ICON_LC_INFO;  // something to know, not a problem
 inline constexpr const char* warning = ICON_LC_TRIANGLE_ALERT;
 inline constexpr const char* error   = ICON_LC_CIRCLE_X;
 inline constexpr const char* success = ICON_LC_CIRCLE_CHECK;

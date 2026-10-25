@@ -4,7 +4,8 @@ cmake_minimum_required(VERSION 4.3)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-project(ftk VERSION 0.1.0 LANGUAGES CXX)
+# C for plutovg, the drawing library lunasvg draws SVG files with (src/libraries.cmake).
+project(ftk VERSION 0.1.0 LANGUAGES CXX C)
 
 # ftk is the toolkit GUI programs build on: its libraries, the checks a program
 # holds its own tree to, and the editor data it stages. Built on its own it
@@ -42,6 +43,8 @@ include(cmake/EditorData.cmake)
 include(cmake/EmbedFile.cmake)
 
 include(src/libraries.cmake)
+# ftk_app_icon(), a Windows program's icon from its SVG, through ftk-ico.
+include(cmake/AppIcon.cmake)
 
 # ftk's shader includes (the colour space), for a program that compiles
 # shaders at run time against them as well as through ftk_compile_shaders().
