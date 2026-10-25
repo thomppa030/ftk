@@ -536,3 +536,33 @@ TEST_CASE("A list dialog stops growing at its tallest and scrolls", "[ui][kit]")
     CHECK(h.rect("Cancel").min.y - one <= 330.0f);
     CHECK(h.rect("Cancel").min.y - one > 100.0f);
 }
+
+TEST_CASE("A move asks in its own words and offers no Replace where nothing can be written over", "[ui][kit]") {
+    KitHarness h;
+    std::vector<ui::ClashItem> items{
+        {.name = "rock_01.fjmesh", .here = "1.2 MB, 2 Oct 14:20", .dropped = "1.4 MB, today 09:12",
+         .kept_name = "rock_01_1.fjmesh", .replaceable = false},
+        {.name = "old", .here = "a folder", .dropped = "a folder", .kept_name = "old_1", .replaceable = false}};
+    bool open_now = true;
+    ui::DialogAnswer answer = ui::DialogAnswer::None;
+    h.set_ui([&] {
+        if (open_now) {
+            ui::open_clash_dialog("##move", {{400.0f, 0.0f}, 0.5f});
+            open_now = false;
+        }
+        const auto given = ui::clash_dialog(
+            "##move", {.title = "Keep both or skip the 2 names already in cliffs?", .folder = "cliffs", .verb = "Move",
+                       .coming = "moved"},
+            items);
+        if (given != ui::DialogAnswer::None) answer = given;
+    });
+    h.step(3);
+    REQUIRE(h.find("Move 0 files", ftk::ui::core::Role::Button) != nullptr);
+    // Not in Every file either, where no row could take it.
+    CHECK(segment(h, "Replace", 0) == nullptr);
+    h.click_at(segment(h, "Keep both", 0)->rect.centre());
+    h.step();
+    REQUIRE(h.find("Move 2 files", ftk::ui::core::Role::Button) != nullptr);
+    h.press(ui::Key::Enter);
+    CHECK(answer == ui::DialogAnswer::Confirm);
+}

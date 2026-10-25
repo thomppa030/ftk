@@ -174,7 +174,7 @@ struct ClashItem {
     Color icon_colour{};
     std::string name{};     ///< "crate.gltf"
     std::string here{};     ///< what is there: "398 KB, 2 Oct 14:20"
-    std::string dropped{};  ///< what comes: "412 KB, today 09:12"
+    std::string dropped{};  ///< what comes: "412 KB, today 09:12", dropped or moved
     /// Said beside the name while it is replaced: what else that changes
     /// ("crate.fjmesh comes back changed"); empty for nothing.
     std::string replace_note{};
@@ -196,19 +196,25 @@ struct ClashSpec {
     std::string copied{};
     /// The folder copied into, as the warning names it ("props").
     std::string folder{};
+    /// What the dialog does with what comes, as its button says ("Copy 2
+    /// files", "Move 2 files"), and how a row names what comes ("dropped",
+    /// "moved").
+    const char* verb{"Copy"};
+    const char* coming{"dropped"};
 };
 
 /// Opens the clash dialog `id` hanging from `anchor`, as wide as it is.
 void open_clash_dialog(const char* id, DialogAnchor anchor);
 /// The same hanging from under the editor header, as open_dialog() does.
 void open_clash_dialog(const char* id);
-/// Asks about names a copy finds already there (sheet 46, D1): the title,
-/// what was copied already, a row "Every file" whose Replace | Keep both |
-/// Skip sets them all, then a row per name on the sunken surface with what
-/// is there and what comes in the mono face and its own choice, which the
-/// dialog changes in `items`. The verb counts what will be copied ("Copy 2
-/// files"); while anything is replaced it is the danger kind, a warning in
-/// the bar names what is written over, and Cancel takes Enter. Cancel and
+/// Asks about names a copy or a move finds already there (sheet 46, D1): the
+/// title, what went already, a row "Every file" whose Replace | Keep both |
+/// Skip sets them all (Replace only when a row can take it), then a row per
+/// name on the sunken surface with what is there and what comes in the mono
+/// face and its own choice, which the dialog changes in `items`. The verb
+/// counts what will go ("Copy 2 files", "Move 2 files"); while anything is
+/// replaced it is the danger kind, a warning in the bar names what is
+/// written over, and Cancel takes Enter. Cancel and
 /// Esc answer Cancel, which the caller takes as Skip for every one. Returns
 /// the answer on the frame it is given.
 DialogAnswer clash_dialog(const char* id, const ClashSpec& spec, std::span<ClashItem> items);
