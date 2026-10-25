@@ -3,6 +3,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/drag_drop.hpp"
 #include "ftk/ui/kit/feedback.hpp"
+#include "ftk/ui/kit/field.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/input.hpp"
@@ -86,6 +87,43 @@ TEST_CASE("A group is one item", "[ui][kit]") {
     CHECK(next_width == 120.0f);
     CHECK(group_min == h.rect("apply").min);
     CHECK(group_max == h.rect("revert").max);
+}
+
+TEST_CASE("A group is active while a field in it is held, and no longer once it is let go", "[ui][kit]") {
+    KitHarness h;
+    float inside = 1.0f;
+    float outside = 1.0f;
+    bool active = false;
+    h.set_ui([&] {
+        {
+            const ui::Group group;
+            ui::button("Before");
+            (void)ui::drag("##inside", inside);
+            h.mark("inside");
+        }
+        active = ui::item_active();
+        (void)ui::drag("##outside", outside);
+        h.mark("outside");
+    });
+    h.step(2);
+    CHECK_FALSE(active);
+
+    h.move_to(centre(h, "inside"));
+    h.button_down();
+    h.move_to(centre(h, "inside") + glm::vec2{30.0f, 0.0f});
+    CHECK(active);
+    // On the frame it is let go the field still reads as held, as it does
+    // on its own; the frame after, neither it nor the group is.
+    h.button_up();
+    h.step();
+    CHECK_FALSE(active);
+
+    // A field held after the group is not the group's.
+    h.move_to(centre(h, "outside"));
+    h.button_down();
+    h.move_to(centre(h, "outside") + glm::vec2{30.0f, 0.0f});
+    CHECK_FALSE(active);
+    h.button_up();
 }
 
 TEST_CASE("Text is an item the size text_size measures", "[ui][kit]") {
