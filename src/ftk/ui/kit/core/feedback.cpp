@@ -4,6 +4,7 @@
 #include "ftk/ui/kit/button.hpp"
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/icons.hpp"
+#include "ftk/ui/kit/image.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/row.hpp"
@@ -326,17 +327,27 @@ bool callout(Severity severity, const char* title, const char* text, const char*
     return clicked;
 }
 
-bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {
+namespace {
+
+// What stands over an empty state's words: its icon, or a picture in the
+// icon's place.
+struct EmptyHead {
+    const char* icon = nullptr;
+    Texture picture{};
+    glm::vec2 size{0.0f};
+};
+
+bool empty_block(const EmptyHead& head, const char* title, const char* what_to_do, const char* action) {
     const glm::vec2 origin = cursor();
     const glm::vec2 avail = space_left();
     const float wrap = std::min(EMPTY_TEXT_WIDTH, avail.x);
     const float gap = theme::GAP_M;
 
     // The height of the whole block, to centre it.
-    float icon_h = 0.0f;
-    {
+    float head_h = head.size.y;
+    if (head.icon != nullptr) {
         FontScope big(Font::Current, EMPTY_ICON_SIZE);
-        icon_h = line_height();
+        head_h = line_height();
     }
     const float title_h = measure(title, wrap).y;
     float text_h = 0.0f;
@@ -344,13 +355,17 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
         FontScope small(Font::Current, theme::SMALL_TEXT);
         text_h = measure(what_to_do, wrap).y;
     }
-    float height = icon_h + gap + title_h + gap + text_h;
+    float height = head_h + gap + title_h + gap + text_h;
     if (action != nullptr) height += gap + frame_height();
 
     set_cursor({origin.x, origin.y + std::max((avail.y - height) * 0.5f, 0.0f)});
-    {
+    if (head.icon != nullptr) {
         FontScope big(Font::Current, EMPTY_ICON_SIZE);
-        centred(icon, theme::text_disabled(), origin.x, avail.x, wrap);
+        centred(head.icon, theme::text_disabled(), origin.x, avail.x, wrap);
+    } else {
+        // A picture that isn't ready draws nothing in the room it takes.
+        set_cursor({origin.x + std::max((avail.x - head.size.x) * 0.5f, 0.0f), cursor().y});
+        image(head.picture, head.size);
     }
     gap_below(gap);
     centred(title, corekit::text_colour(), origin.x, avail.x, wrap);
@@ -368,6 +383,16 @@ bool empty_state(const char* icon, const char* title, const char* what_to_do, co
         clicked = button(action);
     }
     return clicked;
+}
+
+} // namespace
+
+bool empty_state(const char* icon, const char* title, const char* what_to_do, const char* action) {
+    return empty_block({.icon = icon}, title, what_to_do, action);
+}
+
+bool empty_state(Texture picture, glm::vec2 size, const char* title, const char* what_to_do, const char* action) {
+    return empty_block({.picture = picture, .size = size}, title, what_to_do, action);
 }
 
 void unsaved_dot(DrawList list, glm::vec2 centre) {
