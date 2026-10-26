@@ -46,6 +46,26 @@ TEST_CASE("The wheel zooms at the cursor", "[ui][canvas]") {
     CHECK(after.y == Approx(under.y).margin(1e-3));
 }
 
+TEST_CASE("A zoom of whole steps about a point keeps that point's world under it", "[ui][canvas]") {
+    ui::CanvasView view;
+    KitHarness h;
+    h.set_ui([&] { draw_canvas(view); });
+    h.step(2);
+
+    const glm::vec2 centre = ORIGIN + SIZE * 0.5f;
+    const glm::vec2 under = view.to_world(centre);
+    view.zoom(1.0f, centre);
+    const float one_step = view.scale_x();
+    CHECK(one_step > 1.0f);
+    CHECK(view.to_world(centre).x == Approx(under.x).margin(1e-3));
+    CHECK(view.to_world(centre).y == Approx(under.y).margin(1e-3));
+
+    // A step back out is where it started.
+    view.zoom(-1.0f, centre);
+    CHECK(view.scale_x() == Approx(1.0f));
+    CHECK(view.to_world(centre).x == Approx(under.x).margin(1e-3));
+}
+
 TEST_CASE("Zoom stays inside its limits", "[ui][canvas]") {
     ui::CanvasView view({.min_scale = 0.5f, .max_scale = 2.0f});
     KitHarness h;
@@ -288,4 +308,23 @@ TEST_CASE("A picture canvas's zoom asks to fit or to show it pixel for pixel", "
     CHECK(asked == ui::ZoomAsk::Fit);
     h.click("1:1");
     CHECK(asked == ui::ZoomAsk::PixelForPixel);
+}
+
+TEST_CASE("A canvas worked on at many sizes has zoom steps in its pill, and no 1:1", "[ui][canvas]") {
+    KitHarness h;
+    ui::CanvasView view;
+    ui::ZoomAsk asked = ui::ZoomAsk::None;
+    h.set_ui([&] {
+        draw_canvas(view);
+        const ui::ZoomAsk ask = ui::zoom_controls(view, {.steps = true, .pixel_for_pixel = false});
+        if (ask != ui::ZoomAsk::None) asked = ask;
+    });
+    h.step(2);
+    h.click(ui::icon::zoom_in);
+    CHECK(asked == ui::ZoomAsk::In);
+    h.click(ui::icon::zoom_out);
+    CHECK(asked == ui::ZoomAsk::Out);
+    h.click(ui::icon::frame_view);
+    CHECK(asked == ui::ZoomAsk::Fit);
+    CHECK_FALSE(h.find("1:1"));
 }

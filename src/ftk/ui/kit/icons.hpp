@@ -21,6 +21,8 @@ inline constexpr const char* follow  = ICON_LC_ARROW_DOWN_WIDE_NARROW;  // keep 
 inline constexpr const char* open    = ICON_LC_EXTERNAL_LINK;  // in what edits it
 inline constexpr const char* copy    = ICON_LC_COPY;
 inline constexpr const char* frame_view = ICON_LC_SCAN;  // bring what a canvas shows into view
+inline constexpr const char* zoom_out = ICON_LC_MINUS;     // a canvas shown a step smaller
+inline constexpr const char* zoom_in  = ICON_LC_PLUS;      // a canvas shown a step larger
 
 // The app's own panels
 inline constexpr const char* console = ICON_LC_TERMINAL;

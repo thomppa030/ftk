@@ -74,6 +74,11 @@ public:
     /// not the canvas's to handle.
     [[nodiscard]] bool panning() const { return panning_; }
 
+    /// Zooms by `steps` of the wheel's step, in where positive, about the
+    /// screen point `at`, which keeps the world it shows: the wheel's own
+    /// zoom at the cursor, or a pill's buttons at the canvas's centre.
+    void zoom(float steps, glm::vec2 at);
+
     /// Shows the world from `lo` to `hi`. Uniform fits it in the canvas
     /// without enlarging past one pixel per unit; Horizontal shows lo.x to
     /// hi.x within its bounds; Both shows exactly that rectangle.
@@ -231,11 +236,21 @@ void channel_toggles(Channels& shown, const Channels& fixed = {.r = false, .g = 
                      bool alpha = true);
 
 /// What a picture canvas's zoom controls ask for.
-enum class ZoomAsk { None, Fit, PixelForPixel };
+enum class ZoomAsk { None, Fit, PixelForPixel, In, Out };
+
+/// What a picture canvas's zoom pill holds besides how large it shows the
+/// picture and Fit.
+struct ZoomButtons {
+    /// Zoom out before the zoom and zoom in after it, a step each: a canvas
+    /// worked on at many sizes, as a widget's.
+    bool steps{false};
+    /// Pixel for pixel after Fit: a picture's.
+    bool pixel_for_pixel{true};
+};
 
 /// A picture canvas's zoom, in the open pill: how large `view` shows it in
-/// percent, Fit (F) and Pixel for pixel (1). The owner does what is asked,
-/// and takes F and 1 itself while it has the keys.
-[[nodiscard]] ZoomAsk zoom_controls(const CanvasView& view);
+/// percent, Fit (F), and the buttons `buttons` asks for. The owner does what
+/// is asked, and takes F and 1 itself while it has the keys.
+[[nodiscard]] ZoomAsk zoom_controls(const CanvasView& view, ZoomButtons buttons = {});
 
 } // namespace ftk::ui

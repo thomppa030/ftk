@@ -105,30 +105,32 @@ void CanvasView::place(glm::vec2 origin, glm::vec2 size) {
     keep();
 }
 
+void CanvasView::zoom(float steps, glm::vec2 at_screen) {
+    if (steps == 0.0f) return;
+    const float factor = std::pow(ZOOM_STEP, steps);
+    const glm::vec2 at = to_world(at_screen);
+    if (options_.zoom == CanvasZoom::Uniform) {
+        const float scale = std::clamp(scale_ * factor, options_.min_scale, options_.max_scale);
+        min_ = at - (at - min_) * (scale_ / scale);
+        scale_ = scale;
+    } else {
+        // Both zooms up as well as across, unless Shift keeps it across.
+        const float span = std::max(span_.x / factor, options_.min_span);
+        min_.x = at.x - (at.x - min_.x) * (span / span_.x);
+        span_.x = span;
+        if (options_.zoom == CanvasZoom::Both && !modifiers().shift) {
+            const float span_y = std::max(span_.y / factor, options_.min_span);
+            min_.y = at.y - (at.y - min_.y) * (span_y / span_.y);
+            span_.y = span_y;
+        }
+        if (options_.zoom == CanvasZoom::Horizontal) clamp_horizontal();
+    }
+    keep();
+}
+
 void CanvasView::input(bool hovered) {
     if (!hovered) return;
-    const float wheel = mouse_wheel();
-    if (wheel != 0.0f) {
-        const float factor = std::pow(ZOOM_STEP, wheel);
-        const glm::vec2 at = to_world(mouse_pos());
-        if (options_.zoom == CanvasZoom::Uniform) {
-            const float scale = std::clamp(scale_ * factor, options_.min_scale, options_.max_scale);
-            min_ = at - (at - min_) * (scale_ / scale);
-            scale_ = scale;
-        } else {
-            // Both zooms up as well as across, unless Shift keeps it across.
-            const float span = std::max(span_.x / factor, options_.min_span);
-            min_.x = at.x - (at.x - min_.x) * (span / span_.x);
-            span_.x = span;
-            if (options_.zoom == CanvasZoom::Both && !modifiers().shift) {
-                const float span_y = std::max(span_.y / factor, options_.min_span);
-                min_.y = at.y - (at.y - min_.y) * (span_y / span_.y);
-                span_.y = span_y;
-            }
-            if (options_.zoom == CanvasZoom::Horizontal) clamp_horizontal();
-        }
-        keep();
-    }
+    zoom(mouse_wheel(), mouse_pos());
     if (mouse_clicked(MouseButton::Middle) || (modifiers().alt && mouse_clicked(MouseButton::Left))) {
         panning_ = true;
         panned_frame_ = static_cast<int>(frame_count());
@@ -427,16 +429,26 @@ void channel_toggles(Channels& shown, const Channels& fixed, bool alpha) {
     }
 }
 
-ZoomAsk zoom_controls(const CanvasView& view) {
+ZoomAsk zoom_controls(const CanvasView& view, ZoomButtons buttons) {
     ZoomAsk asked = ZoomAsk::None;
+    if (buttons.steps) {
+        if (icon_button("##out", icon::zoom_out, "Zoom out")) asked = ZoomAsk::Out;
+        same_line();
+    }
     align_text_to_frame();
     text(std::format(" {:.0f}", view.scale_x() * 100.0f));
     same_line(2.0f);
     text("% ", theme::text_secondary());
     same_line();
+    if (buttons.steps) {
+        if (icon_button("##in", icon::zoom_in, "Zoom in")) asked = ZoomAsk::In;
+        same_line();
+    }
     if (icon_button("##fit", icon::frame_view, "Fit (F)")) asked = ZoomAsk::Fit;
-    same_line();
-    if (icon_button("##one", "1:1", "Pixel for pixel (1)")) asked = ZoomAsk::PixelForPixel;
+    if (buttons.pixel_for_pixel) {
+        same_line();
+        if (icon_button("##one", "1:1", "Pixel for pixel (1)")) asked = ZoomAsk::PixelForPixel;
+    }
     return asked;
 }
 
