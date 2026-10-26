@@ -89,6 +89,13 @@ enum class RootKind : uint8_t {
     Tooltip,
 };
 
+/// Where an OS window is on the desktop: its top left in points, as the
+/// platform reports places, and the UI's layout units to a point in it.
+struct RootPlace {
+    glm::vec2 at{0.0f};
+    float units_per_point{1.0f};
+};
+
 /// An OS window the frame asks the program to open: a window of the
 /// program's own, or a popup that doesn't fit inside its window. Asked for
 /// again while it is open, it is moved and sized as asked, and given its
@@ -300,6 +307,13 @@ public:
     [[nodiscard]] float root_scale() const;
     /// The OS window being drawn.
     [[nodiscard]] RootId root() const;
+    /// Tells where the OS window `root`, drawn before, is on the desktop, as
+    /// the program learns it each frame; nothing where the platform keeps
+    /// it to itself.
+    void set_root_place(RootId root, std::optional<RootPlace> place);
+    /// `at`, a point in the OS window `from`'s layout units, in the window
+    /// `to`'s, past their edges too: nothing unless both places are known.
+    [[nodiscard]] std::optional<glm::vec2> point_in(RootId from, glm::vec2 at, RootId to) const;
     /// Lets go of what was kept for a window that is gone.
     void forget_root(RootId root);
 
@@ -715,6 +729,8 @@ private:
         // The frame it was first drawn into: begun again in that frame,
         // what was drawn into it before goes on.
         uint64_t begun{0};
+        // Where it is on the desktop, while the platform tells.
+        std::optional<RootPlace> place{};
     };
     // The keys as this frame sees them, by Key.
     struct Keyboard {

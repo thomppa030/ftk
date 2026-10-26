@@ -99,6 +99,9 @@ public:
     /// (Wayland keeps both to itself).
     [[nodiscard]] glm::ivec2 position() const;
     void set_position(glm::ivec2 at);
+    /// The platform tells a program where its windows are, so position()
+    /// means something: not on Wayland.
+    [[nodiscard]] static bool places_known();
     /// Sizes it, in points: a popup grown or shrunk with what it shows.
     void set_size(glm::uvec2 size);
 

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -80,6 +81,19 @@ void UiLayer::begin_root(glm::vec2 size, float scale) {
     ui_.begin_frame(UiInput::now());
     ui_.begin_root(ROOT, size, scale);
     size_ = size;
+    // Where the windows are, where the platform says, for what is carried
+    // from one to another.
+    if (!fixed_) {
+        const auto place_of = [](const Window& window) -> std::optional<ui::core::RootPlace> {
+            if (!Window::places_known()) return std::nullopt;
+            return ui::core::RootPlace{.at = glm::vec2(window.position()),
+                                       .units_per_point = window.pixel_density() / window.display_scale()};
+        };
+        ui_.set_root_place(ROOT, place_of(window_));
+        for (const Extra& extra : extras_) {
+            if (extra.asked.kind == ui::core::RootKind::Window) ui_.set_root_place(extra.root, place_of(*extra.window));
+        }
+    }
 }
 
 const ui::core::FrameOutput& UiLayer::end_frame() {

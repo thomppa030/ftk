@@ -11,6 +11,8 @@
 #include "ftk/ui/kit/window.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -30,6 +32,9 @@ constexpr Color CLEAR{0.0f, 0.0f, 0.0f, 0.0f};
 constexpr float OFF_ROW = 1.5f;
 // The line under a row of tabs, in the colour of the one in front.
 constexpr float BAR_BORDER = 1.0f;
+// How many frames a row waits, after a tab is let go on it, for the program
+// to draw that tab there.
+constexpr uint64_t LANDING_FRAMES = 3;
 // The dot an unsaved document's tab shows, as ImGui's.
 constexpr Color UNSAVED{1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -246,14 +251,48 @@ ContextTabBar::~ContextTabBar() {
     pop_style();
 }
 
-DocumentTabs::DocumentTabs(const char* id) {
+DocumentTabs::DocumentTabs(const char* id, const DocumentTabsOptions& options) {
     core::Context& context = ui();
     Kit& k = kit();
     const Id bar_id = context.id(id);
     TabBar& bar = k.tab_bars[bar_id];
     bar.reorder = true;
+    bar.group = options.group != nullptr ? core::hash_label(options.group, 0) : 0;
+    bar.owner = options.owner;
+    bar.root = context.root();
     bar.rect = context.layout().next({std::max(space_left().x, 1.0f), frame_height()});
     for (TabBar::Tab& tab : bar.tabs) tab.seen = false;
+
+    // A tab of another row of its group carried over this one, a row's
+    // height above or below it at most: the row parts where it would land,
+    // between the tabs whose middles it is between. Last frame's carry
+    // counts, for a row drawn before the one it was carried from.
+    bar.gap.reset();
+    CarriedTab& carried = k.carried_tab;
+    if (bar.group != 0 && carried.group == bar.group && carried.bar != bar_id && carried.frame + 1 >= context.frame()) {
+        const std::optional<glm::vec2> here = context.point_in(carried.root, carried.at, bar.root);
+        const float slack = bar.rect.height();
+        const bool over = here && here->x >= bar.rect.min.x && here->x < bar.rect.max.x &&
+                          here->y >= bar.rect.min.y - slack && here->y < bar.rect.max.y + slack;
+        if (over) {
+            const float spacing = k.style.item_inner_spacing.x;
+            std::size_t index = 0;
+            float x = bar.rect.min.x;
+            for (const TabBar::Tab& tab : bar.tabs) {
+                if (here->x < x + tab.width * 0.5f) break;
+                x += tab.width + spacing;
+                ++index;
+            }
+            bar.gap = index;
+            bar.gap_width = carried.width;
+            carried.over = bar_id;
+            carried.over_owner = bar.owner;
+            carried.over_index = index;
+            carried.over_frame = context.frame();
+        } else if (carried.over == bar_id) {
+            carried.over = 0;
+        }
+    }
     draw_bar_line(bar.rect, window_focused());
     // Its tabs' ids under its own.
     context.ids().push(bar_id);
@@ -265,6 +304,19 @@ DocumentTabs::~DocumentTabs() {
     if (!open_) return;
     Kit& k = kit();
     TabBar& bar = k.tab_bars[k.tab_bar];
+    // Where a tab carried over it would land: an empty tab's place, washed
+    // and outlined in the accent.
+    if (bar.gap) {
+        const float spacing = k.style.item_inner_spacing.x;
+        float x = bar.rect.min.x;
+        for (std::size_t i = 0; i < std::min(*bar.gap, bar.tabs.size()); ++i) x += bar.tabs[i].width + spacing;
+        const float rounding = std::max(0.0f, std::min(look().rounding, bar.gap_width * 0.5f - 1.0f));
+        const glm::vec2 min{x, bar.rect.min.y + 1.0f};
+        const glm::vec2 max{x + bar.gap_width, bar.rect.max.y - BAR_BORDER};
+        core::DrawList& dl = ui().draw_list();
+        dl.rect_filled(min, max, faded(theme::selection()), rounding, RoundCorners::Top);
+        dl.rect(min, max, faded(theme::accent()), rounding, RoundCorners::Top, 1.0f);
+    }
     // The tabs not drawn this frame are gone, the one in front with them.
     std::erase_if(bar.tabs, [](const TabBar::Tab& tab) { return !tab.seen; });
     if (std::ranges::none_of(bar.tabs, [&](const TabBar::Tab& tab) { return tab.id == bar.front; })) bar.front = 0;
@@ -284,10 +336,13 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
 
     // Its place in the bar's order, a new tab at the end, and as wide as
     // its label now.
+    // A new one at the end, or where a tab was let go on the row.
     auto at = std::ranges::find(bar.tabs, id, &TabBar::Tab::id);
     if (at == bar.tabs.end()) {
-        bar.tabs.push_back({.id = id});
-        at = std::prev(bar.tabs.end());
+        std::size_t place = bar.tabs.size();
+        if (bar.landing && context.frame() <= bar.landing_until) place = std::min(*bar.landing, place);
+        bar.landing.reset();
+        at = bar.tabs.insert(bar.tabs.begin() + static_cast<std::ptrdiff_t>(place), TabBar::Tab{.id = id});
     }
     const std::string_view label = shown(tab.label);
     at->width = tab_width(label, tab.closable || tab.unsaved);
@@ -295,6 +350,8 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     at->seen = true;
     float x = bar.rect.min.x;
     for (auto before = bar.tabs.begin(); before != at; ++before) x += before->width + spacing;
+    // Past where a tab carried over the row would land.
+    if (bar.gap && static_cast<std::size_t>(at - bar.tabs.begin()) >= *bar.gap) x += bar.gap_width + spacing;
 
     // Asked forward, or the first drawn while none is in front.
     if (tab.select || bar.front == 0) bar.front = id;
@@ -312,19 +369,34 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     // A press brings it forward.
     if (drawn.in.pressed) bar.front = id;
 
-    // Dragged a row and a half above or below the row, it is off it and
-    // keeps its place; let go past the window's edge, it is torn off.
+    // Dragged a row and a half above or below the row, or past the
+    // window's side, it is off it and keeps its place; let go past the
+    // window's edge, it is torn off.
     if (drawn.in.held && drawn.in.dragging) {
-        const float y = drawn.in.position.y;
+        const glm::vec2 p = drawn.in.position;
         const float rows = bar.rect.height() * OFF_ROW;
-        at->off_row = tab.tear_off && (y < bar.rect.min.y - rows || y > bar.rect.max.y + rows);
+        at->off_row = tab.tear_off && (p.y < bar.rect.min.y - rows || p.y > bar.rect.max.y + rows || p.x < 0.0f ||
+                                       p.x >= context.root_size().x);
     }
+    // Off a row of a group, it is carried: the group's other rows look for
+    // it, and part where it would land.
+    CarriedTab& carried = k.carried_tab;
+    if (at->off_row && drawn.in.held && bar.group != 0) {
+        if (carried.bar != k.tab_bar || carried.tab != id) carried = {.bar = k.tab_bar, .tab = id};
+        carried.group = bar.group;
+        carried.root = context.root();
+        carried.at = drawn.in.position;
+        carried.width = at->width;
+        carried.frame = context.frame();
+    }
+    const bool over_a_row = carried.bar == k.tab_bar && carried.tab == id && carried.over != 0 &&
+                            carried.over_frame + 1 >= context.frame();
     // Off the row, a copy of it follows the pointer, in a window of its own
     // past the window's edge, and says there what letting go does.
     if (at->off_row && drawn.in.held) {
         const glm::vec2 p = drawn.in.position;
         const glm::vec2 room = context.root_size();
-        const bool outside = p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y;
+        const bool outside = (p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y) && !over_a_row;
         context.begin_drag_preview();
         const core::Rect shown = context.panel_rect();
         context.draw_list().rect_filled(shown.min, shown.max, faded(theme::surface_base()), look().rounding);
@@ -355,15 +427,26 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
             context.request_frame();
         }
     }
-    // Let go, after its last move: past the window's edge, it is torn off.
+    // Let go, after its last move: on another row of its group, it lands
+    // there, where the row parted; past the window's edge, it is torn off.
     if (drawn.in.released) {
         const glm::vec2 let_go = drawn.in.position;
         const glm::vec2 room = context.root_size();
         const bool outside = let_go.x < 0.0f || let_go.y < 0.0f || let_go.x >= room.x || let_go.y >= room.y;
-        if (tab.tear_off && outside) result.torn_off = let_go;
+        if (at->off_row && over_a_row) {
+            result.landed_on = carried.over_owner;
+            if (const auto onto = k.tab_bars.find(carried.over); onto != k.tab_bars.end()) {
+                onto->second.landing = carried.over_index;
+                onto->second.landing_until = context.frame() + LANDING_FRAMES;
+            }
+        } else if (tab.tear_off && outside) {
+            result.torn_off = let_go;
+        }
+        if (carried.bar == k.tab_bar && carried.tab == id) carried = {};
         at->off_row = false;
     }
     result.front = bar.front == id;
+    result.place = static_cast<std::size_t>(std::ranges::find(bar.tabs, id, &TabBar::Tab::id) - bar.tabs.begin());
     result.closed = tab.closable && drawn.closed;
     return result;
 }

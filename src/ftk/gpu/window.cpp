@@ -335,6 +335,11 @@ void Window::set_position(glm::ivec2 at) {
     SDL_SetWindowPosition(window_, at.x, at.y);
 }
 
+bool Window::places_known() {
+    const char* driver = SDL_GetCurrentVideoDriver();
+    return driver == nullptr || std::strcmp(driver, "wayland") != 0;
+}
+
 void Window::set_size(glm::uvec2 size) {
     SDL_SetWindowSize(window_, static_cast<int>(size.x), static_cast<int>(size.y));
 }

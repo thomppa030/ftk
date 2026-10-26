@@ -4,6 +4,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string>
@@ -63,12 +64,23 @@ private:
     bool open_{false};
 };
 
+struct DocumentTabsOptions {
+    /// Rows of one group, in any of the program's windows, take each other's
+    /// tabs: one that can be torn off, dragged off its row onto another's,
+    /// parts that row where it would land, and lands there when let go.
+    /// Where the platform keeps windows' places to itself (Wayland), only
+    /// rows of one window. Null for a row whose tabs stay in it.
+    const char* group{nullptr};
+    /// What the program knows the row by, told to a tab that lands on it.
+    int owner{0};
+};
+
 /// A row of tabs, one for each document open, which can be put in another
 /// order by dragging them. Its tabs are document_tab()s, drawn while it is
 /// true.
 class DocumentTabs {
 public:
-    explicit DocumentTabs(const char* id);
+    explicit DocumentTabs(const char* id, const DocumentTabsOptions& options = {});
     ~DocumentTabs();
     DocumentTabs(const DocumentTabs&) = delete;
     DocumentTabs& operator=(const DocumentTabs&) = delete;
@@ -110,6 +122,13 @@ struct DocumentTabResult {
     /// this frame: where, in the window's layout units, for the window the
     /// program shows it in.
     std::optional<glm::vec2> torn_off{};
+    /// Dragged onto another row of its group and let go there this frame:
+    /// that row's owner, for the program to draw the tab there from now on.
+    /// The row shows it where it was let go.
+    std::optional<int> landed_on{};
+    /// Its place in the row as shown, from 0, in the order dragging put the
+    /// tabs in.
+    std::size_t place{0};
 };
 
 /// One tab of the DocumentTabs being drawn.

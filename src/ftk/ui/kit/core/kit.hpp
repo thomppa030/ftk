@@ -22,6 +22,7 @@
 #include <glm/vec3.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -272,6 +273,36 @@ struct TabBar {
     /// The tabs can be put in another order by dragging them.
     bool reorder{false};
     core::Rect rect{};
+    /// Rows of one group take each other's tabs; what the program knows
+    /// this one by, and the window it is in (DocumentTabsOptions).
+    Id group{0};
+    int owner{0};
+    core::RootId root{0};
+    /// A tab of another row carried over this one: where it would land, and
+    /// how wide it is.
+    std::optional<std::size_t> gap{};
+    float gap_width{0.0f};
+    /// A tab let go on this row: where the next tab new to it goes, until
+    /// the frame given.
+    std::optional<std::size_t> landing{};
+    uint64_t landing_until{0};
+};
+
+/// A tab carried off a row of a group: the row and the tab, the window it
+/// is in and where the pointer is there, the frame it last was; and the
+/// row of its group it is over, where it would land there, and when.
+struct CarriedTab {
+    Id bar{0};
+    Id tab{0};
+    Id group{0};
+    core::RootId root{0};
+    glm::vec2 at{0.0f};
+    float width{0.0f};
+    uint64_t frame{0};
+    Id over{0};
+    int over_owner{0};
+    std::size_t over_index{0};
+    uint64_t over_frame{0};
 };
 
 /// One of the kit's windows: what it keeps from frame to frame.
@@ -408,6 +439,7 @@ public:
     /// The tab looks pushed, the innermost last; the theme's beneath them.
     std::vector<TabLook> tab_looks{};
     std::unordered_map<Id, TabBar> tab_bars{};
+    CarriedTab carried_tab{};
     /// The row of tabs being drawn.
     Id tab_bar{0};
     /// Where text wraps, the innermost last: at that x, or at the area's

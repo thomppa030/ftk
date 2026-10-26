@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <vector>
 
 // A window of the program's own beside the one being drawn, which the
 // program fills (an editor's tab torn out into one), and the document tab
@@ -297,4 +298,98 @@ TEST_CASE("A document tab that tears off says where it was let go past the windo
     h.drag(centre("stone.fjmesh"), {stone.x, h.size().y + 50.0f});
     h.step(2);
     CHECK_FALSE(other_torn);
+}
+
+TEST_CASE("A tab dragged onto another window's row of its group parts it, and lands where it parted",
+          "[ui][kit][tabs][other_window]") {
+    KitHarness h;
+    h.ui().set_popups_leave_window(true);
+    std::vector<std::string> here{"Scene", "bark.fjmat"};
+    std::vector<std::string> there{"grass.fjmat", "stone.fjmesh"};
+    std::optional<int> landed;
+    std::optional<glm::vec2> torn;
+    std::vector<std::size_t> places_there;
+    const auto row = [&](const std::vector<std::string>& tabs, int owner) {
+        const std::string id = "##docs " + std::to_string(owner);
+        if (auto docs = ui::DocumentTabs(id.c_str(), {.group = "editor", .owner = owner})) {
+            for (const std::string& name : tabs) {
+                const ui::DocumentTabResult tab = ui::document_tab({.label = name.c_str(), .tear_off = name != "Scene"});
+                if (tab.landed_on) landed = tab.landed_on;
+                if (tab.torn_off) torn = tab.torn_off;
+                if (owner == 7) places_there.push_back(tab.place);
+            }
+        }
+    };
+    h.set_ui([&] {
+        places_there.clear();
+        row(here, 0);
+        const ui::OtherWindow other(OTHER, {.title = "other", .size = {500.0f, 300.0f}});
+        if (other) row(there, 7);
+    });
+    h.step(3);
+    const ui::core::RootId other = ui::other_window_root(OTHER);
+    const auto tab_rect = [&](const char* name) {
+        const ui::core::SemanticNode* tab = h.find(name, ui::core::Role::Tab);
+        REQUIRE(tab != nullptr);
+        return tab->rect;
+    };
+    // The other window stands to the right of this one on the desktop, its
+    // units twice its points.
+    h.ui().set_root_place(KitHarness::WINDOW, ui::core::RootPlace{.at = {100.0f, 50.0f}, .units_per_point = 1.0f});
+    h.ui().set_root_place(other, ui::core::RootPlace{.at = {100.0f + h.size().x + 40.0f, 50.0f}, .units_per_point = 2.0f});
+    const auto from_other = [&](glm::vec2 at) {
+        return glm::vec2{h.size().x + 40.0f, 0.0f} + at / 2.0f;
+    };
+
+    // Carried off its row and over the other row, a little into the second
+    // tab there: that row parts before it by the carried tab's width.
+    const ui::core::Rect bark = tab_rect("bark.fjmat");
+    const ui::core::Rect grass = tab_rect("grass.fjmat");
+    const ui::core::Rect stone = tab_rect("stone.fjmesh");
+    h.move_to(bark.centre());
+    h.button_down();
+    h.move_to({bark.centre().x, bark.centre().y + 200.0f});
+    h.move_to(from_other({stone.min.x + 4.0f, stone.centre().y}));
+    h.step(2);
+    CHECK(tab_rect("grass.fjmat").min.x == Approx(grass.min.x));
+    CHECK(tab_rect("stone.fjmesh").min.x > stone.min.x + bark.width() * 0.9f);
+    // Its copy goes on past this window's edge, in a window of its own that
+    // says nothing of opening one: the tab lands on the row.
+    REQUIRE(h.windows().size() == 2);
+    const ui::core::RootRequest& copy = h.windows()[1];
+    CHECK(copy.kind == ui::core::RootKind::Tooltip);
+    CHECK(copy.size.x < bark.width() + 60.0f);
+
+    // Let go there: it lands on that row, told by the row's owner, and is
+    // shown where the row parted once the program draws it there.
+    h.button_up();
+    REQUIRE(landed == 7);
+    CHECK_FALSE(torn.has_value());
+    here.pop_back();
+    there.push_back("bark.fjmat");
+    h.step(2);
+    CHECK(places_there == std::vector<std::size_t>{0, 2, 1});
+    CHECK(tab_rect("bark.fjmat").min.x < tab_rect("stone.fjmesh").min.x);
+    CHECK(tab_rect("grass.fjmat").min.x < tab_rect("bark.fjmat").min.x);
+    CHECK(tab_rect("stone.fjmesh").min.x == Approx(stone.min.x + bark.width() + ui::item_inner_spacing().x).margin(1.0f));
+
+    // Where the platform keeps windows' places to itself, the row isn't
+    // found, and let go there the tab opens in a window of its own.
+    landed.reset();
+    h.ui().set_root_place(KitHarness::WINDOW, std::nullopt);
+    const ui::core::Rect grass_now = tab_rect("grass.fjmat");
+    h.send(ui::core::PointerEvent{.kind = ui::core::PointerEvent::Kind::Move, .root = other, .sample = {.position = grass_now.centre()}});
+    h.step();
+    h.send(ui::core::PointerEvent{.kind = ui::core::PointerEvent::Kind::Down, .root = other, .sample = {.position = grass_now.centre()}});
+    h.step();
+    h.send(ui::core::PointerEvent{.kind = ui::core::PointerEvent::Kind::Move, .root = other,
+                                  .sample = {.position = {grass_now.centre().x, grass_now.centre().y + 300.0f}}});
+    h.step();
+    h.send(ui::core::PointerEvent{.kind = ui::core::PointerEvent::Kind::Move, .root = other, .sample = {.position = {-400.0f, 20.0f}}});
+    h.step(2);
+    h.send(ui::core::PointerEvent{.kind = ui::core::PointerEvent::Kind::Up, .root = other, .sample = {.position = {-400.0f, 20.0f}}});
+    h.step(2);
+    CHECK_FALSE(landed.has_value());
+    REQUIRE(torn.has_value());
+    CHECK(torn->x < 0.0f);
 }

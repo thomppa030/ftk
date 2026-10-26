@@ -258,6 +258,21 @@ void Context::open_root(const RootRequest& request) {
     output_.open.push_back(request);
 }
 
+void Context::set_root_place(RootId root, std::optional<RootPlace> place) {
+    if (const auto found = roots_.find(root); found != roots_.end()) found->second->place = place;
+}
+
+std::optional<glm::vec2> Context::point_in(RootId from, glm::vec2 at, RootId to) const {
+    const auto source = roots_.find(from);
+    const auto target = roots_.find(to);
+    if (source == roots_.end() || target == roots_.end()) return std::nullopt;
+    const std::optional<RootPlace>& a = source->second->place;
+    const std::optional<RootPlace>& b = target->second->place;
+    if (!a || !b || a->units_per_point <= 0.0f) return std::nullopt;
+    const glm::vec2 desktop = a->at + at / a->units_per_point;
+    return (desktop - b->at) * b->units_per_point;
+}
+
 void Context::close_root(RootId root) {
     output_.close.push_back(root);
 }
