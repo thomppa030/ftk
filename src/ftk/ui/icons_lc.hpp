@@ -78,6 +78,8 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_SQUARE_DASHED_BOTTOM "\xee\x93\x80"  // U+E4C0
 #define ICON_LC_RECTANGLE_HORIZONTAL "\xee\x8d\xb6"  // U+E376
 #define ICON_LC_BLOCKS             "\xee\x93\xba"  // U+E4FA
+#define ICON_LC_PROPORTIONS        "\xee\x97\x8f"  // U+E5CF
+#define ICON_LC_LAYOUT_LIST        "\xee\x87\x99"  // U+E1D9
 #define ICON_LC_SUN                "\xee\x85\xb8"  // U+E178
 #define ICON_LC_LIGHTBULB          "\xee\x87\x82"  // U+E1C2
 #define ICON_LC_FLASHLIGHT         "\xee\x83\x93"  // U+E0D3
