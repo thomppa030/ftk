@@ -122,35 +122,27 @@ void UiLayer::render(gpu::CommandList& cmd, const gpu::TextureView& target, glm:
     cost_.cpu_seconds += UiInput::now() - start;
 }
 
-Result<> UiLayer::show_windows() {
-    if (last_ == nullptr) return {};
+void UiLayer::record_windows(gpu::Frame& frame, gpu::CommandList& cmd) {
+    if (last_ == nullptr) return;
     for (Extra& extra : extras_) {
-        if (auto shown = show(*extra.swapchain, extra.root, *last_); !shown) return shown;
+        const auto drawn = std::ranges::find(last_->roots, extra.root, &ui::core::RootOutput::root);
+        if (drawn == last_->roots.end()) continue;
+        // A window without an image ready shows what it last drew and takes
+        // the UI as it is then on a later frame.
+        const auto image = extra.swapchain->acquire_ready(frame);
+        if (!image) continue;
+        const gpu::Transition to_draw = image->to_draw();
+        cmd.transition({&to_draw, 1});
+        const glm::uvec2 pixels{extra.swapchain->width(), extra.swapchain->height()};
+        renderer_->render(cmd, image->texture, pixels, *drawn, ui_.text().atlas(), background());
+        const gpu::Transition to_present = image->to_present();
+        cmd.transition({&to_present, 1});
     }
-    return keep_windows(*last_);
 }
 
-Result<> UiLayer::show(gpu::Swapchain& swapchain, ui::core::RootId root, const ui::core::FrameOutput& out) {
-    const auto drawn = std::ranges::find(out.roots, root, &ui::core::RootOutput::root);
-    if (drawn == out.roots.end()) return {};
-    gpu::Frame& frame = device_.begin_frame();
-    const auto image = swapchain.acquire(frame);
-    if (!image) {
-        (void)device_.end_frame(frame);
-        return {};
-    }
-    gpu::CommandList& cmd = frame.commands(gpu::Queue::graphics);
-    const gpu::Transition to_draw = image->to_draw();
-    cmd.transition({&to_draw, 1});
-    const glm::uvec2 pixels{swapchain.width(), swapchain.height()};
-    renderer_->render(cmd, image->texture, pixels, *drawn, ui_.text().atlas(), background());
-    const gpu::Transition to_present = image->to_present();
-    cmd.transition({&to_present, 1});
-    frame.submit(cmd);
-    return swapchain.present(frame, *image);
-}
-
-Result<> UiLayer::keep_windows(const ui::core::FrameOutput& out) {
+Result<> UiLayer::keep_windows() {
+    if (last_ == nullptr) return {};
+    const ui::core::FrameOutput& out = *last_;
     const auto close = [&](std::vector<Extra>::iterator extra) {
         // Its images may still be on the GPU.
         device_.wait_idle();

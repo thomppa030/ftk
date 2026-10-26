@@ -48,7 +48,9 @@ struct SwapchainImage {
 /// What a window shows: a few images that frames draw into in turn, each
 /// shown once its frame is done. It is remade, with new images, whenever the
 /// window's size changes, so an image is only good for the frame it was
-/// acquired for.
+/// acquired for. A frame may draw several windows: the program's own, whose
+/// image it waits for, and others, which it draws when they have an image
+/// ready; ending the frame shows them all.
 ///
 /// @code
 /// auto& frame = device.begin_frame();
@@ -64,7 +66,7 @@ struct SwapchainImage {
 /// const gpu::Transition show = image->to_present();
 /// cmd.transition({&show, 1});
 /// frame.submit(cmd);
-/// swapchain->present(frame, *image);
+/// (void)device.end_frame(frame);                     // shows the image
 /// @endcode
 class Swapchain {
 public:
@@ -86,21 +88,26 @@ public:
     Swapchain(Swapchain&&) = delete;
     Swapchain& operator=(Swapchain&&) = delete;
 
-    /// The image `frame` draws the window into. The frame's first graphics
-    /// list waits for it where it writes colour; work before that stage runs
-    /// meanwhile. An image acquired must be presented.
+    /// The image `frame` draws the window into, waiting until the window has
+    /// one: the program's own window, which paces its frames. The frame's
+    /// first graphics list waits for it where it writes colour; work before
+    /// that stage runs meanwhile. `Device::end_frame` shows it, drawn and
+    /// left in `Access::present`.
     /// @return the image, or nothing when the window cannot take one now
     ///         because its size changed: the swapchain is remade for the next
     ///         frame (waiting while the window is minimised), and this frame
     ///         ends through `Device::end_frame` without one.
     [[nodiscard]] std::optional<SwapchainImage> acquire(Frame& frame);
 
-    /// Ends `frame` as `Device::end_frame` does, then shows `image`, which the
-    /// frame acquired and left in `Access::present`, once the frame is done.
-    /// Remakes the swapchain when the window's size has changed.
-    /// @return nothing, or why the GPU refused the frame or the window
-    ///         refused the image
-    [[nodiscard]] Result<> present(Frame& frame, const SwapchainImage& image);
+    /// The image `frame` draws the window into, if the window has one ready
+    /// now: another of the program's windows, which never holds the frame.
+    /// The frame's last graphics list waits for it where it writes colour,
+    /// so it is drawn there. `Device::end_frame` shows it, drawn and left in
+    /// `Access::present`.
+    /// @return the image, or nothing when the window has none ready (its
+    ///         screen is still showing the ones it has, it is hidden, it has
+    ///         no size), and the frame goes on without it
+    [[nodiscard]] std::optional<SwapchainImage> acquire_ready(Frame& frame);
 
     /// The images' format and size, until the swapchain is remade.
     [[nodiscard]] Format format() const;
@@ -110,6 +117,9 @@ public:
     [[nodiscard]] Impl& impl() noexcept { return *impl_; }
 
 private:
+    /// The image, waiting for one unless `ready_only`.
+    [[nodiscard]] std::optional<SwapchainImage> take_image(Frame& frame, bool ready_only);
+
     Device* device_;
     std::unique_ptr<Impl> impl_;
 };

@@ -132,6 +132,10 @@ void FileBrowser::tick() {
     if (should_close) close();
 }
 
+void FileBrowser::record(gpu::Frame& frame, gpu::CommandList& cmd) {
+    if (window_) window_->record(frame, cmd);
+}
+
 void FileBrowser::close() {
     window_.reset();
 }

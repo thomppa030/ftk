@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ftk/base/result.hpp"
 #include "ftk/gpu/frame.hpp"
 #include "ftk/gpu/vulkan/command_list_impl.hpp"
 
@@ -15,6 +16,8 @@
 #include <vector>
 
 namespace ftk::gpu {
+
+class Swapchain;
 
 /// A list a frame handed out, with the recording state behind it.
 struct FrameList {
@@ -66,11 +69,22 @@ struct Frame::Impl {
     };
     std::vector<Submission> submissions;
 
-    /// Set by `Swapchain::acquire`: what the first graphics list waits for
-    /// at colour output, and what the last list signals for present. Null
-    /// without a swapchain image.
-    VkSemaphore acquired{VK_NULL_HANDLE};
-    VkSemaphore rendered{VK_NULL_HANDLE};
+    /// A swapchain image the frame acquired, shown as it ends.
+    struct Acquired {
+        Swapchain* swapchain{nullptr};
+        uint32_t index{0};
+        /// What the list drawing it waits for at colour output.
+        VkSemaphore acquired{VK_NULL_HANDLE};
+        /// What the frame's last list signals, and present waits on.
+        VkSemaphore rendered{VK_NULL_HANDLE};
+        /// Taken only when ready (`Swapchain::acquire_ready`): the frame's
+        /// last graphics list waits for it, not its first, so it holds
+        /// nothing before the list that draws it.
+        bool ready_only{false};
+        /// A list waits for it already.
+        bool waited{false};
+    };
+    std::vector<Acquired> images;
 };
 
 /// One of the device's frames in flight: the interface's frame and its
@@ -84,5 +98,10 @@ struct FrameSlot {
     Frame::Impl impl;
     Frame frame;
 };
+
+/// Shows the images `frame` acquired, together in one present once the
+/// frame is done, and remakes the swapchains whose windows changed size.
+/// Defined with the swapchain.
+[[nodiscard]] Result<> present_images(Device& device, Frame::Impl& frame);
 
 } // namespace ftk::gpu

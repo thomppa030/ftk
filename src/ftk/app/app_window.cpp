@@ -57,7 +57,7 @@ Result<> AppWindow::run(const AppFrame& frame) {
             device_->wait_idle();
             return shown;
         }
-        if (auto kept = layer_->show_windows(); !kept) {
+        if (auto kept = layer_->keep_windows(); !kept) {
             device_->wait_idle();
             return kept;
         }
@@ -92,8 +92,10 @@ Result<> AppWindow::draw_frame(const AppFrame& frame) {
     layer_->render(cmd, image->texture, {swapchain_->width(), swapchain_->height()});
     const gpu::Transition to_present = image->to_present();
     cmd.transition({&to_present, 1});
+    layer_->record_windows(gpu_frame, cmd);
+    if (frame.windows) frame.windows(gpu_frame, cmd);
     gpu_frame.submit(cmd);
-    return swapchain_->present(gpu_frame, *image);
+    return device_->end_frame(gpu_frame);
 }
 
 Result<Shot> AppWindow::shot(const UiDraw& ui, glm::uvec2 size, float scale, int frames) {

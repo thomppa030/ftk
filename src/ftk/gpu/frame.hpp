@@ -26,7 +26,7 @@ struct SubmitDesc {
 /// One frame: the lists it records, the order they are submitted in, and
 /// the serial what is released while it records waits for.
 /// `Device::begin_frame()` starts one and `Device::end_frame()` sends what it
-/// submitted to the GPU. The frame belongs to the device and is reused when
+/// submitted to the GPU and shows the swapchain images it acquired. The frame belongs to the device and is reused when
 /// its slot comes round again.
 ///
 /// @code

@@ -291,8 +291,11 @@ public:
     /// Sends what `frame` submitted to the GPU, in order, with the frame's
     /// uploads before it; the GPU finishing the last list is the frame
     /// finished. A frame that submitted nothing is over at once. Frames end
-    /// in the order they began.
+    /// in the order they began. Then shows every swapchain image the frame
+    /// acquired, together, once the frame is done, and remakes the swapchain
+    /// of a window whose size changed.
     /// @return nothing, or why the GPU refused the work (the device is lost)
+    ///         or a window refused its image
     [[nodiscard]] Result<> end_frame(Frame& frame);
 
     /// The newest frame the GPU has finished.

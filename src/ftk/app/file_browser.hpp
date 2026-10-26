@@ -88,8 +88,13 @@ public:
     /// that draw() fills, as its tests draw it.
     void start(const std::string& title, Mode mode, const char* verb, const FileBrowserOptions& options = {});
 
-    /// Render one frame. Call from the main loop if is_open().
+    /// Lays out one frame of its window. Call from the main loop if
+    /// is_open(), between the program's frames.
     void tick();
+
+    /// Records its window, if open, into the program's `frame`, from the
+    /// frame's last graphics list (StandaloneWindow::record).
+    void record(gpu::Frame& frame, gpu::CommandList& cmd);
 
     /// Draws the browser in the space left of the window being drawn: what
     /// tick() draws in its own window. True once it is answered, a choice

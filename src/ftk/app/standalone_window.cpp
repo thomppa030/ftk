@@ -40,6 +40,11 @@ bool StandaloneWindow::close_requested() const {
 }
 
 void StandaloneWindow::frame(const std::function<void(float width, float height)>& draw) {
+    // Its popups past its edge that the last frame asked for open, and the
+    // ones closed go.
+    if (auto kept = layer_->keep_windows(); !kept) {
+        FTK_GFX_ERROR("{}", kept.error());
+    }
     const glm::uvec2 pixels = window_->framebuffer_size();
     if (pixels.x == 0 || pixels.y == 0) return;
     // The editor's context comes back after this window's frame.
@@ -48,27 +53,21 @@ void StandaloneWindow::frame(const std::function<void(float width, float height)
     draw(layer_->size().x, layer_->size().y);
     (void)layer_->end_frame();
     ui::core::set_current(previous);
+}
 
-    gpu::Frame& frame = device_.begin_frame();
-    const auto image = swapchain_->acquire(frame);
-    if (!image) {
-        (void)device_.end_frame(frame);
-        return;
-    }
-    gpu::CommandList& cmd = frame.commands(gpu::Queue::graphics);
-    const gpu::Transition to_draw = image->to_draw();
-    cmd.transition({&to_draw, 1});
-    layer_->render(cmd, image->texture, {swapchain_->width(), swapchain_->height()});
-    const gpu::Transition to_present = image->to_present();
-    cmd.transition({&to_present, 1});
-    frame.submit(cmd);
-    if (auto shown = swapchain_->present(frame, *image); !shown) {
-        FTK_GFX_ERROR("{}", shown.error());
+void StandaloneWindow::record(gpu::Frame& frame, gpu::CommandList& cmd) {
+    if (layer_->last() == nullptr) return;
+    // One of the program's other windows: drawn when it has an image ready,
+    // so it never holds the program's frame.
+    if (const auto image = swapchain_->acquire_ready(frame)) {
+        const gpu::Transition to_draw = image->to_draw();
+        cmd.transition({&to_draw, 1});
+        layer_->render(cmd, image->texture, {swapchain_->width(), swapchain_->height()});
+        const gpu::Transition to_present = image->to_present();
+        cmd.transition({&to_present, 1});
     }
     // Its popups past its edge, in windows of their own.
-    if (auto shown = layer_->show_windows(); !shown) {
-        FTK_GFX_ERROR("{}", shown.error());
-    }
+    layer_->record_windows(frame, cmd);
 }
 
 } // namespace ftk

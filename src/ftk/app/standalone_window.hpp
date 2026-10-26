@@ -12,7 +12,9 @@ class UiLayer;
 class Window;
 
 namespace gpu {
+class CommandList;
 class Device;
+class Frame;
 class Swapchain;
 }
 
@@ -22,8 +24,9 @@ using UiPrepare = std::function<void(ui::core::Context& ui)>;
 
 /// A second OS window on the editor's GPU device, for a window that lives
 /// outside the editor's own (the file browser, the import dialog): its own
-/// surface, swapchain and UI layer, with a context of its own, drawn a frame
-/// at a time by its owner. Created open; destroying it closes it.
+/// surface, swapchain and UI layer, with a context of its own. Its owner lays
+/// it out a frame at a time and records it into the program's own frame.
+/// Created open; destroying it closes it.
 class StandaloneWindow {
 public:
     /// `prepare` gives its UI what it needs before the first frame.
@@ -41,13 +44,19 @@ public:
     /// The user asked to close it (its title bar's close button).
     [[nodiscard]] bool close_requested() const;
 
-    /// Draws one frame of its own on the device: `draw` runs in this
-    /// window's context with the window's size in layout units. Called
-    /// between the editor's frames, never while one is recording; the
-    /// context current before it is current again after it. A frame is
-    /// skipped, without calling `draw`, while the swapchain is being rebuilt
-    /// or the window is minimised.
+    /// Lays out one frame: `draw` runs in this window's context with the
+    /// window's size in layout units, after the windows the last frame asked
+    /// for have opened and closed. Called between the program's frames,
+    /// never while one is recording; the context current before it is
+    /// current again after it. Skipped, without calling `draw`, while the
+    /// window is minimised.
     void frame(const std::function<void(float width, float height)>& draw);
+
+    /// Records the window, as frame() last laid it out, and its popups past
+    /// its edge into the program's `frame`, each when its window has an
+    /// image ready (gpu::Swapchain::acquire_ready). `cmd` is the frame's last
+    /// graphics list; ending the frame shows them.
+    void record(gpu::Frame& frame, gpu::CommandList& cmd);
 
 private:
     gpu::Device& device_;

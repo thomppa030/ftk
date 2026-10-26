@@ -63,6 +63,10 @@ struct AppFrame {
     /// built and before it is drawn: passes into textures the UI shows, as a
     /// viewport's picture, which it leaves readable by the fragment stage.
     std::function<void(gpu::CommandList& cmd)> record{};
+    /// Windows of the program's own beside the window and its UI's, as a
+    /// StandaloneWindow: recorded into the frame after the window is drawn,
+    /// from its one list (StandaloneWindow::record).
+    std::function<void(gpu::Frame& frame, gpu::CommandList& cmd)> windows{};
 };
 
 /// A frame read back from the GPU.

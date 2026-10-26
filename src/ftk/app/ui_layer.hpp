@@ -15,8 +15,9 @@
 //     draw_ui();                                   // the kit, or the core
 //     layer.end_frame();
 //     layer.render(cmd, image.texture, size);      // into the frame's image
-//     ...after the frame is presented:
-//     layer.show_windows();
+//     layer.record_windows(frame, cmd);            // the other windows' images
+//     ...after the frame has ended:
+//     layer.keep_windows();
 
 #include "ftk/base/result.hpp"
 #include "ftk/gpu/clear.hpp"
@@ -91,11 +92,17 @@ public:
     /// `size` pixels, which is in `gpu::Access::color_attachment` and is
     /// left there. What the UI doesn't cover is the background.
     void render(gpu::CommandList& cmd, const gpu::TextureView& target, glm::uvec2 size);
-    /// Shows the other windows' roots, each as a GPU frame of its own, then
-    /// opens and closes the windows the frame asked for and closes those
-    /// their user closed, telling the UI. After the program's own frame.
-    /// @return nothing, or why a window could not be opened or shown
-    [[nodiscard]] Result<> show_windows();
+    /// Records the other windows' roots, as the last frame drew them, into
+    /// `frame`: each into its window's image when the window has one ready
+    /// (gpu::Swapchain::acquire_ready), so none holds the frame. `cmd` is the
+    /// frame's last graphics list, which waits for those images; ending the
+    /// frame shows them with the program's own window.
+    void record_windows(gpu::Frame& frame, gpu::CommandList& cmd);
+    /// Opens and closes the windows the last frame asked for, and closes
+    /// those their user closed, telling the UI. Between the program's
+    /// frames, while no frame holds an image of theirs.
+    /// @return nothing, or why a window could not be opened
+    [[nodiscard]] Result<> keep_windows();
 
     /// `view` as the UI shows it (ui::image(), DrawList::image()), read as
     /// `picture` says: made the first time it is asked for, and let go once
@@ -137,12 +144,6 @@ private:
     };
 
     void begin_root(glm::vec2 size, float scale);
-    /// The root `root` of `out` drawn into `swapchain`, as a GPU frame of
-    /// its own.
-    Result<> show(gpu::Swapchain& swapchain, ui::core::RootId root, const ui::core::FrameOutput& out);
-    /// Opens and closes the windows the last frame asked for, and closes
-    /// those their user closed, telling the UI.
-    Result<> keep_windows(const ui::core::FrameOutput& out);
     /// Lets go of the pictures whose textures are gone.
     void forget_released();
     /// The background as the UI's canvas takes it: sRGB values.

@@ -1,6 +1,7 @@
 #include "ftk/gpu/swapchain.hpp"
 
 #include "ftk/base/log.hpp"
+#include "ftk/base/small_vector.hpp"
 #include "ftk/gpu/vulkan/device_impl.hpp"
 #include "ftk/gpu/vulkan/frame_impl.hpp"
 #include "ftk/gpu/vulkan/native.hpp"
@@ -74,15 +75,17 @@ struct Swapchain::Impl {
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
 
-    /// Makes the swapchain at the window's drawable size, waiting while the
-    /// window is minimised, with a texture and a semaphore per image.
-    Result<> build();
+    /// Makes the swapchain at the window's drawable size, with a texture and
+    /// a semaphore per image. While the window has no size (minimised) it
+    /// waits for one when `wait_for_size`, else makes nothing until a later
+    /// call finds one.
+    Result<> build(bool wait_for_size);
 
     /// Destroys what `build` made. The GPU must be done with it.
     void tear_down();
 
     /// Waits for the GPU and builds again at the window's size now.
-    void rebuild();
+    void rebuild(bool wait_for_size);
 
     Device& device;
     vulkan::Foundation& foundation;
@@ -107,9 +110,10 @@ struct Swapchain::Impl {
     size_t next_acquired{0};
 };
 
-Result<> Swapchain::Impl::build() {
+Result<> Swapchain::Impl::build(bool wait_for_size) {
     glm::uvec2 drawable = window.framebuffer_size();
     while (drawable.x == 0 || drawable.y == 0) {
+        if (!wait_for_size) return {};
         window.wait_events();
         drawable = window.framebuffer_size();
     }
@@ -221,12 +225,12 @@ void Swapchain::Impl::tear_down() {
     swapchain = VK_NULL_HANDLE;
 }
 
-void Swapchain::Impl::rebuild() {
+void Swapchain::Impl::rebuild(bool wait_for_size) {
     // Present gives no word of when it is done with an image or a semaphore
     // but a later acquire; with the swapchain going, only an idle GPU does.
     vkDeviceWaitIdle(device.impl().device);
     tear_down();
-    if (auto built = build(); !built) device.impl().report_once(built.error());
+    if (auto built = build(wait_for_size); !built) device.impl().report_once(built.error());
 }
 
 // ── Swapchain ───────────────────────────────────────────────────────────
@@ -244,7 +248,7 @@ Result<std::unique_ptr<Swapchain>> Swapchain::create(Device& device, Window& win
         return make_error("The GPU cannot present to the window");
     }
     auto impl = std::make_unique<Impl>(device, window, *surface);
-    if (auto built = impl->build(); !built) return std::unexpected(built.error());
+    if (auto built = impl->build(true); !built) return std::unexpected(built.error());
     return std::make_unique<Swapchain>(device, std::move(impl));
 }
 
@@ -252,35 +256,61 @@ Swapchain::Swapchain(Device& device, std::unique_ptr<Impl> impl)
     : device_(&device), impl_(std::move(impl)) {}
 
 Swapchain::~Swapchain() {
-    vkDeviceWaitIdle(device_->impl().device);
+    // A frame still recording that took one of its images can no longer show
+    // it.
+    Device::Impl& device = device_->impl();
+    for (const auto& slot : device.frames) {
+        if (!slot || !slot->impl.open) continue;
+        if (std::erase_if(slot->impl.images, [this](const auto& image) { return image.swapchain == this; }) > 0) {
+            device.report_once("A swapchain is destroyed while a frame that took one of its images records");
+        }
+    }
+    vkDeviceWaitIdle(device.device);
 }
 
 std::optional<SwapchainImage> Swapchain::acquire(Frame& frame) {
+    return take_image(frame, false);
+}
+
+std::optional<SwapchainImage> Swapchain::acquire_ready(Frame& frame) {
+    return take_image(frame, true);
+}
+
+std::optional<SwapchainImage> Swapchain::take_image(Frame& frame, bool ready_only) {
     Device::Impl& device = device_->impl();
     Frame::Impl& f = frame.impl();
     if (!f.open) {
         device.report_once("A swapchain image is acquired for a frame that is not recording");
         return std::nullopt;
     }
-    if (f.acquired != VK_NULL_HANDLE) {
-        device.report_once("A frame acquires a second swapchain image");
+    if (std::ranges::any_of(f.images, [this](const auto& image) { return image.swapchain == this; })) {
+        device.report_once("A frame acquires a second image from one swapchain");
         return std::nullopt;
+    }
+    // One passed over while its window had no size is made once it has one.
+    if (impl_->swapchain == VK_NULL_HANDLE && ready_only) {
+        if (auto built = impl_->build(false); !built) device.report_once(built.error());
     }
     if (impl_->swapchain == VK_NULL_HANDLE) return std::nullopt;
 
     const VkSemaphore semaphore = impl_->acquired[impl_->next_acquired];
     uint32_t index = 0;
+    const uint64_t timeout = ready_only ? 0 : std::numeric_limits<uint64_t>::max();
     const VkResult result =
-        vkAcquireNextImageKHR(device.device, impl_->swapchain, std::numeric_limits<uint64_t>::max(),
-                              semaphore, VK_NULL_HANDLE, &index);
+        vkAcquireNextImageKHR(device.device, impl_->swapchain, timeout, semaphore, VK_NULL_HANDLE, &index);
     if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
         impl_->next_acquired = (impl_->next_acquired + 1) % impl_->acquired.size();
-        f.acquired = semaphore;
-        f.rendered = impl_->rendered[index];
+        f.images.push_back({.swapchain = this,
+                            .index = index,
+                            .acquired = semaphore,
+                            .rendered = impl_->rendered[index],
+                            .ready_only = ready_only});
         return SwapchainImage{.texture = impl_->textures[index].get(), .index = index};
     }
+    // None ready now: the window is drawn on a later frame.
+    if (result == VK_NOT_READY || result == VK_TIMEOUT) return std::nullopt;
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        impl_->rebuild();
+        impl_->rebuild(!ready_only);
     } else {
         if (result == VK_ERROR_DEVICE_LOST) device.foundation.dump_device_fault("swapchain acquire");
         device.report_once(failed("The swapchain could not acquire an image", result));
@@ -288,33 +318,52 @@ std::optional<SwapchainImage> Swapchain::acquire(Frame& frame) {
     return std::nullopt;
 }
 
-Result<> Swapchain::present(Frame& frame, const SwapchainImage& image) {
-    Device::Impl& device = device_->impl();
-    if (frame.impl().rendered != impl_->rendered[image.index]) {
-        device.report_once("A frame presents a swapchain image it did not acquire");
+Result<> present_images(Device& device, Frame::Impl& frame) {
+    if (frame.images.empty()) return {};
+    const size_t count = frame.images.size();
+    SmallVector<VkSwapchainKHR, 4> swapchains;
+    SmallVector<uint32_t, 4> indices;
+    SmallVector<VkSemaphore, 4> waits;
+    SmallVector<VkResult, 4> results;
+    for (const Frame::Impl::Acquired& image : frame.images) {
+        swapchains.push_back(image.swapchain->impl().swapchain);
+        indices.push_back(image.index);
+        waits.push_back(image.rendered);
+        results.push_back(VK_SUCCESS);
     }
-    if (auto sent = device_->end_frame(frame); !sent) return sent;
-
     VkPresentInfoKHR info{};
     info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    info.waitSemaphoreCount = 1;
-    info.pWaitSemaphores = &impl_->rendered[image.index];
-    info.swapchainCount = 1;
-    info.pSwapchains = &impl_->swapchain;
-    info.pImageIndices = &image.index;
-    const VkResult result = vkQueuePresentKHR(impl_->foundation.present_queue(), &info);
-
-    // A compositor may resize the window without the swapchain going out of
-    // date, which leaves the images at their old size.
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
-        impl_->window.was_resized()) {
-        impl_->window.reset_resized();
-        impl_->rebuild();
-        return {};
+    info.waitSemaphoreCount = static_cast<uint32_t>(count);
+    info.pWaitSemaphores = waits.data();
+    info.swapchainCount = static_cast<uint32_t>(count);
+    info.pSwapchains = swapchains.data();
+    info.pImageIndices = indices.data();
+    info.pResults = results.data();
+    vulkan::Foundation& foundation = device.impl().foundation;
+    const VkResult result = vkQueuePresentKHR(foundation.present_queue(), &info);
+    if (result == VK_ERROR_DEVICE_LOST) {
+        foundation.dump_device_fault("present");
+        frame.images.clear();
+        return make_error(failed("The window refused a frame", result));
     }
-    if (result == VK_ERROR_DEVICE_LOST) impl_->foundation.dump_device_fault("present");
-    if (result != VK_SUCCESS) return make_error(failed("The window refused a frame", result));
-    return {};
+
+    Result<> shown{};
+    for (size_t i = 0; i < count; ++i) {
+        const Frame::Impl::Acquired& image = frame.images[i];
+        Swapchain::Impl& chain = image.swapchain->impl();
+        // A compositor may resize the window without the swapchain going out
+        // of date, which leaves the images at their old size. Only the
+        // program's own window waits to have a size again.
+        if (results[i] == VK_ERROR_OUT_OF_DATE_KHR || results[i] == VK_SUBOPTIMAL_KHR ||
+            chain.window.was_resized()) {
+            chain.window.reset_resized();
+            chain.rebuild(!image.ready_only);
+            continue;
+        }
+        if (results[i] != VK_SUCCESS && shown) shown = make_error(failed("The window refused a frame", results[i]));
+    }
+    frame.images.clear();
+    return shown;
 }
 
 Format Swapchain::format() const {

@@ -8,7 +8,9 @@
 
 #include "ftk/app/standalone_window.hpp"
 #include "ftk/base/log.hpp"
+#include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/device.hpp"
+#include "ftk/gpu/frame.hpp"
 #include "ftk/gpu/window.hpp"
 #include "ftk/ui/core_kit.hpp"
 #include "ftk/ui/kit/button.hpp"
@@ -35,11 +37,18 @@ int main(int argc, char** argv) {
         const std::filesystem::path fonts = argv[1];
         ftk::StandaloneWindow window(device, "ftk-link-app-editor", 480, 320,
                                      [&](ftk::ui::core::Context& ui) { (void)ftk::ui::use_kit_fonts(ui, fonts); });
+        // Laid out between frames and drawn into the program's frame, as an
+        // editor draws its windows of their own.
         for (int frame = 0; frame < 10; ++frame) {
             window.frame([&](float, float) {
                 (void)ftk::ui::button("OK");
                 ++drawn;
             });
+            ftk::gpu::Frame& gpu_frame = device.begin_frame();
+            ftk::gpu::CommandList& cmd = gpu_frame.commands(ftk::gpu::Queue::graphics);
+            window.record(gpu_frame, cmd);
+            gpu_frame.submit(cmd);
+            (void)device.end_frame(gpu_frame);
         }
         device.wait_idle();
     }

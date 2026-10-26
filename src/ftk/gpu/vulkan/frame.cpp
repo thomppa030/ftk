@@ -219,8 +219,7 @@ Frame& Device::begin_frame() {
     }
     frame.parallel_lists.clear();
     frame.submissions.clear();
-    frame.acquired = VK_NULL_HANDLE;
-    frame.rendered = VK_NULL_HANDLE;
+    frame.images.clear();
     frame.serial = serial;
     frame.slot = slot;
     frame.open = true;
@@ -269,8 +268,8 @@ Result<> Device::end_frame(Frame& frame) {
     // The frame is finished when its last list is, on the graphics queue:
     // frames end in order there, so the frame timeline only climbs.
     const auto finishing = [&](SmallVector<VkSemaphoreSubmitInfo, 4>& signals) {
-        if (f.rendered != VK_NULL_HANDLE) {
-            signals.push_back(semaphore_at(f.rendered, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
+        for (const Frame::Impl::Acquired& image : f.images) {
+            signals.push_back(semaphore_at(image.rendered, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
         }
         signals.push_back(
             semaphore_at(self.frame_timeline, f.serial, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
@@ -287,8 +286,18 @@ Result<> Device::end_frame(Frame& frame) {
 
     const VkSemaphoreSubmitInfo upload_wait = semaphore_at(
         upload.buffer_timeline(), upload.last_buffer_value(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+    // The swapchain images are written at colour output, after their
+    // acquires; everything before that stage may run first. The program's
+    // own window is waited for by the first graphics list, the windows taken
+    // only when ready by the last, where they are drawn.
+    size_t first_graphics = f.submissions.size();
+    size_t last_graphics = f.submissions.size();
+    for (size_t i = 0; i < f.submissions.size(); ++i) {
+        if (f.submissions[i].list->impl().queue != Queue::graphics) continue;
+        if (first_graphics == f.submissions.size()) first_graphics = i;
+        last_graphics = i;
+    }
     SmallVector<uint64_t, 4> reached;
-    bool acquire_waited = false;
     for (size_t i = 0; i < f.submissions.size(); ++i) {
         const auto& submission = f.submissions[i];
         CommandList::Impl& list = submission.list->impl();
@@ -299,12 +308,11 @@ Result<> Device::end_frame(Frame& frame) {
 
         SmallVector<VkSemaphoreSubmitInfo, 4> waits;
         if (i == 0) waits.push_back(upload_wait);
-        if (list.queue == Queue::graphics && !acquire_waited && f.acquired != VK_NULL_HANDLE) {
-            // The swapchain image is written at colour output, after the
-            // acquire; everything before that stage may run first.
+        for (Frame::Impl::Acquired& image : f.images) {
+            if (image.waited || i != (image.ready_only ? last_graphics : first_graphics)) continue;
             waits.push_back(
-                semaphore_at(f.acquired, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT));
-            acquire_waited = true;
+                semaphore_at(image.acquired, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT));
+            image.waited = true;
         }
         if (submission.after != nullptr) {
             for (size_t j = 0; j < i; ++j) {
@@ -339,14 +347,16 @@ Result<> Device::end_frame(Frame& frame) {
         }
         // A swapchain image no list drew still has to be acquired before
         // the frame signals it rendered.
-        if (!acquire_waited && f.acquired != VK_NULL_HANDLE) {
-            waits.push_back(semaphore_at(f.acquired, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
+        for (Frame::Impl::Acquired& image : f.images) {
+            if (image.waited) continue;
+            waits.push_back(semaphore_at(image.acquired, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
+            image.waited = true;
         }
         SmallVector<VkSemaphoreSubmitInfo, 4> signals;
         finishing(signals);
         if (auto sent = submit(self.queues[0], waits, VK_NULL_HANDLE, signals); !sent) return sent;
     }
-    return {};
+    return present_images(*this, f);
 }
 
 void Device::wait_idle() {
