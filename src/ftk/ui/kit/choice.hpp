@@ -109,6 +109,23 @@ private:
     bool open_{false};
 };
 
+/// Where something is held in the box it stands in: one of the box's nine
+/// points, by column (0 left, 1 centre, 2 right) and row (0 top, 1 middle,
+/// 2 bottom), or `across` its row, held by both sides.
+struct AnchorPick {
+    int column{0};
+    int row{0};
+    bool across{false};
+
+    bool operator==(const AnchorPick&) const = default;
+};
+
+/// The anchor picker: a sunken 78 x 52 box of nine dots in the disabled text
+/// colour, the one picked a 12 x 8 mark in the toggle colour, or a bar
+/// across its row; the dot under the mouse brightens. A click on a dot
+/// picks that point, across no more.
+Edit anchor_picker(const char* id, AnchorPick& pick);
+
 // Name tables are arrays; these take them without spelling out a span.
 template <typename E, std::size_t N>
 Edit combo(const char* id, E& value, const Choice<E> (&choices)[N]) {

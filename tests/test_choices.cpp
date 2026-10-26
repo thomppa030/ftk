@@ -9,6 +9,8 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/core/draw_list.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -16,6 +18,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -375,4 +378,50 @@ TEST_CASE("A swatch is clicked, and the picker writes the colour it is dragged t
     CHECK(colour.g > 0.9f);
     CHECK(colour.b > 0.9f);
     CHECK(committed);
+}
+
+TEST_CASE("The anchor picker shows the point picked and picks the dot clicked", "[ui][kit]") {
+    KitHarness h;
+    ui::AnchorPick pick{.column = 0, .row = 2};
+    int changed = 0;
+    h.set_ui([&] {
+        if (ui::anchor_picker("##anchor", pick).changed) ++changed;
+        h.mark("picker");
+    });
+    h.step(2);
+    const Rect box = h.rect("picker");
+    CHECK(box.width() == Approx(78.0f));
+    CHECK(box.height() == Approx(52.0f));
+    // The mark, 12 x 8 in the toggle colour, at the bottom left dot.
+    const auto marks = [&] {
+        std::vector<Rect> found;
+        const uint32_t toggle = ui::core::pack_colour(ftk::theme::toggle_on());
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.kind == ui::core::PrimitiveKind::Rect && p.colour == toggle) found.push_back({p.min, p.max});
+            }
+        }
+        return found;
+    };
+    REQUIRE(marks().size() == 1);
+    CHECK(marks()[0].width() == Approx(12.0f));
+    CHECK(marks()[0].min.x == Approx(box.min.x + 13.0f - 6.0f));
+    CHECK(marks()[0].min.y == Approx(box.min.y + 43.0f - 4.0f));
+
+    // The middle dot clicked: Centre.
+    const glm::vec2 centre = box.min + glm::vec2{39.0f, 26.0f};
+    h.drag(centre, centre);
+    h.step(1);
+    CHECK(pick == ui::AnchorPick{.column = 1, .row = 1});
+    CHECK(changed == 1);
+
+    // Across its row, a bar; a dot clicked picks a point again.
+    pick = {.column = 0, .row = 0, .across = true};
+    h.step(1);
+    REQUIRE(marks().size() == 1);
+    CHECK(marks()[0].width() == Approx(66.0f));
+    const glm::vec2 right = box.min + glm::vec2{65.0f, 9.0f};
+    h.drag(right, right);
+    h.step(1);
+    CHECK(pick == ui::AnchorPick{.column = 2, .row = 0});
 }

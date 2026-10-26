@@ -158,6 +158,63 @@ bool fits_segmented(std::span<const char* const> names) {
 
 } // namespace detail
 
+Edit anchor_picker(const char* id, AnchorPick& pick) {
+    // The kit spec's sizes: the box, a cell round each dot, the dots and the
+    // mark, the bar across a row.
+    constexpr glm::vec2 BOX{78.0f, 52.0f};
+    constexpr glm::vec2 CELL{26.0f, 17.0f};
+    constexpr glm::vec2 FIRST{13.0f, 9.0f};
+    constexpr float DOT = 2.0f;
+    constexpr glm::vec2 MARK{6.0f, 4.0f};
+    constexpr float BAR_INSET = 6.0f;
+    constexpr float BAR = 5.0f;
+    static constexpr const char* NAMES[] = {"Top left", "Top",    "Top right",   "Left",        "Centre",
+                                            "Right",    "Bottom left", "Bottom", "Bottom right"};
+
+    Edit edit;
+    core::Context& context = ui();
+    const core::Rect rect = context.layout().next(BOX);
+    core::DrawList& dl = context.draw_list();
+    dl.rect_filled(rect.min, rect.max, faded(theme::surface_sunken()), kit().style.frame_rounding);
+    const AnchorPick before = pick;
+    {
+        IdScope scope(id);
+        for (int row = 0; row < 3; ++row) {
+            for (int column = 0; column < 3; ++column) {
+                const glm::vec2 at = rect.min + FIRST + CELL * glm::vec2(static_cast<float>(column), static_cast<float>(row));
+                const core::Rect cell{.min = at - CELL * 0.5f, .max = at + CELL * 0.5f};
+                const int index = row * 3 + column;
+                IdScope entry(index);
+                const Id cell_id = context.id("##point");
+                const core::Interaction in = place(cell_id, cell);
+                const bool was_on = !pick.across && pick.column == column && pick.row == row;
+                if (in.clicked && !was_on) {
+                    pick = {.column = column, .row = row, .across = false};
+                    edit = {true, true};
+                }
+                const bool on = !pick.across && pick.column == column && pick.row == row;
+                context.semantics(cell_id, core::Role::Button, NAMES[index], {}, {.selected = on}, cell);
+                if (on) {
+                    dl.rect_filled(at - MARK, at + MARK, faded(theme::toggle_on()), DOT);
+                } else {
+                    dl.rect_filled(at - DOT, at + DOT, in.hovered ? theme::text_secondary() : theme::text_disabled(), DOT);
+                }
+            }
+        }
+        if (pick.across) {
+            const float top = rect.min.y + FIRST.y + CELL.y * static_cast<float>(pick.row) - BAR * 0.5f;
+            dl.rect_filled({rect.min.x + BAR_INSET, top}, {rect.max.x - BAR_INSET, top + BAR}, faded(theme::toggle_on()),
+                           BAR * 0.5f);
+        }
+    }
+    place_still(rect);
+    if (edit.committed) {
+        const auto name = [](const AnchorPick& p) { return std::string(NAMES[p.row * 3 + p.column]); };
+        detail::track_field(context.id(id), before.across ? std::string("Across") : name(before), name(pick), false, edit);
+    }
+    return edit;
+}
+
 Dropdown::Dropdown(const char* id, const char* preview) : open_{begin_dropdown(id, preview)} {}
 
 Dropdown::~Dropdown() {
