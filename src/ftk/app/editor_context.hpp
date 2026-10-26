@@ -137,21 +137,26 @@ public:
     /// was loaded.
     void forget_dockspace() { dockspace_built_ = false; }
 
-    // Per-context dockspace ID and index (set by Engine)
-    void set_dockspace_id(ui::Id id) { dockspace_id_ = id; }
+    /// What tells the context from every other one open, given once as it
+    /// opens and kept until it closes, wherever its tab stands in the row:
+    /// its dockspace, its windows' names and its edit scope are made from it.
+    void set_context_id(int id) { context_id_ = id; }
+    [[nodiscard]] int context_id() const { return context_id_; }
+
+    /// Its dockspace, filling what is left of the window being drawn. Given
+    /// every frame, shown or not: one not shown keeps its layout undrawn.
+    void draw_dockspace(bool shown);
     [[nodiscard]] ui::Id dockspace_id() const { return dockspace_id_; }
     /// Whether the keys pressed are the context's: the keyboard is in one of
     /// its windows, or in none (ui::keyboard_in_dockspace()). Its shortcuts
     /// and undo act only then, so a key pressed in a window outside it, as
     /// the project's settings, is that window's alone.
     [[nodiscard]] bool has_keyboard() const;
-    void set_context_index(int idx) { context_index_ = idx; }
-    [[nodiscard]] int context_index() const { return context_index_; }
 
     // Format a window title with context suffix: "Name" → "Name##ctx3"
     [[nodiscard]] std::string ctx_title(const char* base) const {
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "%s##ctx%d", base, context_index_);
+        std::snprintf(buf, sizeof(buf), "%s##ctx%d", base, context_id_);
         return buf;
     }
 
@@ -197,7 +202,7 @@ private:
     [[nodiscard]] Result<> restore_document(const std::string& text);
     HistoryPanel history_panel_;
     ui::Id dockspace_id_{0};
-    int context_index_{0};
+    int context_id_{0};
     bool dockspace_built_{false};
 };
 

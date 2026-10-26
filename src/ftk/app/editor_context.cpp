@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/base/log.hpp"
 
 #include <filesystem>
@@ -36,7 +37,7 @@ bool input_finished_something() {
 } // namespace
 
 void EditorContext::draw_frame(float dt) {
-    const std::string scope = "context/" + std::to_string(context_index_);
+    const std::string scope = "context/" + std::to_string(context_id_);
     ui::edit_scope(scope);
     draw(dt);
     ui::edit_scope({});
@@ -144,6 +145,11 @@ void EditorContext::draw_header() {
         case ui::SaveAction::Revert: revert(); break;
         case ui::SaveAction::None: break;
     }
+}
+
+void EditorContext::draw_dockspace(bool shown) {
+    dockspace_id_ = ui::id("CtxDock" + std::to_string(context_id_));
+    ui::dockspace(dockspace_id_, {.see_through = true, .hidden = !shown});
 }
 
 bool EditorContext::has_keyboard() const {
