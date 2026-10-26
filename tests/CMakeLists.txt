@@ -251,3 +251,10 @@ ftk_vulkan_backend(ftk-bench-command-list)
 add_dependencies(ftk-bench-command-list ftk-tests_shaders)
 target_compile_definitions(ftk-bench-command-list PRIVATE FTK_TEST_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 ftk_target_defaults(ftk-bench-command-list)
+
+# Two windows drawn in one frame, the other taken only when it has an image
+# ready: run by hand, it prints how the main window's frames go while the
+# other is hidden, minimised or on a slower screen.
+add_executable(ftk-probe-windows probe_windows.cpp)
+target_link_libraries(ftk-probe-windows PRIVATE ftk::gpu)
+ftk_target_defaults(ftk-probe-windows)
