@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <utility>
@@ -281,6 +282,49 @@ TEST_CASE("A row's description stands in a column after its name, in the text co
         }
     }
     CHECK(right <= h.rect("shown").max.x + 0.5f);
+}
+
+TEST_CASE("A row's tag that is code is drawn in the mono face", "[ui][tree]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto region = ui::Region("##rows", {300.0f, 100.0f})) {
+            ui::Tree tree("##elements");
+            (void)ui::tree_row({.id = "plain", .name = "Box", .tag = "div"});
+            h.mark("plain");
+            (void)ui::tree_row({.id = "code", .name = "Box", .tag = "div", .tag_is_code = true});
+            h.mark("code");
+        }
+        // The size a row's tag is drawn at, glyphs being drawn at their size.
+        const ui::FontScope mono(ui::Font::Mono, ui::font_size() * theme::SMALL_TEXT / theme::BODY_TEXT);
+        ui::text("div");
+        h.mark("mono");
+    });
+    h.step(2);
+    // How far the glyphs drawn inside `mark` reach, from the first one's
+    // left to the last one's right: "div" is wider in the mono face, whose
+    // "i" takes as much room as any letter.
+    const auto reach = [&](const char* mark, bool tag_only) {
+        const uint32_t tag_colour = ftk::ui::core::pack_colour(theme::text_disabled());
+        float left = 1e9f;
+        float right = -1e9f;
+        int count = 0;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.kind != ftk::ui::core::PrimitiveKind::Glyph) continue;
+                if (tag_only && p.colour != tag_colour) continue;
+                if (!h.rect(mark).contains((p.min + p.max) * 0.5f)) continue;
+                left = std::min(left, p.min.x);
+                right = std::max(right, p.max.x);
+                ++count;
+            }
+        }
+        REQUIRE(count == 3);
+        return right - left;
+    };
+    const float mono = reach("mono", false);
+    // Placed on whole pixels, a glyph may shift by one.
+    CHECK(std::abs(reach("code", true) - mono) <= 1.0f);
+    CHECK(std::abs(reach("plain", true) - mono) > 1.0f);
 }
 
 TEST_CASE("A row named in its hue draws its name in its icon's colour, and dimmed in the disabled one",

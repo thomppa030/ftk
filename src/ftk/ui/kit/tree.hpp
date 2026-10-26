@@ -88,6 +88,9 @@ struct TreeRowSpec {
     /// disabled text colour: what kind of row it is ("persistent" on a
     /// scene's). A long name stops short of it.
     std::string_view tag{};
+    /// The tag is code, a markup element's name (`div`), and is drawn in the
+    /// mono face.
+    bool tag_is_code{false};
     /// What the row stands for, after the name in the body face and the
     /// secondary colour (the text colour on the row shown): a `:`
     /// command's words beside its name. It begins `description_at` in from

@@ -259,7 +259,7 @@ TreeRowResult tree_row(const TreeRowSpec& spec) {
     float tag_w = 0.0f;
     if (!spec.tag.empty()) {
         const float row_text = font_size();
-        FontScope small(Font::Current, row_text * theme::SMALL_TEXT / theme::BODY_TEXT);
+        FontScope small(spec.tag_is_code ? Font::Mono : Font::Current, row_text * theme::SMALL_TEXT / theme::BODY_TEXT);
         const float w = measure(spec.tag).x;
         draw_text({max.x - ROW_PAD - dots_w - w, std::floor(text_y + (row_text - font_size()) * 0.5f)},
                   theme::text_disabled(), spec.tag);
