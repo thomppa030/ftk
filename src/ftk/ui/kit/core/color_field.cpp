@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -418,6 +419,16 @@ void draw_swatch(glm::vec2 min, glm::vec2 max, glm::vec4 colour, bool alpha) {
     // A small one keeps the field's shape: corners no rounder than a fifth
     // of its height.
     fill_swatch(rect, colour, alpha, true, std::min(kit().style.frame_rounding, rect.height() * 0.2f));
+}
+
+Edit color_popup(const char* id, glm::vec4& srgb, bool alpha) {
+    Edit edit;
+    if (const Popup popup(id); popup) {
+        float rgba[4]{srgb.r, srgb.g, srgb.b, alpha ? srgb.a : 1.0f};
+        edit = popup_picker(ui().id("##pick"), rgba, alpha);
+        if (edit.changed) srgb = {rgba[0], rgba[1], rgba[2], alpha ? rgba[3] : srgb.a};
+    }
+    return edit;
 }
 
 Edit color_picker(const char* id, glm::vec3& value) {

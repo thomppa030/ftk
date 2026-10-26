@@ -350,6 +350,39 @@ TEST_CASE("Dragging in the colour picker commits once, on release", "[ui][kit]")
     CHECK(tally.committed == 1);
 }
 
+TEST_CASE("The colour field's picker opens in a popup where its caller puts it, and Esc closes it", "[ui][kit]") {
+    KitHarness h;
+    glm::vec4 colour{0.5f, 0.5f, 0.5f, 0.25f};
+    Tally tally;
+    Spacing spacing;
+    bool open_now = false;
+    h.set_ui([&] {
+        spacing.read();
+        if (open_now) ui::open_popup("##colour", {120.0f, 90.0f});
+        open_now = false;
+        tally.add(ui::color_popup("##colour", colour, true));
+    });
+    h.step(2);
+    CHECK_FALSE(h.popup().has_value());
+    CHECK(tally.changed == 0);
+
+    open_now = true;
+    const auto popup = open_popup(h);
+    REQUIRE(popup.has_value());
+    CHECK(popup->min == glm::vec2{120.0f, 90.0f});
+    // Dragged in its square: the colour changes, its alpha kept.
+    const glm::vec2 corner = popup->min + spacing.window;
+    h.drag({corner.x + 20.0f, corner.y + 20.0f}, {corner.x + 60.0f, corner.y + 50.0f});
+    CHECK(glm::vec3(colour) != glm::vec3{0.5f, 0.5f, 0.5f});
+    CHECK(colour.a == Approx(0.25f));
+    CHECK(tally.changed > 1);
+    CHECK(tally.committed == 1);
+
+    h.press(ftk::ui::Key::Escape);
+    h.step(2);
+    CHECK_FALSE(h.popup().has_value());
+}
+
 TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {
     KitHarness h;
     int picked = -1;
