@@ -168,6 +168,10 @@ enum class HandleShape {
     /// is edged quietly at rest, in the secondary text colour under the
     /// mouse and in the accent when selected.
     Pointer,
+    /// A square `radius` from its middle to each side, which sizes the box
+    /// it stands on a corner or an edge of; brighter under the mouse and
+    /// while held, with no ring.
+    Square,
 };
 
 struct HandleLook {

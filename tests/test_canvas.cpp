@@ -390,3 +390,28 @@ TEST_CASE("A measure line is dashed, its distance in a readout above it or besid
     CHECK(upright_min.x > 100.0f);
     CHECK((upright_min.y + upright_max.y) * 0.5f == Approx(250.0f).margin(1.0f));
 }
+
+TEST_CASE("A square handle is 8 px in the secondary text colour on a dark edge, brighter under the mouse",
+          "[ui][canvas]") {
+    KitHarness h;
+    bool hot = false;
+    h.set_ui([&] {
+        ui::canvas_handle(ui::DrawList::window(), {200.0f, 100.0f}, hot, false,
+                          {.shape = ui::HandleShape::Square, .radius = 4.0f, .edged = true});
+    });
+    const auto square_in = [&](const ui::Color& colour) {
+        const uint32_t packed = ui::core::pack_colour(colour);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.kind == ui::core::PrimitiveKind::Rect && p.colour == packed) return p.max - p.min;
+            }
+        }
+        return glm::vec2{0.0f};
+    };
+    h.step(1);
+    CHECK(square_in(ftk::theme::text_secondary()) == glm::vec2(8.0f, 8.0f));
+    CHECK(square_in(ftk::theme::border()).x == Approx(11.0f));
+    hot = true;
+    h.step(1);
+    CHECK(square_in(ftk::theme::text()) == glm::vec2(8.0f, 8.0f));
+}

@@ -331,6 +331,12 @@ void canvas_handle(DrawList dl, glm::vec2 at, bool hot, bool selected, HandleLoo
         dl.polyline(corners, edge, selected ? 2.5f : 1.5f, true);
         return;
     }
+    if (look.shape == HandleShape::Square) {
+        const glm::vec2 half{r, r};
+        if (look.edged) dl.rect_filled(at - half - EDGE, at + half + EDGE, theme::border());
+        dl.rect_filled(at - half, at + half, look.fill != nullptr ? *look.fill : state);
+        return;
+    }
     if (look.shape == HandleShape::Diamond) {
         const glm::vec2 a{at.x, at.y - r};
         const glm::vec2 b{at.x + r, at.y};
