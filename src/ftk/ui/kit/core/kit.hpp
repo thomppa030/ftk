@@ -579,6 +579,8 @@ struct TabFace {
     bool unsaved{false};
     /// The window the tab is in has the keyboard.
     bool focused{true};
+    /// Its place only, outlined: a tab carried off its row.
+    bool outline{false};
 };
 
 /// What happened to a tab drawn.

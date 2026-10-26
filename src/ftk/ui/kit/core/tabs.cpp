@@ -90,6 +90,11 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     const float rounding = std::max(0.0f, std::min(l.rounding, rect.width() * 0.5f - 1.0f));
     const float top = rect.min.y + 1.0f;
     const float bottom = rect.max.y - BAR_BORDER;
+    if (face.outline) {
+        dl.rect({rect.min.x, top}, {rect.max.x, bottom}, faded(theme::surface_active()), rounding, RoundCorners::Top, 1.0f);
+        context.semantics(id, core::Role::Tab, face.label, {}, {.selected = face.front}, rect);
+        return drawn;
+    }
     const Color fill = drawn.in.held || drawn.hovered ? l.hover
                        : face.front                   ? (face.focused ? l.front : l.front_dimmed)
                                                       : (face.focused ? l.rest : l.rest_dimmed);
@@ -302,7 +307,8 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
                                      .front = bar.front == id,
                                      .closable = tab.closable,
                                      .unsaved = tab.unsaved,
-                                     .focused = window_focused()});
+                                     .focused = window_focused(),
+                                     .outline = at->off_row});
     // A press brings it forward.
     if (drawn.in.pressed) bar.front = id;
 
@@ -312,6 +318,26 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         const float y = drawn.in.position.y;
         const float rows = bar.rect.height() * OFF_ROW;
         at->off_row = tab.tear_off && (y < bar.rect.min.y - rows || y > bar.rect.max.y + rows);
+    }
+    // Off the row, a copy of it follows the pointer, in a window of its own
+    // past the window's edge, and says there what letting go does.
+    if (at->off_row && drawn.in.held) {
+        const glm::vec2 p = drawn.in.position;
+        const glm::vec2 room = context.root_size();
+        const bool outside = p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y;
+        context.begin_drag_preview();
+        const core::Rect shown = context.panel_rect();
+        context.draw_list().rect_filled(shown.min, shown.max, faded(theme::surface_base()), look().rounding);
+        if (tab.icon != nullptr) {
+            text(tab.icon, tab.hue ? theme::hue(*tab.hue) : theme::text_secondary());
+            same_line(k.style.item_inner_spacing.x);
+        }
+        text(label);
+        if (outside) {
+            same_line();
+            text("opens in its own window", theme::text_secondary());
+        }
+        context.end_drag_preview();
     }
     // Dragged past the middle of the tab beside it, it takes that one's place.
     if (bar.reorder && drawn.in.held && drawn.in.dragging && !at->off_row) {

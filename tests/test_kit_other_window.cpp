@@ -205,6 +205,8 @@ TEST_CASE("A window carried in one OS window never docks into another's dockspac
 
 TEST_CASE("A document tab that tears off says where it was let go past the window's edge", "[ui][kit][tabs]") {
     KitHarness h;
+    // As a program that opens popups past its window's edge has them.
+    h.ui().set_popups_leave_window(true);
     std::optional<glm::vec2> torn;
     bool other_torn = false;
     h.set_ui([&] {
@@ -232,16 +234,32 @@ TEST_CASE("A document tab that tears off says where it was let go past the windo
     h.move_to({bark.x, bark.y + 100.0f});
     h.move_to({bark.x, bark.y + 200.0f});
     h.move_to({stone.x + 20.0f, bark.y + 200.0f});
+    // Its copy at the pointer is drawn inside the window.
+    CHECK(h.windows().empty());
     h.button_up();
     h.step(2);
     CHECK_FALSE(torn.has_value());
     CHECK(centre("bark.fjmat").x < centre("stone.fjmesh").x);
 
-    // Let go past the window's bottom edge: torn off, there.
-    h.drag(centre("bark.fjmat"), {bark.x + 10.0f, h.size().y + 50.0f});
+    // Past the window's bottom edge its copy says what letting go does, and
+    // let go there it is torn off, there.
+    h.move_to(centre("bark.fjmat"));
+    h.button_down();
+    h.move_to({bark.x, bark.y + 200.0f});
+    h.move_to({bark.x + 10.0f, h.size().y + 50.0f});
+    h.step(2);
+    // Past the edge its copy is in a window of its own that takes no
+    // pointers, wider than the tab by what it says there.
+    REQUIRE(h.windows().size() == 1);
+    CHECK(h.windows()[0].kind == ui::core::RootKind::Tooltip);
+    const ui::core::SemanticNode* bark_tab = h.find("bark.fjmat", ui::core::Role::Tab);
+    REQUIRE(bark_tab != nullptr);
+    CHECK(h.windows()[0].size.x > bark_tab->rect.width() + 100.0f);
+    h.button_up();
     h.step(2);
     REQUIRE(torn.has_value());
     CHECK(torn->y > h.size().y);
+    CHECK(h.windows().empty());
 
     // A tab that doesn't tear off, let go there, is not.
     h.drag(centre("stone.fjmesh"), {stone.x, h.size().y + 50.0f});
