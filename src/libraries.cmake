@@ -502,6 +502,7 @@ ftk_library(ui-kit
         ftk/ui/kit/canvas.hpp
         ftk/ui/kit/chip_field.hpp
         ftk/ui/kit/choice.hpp
+        ftk/ui/kit/code_view.hpp
         ftk/ui/kit/color_code.hpp
         ftk/ui/kit/color_field.hpp
         ftk/ui/kit/component_block.hpp
@@ -588,6 +589,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/canvas.cpp
         ftk/ui/kit/core/chip_field.cpp
         ftk/ui/kit/core/choice.cpp
+        ftk/ui/kit/core/code_view.cpp
         ftk/ui/kit/core/color_field.cpp
         ftk/ui/kit/core/component_block.cpp
         ftk/ui/kit/core/curve_editor.cpp
