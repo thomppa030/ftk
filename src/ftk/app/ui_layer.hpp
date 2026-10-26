@@ -129,6 +129,8 @@ public:
     /// the UI, as the engine's input does, binds and lets go here.
     Delegate<void(Window& window, ui::core::RootId root)> on_window_opened;
     Delegate<void(Window& window, ui::core::RootId root)> on_window_closing;
+    /// The OS window it opened for `root`; null for one it has not opened.
+    [[nodiscard]] Window* window(ui::core::RootId root) const;
 
 private:
     /// An OS window the UI asked for, beside the main one: a root of the

@@ -122,6 +122,11 @@ void UiLayer::render(gpu::CommandList& cmd, const gpu::TextureView& target, glm:
     cost_.cpu_seconds += UiInput::now() - start;
 }
 
+Window* UiLayer::window(ui::core::RootId root) const {
+    const auto open = std::ranges::find(extras_, root, &Extra::root);
+    return open == extras_.end() ? nullptr : open->window.get();
+}
+
 void UiLayer::record_windows(gpu::Frame& frame, gpu::CommandList& cmd) {
     if (last_ == nullptr) return;
     for (Extra& extra : extras_) {
