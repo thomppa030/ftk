@@ -89,8 +89,6 @@ TEST_CASE("Pictures an ICO file can't hold make no file", "[image][ico]") {
     CHECK(ftk::image::encode_ico({}).empty());
     CHECK(ftk::image::encode_ico(std::vector<Rgba8>{square(512)}).empty());
     CHECK(ftk::image::encode_ico(std::vector<Rgba8>{square(32), square(0)}).empty());
-    Rgba8 wide = square(32);
-    wide.width = 64;
-    wide.texels.resize(static_cast<std::size_t>(64) * 32 * 4);
+    const Rgba8 wide{.texels = std::vector<uint8_t>(static_cast<std::size_t>(64) * 32 * 4, 128), .width = 64, .height = 32};
     CHECK(ftk::image::encode_ico(std::vector<Rgba8>{wide}).empty());
 }
