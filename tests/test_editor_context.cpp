@@ -2,7 +2,12 @@
 
 #include "ftk/app/command.hpp"
 #include "ftk/app/editor_context.hpp"
+#include "ftk/ui/kit/dock.hpp"
+#include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/kit/text.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <memory>
@@ -10,7 +15,9 @@
 #include <utility>
 #include <vector>
 
+using Catch::Approx;
 using ftk::test::KitHarness;
+namespace ui = ftk::ui;
 
 namespace {
 
@@ -48,6 +55,14 @@ public:
     }
 };
 
+// An editor with a panel over its tree, as the widget editor's Palette.
+class Laid : public Notes {
+public:
+    [[nodiscard]] DockPreset dock_preset() const override {
+        return {.above_tree = {"Palette"}, .tree = {"Elements"}, .preview = {"Preview"}};
+    }
+};
+
 } // namespace
 
 TEST_CASE("An editor's changes count from where it was opened or last saved", "[app][history]") {
@@ -61,4 +76,32 @@ TEST_CASE("An editor's changes count from where it was opened or last saved", "[
     CHECK(notes.changes() == std::vector<std::string>{"Delete Rock 3"});
     REQUIRE(notes.save());
     CHECK(notes.changes().empty());
+}
+
+TEST_CASE("A panel over an editor's tree shares its column, above it", "[ui][kit][dock]") {
+    KitHarness h;
+    Laid laid;
+    const std::vector<std::string> names = laid.docked_window_names();
+    bool built = false;
+    h.set_ui([&] {
+        laid.set_dockspace_id(ui::id("##dock"));
+        ui::dockspace(laid.dockspace_id());
+        if (!built) {
+            ui::DockBuild build(laid.dockspace_id(), {800.0f, 600.0f});
+            laid.setup_dockspace(laid.dockspace_id());
+            built = true;
+        }
+        for (const std::string& name : names) {
+            if (auto panel = ui::Panel("", name.c_str())) ui::text(name);
+        }
+    });
+    h.step(4);
+    const auto tree = ui::dock_tree(laid.dockspace_id(), names);
+    REQUIRE(tree.has_value());
+    REQUIRE(tree->split == ui::DockAxis::LeftRight);
+    const ui::DockNode& column = tree->children[0];
+    REQUIRE(column.split == ui::DockAxis::TopBottom);
+    CHECK(column.ratio == Approx(0.4f).margin(0.01f));
+    CHECK(column.children[0].windows == std::vector<std::string>{laid.ctx_title("Palette")});
+    CHECK(column.children[1].windows == std::vector<std::string>{laid.ctx_title("Elements")});
 }

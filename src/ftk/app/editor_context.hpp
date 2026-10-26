@@ -32,6 +32,9 @@ public:
     /// bottom_tabs() always sit along the bottom, under the preview. Empty
     /// slots are left out.
     struct DockPreset {
+        /// Over the tree, sharing its column: a panel the tree is used with,
+        /// as the widget editor's Palette over its Elements.
+        std::vector<std::string> above_tree{};
         std::vector<std::string> tree{};
         std::vector<std::string> preview{};
         std::vector<std::string> under_preview{};

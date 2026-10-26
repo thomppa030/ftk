@@ -157,7 +157,7 @@ std::vector<std::string> EditorContext::bottom_tabs() const {
 std::vector<std::string> EditorContext::docked_window_names() const {
     const DockPreset preset = dock_preset();
     std::vector<std::string> names;
-    for (const auto* slot : {&preset.tree, &preset.preview, &preset.under_preview, &preset.inspector}) {
+    for (const auto* slot : {&preset.above_tree, &preset.tree, &preset.preview, &preset.under_preview, &preset.inspector}) {
         for (const auto& name : *slot) names.push_back(ctx_title(name.c_str()));
     }
     for (const auto& name : bottom_tabs()) names.push_back(ctx_title(name.c_str()));
@@ -171,6 +171,7 @@ void EditorContext::setup_dockspace(ui::Id main_area) {
     // the middle with the rest.
     ui::Id centre = main_area;
     ui::Id tree = 0;
+    ui::Id above_tree = 0;
     ui::Id inspector = 0;
     ui::Id under = 0;
     const auto split = [&](ui::DockSide side, float ratio) {
@@ -180,6 +181,11 @@ void EditorContext::setup_dockspace(ui::Id main_area) {
     };
     if (!preset.tree.empty()) {
         tree = split(ui::DockSide::Left, 0.22f);
+        if (!preset.above_tree.empty()) {
+            const ui::DockSplit parts = ui::split_dock(tree, ui::DockSide::Top, 0.4f);
+            above_tree = parts.side;
+            tree = parts.rest;
+        }
     }
     if (!preset.inspector.empty()) {
         const float share = preset.tree.empty() ? 0.29f : 0.33f;
@@ -193,6 +199,7 @@ void EditorContext::setup_dockspace(ui::Id main_area) {
     auto dock = [&](const std::vector<std::string>& names, ui::Id node) {
         for (const auto& name : names) ui::dock_window(ctx_title(name.c_str()), node);
     };
+    dock(preset.above_tree, above_tree);
     dock(preset.tree, tree);
     dock(preset.preview, centre);
     dock(preset.under_preview, under);
