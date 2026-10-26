@@ -9,13 +9,16 @@
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -268,6 +271,41 @@ TEST_CASE("A typed hex code sets a linear colour through sRGB", "[ui][kit]") {
     CHECK(light.g == Approx(0.2158f).margin(0.001f));  // sRGB 0x80 in linear light
     CHECK(light.b == Approx(0.0f));
     CHECK(tally.committed == 1);
+}
+
+TEST_CASE("A swatch drawn where its caller puts it is the colour field's, alpha's half over checks", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::draw_swatch({10.0f, 20.0f}, {21.0f, 31.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, false);
+        ui::draw_swatch({40.0f, 20.0f}, {51.0f, 31.0f}, {0.0f, 0.0f, 1.0f, 0.5f}, true);
+    });
+    h.step(2);
+    // Where each colour was drawn.
+    const auto drawn = [&](ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<Rect> out;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed) out.push_back({.min = p.min, .max = p.max});
+            }
+        }
+        return out;
+    };
+    const auto at = [](const std::vector<Rect>& rects, glm::vec2 min, glm::vec2 max) {
+        return std::ranges::any_of(rects, [&](const Rect& r) { return r.min == min && r.max == max; });
+    };
+    // The opaque one is its colour all over, edged in the sunken grey.
+    CHECK(at(drawn({1.0f, 0.0f, 0.0f, 1.0f}), {10.0f, 20.0f}, {21.0f, 31.0f}));
+    const std::vector<Rect> edges = drawn(ftk::theme::surface_sunken());
+    CHECK(at(edges, {10.0f, 20.0f}, {21.0f, 31.0f}));
+    CHECK(at(edges, {40.0f, 20.0f}, {51.0f, 31.0f}));
+    // The other's left half is its colour opaque, its right half the colour
+    // as its alpha leaves it, over checks.
+    CHECK(at(drawn({0.0f, 0.0f, 1.0f, 1.0f}), {40.0f, 20.0f}, {45.0f, 31.0f}));
+    CHECK(at(drawn({0.0f, 0.0f, 1.0f, 0.5f}), {45.0f, 20.0f}, {51.0f, 31.0f}));
+    CHECK(at(drawn({0.8f, 0.8f, 0.8f, 1.0f}), {45.0f, 20.0f}, {51.0f, 31.0f}));
+    // Nothing to find or press.
+    CHECK(h.find("##swatch", ftk::ui::core::Role::Button) == nullptr);
 }
 
 TEST_CASE("A hex code that doesn't parse leaves the colour alone", "[ui][kit]") {
