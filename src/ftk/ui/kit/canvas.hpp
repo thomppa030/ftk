@@ -193,6 +193,10 @@ void canvas_ghost_handle(DrawList dl, glm::vec2 at, float radius);
 /// in the text colour.
 void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to);
 
+/// A line something dragged on a canvas snapped to, drawn across what it
+/// snapped in: solid, 1 px, in the text colour at 60 %.
+void canvas_snap_line(DrawList dl, glm::vec2 from, glm::vec2 to);
+
 /// The edge of a box on a canvas that draws nothing of its own and holds
 /// nothing, an empty box in a widget, so it can be found and dropped into: a
 /// 1 px dashed line round it in the text colour at 35 %.

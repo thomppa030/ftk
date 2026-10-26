@@ -1,10 +1,12 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/core/draw_list.hpp"
 #include "ftk/ui/kit/canvas.hpp"
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/plot.hpp"
+#include "ftk/ui/theme.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -327,4 +329,24 @@ TEST_CASE("A canvas worked on at many sizes has zoom steps in its pill, and no 1
     h.click(ui::icon::frame_view);
     CHECK(asked == ui::ZoomAsk::Fit);
     CHECK_FALSE(h.find("1:1"));
+}
+
+TEST_CASE("A snap line is drawn solid across, in the text colour at 60 %", "[ui][canvas]") {
+    KitHarness h;
+    h.set_ui([] { ui::canvas_snap_line(ui::DrawList::window(), {20.0f, 40.0f}, {300.0f, 40.0f}); });
+    h.step(1);
+    ui::Color colour = ftk::theme::text();
+    colour.a *= 0.6f;
+    const uint32_t packed = ui::core::pack_colour(colour);
+    int lines = 0;
+    for (const auto& root : h.output().roots) {
+        for (const auto& p : root.draw->primitives) {
+            if (p.colour != packed) continue;
+            ++lines;
+            CHECK(p.kind == ui::core::PrimitiveKind::Segment);
+            CHECK(p.shape == glm::vec4(20.0f, 40.0f, 300.0f, 40.0f));
+            CHECK(p.thickness == Approx(1.0f));
+        }
+    }
+    CHECK(lines == 1);
 }

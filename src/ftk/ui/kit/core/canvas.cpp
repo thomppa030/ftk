@@ -390,6 +390,12 @@ void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to) {
     }
 }
 
+void canvas_snap_line(DrawList dl, glm::vec2 from, glm::vec2 to) {
+    Color colour = theme::text();
+    colour.a *= 0.6f;
+    dl.line(from, to, colour);
+}
+
 void canvas_empty_edge(DrawList dl, glm::vec2 min, glm::vec2 max) {
     constexpr float DASH = 4.0f;
     constexpr float GAP = 3.0f;
