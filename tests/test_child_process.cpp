@@ -150,3 +150,11 @@ TEST_CASE("A program is found where starting it would find it", "[platform][chil
     REQUIRE(ftk::platform::find_program("sh").has_value());
 #endif
 }
+
+TEST_CASE("A command starting with its program's path in quotes runs as written", "[platform][command]") {
+    // As a path with a space needs it, an argument quoted after it too.
+    std::string output;
+    const std::string command = "\"" + std::string(FTK_TEST_CHILD) + "\" \"folder\"";
+    REQUIRE(ftk::platform::run_command(command, output) == 0);
+    REQUIRE(output == std::filesystem::current_path().string());
+}

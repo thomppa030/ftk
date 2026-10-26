@@ -159,8 +159,11 @@ std::optional<std::filesystem::path> find_program(std::string_view program) {
 
 int run_command(const std::string& cmd, std::string& output) {
     output.clear();
-    // _popen is the MSVC equivalent of POSIX popen
-    FILE* pipe = _popen(cmd.c_str(), "r");
+    // _popen runs the command through `cmd /c`, which drops the first and
+    // the last quote of a command starting with one: `"C:\a b\x.exe" "in"`
+    // would run `C:\a b\x.exe" "in`. In quotes of its own, the command loses
+    // those instead and runs as written.
+    FILE* pipe = _popen(("\"" + cmd + "\"").c_str(), "r");
     if (!pipe) return -1;
 
     std::array<char, 256> line{};
