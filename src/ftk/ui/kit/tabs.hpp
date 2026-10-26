@@ -2,6 +2,8 @@
 
 #include "ftk/ui/theme.hpp"
 
+#include <glm/vec2.hpp>
+
 #include <optional>
 #include <span>
 #include <string>
@@ -94,6 +96,9 @@ struct DocumentTab {
     bool unsaved{false};
     /// It comes to the front this frame, as when it is opened elsewhere.
     bool select{false};
+    /// It can be dragged off the row and let go past the window's edge, for
+    /// the program to show it in a window of its own.
+    bool tear_off{false};
 };
 
 struct DocumentTabResult {
@@ -101,6 +106,10 @@ struct DocumentTabResult {
     bool front{false};
     /// Its × was clicked.
     bool closed{false};
+    /// A tab that can be torn off, dragged and let go past the window's edge
+    /// this frame: where, in the window's layout units, for the window the
+    /// program shows it in.
+    std::optional<glm::vec2> torn_off{};
 };
 
 /// One tab of the DocumentTabs being drawn.

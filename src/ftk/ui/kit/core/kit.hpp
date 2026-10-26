@@ -264,6 +264,8 @@ struct TabBar {
         Id id{0};
         float width{0.0f};
         bool seen{false};
+        /// Dragged off the row, above or below it: it keeps its place.
+        bool off_row{false};
     };
     std::vector<Tab> tabs{};
     Id front{0};

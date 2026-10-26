@@ -25,6 +25,9 @@ constexpr float STRIP_PAD = 6.0f;  // above the tabs and before the first
 constexpr float TAB_TEXT = 16.0f;
 constexpr glm::vec2 TAB_PADDING{14.0f, 8.0f};
 constexpr Color CLEAR{0.0f, 0.0f, 0.0f, 0.0f};
+// How far above or below its row, in rows, a document tab is off it, as a
+// docked window's tab is.
+constexpr float OFF_ROW = 1.5f;
 // The line under a row of tabs, in the colour of the one in front.
 constexpr float BAR_BORDER = 1.0f;
 // The dot an unsaved document's tab shows, as ImGui's.
@@ -303,8 +306,15 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     // A press brings it forward.
     if (drawn.in.pressed) bar.front = id;
 
+    // Dragged a row and a half above or below the row, it is off it and
+    // keeps its place; let go past the window's edge, it is torn off.
+    if (drawn.in.held && drawn.in.dragging) {
+        const float y = drawn.in.position.y;
+        const float rows = bar.rect.height() * OFF_ROW;
+        at->off_row = tab.tear_off && (y < bar.rect.min.y - rows || y > bar.rect.max.y + rows);
+    }
     // Dragged past the middle of the tab beside it, it takes that one's place.
-    if (bar.reorder && drawn.in.held && drawn.in.dragging) {
+    if (bar.reorder && drawn.in.held && drawn.in.dragging && !at->off_row) {
         const float pointer = drawn.in.position.x;
         if (at != bar.tabs.begin()) {
             const auto left = std::prev(at);
@@ -318,6 +328,14 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
             std::iter_swap(right, at);
             context.request_frame();
         }
+    }
+    // Let go, after its last move: past the window's edge, it is torn off.
+    if (drawn.in.released) {
+        const glm::vec2 let_go = drawn.in.position;
+        const glm::vec2 room = context.root_size();
+        const bool outside = let_go.x < 0.0f || let_go.y < 0.0f || let_go.x >= room.x || let_go.y >= room.y;
+        if (tab.tear_off && outside) result.torn_off = let_go;
+        at->off_row = false;
     }
     result.front = bar.front == id;
     result.closed = tab.closable && drawn.closed;

@@ -15,10 +15,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 
 // A window of the program's own beside the one being drawn, which the
-// program fills: an editor's tab torn out into one.
+// program fills (an editor's tab torn out into one), and the document tab
+// that is torn off to make one.
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -199,4 +201,50 @@ TEST_CASE("A window carried in one OS window never docks into another's dockspac
     h.drag(title, rows_tab->rect.centre());
     h.step(3);
     CHECK(ui::window_dock("Notes") == 0);
+}
+
+TEST_CASE("A document tab that tears off says where it was let go past the window's edge", "[ui][kit][tabs]") {
+    KitHarness h;
+    std::optional<glm::vec2> torn;
+    bool other_torn = false;
+    h.set_ui([&] {
+        if (auto tabs = ui::DocumentTabs("##docs")) {
+            (void)ui::document_tab({.label = "Scene", .closable = false});
+            const ui::DocumentTabResult bark = ui::document_tab({.label = "bark.fjmat", .tear_off = true});
+            if (bark.torn_off) torn = bark.torn_off;
+            const ui::DocumentTabResult stone = ui::document_tab({.label = "stone.fjmesh"});
+            if (stone.torn_off) other_torn = true;
+        }
+    });
+    h.step(3);
+    const auto centre = [&](const char* name) {
+        const ui::core::SemanticNode* tab = h.find(name, ui::core::Role::Tab);
+        REQUIRE(tab != nullptr);
+        return tab->rect.centre();
+    };
+
+    // Dragged off its row, then past the next tab's middle, and let go inside
+    // the window: it keeps its place, and nothing is torn off.
+    const glm::vec2 bark = centre("bark.fjmat");
+    const glm::vec2 stone = centre("stone.fjmesh");
+    h.move_to(bark);
+    h.button_down();
+    h.move_to({bark.x, bark.y + 100.0f});
+    h.move_to({bark.x, bark.y + 200.0f});
+    h.move_to({stone.x + 20.0f, bark.y + 200.0f});
+    h.button_up();
+    h.step(2);
+    CHECK_FALSE(torn.has_value());
+    CHECK(centre("bark.fjmat").x < centre("stone.fjmesh").x);
+
+    // Let go past the window's bottom edge: torn off, there.
+    h.drag(centre("bark.fjmat"), {bark.x + 10.0f, h.size().y + 50.0f});
+    h.step(2);
+    REQUIRE(torn.has_value());
+    CHECK(torn->y > h.size().y);
+
+    // A tab that doesn't tear off, let go there, is not.
+    h.drag(centre("stone.fjmesh"), {stone.x, h.size().y + 50.0f});
+    h.step(2);
+    CHECK_FALSE(other_torn);
 }
