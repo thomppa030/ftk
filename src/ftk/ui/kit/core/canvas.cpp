@@ -418,21 +418,57 @@ void canvas_empty_edge(DrawList dl, glm::vec2 min, glm::vec2 max) {
     dashed({a.x, b.y}, a);
 }
 
-void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max) {
+namespace {
+
+constexpr glm::vec2 READOUT_PAD{7.0f, 4.0f};
+
+// A readout's plate round `text` in the small mono face.
+glm::vec2 readout_size(const char* text) {
     FontScope mono(Font::Mono, theme::SMALL_TEXT);
-    const glm::vec2 ts = measure(text);
-    const glm::vec2 pad{7.0f, 4.0f};
-    const glm::vec2 box = ts + pad * 2.0f;
+    return measure(text) + READOUT_PAD * 2.0f;
+}
+
+void readout_plate(DrawList dl, glm::vec2 at, const char* text) {
+    FontScope mono(Font::Mono, theme::SMALL_TEXT);
+    const glm::vec2 box = measure(text) + READOUT_PAD * 2.0f;
+    at = glm::floor(at);
+    const float rounding = kit().style.frame_rounding;
+    dl.rect_filled(at, at + box, theme::surface_sunken(), rounding);
+    dl.rect(at, at + box, theme::border(), rounding);
+    dl.text(at + READOUT_PAD, theme::text(), text);
+}
+
+} // namespace
+
+void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max) {
+    const glm::vec2 box = readout_size(text);
     // Up and to the right of the handle; to its left at the right edge,
     // under it at the top. Where neither side has room, against the left.
     glm::vec2 at{handle.x + 14.0f, handle.y - box.y - 8.0f};
     if (at.x + box.x > clip_max.x - 4.0f) at.x = std::max(handle.x - box.x - 14.0f, clip_min.x + 4.0f);
     if (at.y < clip_min.y + 4.0f) at.y = handle.y + 12.0f;
-    at = glm::floor(at);
-    const float rounding = kit().style.frame_rounding;
-    dl.rect_filled(at, at + box, theme::surface_sunken(), rounding);
-    dl.rect(at, at + box, theme::border(), rounding);
-    dl.text(at + pad, theme::text(), text);
+    readout_plate(dl, at, text);
+}
+
+void canvas_measure_line(DrawList dl, glm::vec2 from, glm::vec2 to, const char* distance, glm::vec2 clip_min,
+                         glm::vec2 clip_max) {
+    constexpr float DASH = 4.0f;
+    constexpr float GAP = 3.0f;
+    const float length = glm::distance(from, to);
+    if (length > 0.0f) {
+        const glm::vec2 along = (to - from) / length;
+        for (float s = 0.0f; s < length; s += DASH + GAP) {
+            dl.line(from + along * s, from + along * std::min(s + DASH, length), theme::text());
+        }
+    }
+    // Centred above a level line, beside an upright one.
+    const glm::vec2 box = readout_size(distance);
+    const glm::vec2 middle = (from + to) * 0.5f;
+    const bool level = std::abs(to.x - from.x) >= std::abs(to.y - from.y);
+    glm::vec2 at = level ? glm::vec2{middle.x - box.x * 0.5f, middle.y - box.y - 4.0f}
+                         : glm::vec2{middle.x + 8.0f, middle.y - box.y * 0.5f};
+    at = glm::clamp(at, clip_min + 4.0f, glm::max(clip_min + 4.0f, clip_max - box - 4.0f));
+    readout_plate(dl, at, distance);
 }
 
 void channel_toggles(Channels& shown, const Channels& fixed, bool alpha) {

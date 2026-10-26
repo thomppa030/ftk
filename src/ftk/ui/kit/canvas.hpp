@@ -223,6 +223,12 @@ Edit canvas_swatch(const char* id, glm::vec2 min, glm::vec2 max, glm::vec4& srgb
 /// `clip_min`..`clip_max`.
 void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max);
 
+/// How far apart two things on a canvas stand: a 1 px dashed line in the text
+/// colour from `from` to `to`, and `distance` in a readout centred above a
+/// level line or beside an upright one, kept inside `clip_min`..`clip_max`.
+void canvas_measure_line(DrawList dl, glm::vec2 from, glm::vec2 to, const char* distance, glm::vec2 clip_min,
+                         glm::vec2 clip_max);
+
 // A picture on a canvas (sheet 33, T1): its channel toggles in the pill top
 // left, its zoom in the pill top right.
 

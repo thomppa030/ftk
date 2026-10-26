@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <tuple>
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -349,4 +350,43 @@ TEST_CASE("A snap line is drawn solid across, in the text colour at 60 %", "[ui]
         }
     }
     CHECK(lines == 1);
+}
+
+TEST_CASE("A measure line is dashed, its distance in a readout above it or beside it", "[ui][canvas]") {
+    KitHarness h;
+    bool upright = false;
+    h.set_ui([&] {
+        const glm::vec2 from{100.0f, 200.0f};
+        const glm::vec2 to = upright ? glm::vec2{100.0f, 300.0f} : glm::vec2{300.0f, 200.0f};
+        ui::canvas_measure_line(ui::DrawList::window(), from, to, "64", {0.0f, 0.0f}, {800.0f, 600.0f});
+    });
+    // The dashes, and the plate the readout sits on.
+    const auto drawn = [&] {
+        int dashes = 0;
+        glm::vec2 plate_min{0.0f};
+        glm::vec2 plate_max{0.0f};
+        const uint32_t sunken = ui::core::pack_colour(ftk::theme::surface_sunken());
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.kind == ui::core::PrimitiveKind::Segment && p.colour == ui::core::pack_colour(ftk::theme::text())) ++dashes;
+                if (p.kind == ui::core::PrimitiveKind::Rect && p.colour == sunken) {
+                    plate_min = p.min;
+                    plate_max = p.max;
+                }
+            }
+        }
+        return std::tuple{dashes, plate_min, plate_max};
+    };
+    h.step(1);
+    const auto [level_dashes, level_min, level_max] = drawn();
+    CHECK(level_dashes > 20);
+    CHECK((level_min.x + level_max.x) * 0.5f == Approx(200.0f).margin(1.0f));
+    CHECK(level_max.y <= 200.0f);
+
+    upright = true;
+    h.step(1);
+    const auto [upright_dashes, upright_min, upright_max] = drawn();
+    CHECK(upright_dashes > 10);
+    CHECK(upright_min.x > 100.0f);
+    CHECK((upright_min.y + upright_max.y) * 0.5f == Approx(250.0f).margin(1.0f));
 }
