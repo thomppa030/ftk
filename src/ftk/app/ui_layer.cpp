@@ -207,7 +207,9 @@ Result<> UiLayer::keep_windows() {
             auto window = popup ? std::make_unique<Window>(*near, at, size.x, size.y,
                                                            request.kind == ui::core::RootKind::Tooltip)
                                 : std::make_unique<Window>(request.title, size.x, size.y);
-            if (!popup) window->set_position(at);
+            // A place no screen covers now, kept from when one did, is left
+            // to the platform.
+            if (!popup && Window::on_a_screen(at, size)) window->set_position(at);
             auto swapchain = gpu::Swapchain::create(device_, *window);
             if (!swapchain) return cannot_open(swapchain.error());
             auto input = std::make_unique<UiInput>(*window, ui_, request.root);

@@ -304,6 +304,23 @@ void Window::set_title(std::string_view title) {
     SDL_SetWindowTitle(window_, std::string{title}.c_str());
 }
 
+bool Window::on_a_screen(glm::ivec2 at, glm::uvec2 size) {
+    int count = 0;
+    SDL_DisplayID* displays = SDL_GetDisplays(&count);
+    // Screens that can't be counted leave the place to the platform's call.
+    if (displays == nullptr) return true;
+    constexpr int TOP = 32;
+    const SDL_Rect top{at.x, at.y, static_cast<int>(size.x), std::min(TOP, static_cast<int>(size.y))};
+    bool covered = false;
+    for (int i = 0; i < count && !covered; ++i) {
+        SDL_Rect bounds{};
+        SDL_Rect overlap{};
+        covered = SDL_GetDisplayBounds(displays[i], &bounds) && SDL_GetRectIntersection(&top, &bounds, &overlap);
+    }
+    SDL_free(displays);
+    return covered;
+}
+
 void Window::raise() {
     if (!SDL_RaiseWindow(window_)) FTK_CORE_WARN("A window couldn't be brought forward: {}", SDL_GetError());
 }

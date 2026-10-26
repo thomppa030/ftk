@@ -85,6 +85,10 @@ public:
     /// done on another thread that the next frame should show, such as an
     /// answer from a language server. No window takes the event it sends.
     static void wake();
+    /// Whether a window at `at`, `size` points big, would have its top, where
+    /// its title bar is, on one of the screens there are now: for a place
+    /// kept from a run that had a screen since unplugged.
+    [[nodiscard]] static bool on_a_screen(glm::ivec2 at, glm::uvec2 size);
     void set_title(std::string_view title);
     /// Brings it in front of the program's other windows with the keyboard,
     /// where the platform lets a program: a Wayland compositor may only mark
