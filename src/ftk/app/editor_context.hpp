@@ -78,6 +78,9 @@ public:
     virtual bool handle_shortcuts() = 0;
 
     [[nodiscard]] virtual std::string asset_path() const { return {}; }
+    /// Every file it edits, as opened: its asset_path() alone, or for a
+    /// context holding several, each of them.
+    [[nodiscard]] virtual std::vector<std::string> asset_paths() const;
 
     /// What the header calls what it edits: the asset's file name, or for
     /// a context holding several, how many ("3 textures").
