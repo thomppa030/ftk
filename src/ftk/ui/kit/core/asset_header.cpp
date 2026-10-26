@@ -23,15 +23,17 @@ namespace {
 constexpr float STRIP_HEIGHT = 36.0f;
 constexpr float NAME_SIZE = 14.0f;
 
-constexpr const char* WINDOW = ASSET_HEADER_WINDOW;
-
 // What the strip measured the frame before: the right-hand group's width
 // and the callout's height.
 Id remembered_id(const char* what) {
-    return core::hash_label(what, core::hash_label(WINDOW, 0));
+    return core::hash_label(what, core::hash_label(asset_header_window(), 0));
 }
 
 } // namespace
+
+std::string asset_header_window() {
+    return "##AssetHeader" + std::to_string(ui().root());
+}
 
 AssetHeaderBar::AssetHeaderBar(const AssetHeaderSpec& spec) : spec_{spec} {
     core::Context& context = ui();
@@ -39,7 +41,7 @@ AssetHeaderBar::AssetHeaderBar(const AssetHeaderSpec& spec) : spec_{spec} {
     const float callout = spec.error.empty() ? 0.0f : stored_float(remembered_id("asset_header_callout"));
     const core::Rect rect = take_edge_bar(true, STRIP_HEIGHT + callout);
     next_window_place(rect.min, rect.size());
-    open_ = begin_window(WINDOW,
+    open_ = begin_window(asset_header_window().c_str(),
                          {.title_bar = false,
                           .resize = false,
                           .move = false,

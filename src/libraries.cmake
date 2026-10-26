@@ -534,6 +534,7 @@ ftk_library(ui-kit
         ftk/ui/kit/memory_meter.hpp
         ftk/ui/kit/menu.hpp
         ftk/ui/kit/node_graph.hpp
+        ftk/ui/kit/other_window.hpp
         ftk/ui/kit/overlay.hpp
         ftk/ui/kit/pages.hpp
         ftk/ui/kit/picture_strip.hpp
@@ -618,6 +619,7 @@ ftk_library(app-ui
         ftk/ui/kit/core/memory_meter.cpp
         ftk/ui/kit/core/menu.cpp
         ftk/ui/kit/core/node_graph.cpp
+        ftk/ui/kit/core/other_window.cpp
         ftk/ui/kit/core/overlay.cpp
         ftk/ui/kit/core/pages.cpp
         ftk/ui/kit/core/pane.cpp

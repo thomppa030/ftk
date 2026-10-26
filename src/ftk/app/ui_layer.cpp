@@ -144,6 +144,7 @@ Result<> UiLayer::keep_windows() {
     if (last_ == nullptr) return {};
     const ui::core::FrameOutput& out = *last_;
     const auto close = [&](std::vector<Extra>::iterator extra) {
+        on_window_closing.broadcast(*extra->window, extra->root);
         // Its images may still be on the GPU.
         device_.wait_idle();
         extras_.erase(extra);
@@ -186,10 +187,11 @@ Result<> UiLayer::keep_windows() {
         const glm::ivec2 offset{request.at * points};
         const glm::ivec2 at = popup ? offset : near->position() + offset;
 
-        // Open already: a popup asked again, moved or sized as it is now.
+        // Open already: asked again, moved, sized and titled as it is now.
         if (const auto open = std::ranges::find(extras_, request.root, &Extra::root); open != extras_.end()) {
             if (open->asked.at != request.at) open->window->set_position(at);
             if (open->asked.size != request.size) open->window->set_size(size);
+            if (open->asked.title != request.title) open->window->set_title(request.title);
             open->asked = request;
             continue;
         }
@@ -200,9 +202,11 @@ Result<> UiLayer::keep_windows() {
             return make_error(std::move(why));
         };
         try {
+            // A window of the program's own has no parent: tiled, in the
+            // taskbar, free to go behind the main one or onto another screen.
             auto window = popup ? std::make_unique<Window>(*near, at, size.x, size.y,
                                                            request.kind == ui::core::RootKind::Tooltip)
-                                : std::make_unique<Window>(request.title, size.x, size.y, window_);
+                                : std::make_unique<Window>(request.title, size.x, size.y);
             if (!popup) window->set_position(at);
             auto swapchain = gpu::Swapchain::create(device_, *window);
             if (!swapchain) return cannot_open(swapchain.error());
@@ -212,10 +216,16 @@ Result<> UiLayer::keep_windows() {
                                .window = std::move(window),
                                .swapchain = std::move(*swapchain),
                                .input = std::move(input)});
+            on_window_opened.broadcast(*extras_.back().window, request.root);
         } catch (const std::exception& e) {
             return cannot_open(e.what());
         }
         ui_.request_frame();
+    }
+    for (const ui::core::RootId root : out.raise) {
+        if (const auto open = std::ranges::find(extras_, root, &Extra::root); open != extras_.end()) {
+            open->window->raise();
+        }
     }
     return {};
 }

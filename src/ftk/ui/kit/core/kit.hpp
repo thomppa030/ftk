@@ -200,10 +200,10 @@ struct NextWindow {
     std::optional<WindowTitle> title{};
 };
 
-/// What the bars along the program window's top and bottom take from it: a
-/// menu bar, the context bar, the status bar. The work area is what the
-/// last frame's bars left; a bar goes after those drawn before it this
-/// frame, as ImGui's side bars do.
+/// What the bars along an OS window's top and bottom take from it: a menu
+/// bar, the context bar, the status bar. The work area is what the last
+/// frame's bars left; a bar goes after those drawn before it this frame, as
+/// ImGui's side bars do. Each OS window has its own.
 struct EdgeBars {
     uint64_t frame{0};
     float top{0.0f};
@@ -395,7 +395,11 @@ public:
     double unfold_since{0.0};
     LiveRow live_row{};
     PickedColour picked{};
-    EdgeBars bars{};
+    /// Per OS window, by its root.
+    std::unordered_map<core::RootId, EdgeBars> bars{};
+    /// The OtherWindows asked of the program, by root, with the title last
+    /// asked for.
+    std::unordered_map<core::RootId, std::string> other_windows{};
     /// The tab looks pushed, the innermost last; the theme's beneath them.
     std::vector<TabLook> tab_looks{};
     std::unordered_map<Id, TabBar> tab_bars{};

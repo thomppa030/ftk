@@ -5,8 +5,8 @@
 // loop draws only when there is a reason: it sleeps until input arrives or
 // the last frame's deadline comes (decision 9 of the UI core plan), and the
 // platform's pens, fingers, keys and text reach the core as themselves. The
-// windows the UI asks for, a panel torn out into one of its own or a popup
-// past the edge, the layer opens beside the main one (decision 20). A program
+// windows the UI asks for, a window of the program's own or a popup past the
+// edge, the layer opens beside the main one (decision 20). A program
 // that runs its own loop uses a UiLayer itself.
 //
 //     auto app = ftk::AppWindow::create({.title = "Tool"});

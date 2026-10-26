@@ -79,7 +79,8 @@ struct RootOutput {
 
 /// What an OS window the frame asks for is.
 enum class RootKind : uint8_t {
-    /// A window of its own beside its parent's: a panel torn out.
+    /// A window of the program's own, with no parent: an editor's tab in a
+    /// window of its own, which the program fills.
     Window,
     /// A popup placed against its parent window, past its edge if need be:
     /// a menu, a list, a picker.
@@ -88,17 +89,17 @@ enum class RootKind : uint8_t {
     Tooltip,
 };
 
-/// An OS window the frame asks the program to open: a panel torn out into
-/// a window of its own, or a popup that doesn't fit inside its window. Asked
-/// for again while it is open, it is moved and sized as asked.
+/// An OS window the frame asks the program to open: a window of the
+/// program's own, or a popup that doesn't fit inside its window. Asked for
+/// again while it is open, it is moved and sized as asked, and given its
+/// title.
 struct RootRequest {
     RootId root{0};
     RootKind kind{RootKind::Window};
     /// Its size in layout units.
     glm::vec2 size{0.0f};
     /// Where it opens: at `at` in the window `near`'s layout units, as near
-    /// as the platform lets a program place a window, and that window its
-    /// parent, so a tiling window manager floats it.
+    /// as the platform lets a program place a window; a popup's parent.
     RootId near{0};
     glm::vec2 at{0.0f};
     std::string title{};
@@ -109,9 +110,11 @@ struct FrameOutput {
     /// Each root drawn this frame, in the order drawn.
     std::vector<RootOutput> roots{};
     NextFrame next{};
-    /// OS windows the frame asks the program to open and to close.
+    /// OS windows the frame asks the program to open and to close, and open
+    /// ones to bring in front of its others.
     std::vector<RootRequest> open{};
     std::vector<RootId> close{};
+    std::vector<RootId> raise{};
 };
 
 /// The layers of a window, bottom to top (decision 22 of the UI core plan).
@@ -301,18 +304,19 @@ public:
     void forget_root(RootId root);
 
     /// Draws into the OS window `root`, among what the window being drawn
-    /// holds, until end_other_root(): a panel torn out into a window of its
-    /// own, drawn in the program's one pass. Its frame goes on when its own
+    /// holds, until end_other_root(): a window of the program's own, drawn
+    /// in the program's one pass. Its frame goes on when its own
     /// begin_root() comes. False, with nothing to end, when the window
     /// hasn't been drawn yet: one asked for this frame or last.
     [[nodiscard]] bool begin_other_root(RootId root);
     void end_other_root();
 
     /// Asks the program to open the OS window `request.root` for the next
-    /// frame, or to close the window `root`: a panel torn out, and docked
-    /// back. The program reads them in the frame's output.
+    /// frame, to close the window `root`, or to bring it in front of its
+    /// others. The program reads them in the frame's output.
     void open_root(const RootRequest& request);
     void close_root(RootId root);
+    void raise_root(RootId root);
     /// The program closed the OS window `root`, its user asking: it is
     /// forgotten, and root_closed() says so until it is asked for again.
     void closed_root(RootId root);

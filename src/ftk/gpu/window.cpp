@@ -105,14 +105,7 @@ std::runtime_error sdl_failure(std::string_view what) {
 
 } // namespace
 
-Window::Window(std::string_view title, uint32_t width, uint32_t height, WindowSizing sizing)
-    : Window(title, width, height, nullptr, sizing) {}
-
-Window::Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent)
-    : Window(title, width, height, &parent, WindowSizing::resizable) {}
-
-Window::Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent,
-               WindowSizing sizing) {
+Window::Window(std::string_view title, uint32_t width, uint32_t height, WindowSizing sizing) {
     // Ctrl+C and a terminating signal end the program as they always have,
     // rather than becoming a quit event the loop may not be reading yet.
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
@@ -121,8 +114,6 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height, const Wi
         throw sdl_failure("Failed to initialise SDL video");
     }
 
-    // A window of another's is shown once it is that one's, so the window
-    // manager places it so from the start.
     SDL_WindowFlags sizing_flag = 0;
     switch (sizing) {
         case WindowSizing::resizable:  sizing_flag = SDL_WINDOW_RESIZABLE; break;
@@ -131,19 +122,11 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height, const Wi
     }
     window_ = SDL_CreateWindow(std::string{title}.c_str(),
                                static_cast<int>(width), static_cast<int>(height),
-                               SDL_WINDOW_VULKAN | sizing_flag
-                                   | SDL_WINDOW_HIGH_PIXEL_DENSITY
-                                   | (parent != nullptr ? SDL_WINDOW_HIDDEN : 0));
+                               SDL_WINDOW_VULKAN | sizing_flag | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window_ == nullptr) {
         auto failure = sdl_failure("Failed to create window");
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         throw failure;
-    }
-    if (parent != nullptr) {
-        if (!SDL_SetWindowParent(window_, parent->window_)) {
-            FTK_CORE_WARN("A window couldn't be made its parent's: {}", SDL_GetError());
-        }
-        SDL_ShowWindow(window_);
     }
     if (SDL_Surface* icon = program_icon(); icon != nullptr) SDL_SetWindowIcon(window_, icon);
     takes_icon_ = true;
@@ -319,6 +302,10 @@ void Window::receive(const SDL_Event& event) {
 
 void Window::set_title(std::string_view title) {
     SDL_SetWindowTitle(window_, std::string{title}.c_str());
+}
+
+void Window::raise() {
+    if (!SDL_RaiseWindow(window_)) FTK_CORE_WARN("A window couldn't be brought forward: {}", SDL_GetError());
 }
 
 glm::ivec2 Window::position() const {

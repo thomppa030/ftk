@@ -44,9 +44,6 @@ public:
     /// `width` by `height` points, sized as `sizing` says.
     Window(std::string_view title, uint32_t width, uint32_t height,
            WindowSizing sizing = WindowSizing::resizable);
-    /// A window of `parent`'s: a panel torn out of it. The window manager
-    /// keeps it with its parent, over it, and a tiling one floats it.
-    Window(std::string_view title, uint32_t width, uint32_t height, const Window& parent);
     /// A popup of `parent`'s, `offset` points from its top-left, `width` by
     /// `height` points: a menu past its parent's edge, or with `tooltip` a
     /// tooltip, which takes no input. Placed against its parent on every
@@ -89,6 +86,10 @@ public:
     /// answer from a language server. No window takes the event it sends.
     static void wake();
     void set_title(std::string_view title);
+    /// Brings it in front of the program's other windows with the keyboard,
+    /// where the platform lets a program: a Wayland compositor may only mark
+    /// it as asking for attention.
+    void raise();
     /// Where its top-left is on the desktop, in points, and puts it there:
     /// as far as the platform lets a program know and place its windows
     /// (Wayland keeps both to itself).
@@ -132,9 +133,6 @@ public:
     Delegate<void(const SDL_Event&)> on_event;
 
 private:
-    /// The two above, `parent` null for a window of the program's own.
-    Window(std::string_view title, uint32_t width, uint32_t height, const Window* parent,
-           WindowSizing sizing);
     /// Takes `made` as its SDL window: its size, and a place among the open
     /// windows.
     void adopt(SDL_Window* made);

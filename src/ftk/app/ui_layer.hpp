@@ -3,10 +3,10 @@
 // The UI core over a window whose program runs its own loop and draws the
 // rest of the window itself, as the engine draws its scene: the context, what
 // draws it, and the window's input; the windows the UI asks for beside it (a
-// panel torn out, a popup past the edge), each a root of the one context with
-// a swapchain of its own (decision 20 of the UI core plan); and the pictures
-// the UI shows, kept per texture. AppWindow is a window, a device and a loop
-// around one.
+// window of the program's own, a popup past the edge), each a root of the one
+// context with a swapchain of its own (decision 20 of the UI core plan); and
+// the pictures the UI shows, kept per texture. AppWindow is a window, a device
+// and a loop around one.
 //
 //     ftk::UiLayer layer(window, device, swapchain.format());
 //     ui::use_kit_fonts(layer.context(), fonts);
@@ -19,6 +19,7 @@
 //     ...after the frame has ended:
 //     layer.keep_windows();
 
+#include "ftk/base/delegate.hpp"
 #include "ftk/base/result.hpp"
 #include "ftk/gpu/clear.hpp"
 #include "ftk/gpu/device.hpp"
@@ -122,6 +123,12 @@ public:
     [[nodiscard]] const UiFrameCost& last_cost() const { return cost_; }
     /// What nothing the UI draws covers, as light, as a frame is cleared to.
     void set_background(const gpu::Clear& clear) { background_ = clear; }
+
+    /// A window keep_windows() opened beside the main one, and one it is
+    /// about to close: what takes the platform's events from a window besides
+    /// the UI, as the engine's input does, binds and lets go here.
+    Delegate<void(Window& window, ui::core::RootId root)> on_window_opened;
+    Delegate<void(Window& window, ui::core::RootId root)> on_window_closing;
 
 private:
     /// An OS window the UI asked for, beside the main one: a root of the

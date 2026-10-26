@@ -38,6 +38,7 @@ void Context::begin_frame(double time) {
     output_.next = {};
     output_.open.clear();
     output_.close.clear();
+    output_.raise.clear();
     last_widget_ = 0;
     last_interaction_ = {};
     hit_sequence_ = 0;
@@ -259,6 +260,10 @@ void Context::open_root(const RootRequest& request) {
 
 void Context::close_root(RootId root) {
     output_.close.push_back(root);
+}
+
+void Context::raise_root(RootId root) {
+    if (!std::ranges::contains(output_.raise, root)) output_.raise.push_back(root);
 }
 
 void Context::closed_root(RootId root) {

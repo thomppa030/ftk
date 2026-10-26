@@ -19,8 +19,9 @@
 
 namespace ftk::ui {
 
-/// The header strip's window, for placing what hangs from it.
-inline constexpr const char* ASSET_HEADER_WINDOW = "##AssetHeader";
+/// The header strip's window in the OS window being drawn, for placing what
+/// hangs from it: each OS window has its own.
+[[nodiscard]] std::string asset_header_window();
 
 struct AssetHeaderSpec {
     const char* icon{nullptr};  ///< the asset kind's icon

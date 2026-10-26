@@ -241,9 +241,10 @@ void lay_out_as(const Style& style) {
     ui().layout().set_style(layout);
 }
 
-// The edge bars, the last frame's moved aside on a frame's first use.
+// The edge bars of the OS window being drawn, the last frame's moved aside
+// on a frame's first use.
 EdgeBars& edge_bars() {
-    EdgeBars& bars = kit().bars;
+    EdgeBars& bars = kit().bars[ui().root()];
     const uint64_t frame = ui().frame();
     if (bars.frame != frame) {
         const bool last = bars.frame + 1 == frame;

@@ -44,7 +44,7 @@ constexpr float PADDING_Y = 14.0f;
 
 // Under the editor header, or the top of the work area without one.
 DialogAnchor header_anchor() {
-    if (auto under = anchor_under(ASSET_HEADER_WINDOW)) return *under;
+    if (auto under = anchor_under(asset_header_window().c_str())) return *under;
     const WorkArea work = work_area();
     return {{work.pos.x + work.size.x * 0.5f, work.pos.y}, 0.5f};
 }
