@@ -34,6 +34,9 @@ struct Notice {
     std::filesystem::path relative;
     // The file's id on its volume; 0 where the read doesn't tell it.
     int64_t file_id{0};
+    // Whether it is a folder, as it was when the change was made, a removed
+    // one's too; none where the read doesn't tell it.
+    std::optional<bool> folder;
     DWORD next{0};
 };
 
@@ -98,6 +101,7 @@ struct TreeWatcher::Impl {
             return {.action = info.Action,
                     .relative = std::wstring(name, info.FileNameLength / sizeof(wchar_t)),
                     .file_id = info.FileId.QuadPart,
+                    .folder = (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0,
                     .next = info.NextEntryOffset};
         }
         const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(at);
@@ -177,8 +181,11 @@ struct TreeWatcher::Impl {
             for (const char* at = bytes_start; bytes > 0;) {
                 const Notice notice = notice_at(at);
                 const std::filesystem::path path = root / notice.relative;
+                // Asked of the disk only where the read doesn't say: a removed
+                // folder is no longer there to ask, nor is one added and
+                // removed again before the poll.
                 std::error_code ec;
-                const bool folder = std::filesystem::is_directory(path, ec);
+                const bool folder = notice.folder ? *notice.folder : std::filesystem::is_directory(path, ec);
                 const bool hidden = skipped(notice.relative, folder);
 
                 switch (notice.action) {
@@ -204,7 +211,7 @@ struct TreeWatcher::Impl {
                     case FILE_ACTION_REMOVED:
                         if (hidden) break;
                         if (notice.file_id != 0) removed_at[notice.file_id] = events.size();
-                        events.push_back({.kind = Kind::removed, .path = path});
+                        events.push_back({.kind = Kind::removed, .path = path, .folder = folder});
                         break;
                     case FILE_ACTION_RENAMED_OLD_NAME:
                         // From a folder left alone, it arrives as new.
