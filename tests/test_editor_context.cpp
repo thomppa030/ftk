@@ -6,6 +6,8 @@
 #include "ftk/ui/kit/panel.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -170,4 +172,24 @@ TEST_CASE("An editor's panels stay docked when a tab before it closes", "[ui][ki
         CHECK(ui::window_dock(name) != 0);
     }
     CHECK(ui::dock_tree(sheet.dockspace_id(), sheet.docked_window_names()) == before);
+}
+
+TEST_CASE("An editor's dockspace is the same one wherever it is drawn", "[ui][kit][dock]") {
+    // An editor drawn in the main window and then in a window of its own is
+    // drawn inside a different host window each time.
+    KitHarness h;
+    Laid laid;
+    laid.set_context_id(4);
+    const char* host = "##Host main";
+    h.set_ui([&] {
+        ui::next_window_place({0.0f, 0.0f}, {800.0f, 600.0f});
+        (void)ui::begin_host_window(host, {.background = false, .docking = false, .to_front = false, .nav_focus = false});
+        laid.draw_dockspace(true);
+        ui::end_host_window();
+    });
+    h.step();
+    const ui::Id in_main = laid.dockspace_id();
+    host = "##Host torn out";
+    h.step();
+    CHECK(laid.dockspace_id() == in_main);
 }

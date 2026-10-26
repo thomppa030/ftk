@@ -6,7 +6,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/input.hpp"
 #include "ftk/ui/kit/item.hpp"
-#include "ftk/ui/kit/scope.hpp"
+#include "ftk/ui/core/id.hpp"
 #include "ftk/base/log.hpp"
 
 #include <filesystem>
@@ -148,7 +148,9 @@ void EditorContext::draw_header() {
 }
 
 void EditorContext::draw_dockspace(bool shown) {
-    dockspace_id_ = ui::id("CtxDock" + std::to_string(context_id_));
+    // Named by the context alone, not by the window it is drawn in: the same
+    // dockspace, its layout with it, in the main window and in one of its own.
+    dockspace_id_ = ui::core::hash_label("CtxDock" + std::to_string(context_id_), 0);
     ui::dockspace(dockspace_id_, {.see_through = true, .hidden = !shown});
 }
 
