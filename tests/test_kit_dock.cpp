@@ -403,6 +403,8 @@ TEST_CASE("The keys are a dockspace's while the keyboard is in its windows, or i
     bool settings_shown = true;
     std::string give;
     bool keys = false;
+    // Strictly in its windows, as a program drawing several asks.
+    bool docked = false;
     h.set_ui([&] {
         dock = ui::id("##dock");
         ui::dockspace(dock);
@@ -420,24 +422,31 @@ TEST_CASE("The keys are a dockspace's while the keyboard is in its windows, or i
         if (auto bar = ui::Panel("", "Bar", {.nav_focus = false})) ui::text("Bar");
         if (!give.empty()) ui::focus_window(std::exchange(give, {}).c_str());
         keys = ui::keyboard_in_dockspace(dock);
+        docked = ui::keyboard_docked_in(dock);
     });
     h.step(4);
     REQUIRE(ui::window_dock("Viewport") != 0);
     REQUIRE(ui::window_dock("Settings") == 0);
     // Settings took the keyboard as it appeared, as a window opening does.
     CHECK_FALSE(keys);
+    CHECK_FALSE(docked);
     give = "Hierarchy";
     h.step();
     CHECK(keys);
+    CHECK(docked);
 
-    // A bar takes no keys of its own, and a window gone has none.
+    // A bar takes no keys of its own, and a window gone has none: the keys
+    // are the dockspace's, though no window of its has the keyboard.
     give = "Bar";
     h.step();
     CHECK(keys);
+    CHECK_FALSE(docked);
     give = "Settings";
     h.step();
     CHECK_FALSE(keys);
+    CHECK_FALSE(docked);
     settings_shown = false;
     h.step(2);
     CHECK(keys);
+    CHECK_FALSE(docked);
 }

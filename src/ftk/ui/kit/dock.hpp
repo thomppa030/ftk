@@ -96,6 +96,11 @@ void dockspace(Id id, DockspaceOptions options = {});
 /// a key pressed in a window outside it is that window's alone.
 [[nodiscard]] bool keyboard_in_dockspace(Id id);
 
+/// Whether the window that has the keyboard is docked in the dockspace `id`:
+/// of several dockspaces drawn, the one whose owner the keys are for, where
+/// keyboard_in_dockspace() also says yes while no window has it.
+[[nodiscard]] bool keyboard_docked_in(Id id);
+
 /// Whether the dockspace or dock node `id` exists.
 [[nodiscard]] bool dock_exists(Id id);
 

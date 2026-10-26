@@ -540,13 +540,20 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
 
 } // namespace corekit
 
-bool keyboard_in_dockspace(Id id) {
-    const Kit& k = kit();
+namespace {
+
+// The window that has the keyboard, drawn lately and taking keys of its own;
+// null when none has.
+const Window* keyboard_holder(const Kit& k) {
     const auto holder = k.windows.find(k.focused_window);
-    if (holder == k.windows.end()) return true;
+    if (holder == k.windows.end()) return nullptr;
     const Window& window = holder->second;
-    if (window.frame + 1 < ui().frame() || !window.options.nav_focus) return true;
-    // Up from its leaf to the dockspace.
+    if (window.frame + 1 < ui().frame() || !window.options.nav_focus) return nullptr;
+    return &window;
+}
+
+// Whether `window` is docked in the dockspace `id`: up from its leaf to it.
+bool docked_in(const Kit& k, const Window& window, Id id) {
     for (Id part = window.dock; part != 0;) {
         if (part == id) return true;
         const auto node = k.docks.find(part);
@@ -554,6 +561,20 @@ bool keyboard_in_dockspace(Id id) {
         part = node->second.parent;
     }
     return false;
+}
+
+} // namespace
+
+bool keyboard_in_dockspace(Id id) {
+    const Kit& k = kit();
+    const Window* holder = keyboard_holder(k);
+    return holder == nullptr || docked_in(k, *holder, id);
+}
+
+bool keyboard_docked_in(Id id) {
+    const Kit& k = kit();
+    const Window* holder = keyboard_holder(k);
+    return holder != nullptr && docked_in(k, *holder, id);
 }
 
 void dockspace(Id id, DockspaceOptions options) {
