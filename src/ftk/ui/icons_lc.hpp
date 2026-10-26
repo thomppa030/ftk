@@ -218,4 +218,5 @@ inline constexpr unsigned short ICON_LC_RANGE_MAX = 0xE685;
 #define ICON_LC_CORNER_LEFT_UP     "\xee\x82\xa4"  // U+E0A4
 #define ICON_LC_PACKAGE_PLUS       "\xee\x89\xa8"  // U+E268
 #define ICON_LC_MOUNTAIN           "\xee\x88\xb1"  // U+E231
+#define ICON_LC_PLUS_SQUARE        "\xee\x85\xb3"  // U+E173, Lucide's "square-plus"
 // NOLINTEND(cppcoreguidelines-macro-usage)

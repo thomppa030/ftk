@@ -4,6 +4,8 @@
 #include "ftk/ui/kit/icons.hpp"
 #include "ftk/ui/kit/inset_group.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/menu.hpp"
+#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/section.hpp"
 #include "ftk/ui/kit/tabs.hpp"
@@ -176,6 +178,30 @@ TEST_CASE("Document tabs say which is in front, come forward when asked and clos
     CHECK(closed[1]);
     CHECK_FALSE(closed[0]);
     CHECK_FALSE(closed[2]);
+}
+
+TEST_CASE("A document tab opens the menu drawn after it on a right click", "[ui][kit]") {
+    KitHarness h;
+    std::array<bool, 2> shown{};
+    h.set_ui([&] {
+        shown = {};
+        if (auto tabs = ui::DocumentTabs("##docs")) {
+            static constexpr const char* NAMES[] = {"Rock", "Grass"};
+            for (int i = 0; i < 2; ++i) {
+                ui::IdScope tab_id(i);
+                (void)ui::document_tab({.label = NAMES[i]});
+                if (auto menu = ui::ContextMenu("##tab")) {
+                    shown[static_cast<std::size_t>(i)] = true;
+                    (void)ui::menu_item({.label = "Close"});
+                }
+            }
+        }
+    });
+    h.step(2);
+    CHECK(shown == std::array<bool, 2>{false, false});
+    h.click("Grass", ui::MouseButton::Right);
+    h.step();
+    CHECK(shown == std::array<bool, 2>{false, true});
 }
 
 TEST_CASE("Document tabs of one name are told apart by what follows ##, which isn't shown", "[ui][kit]") {
