@@ -360,9 +360,18 @@ TEST_CASE("A tab dragged onto another window's row of its group parts it, and la
     CHECK(copy.kind == ui::core::RootKind::Tooltip);
     CHECK(copy.size.x < bark.width() + 60.0f);
 
-    // Let go there: it lands on that row, told by the row's owner, and is
-    // shown where the row parted once the program draws it there.
-    h.button_up();
+    // Let go there, as the platform tells it: the button comes up in this
+    // window, a move follows held to its edge as the platform lets go of the
+    // mouse, then the mouse leaves it and comes into the other, all before
+    // the frame. It lands on that row, told by the row's owner, and is shown
+    // where the row parted once the program draws it there.
+    using Kind = ui::core::PointerEvent::Kind;
+    const glm::vec2 let_go = from_other({stone.min.x + 4.0f, stone.centre().y});
+    h.send({.kind = Kind::Up, .sample = {.position = let_go}});
+    h.send({.kind = Kind::Move, .sample = {.position = {h.size().x - 1.0f, let_go.y}}});
+    h.send({.kind = Kind::Leave});
+    h.send({.kind = Kind::Move, .root = other, .sample = {.position = {stone.min.x + 4.0f, stone.centre().y}}});
+    h.step();
     REQUIRE(landed == 7);
     CHECK_FALSE(torn.has_value());
     here.pop_back();

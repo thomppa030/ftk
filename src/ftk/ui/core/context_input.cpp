@@ -164,8 +164,26 @@ void Context::take_input() {
         p.wheel = {0.0f, 0.0f};
     }
     std::erase_if(pointers_, [](const Tracked& tracked) { return tracked.ended; });
-    for (const PointerEvent& event : events_) apply(event);
-    events_.clear();
+    // A pointer let go is let go this frame where it was let go, in the
+    // window it was held in, and what follows waits for the next frame, in
+    // order: past a window's edge the platform moves it back to the edge as
+    // it lets go of the mouse, and it may come into another window (a tab
+    // dragged onto another window's row) before the frame.
+    std::vector<PointerEvent> waiting;
+    for (const PointerEvent& event : events_) {
+        const bool after_one_waiting = std::ranges::any_of(waiting, [&](const PointerEvent& earlier) {
+            return earlier.type == event.type && earlier.id == event.id;
+        });
+        const Pointer* p = find_pointer(event.type, event.id);
+        const bool let_go = p != nullptr && (p->released != 0 || p->cancelled);
+        if (after_one_waiting || let_go) {
+            waiting.push_back(event);
+            continue;
+        }
+        apply(event);
+    }
+    events_ = std::move(waiting);
+    if (!events_.empty()) request_frame();
 
     // What is on top under each pointer, and where each press was, by the
     // last frame's hits.

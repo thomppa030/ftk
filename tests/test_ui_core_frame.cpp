@@ -177,6 +177,59 @@ TEST_CASE("A panel drawn into another window among one's own lands there and tak
     core::set_current(nullptr);
 }
 
+TEST_CASE("A pointer let go in one window and come into another in one frame is let go where it was held",
+          "[ui-core]") {
+    core::Context ui;
+    core::set_current(&ui);
+    bool held = false;
+    bool released = false;
+    glm::vec2 released_at{0.0f};
+    bool hovered_there = false;
+    const auto frame = [&](double time) {
+        ui.begin_frame(time);
+        ui.begin_root(1, {400.0f, 300.0f}, 1.0f);
+        hovered_there = ui.interact(ui.id("there"), {.min = {80.0f, 10.0f}, .max = {140.0f, 34.0f}}).hovered;
+        ui.end_root();
+        ui.begin_root(2, {400.0f, 300.0f}, 1.0f);
+        const core::Interaction in = ui.interact(ui.id("tab"), {.min = {10.0f, 10.0f}, .max = {110.0f, 34.0f}});
+        held = in.held;
+        if (in.released && !released) released_at = in.position;
+        released = released || in.released;
+        ui.end_root();
+        (void)ui.end_frame();
+    };
+    const auto mouse = [&](core::PointerEvent::Kind kind, core::RootId root, glm::vec2 at) {
+        ui.add_pointer_event({.kind = kind, .root = root, .sample = {.position = at}});
+    };
+    frame(0.0);
+    frame(0.1);
+    mouse(core::PointerEvent::Kind::Move, 2, {20.0f, 20.0f});
+    mouse(core::PointerEvent::Kind::Down, 2, {20.0f, 20.0f});
+    frame(0.2);
+    CHECK(held);
+    mouse(core::PointerEvent::Kind::Move, 2, {-300.0f, 20.0f});
+    frame(0.3);
+    CHECK(held);
+
+    // As the platform tells it, all before the next frame: let go past the
+    // window's edge, a move there held to the window's edge once the
+    // platform lets go of the mouse, and the mouse leaves it and comes into
+    // the other window. It is let go where it was let go.
+    mouse(core::PointerEvent::Kind::Up, 2, {-300.0f, 20.0f});
+    mouse(core::PointerEvent::Kind::Move, 2, {0.0f, 20.0f});
+    mouse(core::PointerEvent::Kind::Leave, 2, {0.0f, 0.0f});
+    mouse(core::PointerEvent::Kind::Move, 1, {100.0f, 20.0f});
+    frame(0.4);
+    CHECK(released);
+    CHECK(released_at.x == -300.0f);
+    // Then it goes on in the other window.
+    frame(0.5);
+    CHECK_FALSE(held);
+    frame(0.6);
+    CHECK(hovered_there);
+    core::set_current(nullptr);
+}
+
 TEST_CASE("A frame asks for windows to open and close, and hears of those the program closed", "[ui-core]") {
     core::Context ui;
     ui.begin_frame(0.0);
