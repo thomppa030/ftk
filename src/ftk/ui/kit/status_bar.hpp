@@ -80,7 +80,9 @@ void status_message(StatusTone tone, std::string_view text);
 
 /// The same led by the icon of `tone`, in its colour: the warning's for a
 /// line a file couldn't read ("No command called files.recent",
-/// "keys.vim:12"). A plain tone has no icon.
+/// "keys.vim:12"), the success's for something done ("fjedit is in your app
+/// launcher" and the file written). The plain, on and selected tones have
+/// no icon.
 void status_note(StatusTone tone, std::string_view text, std::string_view where);
 
 /// What is broken (sheet 15): the errors' icon and count in the error

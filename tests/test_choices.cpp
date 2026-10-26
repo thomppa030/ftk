@@ -15,6 +15,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <string>
@@ -273,6 +274,41 @@ TEST_CASE("A typed hex code sets a linear colour through sRGB", "[ui][kit]") {
     CHECK(tally.committed == 1);
 }
 
+TEST_CASE("A swatch drawn where its caller puts it is the colour field's, alpha's half over checks", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        ui::draw_swatch({10.0f, 20.0f}, {21.0f, 31.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, false);
+        ui::draw_swatch({40.0f, 20.0f}, {51.0f, 31.0f}, {0.0f, 0.0f, 1.0f, 0.5f}, true);
+    });
+    h.step(2);
+    // Where each colour was drawn.
+    const auto drawn = [&](ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<Rect> out;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed) out.push_back({.min = p.min, .max = p.max});
+            }
+        }
+        return out;
+    };
+    const auto at = [](const std::vector<Rect>& rects, glm::vec2 min, glm::vec2 max) {
+        return std::ranges::any_of(rects, [&](const Rect& r) { return r.min == min && r.max == max; });
+    };
+    // The opaque one is its colour all over, edged in the sunken grey.
+    CHECK(at(drawn({1.0f, 0.0f, 0.0f, 1.0f}), {10.0f, 20.0f}, {21.0f, 31.0f}));
+    const std::vector<Rect> edges = drawn(ftk::theme::surface_sunken());
+    CHECK(at(edges, {10.0f, 20.0f}, {21.0f, 31.0f}));
+    CHECK(at(edges, {40.0f, 20.0f}, {51.0f, 31.0f}));
+    // The other's left half is its colour opaque, its right half the colour
+    // as its alpha leaves it, over checks.
+    CHECK(at(drawn({0.0f, 0.0f, 1.0f, 1.0f}), {40.0f, 20.0f}, {45.0f, 31.0f}));
+    CHECK(at(drawn({0.0f, 0.0f, 1.0f, 0.5f}), {45.0f, 20.0f}, {51.0f, 31.0f}));
+    CHECK(at(drawn({0.8f, 0.8f, 0.8f, 1.0f}), {45.0f, 20.0f}, {51.0f, 31.0f}));
+    // Nothing to find or press.
+    CHECK(h.find("##swatch", ftk::ui::core::Role::Button) == nullptr);
+}
+
 TEST_CASE("A hex code that doesn't parse leaves the colour alone", "[ui][kit]") {
     KitHarness h;
     glm::vec4 tint{0.25f, 0.5f, 0.75f, 1.0f};
@@ -313,6 +349,39 @@ TEST_CASE("Dragging in the colour picker commits once, on release", "[ui][kit]")
     CHECK(tint != glm::vec3{0.5f, 0.5f, 0.5f});
     CHECK(tally.changed > 1);
     CHECK(tally.committed == 1);
+}
+
+TEST_CASE("The colour field's picker opens in a popup where its caller puts it, and Esc closes it", "[ui][kit]") {
+    KitHarness h;
+    glm::vec4 colour{0.5f, 0.5f, 0.5f, 0.25f};
+    Tally tally;
+    Spacing spacing;
+    bool open_now = false;
+    h.set_ui([&] {
+        spacing.read();
+        if (open_now) ui::open_popup("##colour", {120.0f, 90.0f});
+        open_now = false;
+        tally.add(ui::color_popup("##colour", colour, true));
+    });
+    h.step(2);
+    CHECK_FALSE(h.popup().has_value());
+    CHECK(tally.changed == 0);
+
+    open_now = true;
+    const auto popup = open_popup(h);
+    REQUIRE(popup.has_value());
+    CHECK(popup->min == glm::vec2{120.0f, 90.0f});
+    // Dragged in its square: the colour changes, its alpha kept.
+    const glm::vec2 corner = popup->min + spacing.window;
+    h.drag({corner.x + 20.0f, corner.y + 20.0f}, {corner.x + 60.0f, corner.y + 50.0f});
+    CHECK(glm::vec3(colour) != glm::vec3{0.5f, 0.5f, 0.5f});
+    CHECK(colour.a == Approx(0.25f));
+    CHECK(tally.changed > 1);
+    CHECK(tally.committed == 1);
+
+    h.press(ftk::ui::Key::Escape);
+    h.step(2);
+    CHECK_FALSE(h.popup().has_value());
 }
 
 TEST_CASE("A drop-down's list is the caller's, and an entry chosen closes it", "[ui][kit]") {

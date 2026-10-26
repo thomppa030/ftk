@@ -6,6 +6,7 @@
 #include "ftk/ui/kit/edit_record.hpp"
 #include "ftk/ui/kit/item.hpp"
 #include "ftk/ui/kit/layout.hpp"
+#include "ftk/ui/kit/popup.hpp"
 #include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/text_field.hpp"
@@ -88,11 +89,11 @@ void draw_checks(core::Rect rect, float step, float rounding, RoundCorners corne
     dl.pop_clip();
 }
 
-// `colour` as a swatch at `rect`: opaque, or with `alpha_half` its right
-// half over checks as its alpha leaves it, and `border` round it.
-void draw_swatch(core::Rect rect, Color colour, bool alpha_half, bool border) {
+// `colour` as a swatch at `rect`, its corners `rounding` round: opaque, or
+// with `alpha_half` its right half over checks as its alpha leaves it, and
+// `border` round it.
+void fill_swatch(core::Rect rect, Color colour, bool alpha_half, bool border, float rounding) {
     core::DrawList& dl = ui().draw_list();
-    const float rounding = kit().style.frame_rounding;
     const Color opaque{colour.r, colour.g, colour.b, 1.0f};
     if (alpha_half && colour.a < 1.0f) {
         const float mid = std::floor((rect.min.x + rect.max.x) * 0.5f);
@@ -351,7 +352,8 @@ Edit srgb_field(const char* id, float* rgba, bool alpha) {
         const Id popup = context.id("##picker");
         if (place(swatch_id, swatch_rect).clicked) context.open_popup(popup);
         context.semantics(swatch_id, core::Role::Button, shown(id), before);
-        draw_swatch(swatch_rect, {rgba[0], rgba[1], rgba[2], alpha ? rgba[3] : 1.0f}, alpha, true);
+        fill_swatch(swatch_rect, {rgba[0], rgba[1], rgba[2], alpha ? rgba[3] : 1.0f}, alpha, true,
+                    kit().style.frame_rounding);
 
         same_line(spacing);
         next_width(std::max(width - side - spacing, 1.0f));
@@ -408,8 +410,25 @@ bool swatch(const char* id, glm::vec4 colour, glm::vec2 size) {
     const Id swatch_id = context.id(id);
     const bool clicked = place(swatch_id, rect).clicked;
     context.semantics(swatch_id, core::Role::Button, shown(id));
-    draw_swatch(rect, colour, false, false);
+    fill_swatch(rect, colour, false, false, kit().style.frame_rounding);
     return clicked;
+}
+
+void draw_swatch(glm::vec2 min, glm::vec2 max, glm::vec4 colour, bool alpha) {
+    const core::Rect rect{.min = min, .max = max};
+    // A small one keeps the field's shape: corners no rounder than a fifth
+    // of its height.
+    fill_swatch(rect, colour, alpha, true, std::min(kit().style.frame_rounding, rect.height() * 0.2f));
+}
+
+Edit color_popup(const char* id, glm::vec4& srgb, bool alpha) {
+    Edit edit;
+    if (const Popup popup(id); popup) {
+        float rgba[4]{srgb.r, srgb.g, srgb.b, alpha ? srgb.a : 1.0f};
+        edit = popup_picker(ui().id("##pick"), rgba, alpha);
+        if (edit.changed) srgb = {rgba[0], rgba[1], rgba[2], alpha ? rgba[3] : srgb.a};
+    }
+    return edit;
 }
 
 Edit color_picker(const char* id, glm::vec3& value) {

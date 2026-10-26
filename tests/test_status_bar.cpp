@@ -183,6 +183,33 @@ TEST_CASE("A note in the warning tone leads with its icon in the warning colour"
     CHECK(drawn_in("plain", ftk::theme::warning()).empty());
 }
 
+TEST_CASE("A note in the success tone leads with its icon in the success colour", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_note(ui::StatusTone::Success, "fjedit is in your app launcher",
+                            "/home/someone/.local/share/applications/fjedit.desktop");
+            h.mark("done");
+        }
+    });
+    h.step(2);
+    const auto drawn_in = [&](ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        std::vector<float> lefts;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && h.rect("done").contains((p.min + p.max) * 0.5f)) lefts.push_back(p.min.x);
+            }
+        }
+        return lefts;
+    };
+    const std::vector<float> icon = drawn_in(ftk::theme::success());
+    const std::vector<float> text = drawn_in(ftk::theme::text_secondary());
+    REQUIRE_FALSE(icon.empty());
+    REQUIRE_FALSE(text.empty());
+    CHECK(*std::ranges::max_element(icon) < *std::ranges::min_element(text));
+}
+
 TEST_CASE("Work in the background shows its spinner before what it is", "[ui][kit]") {
     KitHarness h;
     h.set_ui([&] {
