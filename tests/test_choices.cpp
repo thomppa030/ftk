@@ -425,3 +425,38 @@ TEST_CASE("The anchor picker shows the point picked and picks the dot clicked", 
     h.step(1);
     CHECK(pick == ui::AnchorPick{.column = 2, .row = 0});
 }
+
+TEST_CASE("A line and a drop-down can show code, and a detail after it in the disabled colour", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        (void)ui::selectable("##rule", false, {.text = ".scrim", .code = true, .detail = "2 elements"});
+        h.mark("line");
+        {
+            ui::Dropdown field("##writes", ui::DropdownFace{.text = ".scrim.bottom", .detail = "only this element", .code = true});
+        }
+        h.mark("field");
+    });
+    h.step(2);
+    // The text's glyphs, then the detail's, all to the right of the text's.
+    const auto glyphs_in = [&](const char* mark, const ui::Color& colour) {
+        const uint32_t packed = ui::core::pack_colour(colour);
+        float left = 1e9f;
+        float right = -1e9f;
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.kind != ui::core::PrimitiveKind::Glyph || p.colour != packed) continue;
+                if (!h.rect(mark).contains((p.min + p.max) * 0.5f)) continue;
+                left = std::min(left, p.min.x);
+                right = std::max(right, p.max.x);
+            }
+        }
+        return std::pair{left, right};
+    };
+    for (const char* mark : {"line", "field"}) {
+        const auto [text_left, text_right] = glyphs_in(mark, ftk::theme::text());
+        const auto [detail_left, detail_right] = glyphs_in(mark, ftk::theme::text_disabled());
+        REQUIRE(text_right > text_left);
+        REQUIRE(detail_right > detail_left);
+        CHECK(detail_left > text_right);
+    }
+}

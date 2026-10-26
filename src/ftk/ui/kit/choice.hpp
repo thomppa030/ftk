@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 #include <vector>
 
 // Picking one of a fixed set of values: a body type, a blend mode, a
@@ -85,9 +86,18 @@ inline Edit choice(const char* id, int& index, std::span<const char* const> name
                                          : detail::combo(id, index, names);
 }
 
+/// What a drop-down shows while closed: its value, as code in the mono face
+/// when it is a selector or a tag, and a detail after it in the disabled text
+/// colour ("only this element").
+struct DropdownFace {
+    std::string_view text{};
+    std::string_view detail{};
+    bool code{false};
+};
+
 /// A drop-down whose list the caller draws, for entries that are more than
-/// names: the field shows `preview`, and while this is true the list is
-/// open and its entries (ui::selectable) go inside the scope.
+/// names: the field shows `preview`, or `face`, and while this is true the
+/// list is open and its entries (ui::selectable) go inside the scope.
 ///
 ///     if (auto list = ui::Dropdown("##event", "Pick an event...")) {
 ///         for (const Event& event : events) {
@@ -97,6 +107,7 @@ inline Edit choice(const char* id, int& index, std::span<const char* const> name
 class Dropdown {
 public:
     Dropdown(const char* id, const char* preview);
+    Dropdown(const char* id, const DropdownFace& face);
     ~Dropdown();
     Dropdown(const Dropdown&) = delete;
     Dropdown& operator=(const Dropdown&) = delete;

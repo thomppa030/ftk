@@ -35,6 +35,11 @@ struct SelectableOptions {
     /// Picked in a popup, it leaves the popup open: a list several are
     /// chosen from, each click choosing or unchoosing one.
     bool keeps_popup_open{false};
+    /// What it shows is code, a selector or a tag, in the mono face.
+    bool code{false};
+    /// After what it shows, in the disabled text colour: what it is to what
+    /// the list is for ("only this element", "2 elements").
+    std::string_view detail{};
 };
 
 /// `label` (an id after ##) as a line that can be picked, lit while

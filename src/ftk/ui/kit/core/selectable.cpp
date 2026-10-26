@@ -1,6 +1,7 @@
 #include "ftk/ui/kit/selectable.hpp"
 
 #include "ftk/ui/kit/core/kit.hpp"
+#include "ftk/ui/kit/text.hpp"
 
 #include <glm/common.hpp>
 
@@ -12,7 +13,17 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     core::Context& context = ui();
     core::Layout& layout = context.layout();
     const std::string_view text = options.text.empty() ? shown(label) : options.text;
-    const glm::vec2 measured = measure(text);
+    // In the mono face for code, the detail a gap after it.
+    glm::vec2 measured{0.0f};
+    {
+        FontScope face(options.code ? Font::Mono : Font::Current, 0.0f);
+        measured = measure(text);
+    }
+    const float detail_at = measured.x + theme::GAP_M;
+    if (!options.detail.empty()) {
+        const glm::vec2 detail = measure(options.detail);
+        measured = {detail_at + detail.x, std::max(measured.y, detail.y)};
+    }
     // Across the room, or as wide as asked; a line of text tall, or as tall.
     // Unless asked for a width it is laid out as wide as its label, as
     // ImGui lays one out, so what follows on its line starts after the
@@ -44,7 +55,11 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
         const Color fill = in.held ? theme::accent_dim() : (in.hovered ? theme::surface_hover() : theme::surface_raised());
         context.draw_list().rect_filled(bb.min, bb.max, faded(fill));
     }
-    draw_text(rect.min, corekit::text_colour(), text);
+    {
+        FontScope face(options.code ? Font::Mono : Font::Current, 0.0f);
+        draw_text(rect.min, corekit::text_colour(), text);
+    }
+    if (!options.detail.empty()) draw_text({rect.min.x + detail_at, rect.min.y}, theme::text_disabled(), options.detail);
     const bool picked = in.clicked || (options.double_click && in.double_clicked);
     // Picked in a popup, a drop-down's list or a menu, it closes it, unless
     // the list is one several are chosen from.

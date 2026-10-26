@@ -35,7 +35,8 @@ float segment_width(float width, std::size_t count) {
 // chevron at its right, and a click on it opens its list beneath it, as
 // wide as the field at least. Returns whether the list is open, begun as a
 // popup and ended by end_popup().
-bool begin_dropdown(const char* id, std::string_view preview) {
+bool begin_dropdown(const char* id, const DropdownFace& face) {
+    const std::string_view preview = face.text;
     core::Context& context = ui();
     const Style& style = kit().style;
     const core::Rect rect = context.layout().next({item_width(), frame_height()});
@@ -52,7 +53,13 @@ bool begin_dropdown(const char* id, std::string_view preview) {
     const float chevron = rect.height();
     const glm::vec2 text{rect.min.x + style.frame_padding.x, rect.min.y + style.frame_padding.y};
     dl.push_clip(rect.min, {rect.max.x - chevron, rect.max.y});
-    draw_text(text, corekit::text_colour(), preview);
+    float width = 0.0f;
+    {
+        FontScope code(face.code ? Font::Mono : Font::Current, 0.0f);
+        width = measure(preview).x;
+        draw_text(text, corekit::text_colour(), preview);
+    }
+    if (!face.detail.empty()) draw_text({text.x + width + theme::GAP_M, text.y}, theme::text_disabled(), face.detail);
     dl.pop_clip();
     draw_text({rect.max.x - chevron + (chevron - measure(icon::dropdown).x) * 0.5f, text.y}, theme::text_secondary(),
               icon::dropdown);
@@ -76,7 +83,7 @@ Edit combo(const char* id, int& index, std::span<const char* const> names) {
     const std::string before = mixed ? MIXED : known ? names[static_cast<std::size_t>(index)] : "";
 
     Edit edit;
-    if (begin_dropdown(id, before)) {
+    if (begin_dropdown(id, {.text = before})) {
         for (std::size_t i = 0; i < names.size(); ++i) {
             // Mixed, none is the value, and picking any sets every one.
             const bool selected = !mixed && static_cast<int>(i) == index;
@@ -215,7 +222,9 @@ Edit anchor_picker(const char* id, AnchorPick& pick) {
     return edit;
 }
 
-Dropdown::Dropdown(const char* id, const char* preview) : open_{begin_dropdown(id, preview)} {}
+Dropdown::Dropdown(const char* id, const char* preview) : open_{begin_dropdown(id, {.text = preview})} {}
+
+Dropdown::Dropdown(const char* id, const DropdownFace& face) : open_{begin_dropdown(id, face)} {}
 
 Dropdown::~Dropdown() {
     if (open_) end_popup();
