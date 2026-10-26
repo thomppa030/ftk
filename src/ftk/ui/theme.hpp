@@ -175,7 +175,7 @@ inline ui::Color grid_minor() { return palette()[Token::grid_minor]; }
 inline ui::Color grid_major() { return palette()[Token::grid_major]; }
 inline ui::Color grid_zero()  { return palette()[Token::grid_zero]; }
 
-// The UI editor's layout overlay, in the colours a browser's inspector uses
+// The widget editor's layout overlay, in the colours a browser's inspector uses
 // so they read at once: an element's margin, its padding and its box.
 inline ui::Color layout_margin()  { return palette()[Token::layout_margin]; }
 inline ui::Color layout_padding() { return palette()[Token::layout_padding]; }

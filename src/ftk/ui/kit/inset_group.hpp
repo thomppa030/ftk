@@ -7,7 +7,7 @@
 // A block of values that belongs to a component but is something of its own,
 // set apart in a sunken box: the material a component paints itself with,
 // the sky shader's values on the World Environment (sheet 11), a widget's
-// Model in the UI editor's Data panel.
+// Model in the widget editor's Data panel.
 //
 //     if (auto box = ui::InsetGroup("##material", "Material · crate_wood", icon, colour)) {
 //         // rows and sub-headings, fields on the inset colour
