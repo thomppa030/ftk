@@ -181,7 +181,10 @@ void status_note(StatusTone tone, std::string_view text, std::string_view where)
     const float pad = theme::GAP_M;
     const glm::vec2 start = cursor();
     float x = start.x + pad;
-    const char* icon = tone == StatusTone::Error ? icon::error : tone == StatusTone::Warning ? icon::warning : nullptr;
+    const char* icon = tone == StatusTone::Error     ? icon::error
+                       : tone == StatusTone::Warning ? icon::warning
+                       : tone == StatusTone::Success ? icon::success
+                                                     : nullptr;
     if (icon != nullptr) {
         draw_text({x, line_y(line_height())}, tone_colour(tone), icon);
         x += measure(icon).x + theme::GAP_S + 1.0f;
