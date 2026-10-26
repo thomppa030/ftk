@@ -293,13 +293,6 @@ struct Window {
     std::size_t tabs{0};
     /// Given its place by the settings file before it was first drawn.
     bool placed{false};
-    /// The OS window it is torn out into, 0 while it is in the one it was
-    /// first drawn in, and the leaf it came from, to dock back into.
-    core::RootId root{0};
-    Id home{0};
-    /// Being drawn into that OS window, among what the program's window
-    /// holds: end_window() goes back.
-    bool in_root{false};
 };
 
 /// A node of a dockspace's tree as the kit keeps it: a split into two, or
@@ -339,8 +332,6 @@ struct Carried {
     /// The node it docks into or beside when let go, and how.
     Id target{0};
     DockDrop drop{DockDrop::None};
-    /// The leaf it was torn out of, if it was.
-    Id home{0};
 };
 
 class Kit : public core::Context::Extension {
@@ -613,15 +604,8 @@ std::size_t dock_tabs(Id node, core::Rect strip);
 void dock_edges(Id node, core::Rect rect);
 /// Carries the floating window `id` while the pointer holds it: it follows
 /// the pointer, and let go over a leaf's tabs it docks there. Let go past
-/// its window's edge, it is torn out into an OS window of its own. True
-/// when it docked this frame.
+/// its window's edge, it floats inside that window against the edge, its
+/// title bar in reach. True when it docked this frame.
 bool carry(Window& window, Id id, const WindowOptions& options);
-/// The window `id`, torn out, back where it came from: docked into the
-/// leaf it left, or the dockspace's middle when that is gone, its OS window
-/// asked to close.
-void dock_home(Window& window, Id id);
-/// The row across the top of a window torn out into an OS window, at
-/// `strip`: its tab, and a button that docks it back. True when pressed.
-[[nodiscard]] bool torn_tab(Id id, core::Rect strip);
 
 } // namespace ftk::ui::corekit

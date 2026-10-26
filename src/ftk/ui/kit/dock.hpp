@@ -89,7 +89,7 @@ struct DockspaceOptions {
 void dockspace(Id id, DockspaceOptions options = {});
 
 /// Whether the keys pressed are for what the dockspace `id` holds: the
-/// window that has the keyboard is docked in it or was torn out of it, or
+/// window that has the keyboard is docked in it, or
 /// no window holds the keyboard (none was clicked, the one that was is no
 /// longer drawn, or it is a bar that takes no keys of its own). What the
 /// owner of a dockspace asks before its shortcuts act on what it edits, so

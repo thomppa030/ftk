@@ -86,12 +86,6 @@ void fold_if_empty(Kit& k, Id id) {
     for (const Id window : parent.windows) k.windows.at(window).dock = parent_id;
 }
 
-// The first leaf in the node `id`.
-Id first_leaf(const Kit& k, Id id) {
-    while (k.docks.at(id).split != DockAxis::None) id = k.docks.at(id).children[0];
-    return id;
-}
-
 // Whether any window docked in the node `id` has been drawn lately.
 bool shows(const Kit& k, Id id) {
     const DockPart& part = k.docks.at(id);
@@ -117,7 +111,6 @@ void tear_out(Kit& k, Id id, glm::vec2 grab) {
     const Id leaf_id = window.dock;
     DockPart& leaf = k.docks.at(leaf_id);
     const glm::vec2 size = leaf.rect.size();
-    const Id parent = leaf.parent;
     std::erase(leaf.windows, id);
     if (leaf.front == id) leaf.front = 0;
     window.dock = 0;
@@ -127,22 +120,16 @@ void tear_out(Kit& k, Id id, glm::vec2 grab) {
     ui().bring_to_front(id);
     ui().request_frame();
     fold_if_empty(k, leaf_id);
-    // Its home is the leaf it left, or the parent that leaf folded into.
-    k.carried = {.window = id, .grab = grab, .home = k.docks.contains(leaf_id) ? leaf_id : parent};
+    k.carried = {.window = id, .grab = grab};
 }
 
-// The window `id`, let go past the edge of the OS window it was carried in
-// at `pointer`, asks for an OS window of its own, as big as it is, near
-// where it was let go; drawn there once the program opens it.
-void tear_into_window(Kit& k, Window& window, Id id, glm::vec2 pointer) {
-    core::Context& context = ui();
-    window.root = core::hash_label("#ROOT", id);
-    window.home = k.carried.home;
-    context.open_root({.root = window.root,
-                       .size = window.rect.size(),
-                       .near = context.root(),
-                       .at = pointer - k.carried.grab,
-                       .title = std::string(shown(window.name))});
+// `window` moved the least way that puts it inside `room`, against the edge
+// it went past, so its title bar is in reach; one bigger than the room has
+// its top left corner in it.
+void keep_inside(Window& window, glm::vec2 room) {
+    const glm::vec2 size = window.rect.size();
+    const glm::vec2 at = glm::max(glm::min(window.rect.min, room - size), glm::vec2{0.0f});
+    window.rect = {.min = at, .max = at + size};
 }
 
 // The leaf, shown this frame, whose tabs are under `at`; 0 for none.
@@ -531,12 +518,13 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
         return false;
     }
     // Let go: docked at the target it is over; past the edge of its OS
-    // window, torn out into one of its own; else left floating where it is.
+    // window, floating inside it against that edge; else left floating where
+    // it is.
     const Id target = k.carried.target;
     const DockDrop drop = k.carried.drop;
     const glm::vec2 room = context.root_size();
     const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
-    if (target == 0 && outside && options.docking) tear_into_window(k, window, id, pointer);
+    if (target == 0 && outside) keep_inside(window, room);
     k.carried = {};
     if (target == 0) return false;
     if (drop == DockDrop::Tabs) {
@@ -548,56 +536,6 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     return true;
 }
 
-void dock_home(Window& window, Id id) {
-    Kit& k = kit();
-    if (window.root != 0) ui().close_root(window.root);
-    window.root = 0;
-    Id leaf = std::exchange(window.home, 0);
-    const auto is_leaf = [&](Id at) { return k.docks.contains(at) && k.docks.at(at).split == DockAxis::None; };
-    if (!is_leaf(leaf)) {
-        // The leaf it came from is gone: a leaf in the middle of a
-        // dockspace, or else in any dockspace.
-        leaf = 0;
-        for (const auto& [at, part] : k.docks) {
-            if (part.middle) leaf = first_leaf(k, at);
-        }
-        for (const auto& [at, part] : k.docks) {
-            if (leaf == 0 && part.parent == 0) leaf = first_leaf(k, at);
-        }
-    }
-    if (leaf != 0) {
-        dock_into(k, id, leaf);
-    } else {
-        // Nowhere to dock: floating in the program's window.
-        window.rect = {.min = {60.0f, 60.0f}, .max = glm::vec2{60.0f} + window.rect.size()};
-    }
-    ui().request_frame();
-}
-
-bool torn_tab(Id id, core::Rect strip) {
-    core::Context& context = ui();
-    Kit& k = kit();
-    const Window& window = k.windows.at(id);
-    core::DrawList& dl = context.draw_list();
-    dl.rect_filled(strip.min, strip.max, faded(theme::surface_sunken()));
-    draw_bar_line(strip, k.focused_window == id);
-    const std::string_view label = shown(window.name);
-    const float width = tab_width(label, false);
-    (void)draw_tab(core::hash_label("#TAB", id), {.min = strip.min, .max = {strip.min.x + width, strip.max.y}},
-                   {.label = label, .ink = text_colour(), .front = true, .focused = k.focused_window == id});
-
-    // The button at the row's right end, its icon lit under the mouse.
-    const float side = strip.height();
-    const core::Rect button{.min = {strip.max.x - side, strip.min.y}, .max = strip.max};
-    const core::Interaction in = context.interact(core::hash_label("#DOCK_BACK", id), button, {.beneath = true});
-    if (in.hovered || in.held) dl.rect_filled(button.min, button.max, faded(theme::surface_hover()), k.style.frame_rounding);
-    const glm::vec2 icon = measure(icon::dock_back);
-    draw_text(button.min + (button.size() - icon) * 0.5f, in.hovered ? theme::text() : theme::text_secondary(),
-              icon::dock_back);
-    if (in.hovered) context.set_cursor_shape(MouseCursor::Hand);
-    return in.clicked;
-}
-
 } // namespace corekit
 
 bool keyboard_in_dockspace(Id id) {
@@ -606,8 +544,8 @@ bool keyboard_in_dockspace(Id id) {
     if (holder == k.windows.end()) return true;
     const Window& window = holder->second;
     if (window.frame + 1 < ui().frame() || !window.options.nav_focus) return true;
-    // Up from its leaf, or the leaf it was torn out of, to the dockspace.
-    for (Id part = window.root != 0 ? window.home : window.dock; part != 0;) {
+    // Up from its leaf to the dockspace.
+    for (Id part = window.dock; part != 0;) {
         if (part == id) return true;
         const auto node = k.docks.find(part);
         if (node == k.docks.end()) break;

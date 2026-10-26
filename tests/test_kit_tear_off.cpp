@@ -7,11 +7,14 @@
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/window.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-// Tearing a window out into an OS window of its own (decision 20 of the UI
-// core plan).
+// A window let go of past the edge of the OS window it is carried in: it
+// floats in that window, against the edge it went past, its title bar in
+// reach.
 
+using Catch::Approx;
 using ftk::test::KitHarness;
 namespace ui = ftk::ui;
 
@@ -41,7 +44,7 @@ glm::vec2 tab_of(const KitHarness& h, const char* name) {
 
 } // namespace
 
-TEST_CASE("A tab carried past its window's edge opens a window of its own, and docks back", "[ui][kit][dock]") {
+TEST_CASE("A tab carried past its window's edge floats inside it, against that edge", "[ui][kit][dock]") {
     KitHarness h;
     bool built = false;
     h.set_ui([&] { draw_docked(built); });
@@ -50,42 +53,25 @@ TEST_CASE("A tab carried past its window's edge opens a window of its own, and d
     // Off its row and out past the right edge of the harness's window.
     h.drag(tab_of(h, "Hierarchy"), {h.size().x + 100.0f, 300.0f});
     h.step(3);
-    REQUIRE(h.windows().size() == 1);
-    const ui::core::RootRequest torn = h.windows()[0];
-    CHECK(torn.title == "Hierarchy");
-    CHECK(torn.near == KitHarness::WINDOW);
-    CHECK(torn.size.x > 0.0f);
-    CHECK(ui::window_dock("Hierarchy") == 0);
-    // Drawn in that window, filling it.
-    const auto in_window = ui::window_named("Hierarchy");
-    REQUIRE(in_window.has_value());
-    CHECK(in_window->pos == glm::vec2{0.0f});
-    CHECK(in_window->size == torn.size);
-    REQUIRE(h.output().roots.size() == 2);
-    CHECK(h.output().roots[1].root == torn.root);
-    CHECK_FALSE(h.output().roots[1].draw->primitives.empty());
-
-    // The button at the right end of its row docks it back, where the leaf
-    // it left folded, and its window closes.
-    const float bar = ui::frame_height();
-    h.click_in(torn.root, {torn.size.x - bar * 0.5f, bar * 0.5f});
-    h.step(2);
     CHECK(h.windows().empty());
-    CHECK(ui::window_dock("Hierarchy") != 0);
-    CHECK(ui::window_dock("Hierarchy") == ui::window_dock("Viewport"));
+    CHECK(ui::window_dock("Hierarchy") == 0);
+    const auto floating = ui::window_named("Hierarchy");
+    REQUIRE(floating.has_value());
+    CHECK(floating->pos.x >= 0.0f);
+    CHECK(floating->pos.y >= 0.0f);
+    CHECK(floating->pos.y + floating->size.y <= h.size().y);
+    CHECK(floating->pos.x + floating->size.x == Approx(h.size().x));
 
-    // Torn out again, then its window closed by its user: docked back too.
-    h.drag(tab_of(h, "Hierarchy"), {h.size().x + 100.0f, 300.0f});
+    // Its title bar, in reach, carries it back onto the viewport's tabs.
+    const glm::vec2 title{floating->pos.x + 40.0f, floating->pos.y + ui::frame_height() * 0.5f};
+    h.drag(title, tab_of(h, "Viewport"));
     h.step(3);
-    REQUIRE(h.windows().size() == 1);
-    CHECK(ui::window_dock("Hierarchy") == 0);
-    h.close_window(h.windows()[0].root);
-    h.step(2);
-    CHECK(h.windows().empty());
+    CHECK(ui::window_dock("Hierarchy") != 0);
     CHECK(ui::window_dock("Hierarchy") == ui::window_dock("Viewport"));
 }
 
-TEST_CASE("A floating window let go past its window's edge by its title bar opens a window of its own", "[ui][kit]") {
+TEST_CASE("A floating window let go past its window's edge by its title bar stays inside, against that edge",
+          "[ui][kit]") {
     KitHarness h;
     h.set_ui([&] {
         ui::next_window_size_once({240.0f, 160.0f});
@@ -97,12 +83,10 @@ TEST_CASE("A floating window let go past its window's edge by its title bar open
     const glm::vec2 title{notes->pos.x + 40.0f, notes->pos.y + ui::frame_height() * 0.5f};
     h.drag(title, {title.x, h.size().y + 80.0f});
     h.step(3);
-    REQUIRE(h.windows().size() == 1);
-    CHECK(h.windows()[0].size == glm::vec2{240.0f, 160.0f});
-    // With no dockspace to go back to, it floats in the program's window.
-    h.close_window(h.windows()[0].root);
-    h.step(2);
-    const auto back = ui::window_named("Notes");
-    REQUIRE(back.has_value());
-    CHECK(back->pos.y < h.size().y);
+    CHECK(h.windows().empty());
+    const auto after = ui::window_named("Notes");
+    REQUIRE(after.has_value());
+    CHECK(after->size == glm::vec2{240.0f, 160.0f});
+    CHECK(after->pos.x == Approx(notes->pos.x));
+    CHECK(after->pos.y + after->size.y == Approx(h.size().y));
 }
