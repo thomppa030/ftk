@@ -1,10 +1,14 @@
 #include "kit_harness.hpp"
 
 #include "ftk/ui/kit/asset_header.hpp"
+#include "ftk/ui/kit/dock.hpp"
+#include "ftk/ui/kit/layout.hpp"
 #include "ftk/ui/kit/other_window.hpp"
 #include "ftk/ui/kit/panel.hpp"
+#include "ftk/ui/kit/scope.hpp"
 #include "ftk/ui/kit/tabs.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -159,4 +163,40 @@ TEST_CASE("Each window has bars and an asset header of its own", "[ui][kit][othe
     REQUIRE(other_header_shown.has_value());
     CHECK(other_header_shown->pos.y == Approx(header->pos.y));
     CHECK(other_work_top == Approx(header->pos.y + header->size.y));
+}
+
+TEST_CASE("A window carried in one OS window never docks into another's dockspace", "[ui][kit][other_window][dock]") {
+    using N = ui::DockNode;
+    KitHarness h;
+    bool built = false;
+    h.set_ui([&] {
+        ui::next_window_size_once({200.0f, 120.0f});
+        if (auto panel = ui::Panel("", "Notes")) ui::text("notes");
+        const ui::OtherWindow other(OTHER, {.title = "rows", .size = {400.0f, 300.0f}});
+        if (!other) return;
+        const ui::Id dock = ui::id("##other_dock");
+        ui::next_window_place({0.0f, 0.0f}, {400.0f, 300.0f});
+        (void)ui::begin_host_window("##other_host",
+                                    {.background = false, .docking = false, .to_front = false, .nav_focus = false});
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {400.0f, 300.0f}, N::tabs({"Rows"}));
+            built = true;
+        }
+        ui::end_host_window();
+        if (auto panel = ui::Panel("", "Rows")) ui::text("rows");
+    });
+    h.step(4);
+    REQUIRE(ui::window_dock("Rows") != 0);
+
+    // Notes, carried in the harness's window to where the other window's
+    // tabs are in its own, stays floating.
+    const ui::core::SemanticNode* rows_tab = h.find("Rows", ui::core::Role::Tab);
+    REQUIRE(rows_tab != nullptr);
+    const auto notes = ui::window_named("Notes");
+    REQUIRE(notes.has_value());
+    const glm::vec2 title{notes->pos.x + 40.0f, notes->pos.y + ui::frame_height() * 0.5f};
+    h.drag(title, rows_tab->rect.centre());
+    h.step(3);
+    CHECK(ui::window_dock("Notes") == 0);
 }

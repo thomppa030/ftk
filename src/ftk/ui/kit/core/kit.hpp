@@ -308,6 +308,9 @@ struct DockPart {
     Id front{0};
     /// The middle of its dockspace: what a split leaves of the root.
     bool middle{false};
+    /// For a dockspace, the OS window it is drawn in: a window carried in
+    /// another never docks into it.
+    core::RootId window{0};
     /// Where it was laid out, and in which frame; for the root, the frame
     /// its dockspace was last drawn in, shown or hidden.
     core::Rect rect{};

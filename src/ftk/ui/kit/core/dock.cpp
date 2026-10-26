@@ -218,8 +218,10 @@ struct Over {
 
 Over over_dock(const Kit& k, glm::vec2 at) {
     Over over;
+    // The dockspaces of the OS window being drawn, where `at` is.
+    const core::RootId window = ui().root();
     for (const auto& [id, part] : k.docks) {
-        if (part.parent != 0 || !part.rect.contains(at)) continue;
+        if (part.parent != 0 || part.window != window || !part.rect.contains(at)) continue;
         // A dockspace shown this frame: its leaves are.
         Id leaf = id;
         while (k.docks.at(leaf).split != DockAxis::None) {
@@ -561,6 +563,7 @@ void dockspace(Id id, DockspaceOptions options) {
     // A dockspace made here is one leaf, its middle.
     if (made) found->second.middle = true;
     found->second.seen = context.frame();
+    found->second.window = context.root();
     // Hidden, it keeps its layout and takes no room.
     if (options.hidden) return;
     const core::Rect rect = context.layout().next(glm::max(space_left(), glm::vec2{1.0f}));
