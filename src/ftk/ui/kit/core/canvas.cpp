@@ -390,6 +390,28 @@ void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to) {
     }
 }
 
+void canvas_empty_edge(DrawList dl, glm::vec2 min, glm::vec2 max) {
+    constexpr float DASH = 4.0f;
+    constexpr float GAP = 3.0f;
+    Color colour = theme::text();
+    colour.a *= 0.35f;
+    const auto dashed = [&](glm::vec2 from, glm::vec2 to) {
+        const float length = glm::distance(from, to);
+        if (length <= 0.0f) return;
+        const glm::vec2 along = (to - from) / length;
+        for (float s = 0.0f; s < length; s += DASH + GAP) {
+            dl.line(from + along * s, from + along * std::min(s + DASH, length), colour);
+        }
+    };
+    // On the pixel centres just inside the box, so a 1 px line is one pixel.
+    const glm::vec2 a = glm::floor(min) + 0.5f;
+    const glm::vec2 b = glm::floor(max) - 0.5f;
+    dashed(a, {b.x, a.y});
+    dashed({b.x, a.y}, b);
+    dashed(b, {a.x, b.y});
+    dashed({a.x, b.y}, a);
+}
+
 void canvas_readout(DrawList dl, glm::vec2 handle, const char* text, glm::vec2 clip_min, glm::vec2 clip_max) {
     FontScope mono(Font::Mono, theme::SMALL_TEXT);
     const glm::vec2 ts = measure(text);

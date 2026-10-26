@@ -193,6 +193,11 @@ void canvas_ghost_handle(DrawList dl, glm::vec2 at, float radius);
 /// in the text colour.
 void canvas_dashed_line(DrawList dl, glm::vec2 from, glm::vec2 to);
 
+/// The edge of a box on a canvas that draws nothing of its own and holds
+/// nothing, an empty box in a widget, so it can be found and dropped into: a
+/// 1 px dashed line round it in the text colour at 35 %.
+void canvas_empty_edge(DrawList dl, glm::vec2 min, glm::vec2 max);
+
 /// A number drawn inside a canvas, at `min`..`max` on screen with its text
 /// at `text_size` (sheet 31): dragged sideways it changes by `speed` a
 /// pixel (Shift finer), a double-click types one; brighter under the mouse,
