@@ -9,9 +9,9 @@
 //
 //     const ui::OtherWindow torn("##torn bark.fjmat", {.title = "bark.fjmat"});
 //     if (torn) draw_editor();
-//     if (torn.closed()) back_into_the_main_window();
+//     if (torn.close_asked()) asking_ = true;          // unsaved work asked about there
 //     ...
-//     ui::close_other_window("##torn bark.fjmat");   // the program takes it back
+//     ui::close_other_window("##torn bark.fjmat");   // the program closes it
 
 #include "ftk/ui/core/input.hpp"
 
@@ -47,8 +47,12 @@ public:
     /// It is open and what follows is drawn into it.
     explicit operator bool() const { return open_; }
 
-    /// Its user closed it this frame: it is gone, and drawn again it opens
-    /// anew.
+    /// Its user asked to close it this frame: it stays open until the
+    /// program closes it (close_other_window()), or keeps it.
+    [[nodiscard]] bool close_asked() const { return close_asked_; }
+
+    /// The platform closed it without asking: it is gone, and drawn again it
+    /// opens anew.
     [[nodiscard]] bool closed() const { return closed_; }
 
     /// Brings it in front of the program's other windows with the keyboard,
@@ -59,6 +63,7 @@ private:
     core::RootId root_{0};
     bool open_{false};
     bool closed_{false};
+    bool close_asked_{false};
 };
 
 /// Closes the window `id` an OtherWindow drew: the program takes back what

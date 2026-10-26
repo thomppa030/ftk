@@ -101,6 +101,38 @@ TEST_CASE("A window of the program's own is asked for, drawn into, closed by its
     CHECK(h.windows().empty());
 }
 
+TEST_CASE("A window of the program's own its user asks to close stays until the program closes it",
+          "[ui][kit][other_window]") {
+    KitHarness h;
+    bool wanted = true;
+    bool take_back = false;
+    int asks = 0;
+    h.set_ui([&] {
+        if (take_back) {
+            ui::close_other_window(OTHER);
+            take_back = false;
+            wanted = false;
+        }
+        if (!wanted) return;
+        const ui::OtherWindow other(OTHER, {.title = "bark.fjmat", .size = {400.0f, 300.0f}});
+        if (other.close_asked()) ++asks;
+    });
+    h.step(3);
+    REQUIRE(h.windows().size() == 1);
+
+    // Asked, as unsaved work in it would be asked about there: still open,
+    // and told once.
+    h.ask_close_window(h.windows()[0].root);
+    h.step(3);
+    CHECK(asks == 1);
+    CHECK(h.windows().size() == 1);
+
+    // The program closes it.
+    take_back = true;
+    h.step(2);
+    CHECK(h.windows().empty());
+}
+
 TEST_CASE("A window of the program's own takes its title as it changes, and is raised when asked",
           "[ui][kit][other_window]") {
     KitHarness h;

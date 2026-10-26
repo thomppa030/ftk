@@ -146,6 +146,9 @@ public:
     [[nodiscard]] std::span<const ui::core::RootRequest> windows() const { return windows_; }
     /// Its user closes the window `root`, as the window's close button does.
     void close_window(ui::core::RootId root);
+    /// Asks to close the window `root`, as its user does a window of the
+    /// program's own: the program decides.
+    void ask_close_window(ui::core::RootId root) { ui_.ask_close_root(root); }
     /// Clicks at `at` in the window `root`, and runs the frames that takes.
     void click_in(ui::core::RootId root, glm::vec2 at);
 

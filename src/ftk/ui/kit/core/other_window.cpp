@@ -29,6 +29,7 @@ OtherWindow::OtherWindow(const char* id, const OtherWindowSpec& spec) : root_{ot
                            .title = spec.title});
         k.other_windows[root_] = spec.title;
     }
+    close_asked_ = context.take_close_ask(root_);
     open_ = context.begin_other_root(root_);
 }
 

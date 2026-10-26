@@ -321,6 +321,12 @@ public:
     /// forgotten, and root_closed() says so until it is asked for again.
     void closed_root(RootId root);
     [[nodiscard]] bool root_closed(RootId root) const;
+    /// The user of the OS window `root`, a window of the program's own, asked
+    /// to close it: it stays open, and take_close_ask() says so once, for the
+    /// program to close it (close_root()) or keep it, as asking about unsaved
+    /// work does.
+    void ask_close_root(RootId root);
+    [[nodiscard]] bool take_close_ask(RootId root);
 
     /// Popups, tooltips and drag previews that don't fit inside their
     /// window are drawn in OS popup windows of their own, past its edge
@@ -888,6 +894,7 @@ private:
     // The windows the program closed, its user asking, until asked for
     // again.
     std::vector<RootId> closed_roots_;
+    std::vector<RootId> close_asks_;
     // Popups that leave their window go into OS popup windows; the window
     // each such panel is in, by its id; and those asked for this frame and
     // last, the last frame's not asked for again closed as this one ends.

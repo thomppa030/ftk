@@ -154,9 +154,17 @@ Result<> UiLayer::keep_windows() {
         device_.wait_idle();
         extras_.erase(extra);
     };
-    // Closed by their user: the UI hears of it.
+    // Closed by their user: the UI hears of it. A window of the program's own
+    // is only asked to close, and stays until the program closes it.
     for (auto extra = extras_.begin(); extra != extras_.end();) {
         if (!extra->window->should_close()) {
+            ++extra;
+            continue;
+        }
+        if (extra->asked.kind == ui::core::RootKind::Window) {
+            extra->window->cancel_close();
+            ui_.ask_close_root(extra->root);
+            ui_.request_frame();
             ++extra;
             continue;
         }

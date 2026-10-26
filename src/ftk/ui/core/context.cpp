@@ -275,6 +275,14 @@ bool Context::root_closed(RootId root) const {
     return std::ranges::contains(closed_roots_, root);
 }
 
+void Context::ask_close_root(RootId root) {
+    if (!std::ranges::contains(close_asks_, root)) close_asks_.push_back(root);
+}
+
+bool Context::take_close_ask(RootId root) {
+    return std::erase(close_asks_, root) > 0;
+}
+
 DrawList& Context::draw_list() {
     assert(root_ != nullptr && "UI: drawn outside a window; call begin_root() first");
     return root_->list;
