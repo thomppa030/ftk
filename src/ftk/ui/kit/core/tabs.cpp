@@ -35,6 +35,9 @@ constexpr float BAR_BORDER = 1.0f;
 // How many frames a row waits, after a tab is let go on it, for the program
 // to draw that tab there.
 constexpr uint64_t LANDING_FRAMES = 3;
+// A tab that docks, carried back over its row and held on another tab this
+// long, brings that one forward.
+constexpr double HOLD_SECONDS = 0.6;
 // The dot an unsaved document's tab shows, as ImGui's.
 constexpr Color UNSAVED{1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -293,6 +296,26 @@ DocumentTabs::DocumentTabs(const char* id, const DocumentTabsOptions& options) {
             carried.over = 0;
         }
     }
+    // Its own tab that docks, carried off it and back over it: the tab held
+    // under it, timed from when it came under it.
+    Id held = 0;
+    if (carried.docks && carried.bar == bar_id && carried.root == bar.root && carried.frame + 1 >= context.frame()) {
+        const glm::vec2 at = carried.at;
+        const float slack = bar.rect.height();
+        if (at.x >= bar.rect.min.x && at.x < bar.rect.max.x && at.y >= bar.rect.min.y - slack &&
+            at.y < bar.rect.max.y + slack) {
+            const float spacing = k.style.item_inner_spacing.x;
+            float x = bar.rect.min.x;
+            for (const TabBar::Tab& tab : bar.tabs) {
+                if (tab.id != carried.tab && at.x >= x && at.x < x + tab.width) held = tab.id;
+                x += tab.width + spacing;
+            }
+        }
+    }
+    if (held != bar.hold) {
+        bar.hold = held;
+        bar.hold_since = seconds();
+    }
     draw_bar_line(bar.rect, window_focused());
     // Its tabs' ids under its own.
     context.ids().push(bar_id);
@@ -368,6 +391,20 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
                                      .outline = at->off_row});
     // A press brings it forward.
     if (drawn.in.pressed) bar.front = id;
+    // Held under its row's tab that docks, carried back over the row: a line
+    // grows along its foot, and held long enough it comes forward.
+    if (bar.hold == id) {
+        const auto held_for = static_cast<float>((seconds() - bar.hold_since) / HOLD_SECONDS);
+        const float done = std::clamp(held_for, 0.0f, 1.0f);
+        const float foot = rect.max.y - BAR_BORDER;
+        context.draw_list().rect_filled({rect.min.x, foot - 2.0f}, {rect.min.x + rect.width() * done, foot},
+                                        faded(theme::toggle_on()));
+        if (done >= 1.0f) {
+            bar.front = id;
+        } else {
+            context.request_frame();
+        }
+    }
 
     // Dragged a row and a half above or below the row, or past the
     // window's side, it is off it and keeps its place; let go past the
@@ -375,15 +412,19 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     if (drawn.in.held && drawn.in.dragging) {
         const glm::vec2 p = drawn.in.position;
         const float rows = bar.rect.height() * OFF_ROW;
-        at->off_row = tab.tear_off && (p.y < bar.rect.min.y - rows || p.y > bar.rect.max.y + rows || p.x < 0.0f ||
-                                       p.x >= context.root_size().x);
+        const bool away = p.y < bar.rect.min.y - rows || p.y > bar.rect.max.y + rows || p.x < 0.0f ||
+                          p.x >= context.root_size().x;
+        // One that docks stays off it once lifted, until let go.
+        at->off_row = (tab.tear_off || tab.docks) && (away || (tab.docks && at->off_row));
     }
     // Off a row of a group, it is carried: the group's other rows look for
-    // it, and part where it would land.
+    // it, and part where it would land. One that docks is carried too, for
+    // its own row to bring forward the tab it is held over.
     CarriedTab& carried = k.carried_tab;
-    if (at->off_row && drawn.in.held && bar.group != 0) {
+    if (at->off_row && drawn.in.held && (bar.group != 0 || tab.docks)) {
         if (carried.bar != k.tab_bar || carried.tab != id) carried = {.bar = k.tab_bar, .tab = id};
         carried.group = bar.group;
+        carried.docks = tab.docks;
         carried.root = context.root();
         carried.at = drawn.in.position;
         carried.width = at->width;
@@ -391,6 +432,15 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
     }
     const bool over_a_row = carried.bar == k.tab_bar && carried.tab == id && carried.over != 0 &&
                             carried.over_frame + 1 >= context.frame();
+    // One that docks, carried in its window over no row: the targets of the
+    // dockspace under it, and where it would dock let go.
+    if (tab.docks && at->off_row && drawn.in.held && carried.bar == k.tab_bar && carried.tab == id) {
+        result.lifted = true;
+        const glm::vec2 p = drawn.in.position;
+        const glm::vec2 room = context.root_size();
+        const bool inside = p.x >= 0.0f && p.y >= 0.0f && p.x < room.x && p.y < room.y;
+        carried.place = inside && !over_a_row ? carry_tab_over_docks(id, p, tab.dock_share) : std::nullopt;
+    }
     // Off the row, a copy of it follows the pointer, in a window of its own
     // past the window's edge, and says there what letting go does.
     if (at->off_row && drawn.in.held) {
@@ -405,7 +455,7 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
             same_line(k.style.item_inner_spacing.x);
         }
         text(label);
-        if (outside) {
+        if (outside && tab.tear_off) {
             same_line();
             text("opens in its own window", theme::text_secondary());
         }
@@ -433,12 +483,15 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         const glm::vec2 let_go = drawn.in.position;
         const glm::vec2 room = context.root_size();
         const bool outside = let_go.x < 0.0f || let_go.y < 0.0f || let_go.x >= room.x || let_go.y >= room.y;
+        const bool docking = tab.docks && carried.bar == k.tab_bar && carried.tab == id && carried.place;
         if (at->off_row && over_a_row) {
             result.landed_on = carried.over_owner;
             if (const auto onto = k.tab_bars.find(carried.over); onto != k.tab_bars.end()) {
                 onto->second.landing = carried.over_index;
                 onto->second.landing_until = context.frame() + LANDING_FRAMES;
             }
+        } else if (at->off_row && docking) {
+            result.docked = carried.place;
         } else if (tab.tear_off && outside) {
             result.torn_off = let_go;
         }

@@ -286,6 +286,10 @@ struct TabBar {
     /// the frame given.
     std::optional<std::size_t> landing{};
     uint64_t landing_until{0};
+    /// A tab of its own that docks, carried off it and back over it: the tab
+    /// held under it, and since when, which comes forward held long enough.
+    Id hold{0};
+    double hold_since{0.0};
 };
 
 /// A tab carried off a row of a group: the row and the tab, the window it
@@ -303,6 +307,9 @@ struct CarriedTab {
     int over_owner{0};
     std::size_t over_index{0};
     uint64_t over_frame{0};
+    /// A tab that docks: where it docks let go now, over a dock target.
+    bool docks{false};
+    std::optional<DockPlace> place{};
 };
 
 /// One of the kit's windows: what it keeps from frame to frame.
@@ -658,5 +665,10 @@ void dock_edges(Id node, core::Rect rect);
 /// its window's edge, it floats inside that window against the edge, its
 /// title bar in reach. True when it docked this frame.
 bool carry(Window& window, Id id, const WindowOptions& options);
+/// A tab `tab` carried off its row to `at` as a panel that takes `share` of
+/// a part beside it: the targets of the dockspace under it drawn, as for a
+/// window carried there, and where it would dock let go now; none over no
+/// target.
+std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share);
 
 } // namespace ftk::ui::corekit

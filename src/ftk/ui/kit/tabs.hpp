@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ftk/ui/kit/dock.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <glm/vec2.hpp>
@@ -111,6 +112,14 @@ struct DocumentTab {
     /// It can be dragged off the row and let go past the window's edge, for
     /// the program to show it in a window of its own.
     bool tear_off{false};
+    /// It can be dragged off the row and let go on a part of a dockspace of
+    /// its window, the dock's targets showing as for a panel carried there,
+    /// for the program to show it as a panel (DocumentTabResult::docked).
+    /// Lifted off, it is carried until let go: held back over its row on
+    /// another tab, that tab comes forward, and let go there it stays where
+    /// it was. Beside a part, it takes `dock_share` of it.
+    bool docks{false};
+    float dock_share{0.5f};
 };
 
 struct DocumentTabResult {
@@ -129,6 +138,12 @@ struct DocumentTabResult {
     /// Its place in the row as shown, from 0, in the order dragging put the
     /// tabs in.
     std::size_t place{0};
+    /// A tab that docks, carried off its row and held this frame: for the
+    /// program to show under it what it would dock into, rather than itself.
+    bool lifted{false};
+    /// A tab that docks let go on a dock target this frame: where, for the
+    /// program to dock what the tab shows there (dock_window_at()).
+    std::optional<DockPlace> docked{};
 };
 
 /// One tab of the DocumentTabs being drawn.

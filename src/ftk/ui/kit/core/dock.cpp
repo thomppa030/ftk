@@ -515,6 +515,19 @@ void dock_edges(Id node, core::Rect rect) {
     }
 }
 
+std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share) {
+    const Kit& k = kit();
+    const Over over = over_dock(k, at);
+    // As big as the share it takes of the part under it, beside it.
+    const glm::vec2 size = over.target != 0 ? k.docks.at(over.target).rect.size() * share : glm::vec2{0.0f};
+    draw_drop_targets(k, over, tab, size);
+    if (over.drop == DockDrop::None) return std::nullopt;
+    if (over.drop == DockDrop::Tabs) return DockPlace{.node = over.target};
+    return DockPlace{.node = over.target,
+                     .side = side_of(over.drop),
+                     .share = drop_share(k.docks.at(over.target).rect, over.drop, size)};
+}
+
 bool carry(Window& window, Id id, const WindowOptions& options) {
     Kit& k = kit();
     if (k.carried.window != id) return false;
