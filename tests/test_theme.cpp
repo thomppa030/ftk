@@ -150,6 +150,19 @@ TEST_CASE("A palette in use is what the theme's tokens read", "[ui][theme]") {
     CHECK(theme::accent() == keep.kept[Token::accent]);
 }
 
+TEST_CASE("Brackets take five colours by level, the sixth starting over", "[ui][theme]") {
+    CHECK(theme::code_bracket_level(0) == theme::palette()[Token::code_bracket_1]);
+    CHECK(theme::code_bracket_level(4) == theme::palette()[Token::code_bracket_5]);
+    CHECK(theme::code_bracket_level(5) == theme::code_bracket_level(0));
+    CHECK(theme::code_bracket_level(12) == theme::palette()[Token::code_bracket_3]);
+    // Five of the hues (sheet 60, R2): ochre, green, cyan, lilac, coral.
+    CHECK(theme::code_bracket_level(0) == theme::hue(Hue::ochre));
+    CHECK(theme::code_bracket_level(1) == theme::hue(Hue::green));
+    CHECK(theme::code_bracket_level(2) == theme::hue(Hue::cyan));
+    CHECK(theme::code_bracket_level(3) == theme::hue(Hue::lilac));
+    CHECK(theme::code_bracket_level(4) == theme::hue(Hue::coral));
+}
+
 TEST_CASE("The heat ramp runs through its tokens and holds at its ends", "[ui][theme]") {
     CHECK(theme::heat(0.0f) == theme::heat_none());
     CHECK(theme::heat(0.25f) == theme::heat_low());

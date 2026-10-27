@@ -40,6 +40,7 @@ enum class Token : uint8_t {
     brush_sculpt, brush_paint, brush_foliage, brush_move, brush_erase,
     code_keyword, code_type, code_function, code_string, code_number, code_comment, code_meta,
     code_punctuation, code_member, code_builtin,
+    code_bracket_1, code_bracket_2, code_bracket_3, code_bracket_4, code_bracket_5,
     code_current_line, code_indent_guide, code_indent_guide_active, code_occurrence, code_bracket,
     code_error_line, code_warning_line, code_error_text, code_warning_text,
     count,
@@ -233,6 +234,14 @@ inline ui::Color code_punctuation() { return palette()[Token::code_punctuation];
 inline ui::Color code_member()      { return palette()[Token::code_member]; }
 /// The names an engine gives a shader (ALBEDO, NdotL).
 inline ui::Color code_builtin()     { return palette()[Token::code_builtin]; }
+
+/// How many colours brackets take by how deep they are nested.
+inline constexpr std::size_t CODE_BRACKET_LEVELS = 5;
+
+/// A bracket inside `level` pairs of others: five of the hues in turn
+/// (code_bracket_1 to _5), the sixth level starting over at the first
+/// (sheet 60, R2).
+[[nodiscard]] ui::Color code_bracket_level(std::size_t level);
 
 // Around the code: the caret's line, indent guides (the cursor's block
 // brighter), the other uses of the word at the cursor, the bracket paired

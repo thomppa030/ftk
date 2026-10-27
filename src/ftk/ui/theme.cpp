@@ -90,6 +90,11 @@ constexpr TokenName TOKEN_NAMES[] = {
     {Token::code_punctuation, "code_punctuation"},
     {Token::code_member, "code_member"},
     {Token::code_builtin, "code_builtin"},
+    {Token::code_bracket_1, "code_bracket_1"},
+    {Token::code_bracket_2, "code_bracket_2"},
+    {Token::code_bracket_3, "code_bracket_3"},
+    {Token::code_bracket_4, "code_bracket_4"},
+    {Token::code_bracket_5, "code_bracket_5"},
     {Token::code_current_line, "code_current_line"},
     {Token::code_indent_guide, "code_indent_guide"},
     {Token::code_indent_guide_active, "code_indent_guide_active"},
@@ -256,6 +261,13 @@ ui::Color heat(float t) {
         return from + (to - from) * u;
     }
     return palette()[Token::heat_peak];
+}
+
+ui::Color code_bracket_level(std::size_t level) {
+    static constexpr std::array<Token, CODE_BRACKET_LEVELS> COLOURS{Token::code_bracket_1, Token::code_bracket_2,
+                                                                    Token::code_bracket_3, Token::code_bracket_4,
+                                                                    Token::code_bracket_5};
+    return palette()[COLOURS[level % CODE_BRACKET_LEVELS]];
 }
 
 } // namespace ftk::theme
