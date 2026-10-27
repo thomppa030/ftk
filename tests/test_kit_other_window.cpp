@@ -474,3 +474,91 @@ TEST_CASE("A panel that lands on rows, carried over another window's row that ta
     CHECK(*landed == ui::LandedPanel{.window = "Notes", .place = 1});
     CHECK_FALSE(ui::torn_off_window("Notes").has_value());
 }
+
+TEST_CASE("A tab that docks, carried over another window's dockspace, shows its targets there and says where",
+          "[ui][kit][tabs][dock][other_window]") {
+    using N = ui::DockNode;
+    KitHarness h;
+    h.ui().set_popups_leave_window(true);
+    bool home_built = false;
+    bool there_built = false;
+    ui::Id home = 0;
+    ui::Id there = 0;
+    std::optional<ui::DockPlace> docked;
+    h.set_ui([&] {
+        // This window: a row with a Code tab that docks, over the dockspace
+        // its page is in.
+        home = ui::id("##home");
+        if (auto docs = ui::DocumentTabs("##docs")) {
+            (void)ui::document_tab({.label = "Scene", .closable = false});
+            const ui::DocumentTabResult code = ui::document_tab(
+                {.label = "Code", .closable = false, .docks = true, .dock_share = 0.4f, .dockspace = home});
+            if (code.docked) docked = code.docked;
+        }
+        ui::dockspace(home);
+        if (!home_built) {
+            ui::build_dock_tree(home, {800.0f, 560.0f}, N::tabs({"Page"}));
+            home_built = true;
+        }
+        if (auto panel = ui::Panel("", "Page")) ui::text("Page");
+        // The other: the Hierarchy beside the Viewport.
+        const ui::OtherWindow other(OTHER, {.title = "other", .size = {600.0f, 400.0f}});
+        if (!other) return;
+        there = ui::id("##there");
+        ui::next_window_place({0.0f, 0.0f}, {600.0f, 400.0f});
+        (void)ui::begin_host_window("##there_host",
+                                    {.background = false, .docking = false, .to_front = false, .nav_focus = false});
+        ui::dockspace(there);
+        if (!there_built) {
+            ui::build_dock_tree(there, {600.0f, 400.0f}, N::left_right(0.3f, N::tabs({"Hierarchy"}), N::tabs({"Viewport"})));
+            there_built = true;
+        }
+        ui::end_host_window();
+        for (const char* name : {"Hierarchy", "Viewport"}) {
+            if (auto panel = ui::Panel("", name)) ui::text(name);
+        }
+    });
+    h.step(4);
+    const ui::core::RootId other = ui::other_window_root(OTHER);
+    REQUIRE(ui::window_dock("Viewport") != 0);
+    h.ui().set_root_place(KitHarness::WINDOW, ui::core::RootPlace{.at = {100.0f, 50.0f}, .units_per_point = 1.0f});
+    h.ui().set_root_place(other, ui::core::RootPlace{.at = {100.0f + h.size().x + 40.0f, 50.0f}, .units_per_point = 2.0f});
+    const auto from_other = [&](glm::vec2 at) { return glm::vec2{h.size().x + 40.0f, 0.0f} + at / 2.0f; };
+    const ui::core::SemanticNode* code_tab = h.find("Code", ui::core::Role::Tab);
+    REQUIRE(code_tab != nullptr);
+    const glm::vec2 code = code_tab->rect.centre();
+    const auto viewport = ui::window_named("Viewport");
+    REQUIRE(viewport.has_value());
+    // The right of the Viewport's targets, a target's step from its middle.
+    const glm::vec2 right = viewport->pos + viewport->size * 0.5f + glm::vec2{38.0f, 0.0f};
+
+    // Over its own page it docks nowhere; over the other window's Viewport,
+    // let go as the platform tells it, beside it there.
+    h.move_to(code);
+    h.button_down();
+    h.move_to({code.x, code.y + 200.0f});
+    h.step(2);
+    h.move_to(from_other(right));
+    h.step(2);
+    using Kind = ui::core::PointerEvent::Kind;
+    h.send({.kind = Kind::Up, .sample = {.position = from_other(right)}});
+    h.send({.kind = Kind::Move, .sample = {.position = {h.size().x - 1.0f, from_other(right).y}}});
+    h.send({.kind = Kind::Leave});
+    h.send({.kind = Kind::Move, .root = other, .sample = {.position = right}});
+    h.step(3);
+    REQUIRE(docked.has_value());
+    CHECK(docked->node == ui::window_dock("Viewport"));
+    CHECK(docked->side == ui::DockSide::Right);
+    CHECK(ui::dockspace_of(docked->node) == there);
+
+    // Let go on its own page, it docks nowhere.
+    docked.reset();
+    h.send({.kind = Kind::Leave, .root = other});
+    h.move_to(code);
+    h.button_down();
+    h.move_to({code.x, code.y + 200.0f});
+    h.move_to({code.x + 100.0f, code.y + 260.0f});
+    h.button_up();
+    h.step(2);
+    CHECK_FALSE(docked.has_value());
+}

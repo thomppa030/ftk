@@ -313,9 +313,18 @@ struct CarriedTab {
     int over_owner{0};
     std::size_t over_index{0};
     uint64_t over_frame{0};
-    /// A tab that docks: where it docks let go now, over a dock target.
+    /// A tab that docks: where it docks let go now, over a dock target of
+    /// its own window; the share of a part it takes beside it, and the
+    /// dockspace its page is in, which it never docks into.
     bool docks{false};
     std::optional<DockPlace> place{};
+    float share{0.5f};
+    Id home{0};
+    /// Over a dock target of another window's dockspace, where the platform
+    /// says where both are: where it docks let go, and the frame it was.
+    std::optional<DockPlace> elsewhere{};
+    Id elsewhere_dock{0};
+    uint64_t elsewhere_frame{0};
 };
 
 /// One of the kit's windows: what it keeps from frame to frame.
@@ -686,8 +695,8 @@ bool carry(Window& window, Id id, const WindowOptions& options);
 /// A tab `tab` carried off its row to `at` as a panel that takes `share` of
 /// a part beside it: the targets of the dockspace under it drawn, as for a
 /// window carried there, and where it would dock let go now; none over no
-/// target.
-std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share);
+/// target, nor over `home`, the dockspace its page is in.
+std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share, Id home);
 /// A panel `window` that lands on rows, let go at `at`: on a row of tabs
 /// that takes panels, a row's height above or below it at most, it lands
 /// there, the row parted where it would. Returns whether it landed.

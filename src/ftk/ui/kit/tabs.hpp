@@ -139,6 +139,10 @@ struct DocumentTab {
     /// it was. Beside a part, it takes `dock_share` of it.
     bool docks{false};
     float dock_share{0.5f};
+    /// The dockspace its page is shown in, which it never docks into; 0 for
+    /// none. In another window, where the platform says where both are, it
+    /// docks into that window's dockspaces too.
+    Id dockspace{0};
 };
 
 struct DocumentTabResult {

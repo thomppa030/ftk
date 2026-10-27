@@ -180,4 +180,8 @@ void build_dock_tree(Id id, glm::vec2 size, const DockNode& tree);
 /// exist yet.
 [[nodiscard]] Id window_dock(const std::string& name);
 
+/// The dockspace the dock node `node` is part of: its own id for a
+/// dockspace; 0 for no node.
+[[nodiscard]] Id dockspace_of(Id node);
+
 } // namespace ftk::ui

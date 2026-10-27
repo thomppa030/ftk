@@ -501,6 +501,8 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         if (carried.bar != k.tab_bar || carried.tab != id) carried = {.bar = k.tab_bar, .tab = id};
         carried.group = bar.group;
         carried.docks = tab.docks;
+        carried.share = tab.dock_share;
+        carried.home = tab.dockspace;
         carried.root = context.root();
         carried.at = drawn.in.position;
         carried.width = at->width;
@@ -515,14 +517,17 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         const glm::vec2 p = drawn.in.position;
         const glm::vec2 room = context.root_size();
         const bool inside = p.x >= 0.0f && p.y >= 0.0f && p.x < room.x && p.y < room.y;
-        carried.place = inside && !over_a_row ? carry_tab_over_docks(id, p, tab.dock_share) : std::nullopt;
+        carried.place = inside && !over_a_row ? carry_tab_over_docks(id, p, tab.dock_share, tab.dockspace) : std::nullopt;
     }
     // Off the row, a copy of it follows the pointer, in a window of its own
     // past the window's edge, and says there what letting go does.
     if (at->off_row && drawn.in.held) {
         const glm::vec2 p = drawn.in.position;
         const glm::vec2 room = context.root_size();
-        const bool outside = (p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y) && !over_a_row;
+        const bool docking_elsewhere = carried.bar == k.tab_bar && carried.tab == id && carried.elsewhere &&
+                                       carried.elsewhere_frame + 1 >= context.frame();
+        const bool outside =
+            (p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y) && !over_a_row && !docking_elsewhere;
         draw_tab_copy(label, tab.icon, tab.hue ? theme::hue(*tab.hue) : theme::text_secondary(),
                       outside && tab.tear_off);
     }
@@ -548,7 +553,10 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         const glm::vec2 let_go = drawn.in.position;
         const glm::vec2 room = context.root_size();
         const bool outside = let_go.x < 0.0f || let_go.y < 0.0f || let_go.x >= room.x || let_go.y >= room.y;
-        const bool docking = tab.docks && carried.bar == k.tab_bar && carried.tab == id && carried.place;
+        // In its own window, or over another window's dock target lately.
+        const bool ours = tab.docks && carried.bar == k.tab_bar && carried.tab == id;
+        const bool elsewhere = ours && carried.elsewhere && carried.elsewhere_frame + 1 >= context.frame();
+        const bool docking = ours && (carried.place || elsewhere);
         if (at->off_row && over_a_row) {
             result.landed_on = carried.over_owner;
             if (const auto onto = k.tab_bars.find(carried.over); onto != k.tab_bars.end()) {
@@ -556,7 +564,7 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
                 onto->second.landing_until = context.frame() + LANDING_FRAMES;
             }
         } else if (at->off_row && docking) {
-            result.docked = carried.place;
+            result.docked = carried.place ? carried.place : carried.elsewhere;
         } else if (tab.tear_off && outside) {
             result.torn_off = let_go;
         }

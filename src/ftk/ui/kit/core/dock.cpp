@@ -216,32 +216,47 @@ struct Over {
     DockDrop drop{DockDrop::None};
 };
 
+// What a window carried to `at` drops on in the dockspace `id`, shown and
+// under `at`; nothing when it isn't.
+std::optional<Over> over_dockspace(const Kit& k, Id id, glm::vec2 at) {
+    const DockPart& part = k.docks.at(id);
+    if (!part.rect.contains(at)) return std::nullopt;
+    // A dockspace shown this frame: its leaves are.
+    Id leaf = id;
+    while (k.docks.at(leaf).split != DockAxis::None) {
+        const DockPart& split = k.docks.at(leaf);
+        leaf = k.docks.at(split.children[0]).rect.contains(at) ? split.children[0] : split.children[1];
+    }
+    if (shown_leaf(leaf) == nullptr) return std::nullopt;
+    for (const Target& target : root_targets(part.rect)) {
+        if (target.rect.contains(at)) return Over{.root = id, .leaf = leaf, .target = id, .drop = target.drop};
+    }
+    const DockPart& under = k.docks.at(leaf);
+    for (const Target& target : leaf_targets(under.rect)) {
+        if (target.rect.contains(at)) return Over{.root = id, .leaf = leaf, .target = leaf, .drop = target.drop};
+    }
+    if (tab_strip(under.rect).contains(at)) return Over{.root = id, .leaf = leaf, .target = leaf, .drop = DockDrop::Tabs};
+    return Over{.root = id, .leaf = leaf};
+}
+
 Over over_dock(const Kit& k, glm::vec2 at) {
-    Over over;
     // The dockspaces of the OS window being drawn, where `at` is.
     const core::RootId window = ui().root();
     for (const auto& [id, part] : k.docks) {
-        if (part.parent != 0 || part.window != window || !part.rect.contains(at)) continue;
-        // A dockspace shown this frame: its leaves are.
-        Id leaf = id;
-        while (k.docks.at(leaf).split != DockAxis::None) {
-            const DockPart& split = k.docks.at(leaf);
-            leaf = k.docks.at(split.children[0]).rect.contains(at) ? split.children[0] : split.children[1];
-        }
-        if (shown_leaf(leaf) == nullptr) continue;
-        over.root = id;
-        over.leaf = leaf;
-        for (const Target& target : root_targets(part.rect)) {
-            if (target.rect.contains(at)) return {.root = id, .leaf = leaf, .target = id, .drop = target.drop};
-        }
-        const DockPart& under = k.docks.at(leaf);
-        for (const Target& target : leaf_targets(under.rect)) {
-            if (target.rect.contains(at)) return {.root = id, .leaf = leaf, .target = leaf, .drop = target.drop};
-        }
-        if (tab_strip(under.rect).contains(at)) return {.root = id, .leaf = leaf, .target = leaf, .drop = DockDrop::Tabs};
-        return over;
+        if (part.parent != 0 || part.window != window) continue;
+        if (const std::optional<Over> over = over_dockspace(k, id, at)) return *over;
     }
-    return over;
+    return {};
+}
+
+// Where a window `size` big dropped on what `over` says docks: among a
+// leaf's tabs, or beside a node; none off every target.
+std::optional<DockPlace> place_of(const Kit& k, const Over& over, glm::vec2 size) {
+    if (over.drop == DockDrop::None) return std::nullopt;
+    if (over.drop == DockDrop::Tabs) return DockPlace{.node = over.target};
+    return DockPlace{.node = over.target,
+                     .side = side_of(over.drop),
+                     .share = drop_share(k.docks.at(over.target).rect, over.drop, size)};
 }
 
 // A target drawn as ImGui draws one: a plate, and in it the shape of what
@@ -278,6 +293,29 @@ void draw_drop_targets(const Kit& k, const Over& over, Id window, glm::vec2 size
         draw_target(dl, target, over.target == over.root && over.drop == target.drop);
     }
     context.end_panel();
+}
+
+// A tab that docks, carried in another OS window over the dockspace `id`,
+// where the platform says where both are: the targets here, and where it
+// docks let go now, kept apart from where it would in its own window.
+void take_tab_from_elsewhere(Kit& k, Id id) {
+    core::Context& context = ui();
+    CarriedTab& carried = k.carried_tab;
+    if (!carried.docks || carried.root == context.root() || carried.frame + 1 < context.frame() || id == carried.home ||
+        !mouse_down(MouseButton::Left)) {
+        return;
+    }
+    const std::optional<glm::vec2> here = context.point_in(carried.root, carried.at, context.root());
+    const std::optional<Over> over = here ? over_dockspace(k, id, *here) : std::nullopt;
+    if (!over) {
+        if (carried.elsewhere_dock == id) carried.elsewhere.reset();
+        return;
+    }
+    const glm::vec2 size = over->target != 0 ? k.docks.at(over->target).rect.size() * carried.share : glm::vec2{0.0f};
+    draw_drop_targets(k, *over, carried.tab, size);
+    carried.elsewhere = place_of(k, *over, size);
+    carried.elsewhere_dock = id;
+    carried.elsewhere_frame = context.frame();
 }
 
 // The node `id` split for a window dropped at its side `side`, the window's
@@ -515,17 +553,14 @@ void dock_edges(Id node, core::Rect rect) {
     }
 }
 
-std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share) {
+std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share, Id home) {
     const Kit& k = kit();
     const Over over = over_dock(k, at);
+    if (over.root == home) return std::nullopt;
     // As big as the share it takes of the part under it, beside it.
     const glm::vec2 size = over.target != 0 ? k.docks.at(over.target).rect.size() * share : glm::vec2{0.0f};
     draw_drop_targets(k, over, tab, size);
-    if (over.drop == DockDrop::None) return std::nullopt;
-    if (over.drop == DockDrop::Tabs) return DockPlace{.node = over.target};
-    return DockPlace{.node = over.target,
-                     .side = side_of(over.drop),
-                     .share = drop_share(k.docks.at(over.target).rect, over.drop, size)};
+    return place_of(k, over, size);
 }
 
 bool carry(Window& window, Id id, const WindowOptions& options) {
@@ -641,6 +676,7 @@ void dockspace(Id id, DockspaceOptions options) {
     const core::Rect rect = context.layout().next(glm::max(space_left(), glm::vec2{1.0f}));
     place_still(rect);
     lay_out(k, id, rect, options.see_through);
+    take_tab_from_elsewhere(k, id);
 }
 
 bool dock_exists(Id id) {
@@ -779,6 +815,15 @@ std::optional<DockNode> dock_tree(Id id, std::span<const std::string> windows) {
         return out;
     };
     return read(read, id);
+}
+
+Id dockspace_of(Id node) {
+    const Kit& k = kit();
+    const auto found = k.docks.find(node);
+    if (found == k.docks.end()) return 0;
+    Id at = node;
+    while (k.docks.at(at).parent != 0) at = k.docks.at(at).parent;
+    return at;
 }
 
 Id window_dock(const std::string& name) {
