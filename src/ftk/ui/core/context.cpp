@@ -420,9 +420,14 @@ void Context::begin_panel_id(Id id, Rect rect, const PanelOptions& options, bool
             shown.hidden = true;
             request_frame();
         }
-        // Inside the window, moved back from its right and bottom edges.
+        // Inside the window, moved back from its right and bottom edges, or
+        // turned to stand left of `flip_x` where it would pass the right.
         const glm::vec2 size = rect.size();
-        const glm::vec2 over = glm::max(rect.max - root_->size, glm::vec2{0.0f});
+        glm::vec2 over = glm::max(rect.max - root_->size, glm::vec2{0.0f});
+        if (over.x > 0.0f && options.flip_x && *options.flip_x - size.x >= 0.0f) {
+            rect.min.x = *options.flip_x - size.x;
+            over.x = 0.0f;
+        }
         rect.min = glm::max(rect.min - over, glm::vec2{0.0f});
         rect.max = rect.min + size;
     }

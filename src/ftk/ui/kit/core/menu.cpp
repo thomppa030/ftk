@@ -148,7 +148,9 @@ bool begin_menu(const char* icon, const char* label, bool enabled, std::optional
     const glm::vec2 tip{rect.max.x - pad, rect.min.y + height * 0.5f};
     dl.triangle_filled({tip.x - half * 1.5f, tip.y - half}, {tip.x - half * 1.5f, tip.y + half}, tip, faded(colour));
 
-    return corekit::begin_popup(sub, {.padding = style.window_padding});
+    // Beside the menu at its right, or at its left where the window has no
+    // room on the right.
+    return corekit::begin_popup(sub, {.padding = style.window_padding, .flip_x = context.panel_rect().min.x + 2.0f});
 }
 
 void menu_heading(const char* label) {

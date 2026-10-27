@@ -349,3 +349,38 @@ TEST_CASE("An entry chosen in a submenu closes the menu it was opened from", "[u
     CHECK(added == 1);
     CHECK_FALSE(open);
 }
+
+TEST_CASE("A submenu opens right of its menu and left of it where the window has no room", "[ui][kit]") {
+    for (const float at : {100.0f, 640.0f}) {
+        INFO(at);
+        KitHarness h;
+        bool open_it = false;
+        h.set_ui([&] {
+            if (std::exchange(open_it, false)) ui::open_popup("##menu", {at, 100.0f});
+            if (auto menu = ui::Popup("##menu")) {
+                const bool sub = ui::begin_menu(nullptr, "Lighting");
+                h.mark("lighting");
+                if (sub) {
+                    ui::menu_item({.label = "Direct light"});
+                    ui::menu_item({.label = "IBL diffuse, as the frame adds it"});
+                    ui::end_menu();
+                }
+            }
+        });
+        h.step(2);
+        open_it = true;
+        h.step(3);
+        REQUIRE(h.popup());
+        const ui::core::Rect menu = *h.popup();
+        h.hover("lighting");
+        h.step(3);
+        REQUIRE(h.popup());
+        const ui::core::Rect sub = *h.popup();
+        CHECK(sub.max.x <= h.size().x);
+        if (menu.max.x + sub.size().x <= h.size().x) {
+            CHECK(sub.min.x >= menu.max.x - 3.0f);
+        } else {
+            CHECK(sub.max.x <= menu.min.x + 3.0f);
+        }
+    }
+}

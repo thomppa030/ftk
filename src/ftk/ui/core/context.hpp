@@ -157,6 +157,10 @@ struct PanelOptions {
     /// lines tall.
     glm::vec2 min_size{0.0f, 0.0f};
     glm::vec2 max_size{std::numeric_limits<float>::infinity()};
+    /// Where a fitting panel's right edge stands when it would pass the
+    /// window's right edge from where it was opened: a submenu turned to the
+    /// left of the menu it opens from. Unset, it is moved back from the edge.
+    std::optional<float> flip_x{};
     /// A press on it brings it in front of the others of its layer; off
     /// for a panel that stays behind them, as a host does.
     bool raise{true};
