@@ -665,6 +665,38 @@ bool dock_window_beside(const std::string& name, Id node, DockSide side, float s
     return true;
 }
 
+bool dock_window_at(const std::string& name, const DockPlace& place) {
+    Kit& k = kit();
+    const auto target = k.docks.find(place.node);
+    if (target == k.docks.end()) return false;
+    // Among the tabs of a leaf only.
+    if (!place.side && target->second.split != DockAxis::None) return false;
+    const Id id = window_id(name);
+    Window& window = k.windows[id];
+    if (window.name.empty()) window.name = name;
+    if (!place.side && window.dock == place.node) {
+        dock_into(k, id, place.node);
+        return true;
+    }
+    Id node = place.node;
+    // Out of where it was docked. Left empty, that part folds into its
+    // parent with the part beside it, which then is the parent.
+    if (const Id was = window.dock; k.docks.contains(was)) {
+        DockPart& leaf = k.docks.at(was);
+        std::erase(leaf.windows, id);
+        if (leaf.front == id) leaf.front = 0;
+        window.dock = 0;
+        if (leaf.windows.empty() && leaf.parent != 0) {
+            const DockPart& parent = k.docks.at(leaf.parent);
+            const Id beside = parent.children[0] == was ? parent.children[1] : parent.children[0];
+            if (node == was || node == beside) node = leaf.parent;
+            fold_if_empty(k, was);
+        }
+    }
+    dock_into(k, id, place.side ? split_for_drop(k, node, *place.side, place.share) : node);
+    return true;
+}
+
 void place_dock_tree(Id node, const DockNode& tree) {
     // Every split before any window: splitting a node that holds windows
     // would leave them in neither part.

@@ -134,6 +134,17 @@ struct DockSplit {
 /// Splits `node` in a DockBuild, giving the part at `side` `ratio` of it.
 DockSplit split_dock(Id node, DockSide side, float ratio);
 
+/// Where a window let go on a dock target goes: among the tabs of the leaf
+/// `node`, or, with a `side`, in a part of its own at that side of `node` (a
+/// leaf, or a dockspace's own id for the whole of it), `share` of it.
+struct DockPlace {
+    Id node{0};
+    std::optional<DockSide> side{};
+    float share{0.5f};
+
+    bool operator==(const DockPlace&) const = default;
+};
+
 /// Docks the window `name` in `node`, as a tab after those docked there:
 /// in a DockBuild, or into a dockspace as the user left it.
 void dock_window(const std::string& name, Id node);
@@ -145,6 +156,13 @@ void dock_window(const std::string& name, Id node);
 /// @return whether it docked: not for a node that doesn't exist, nor for a
 ///         window docked already, which stays where it is
 bool dock_window_beside(const std::string& name, Id node, DockSide side, float share);
+
+/// Docks the window `name` at `place`, as a window carried there and let go
+/// does: out of the part it was docked in first, which folds away when it
+/// is left empty.
+/// @return whether it docked: not when `place`'s node is gone, nor among the
+///         tabs of a node that is split, the window left where it was
+bool dock_window_at(const std::string& name, const DockPlace& place);
 
 /// Lays `tree` out in `node`, in a DockBuild: its splits, then its windows.
 /// A split's second part keeps `node`'s place (split_dock()).

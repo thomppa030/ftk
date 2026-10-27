@@ -178,6 +178,49 @@ TEST_CASE("A window docked beside a dockspace takes a part of the whole of it", 
     CHECK(rest.children[1].windows == std::vector<std::string>{"Canvas"});
 }
 
+TEST_CASE("A window docked at a place joins a part's tabs or splits it, moving out of where it was",
+          "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    const N layout = N::left_right(0.25f, N::tabs({"Hierarchy"}),
+                                   N::top_bottom(0.7f, N::tabs({"Viewport"}), N::tabs({"Console"})));
+    Docked d({"Hierarchy", "Viewport", "Console", "Notes"},
+             [&](ui::Id dock) { ui::build_dock_tree(dock, {800.0f, 600.0f}, layout); });
+
+    // Among the Console's tabs.
+    CHECK(ui::dock_window_at("Notes", {.node = ui::window_dock("Console")}));
+    d.h.step(2);
+    CHECK(ui::window_dock("Notes") == ui::window_dock("Console"));
+
+    // Then beside the Viewport, out of the Console's tabs.
+    CHECK(ui::dock_window_at("Notes", {.node = ui::window_dock("Viewport"), .side = ui::DockSide::Right, .share = 0.4f}));
+    d.h.step(2);
+    N tree = d.tree();
+    const N& column = tree.children[1];
+    REQUIRE(column.children.size() == 2);
+    CHECK(column.children[1].windows == std::vector<std::string>{"Console"});
+    const N& beside = column.children[0];
+    REQUIRE(beside.split == ui::DockAxis::LeftRight);
+    CHECK(beside.ratio == Approx(0.6f).margin(0.01f));
+    CHECK(beside.children[1].windows == std::vector<std::string>{"Notes"});
+
+    // Then at the left of the whole dockspace: the part it left folds, the
+    // Viewport whole again.
+    CHECK(ui::dock_window_at("Notes", {.node = d.dock, .side = ui::DockSide::Left, .share = 0.3f}));
+    d.h.step(2);
+    tree = d.tree();
+    REQUIRE(tree.split == ui::DockAxis::LeftRight);
+    CHECK(tree.ratio == Approx(0.3f).margin(0.01f));
+    CHECK(tree.children[0].windows == std::vector<std::string>{"Notes"});
+    CHECK(tree.children[1] == layout);
+
+    // An id no dockspace was made under, and the tabs of a split.
+    constexpr ui::Id NOWHERE = 0x5EEDu;
+    CHECK_FALSE(ui::dock_window_at("Notes", {.node = NOWHERE}));
+    CHECK_FALSE(ui::dock_window_at("Notes", {.node = d.dock}));
+    d.h.step(2);
+    CHECK(d.tree() == tree);
+}
+
 TEST_CASE("A named layout is written as JSON and read back the same", "[ui][kit][dock]") {
     using N = ui::DockNode;
     const ui::DockLayout layout{
