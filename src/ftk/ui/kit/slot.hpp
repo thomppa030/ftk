@@ -30,6 +30,9 @@ struct SlotFace {
     Color text_colour{};
     SlotDrop drop{SlotDrop::none};
     bool hovered{false};
+    /// The chevron at its end, for a field that opens a picker; none for a
+    /// field that only shows what it holds (the file a script is written in).
+    bool chevron{true};
 };
 
 /// Draws a slot's field between `min` and `max`, over the item the caller

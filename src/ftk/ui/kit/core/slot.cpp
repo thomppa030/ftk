@@ -50,10 +50,12 @@ void draw_slot_face(glm::vec2 min, glm::vec2 max, const SlotFace& face) {
         x += measure(face.glyph).x + theme::GAP_S + theme::GAP_XS;
     }
 
-    const float chevron = height;
+    // Without a chevron the text runs to the field's padding.
+    const float chevron = face.chevron ? height : style.frame_padding.x;
     dl.push_clip({x, min.y}, {max.x - chevron, max.y});
     draw_text({x, text_y}, face.text_colour, face.text);
     dl.pop_clip();
+    if (!face.chevron) return;
     draw_text({max.x - chevron + (chevron - measure(icon::dropdown).x) * 0.5f, text_y}, theme::text_secondary(),
               icon::dropdown);
 }
