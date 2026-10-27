@@ -138,6 +138,14 @@ DockSplit split_dock(Id node, DockSide side, float ratio);
 /// in a DockBuild, or into a dockspace as the user left it.
 void dock_window(const std::string& name, Id node);
 
+/// Docks the window `name` in a part of its own at `side` of the dock node
+/// `node`, `share` of it, as a window dropped on that side's target does:
+/// into a dockspace as the user left it, the rest staying where it is. A
+/// dockspace's own id as `node` puts it beside the whole of it.
+/// @return whether it docked: not for a node that doesn't exist, nor for a
+///         window docked already, which stays where it is
+bool dock_window_beside(const std::string& name, Id node, DockSide side, float share);
+
 /// Lays `tree` out in `node`, in a DockBuild: its splits, then its windows.
 /// A split's second part keeps `node`'s place (split_dock()).
 void place_dock_tree(Id node, const DockNode& tree);

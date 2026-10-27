@@ -654,6 +654,17 @@ void dock_window(const std::string& name, Id node) {
     found->second.windows.push_back(id);
 }
 
+bool dock_window_beside(const std::string& name, Id node, DockSide side, float share) {
+    Kit& k = kit();
+    if (!k.docks.contains(node)) return false;
+    const Id id = window_id(name);
+    Window& window = k.windows[id];
+    if (window.name.empty()) window.name = name;
+    if (k.docks.contains(window.dock)) return false;
+    dock_into(k, id, split_for_drop(k, node, side, share));
+    return true;
+}
+
 void place_dock_tree(Id node, const DockNode& tree) {
     // Every split before any window: splitting a node that holds windows
     // would leave them in neither part.

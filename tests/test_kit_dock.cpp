@@ -122,6 +122,62 @@ TEST_CASE("A split gives the side its share and the rest keeps the node", "[ui][
     CHECK(tree->children[1].windows == std::vector<std::string>{"Inspector"});
 }
 
+TEST_CASE("A window docked beside a part splits that part alone, the rest left as it was", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    const N layout = N::left_right(0.25f, N::tabs({"Hierarchy"}),
+                                   N::top_bottom(0.7f, N::tabs({"Viewport"}), N::tabs({"Console"})));
+    // Notes floats until it is docked.
+    Docked d({"Hierarchy", "Viewport", "Console", "Notes"},
+             [&](ui::Id dock) { ui::build_dock_tree(dock, {800.0f, 600.0f}, layout); });
+    REQUIRE(ui::window_dock("Notes") == 0);
+
+    CHECK(ui::dock_window_beside("Notes", ui::window_dock("Viewport"), ui::DockSide::Right, 0.4f));
+    d.h.step(2);
+    const N tree = d.tree();
+    CHECK(tree.ratio == Approx(0.25f).margin(0.01f));
+    REQUIRE(tree.children.size() == 2);
+    CHECK(tree.children[0].windows == std::vector<std::string>{"Hierarchy"});
+    const N& right = tree.children[1];
+    REQUIRE(right.split == ui::DockAxis::TopBottom);
+    CHECK(right.ratio == Approx(0.7f).margin(0.01f));
+    REQUIRE(right.children.size() == 2);
+    CHECK(right.children[1].windows == std::vector<std::string>{"Console"});
+    const N& beside = right.children[0];
+    REQUIRE(beside.split == ui::DockAxis::LeftRight);
+    CHECK(beside.ratio == Approx(0.6f).margin(0.01f));
+    REQUIRE(beside.children.size() == 2);
+    CHECK(beside.children[0].windows == std::vector<std::string>{"Viewport"});
+    CHECK(beside.children[1].windows == std::vector<std::string>{"Notes"});
+
+    // Docked already, it stays where it is.
+    CHECK_FALSE(ui::dock_window_beside("Notes", d.dock, ui::DockSide::Right, 0.4f));
+    d.h.step(2);
+    CHECK(d.tree() == tree);
+}
+
+TEST_CASE("A window docked beside a dockspace takes a part of the whole of it", "[ui][kit][dock]") {
+    using N = ui::DockNode;
+    const N layout = N::left_right(0.3f, N::tabs({"Palette"}), N::tabs({"Canvas"}));
+    Docked d({"Palette", "Canvas", "Notes"}, [&](ui::Id dock) { ui::build_dock_tree(dock, {800.0f, 600.0f}, layout); });
+
+    // An id no dockspace was made under.
+    constexpr ui::Id NOWHERE = 0x5EEDu;
+    CHECK_FALSE(ui::dock_window_beside("Notes", NOWHERE, ui::DockSide::Right, 0.4f));
+    CHECK(ui::dock_window_beside("Notes", d.dock, ui::DockSide::Right, 0.4f));
+    d.h.step(2);
+    const N tree = d.tree();
+    REQUIRE(tree.split == ui::DockAxis::LeftRight);
+    CHECK(tree.ratio == Approx(0.6f).margin(0.01f));
+    REQUIRE(tree.children.size() == 2);
+    CHECK(tree.children[1].windows == std::vector<std::string>{"Notes"});
+    const N& rest = tree.children[0];
+    REQUIRE(rest.split == ui::DockAxis::LeftRight);
+    CHECK(rest.ratio == Approx(0.3f).margin(0.01f));
+    REQUIRE(rest.children.size() == 2);
+    CHECK(rest.children[0].windows == std::vector<std::string>{"Palette"});
+    CHECK(rest.children[1].windows == std::vector<std::string>{"Canvas"});
+}
+
 TEST_CASE("A named layout is written as JSON and read back the same", "[ui][kit][dock]") {
     using N = ui::DockNode;
     const ui::DockLayout layout{
