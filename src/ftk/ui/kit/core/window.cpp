@@ -270,6 +270,22 @@ std::optional<ShownWindow> window_named(const std::string& name) {
     return ShownWindow{found->second.name, found->second.rect.min, found->second.rect.size()};
 }
 
+bool window_shown(const std::string& name) {
+    Kit& k = kit();
+    const Id id = core::hash_label(name, 0);
+    const auto found = k.windows.find(id);
+    if (found == k.windows.end()) return false;
+    const Window& window = found->second;
+    if (window.frame == 0 || window.frame + 1 < ui().frame()) return false;
+    // Docked, as its part is now: a tab pressed or focus_window() since it
+    // was drawn already counts.
+    if (window.options.docking && k.docks.contains(window.dock)) {
+        const DockPart* leaf = shown_leaf(window.dock);
+        return leaf != nullptr && leaf->front == id;
+    }
+    return window.shown;
+}
+
 InWindow::InWindow(const char* name) {
     const auto& windows = kit().windows;
     const auto found = windows.find(core::hash_label(name, 0));

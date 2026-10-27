@@ -310,6 +310,40 @@ TEST_CASE("A docked window with a flag that closes it has a close button on its 
     CHECK(ui::window_shown("Console"));
 }
 
+TEST_CASE("A window shows while it is drawn in front of its part's tabs, and not once it isn't drawn",
+          "[ui][kit][dock]") {
+    KitHarness h;
+    bool built = false;
+    bool notes = true;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, ui::DockNode::tabs({"Console", "History"}));
+            built = true;
+        }
+        for (const char* name : {"Console", "History"}) {
+            if (auto panel = ui::Panel("", name)) ui::text(name);
+        }
+        if (notes) {
+            if (auto panel = ui::Panel("", "Notes")) ui::text("Notes");
+        }
+    });
+    h.step(4);
+    // Of the two docked together, the one in front.
+    const bool console = ui::window_shown("Console");
+    CHECK(console != ui::window_shown("History"));
+    CHECK(ui::window_shown("Notes"));
+    CHECK_FALSE(ui::window_shown("Nowhere"));
+    // Brought forward, it shows at once, before it is drawn again.
+    ui::focus_window(console ? "History" : "Console");
+    CHECK(ui::window_shown("Console") != console);
+    CHECK(ui::window_shown("History") == console);
+    notes = false;
+    h.step(3);
+    CHECK_FALSE(ui::window_shown("Notes"));
+}
+
 TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui][kit]") {
     KitHarness h;
     bool any_key = false;

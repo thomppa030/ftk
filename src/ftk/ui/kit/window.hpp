@@ -91,6 +91,11 @@ struct ShownWindow {
 /// The window `name`, when there is one.
 [[nodiscard]] std::optional<ShownWindow> window_named(const std::string& name);
 
+/// Whether the window `name` shows: drawn this frame or the one before, and
+/// when docked, in front of its part's tabs as they are now, in a dockspace
+/// that shows.
+[[nodiscard]] bool window_shown(const std::string& name);
+
 /// While it lives, what is drawn goes into the window `name`, drawn earlier
 /// this frame, over what it already holds: an overlay on a viewport drawn
 /// by someone else. Draw while it is true, which is while the window shows.
