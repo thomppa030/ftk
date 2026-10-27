@@ -43,6 +43,9 @@ enum class Access : uint8_t {
     storage_read_compute,
     storage_write_compute,
     storage_read_write_compute,
+    /// Read and written as storage by a fragment shader: a count every
+    /// fragment drawn adds to.
+    storage_read_write_fragment,
 
     // Buffers (reads)
     uniform_read,
@@ -95,6 +98,7 @@ using AccessSet = Flags<Access>;
         case Access::depth_resolve:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
+        case Access::storage_read_write_fragment:
         case Access::storage_buffer_write_compute:
         case Access::storage_buffer_read_write_compute:
         case Access::copy_dst:
@@ -141,6 +145,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_read_compute:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
+        case Access::storage_read_write_fragment:
         case Access::copy_src:
         case Access::copy_dst:
         case Access::clear:
@@ -217,6 +222,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_read_compute: return "storage_read_compute";
         case Access::storage_write_compute: return "storage_write_compute";
         case Access::storage_read_write_compute: return "storage_read_write_compute";
+        case Access::storage_read_write_fragment: return "storage_read_write_fragment";
         case Access::uniform_read: return "uniform_read";
         case Access::storage_buffer_read_compute: return "storage_buffer_read_compute";
         case Access::storage_buffer_read_vertex: return "storage_buffer_read_vertex";
@@ -264,6 +270,7 @@ using AccessSet = Flags<Access>;
         case Access::storage_read_compute:
         case Access::storage_write_compute:
         case Access::storage_read_write_compute:
+        case Access::storage_read_write_fragment:
             return TextureUse::storage;
         default:
             return {};

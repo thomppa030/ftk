@@ -502,6 +502,9 @@ void Foundation::create_logical_device() {
     // (interpolateAtOffset), where it is otherwise read inside the part of
     // the pixel the surface covers.
     features.sampleRateShading = VK_TRUE;
+    // A fragment shader writing storage: a count every fragment drawn adds
+    // to (Access::storage_read_write_fragment).
+    features.fragmentStoresAndAtomics = VK_TRUE;
     features.textureCompressionBC = supported.textureCompressionBC;
     block_compression_supported_ = supported.textureCompressionBC == VK_TRUE;
 

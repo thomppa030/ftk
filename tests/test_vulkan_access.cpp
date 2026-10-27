@@ -128,3 +128,14 @@ TEST_CASE("A shading-rate image is read in its own layout, at the stage that rea
     // The compute queue has no such stage, so a barrier there names every stage instead.
     CHECK(vulkan::compute_queue_stages(scope.stages) == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 }
+
+TEST_CASE("A fragment shader's storage reads and writes are in GENERAL at the fragment stage", "[vulkan][access]") {
+    const vulkan::ImageScope scope = vulkan::image_scope(Access::storage_read_write_fragment, false);
+    CHECK(scope.layout == VK_IMAGE_LAYOUT_GENERAL);
+    CHECK(scope.stages == VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
+    CHECK(scope.access == (VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT));
+    CHECK(access_is_write(Access::storage_read_write_fragment));
+    CHECK(access_is_read(Access::storage_read_write_fragment));
+    CHECK(texture_use(Access::storage_read_write_fragment) == TextureUses{TextureUse::storage});
+    CHECK_FALSE(applies_to_buffer(Access::storage_read_write_fragment));
+}
