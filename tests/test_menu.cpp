@@ -384,3 +384,100 @@ TEST_CASE("A submenu opens right of its menu and left of it where the window has
         }
     }
 }
+
+TEST_CASE("The picked entry of a menu has a dot where its icon would be", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        (void)ui::menu_item({.label = "Direct light", .picked = true});
+        h.mark("picked");
+        (void)ui::menu_item({.label = "IBL diffuse"});
+        h.mark("other");
+        (void)ui::menu_item({.label = "Footprints", .checked = true});
+        h.mark("setting");
+    });
+    h.step(2);
+    const auto icon_column = [&](const char* name) {
+        const core::Rect r = h.rect(name);
+        return core::Rect{.min = r.min, .max = {r.min.x + 30.0f, r.max.y}};
+    };
+    // A filled dot: a primitive in the text colour no wider than the column.
+    const auto dot = [&](const core::Rect& column) {
+        const uint32_t packed = core::pack_colour(ftk::theme::text());
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                const glm::vec2 size = p.max - p.min;
+                if (p.colour == packed && column.contains((p.min + p.max) * 0.5f) && size.x > 3.0f && size.x < 10.0f
+                    && size.y > 3.0f && size.y < 10.0f) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    CHECK(dot(icon_column("picked")));
+    CHECK_FALSE(drew_in(h, icon_column("other"), ftk::theme::text()));
+    // A setting keeps its check, which is no dot.
+    CHECK(drew_in(h, icon_column("setting"), ftk::theme::text()));
+    CHECK_FALSE(dot(icon_column("setting")));
+}
+
+TEST_CASE("A setting chosen in a menu leaves it open and a pick closes it", "[ui][kit]") {
+    KitHarness h;
+    bool footprints = false;
+    int picked = 0;
+    bool open = false;
+    h.set_ui([&] {
+        if (ui::button("Menu")) ui::open_popup("##menu");
+        h.mark("menu");
+        if (auto menu = ui::Popup("##menu")) {
+            if (ui::menu_item({.label = "Footprints", .checked = footprints, .keeps_open = true})) footprints = !footprints;
+            h.mark("footprints");
+            if (ui::menu_item({.label = "Lit", .picked = true})) ++picked;
+            h.mark("lit");
+        }
+        open = ui::popup_open("##menu");
+    });
+    h.step(2);
+    h.click("menu");
+    h.step();
+    h.click("footprints");
+    h.step();
+    CHECK(footprints);
+    CHECK(open);
+    h.click("footprints");
+    h.step();
+    CHECK_FALSE(footprints);
+    CHECK(open);
+    h.click("lit");
+    h.step();
+    CHECK(picked == 1);
+    CHECK_FALSE(open);
+}
+
+TEST_CASE("A submenu entry names what is picked inside it and says why it cannot open", "[ui][kit]") {
+    KitHarness h;
+    bool ddgi_open = false;
+    h.set_ui([&] {
+        if (ui::begin_menu({.label = "Lighting", .detail = "Direct light"})) ui::end_menu();
+        h.mark("lighting");
+        const bool sub = ui::begin_menu({.label = "DDGI probes",
+                                         .enabled = false,
+                                         .disabled_reason = "DDGI is off: Project Settings › Rendering"});
+        h.mark("ddgi");
+        ddgi_open = sub;
+        if (sub) ui::end_menu();
+        if (ui::begin_menu({.label = "Surface"})) ui::end_menu();
+        h.mark("surface");
+    });
+    h.step(2);
+    CHECK(drew_in(h, h.rect("lighting"), ftk::theme::text_secondary()));
+    CHECK_FALSE(drew_in(h, h.rect("surface"), ftk::theme::text_secondary()));
+    h.hover("ddgi");
+    h.step(3);
+    CHECK_FALSE(ddgi_open);
+    // The reason, on rest, only where the entry cannot open.
+    CHECK(h.tooltip().has_value());
+    h.hover("surface");
+    h.step(3);
+    CHECK_FALSE(h.tooltip().has_value());
+}

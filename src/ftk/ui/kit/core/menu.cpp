@@ -47,6 +47,11 @@ core::Rect padded(core::Rect rect, glm::vec2 spacing) {
     return {.min = rect.min - before, .max = rect.max + (spacing - before)};
 }
 
+// The dot that marks the current one of several in a menu, 6 units across.
+void draw_dot(glm::vec2 centre, Color ink) {
+    ui().draw_list().circle_filled(centre, 3.0f, faded(ink));
+}
+
 } // namespace
 
 bool menu_item(const MenuItem& item) {
@@ -70,7 +75,10 @@ bool menu_item(const MenuItem& item) {
     {
         IdScope scope(item.label);
         Disabled off(!item.enabled);
-        chosen = selectable("##entry", false, {.size = {std::max(space_left().x, natural), height}, .name = item.label});
+        chosen = selectable("##entry", false,
+                            {.size = {std::max(space_left().x, natural), height},
+                             .name = item.label,
+                             .keeps_popup_open = item.keeps_open});
     }
     if (!item.enabled && item.disabled_reason != nullptr) item_tooltip(item.disabled_reason);
     if (item_hovered()) close_submenu();
@@ -80,7 +88,11 @@ bool menu_item(const MenuItem& item) {
     if (!item.enabled) colour.a *= style.disabled_alpha;
     const float y = min.y + (height - label_size.y) * 0.5f;
     const char* glyph = item.checked ? (*item.checked ? icon::checked : nullptr) : item.icon;
-    if (glyph != nullptr) {
+    if (item.picked) {
+        // The current one of those the menu picks between: a dot where an
+        // icon would stand.
+        draw_dot({min.x + pad + ICON_COLUMN * 0.5f, min.y + height * 0.5f}, colour);
+    } else if (glyph != nullptr) {
         Color ink = item.icon_colour && !item.checked ? *item.icon_colour : colour;
         if (!item.enabled && item.icon_colour) ink.a *= style.disabled_alpha;
         draw_text({min.x + pad, y}, ink, glyph);
@@ -102,12 +114,20 @@ bool menu_item(const MenuItem& item) {
 }
 
 bool begin_menu(const char* icon, const char* label, bool enabled, std::optional<Color> icon_colour) {
+    return begin_menu(MenuItem{.icon = icon, .icon_colour = icon_colour, .label = label, .enabled = enabled});
+}
+
+bool begin_menu(const MenuItem& item) {
     core::Context& context = ui();
     Kit& k = kit();
     const Style& style = k.style;
     const float pad = theme::GAP_M;
+    const char* const icon = item.icon;
+    const char* const label = item.label;
+    const bool enabled = item.enabled;
     const glm::vec2 label_size = measure(label);
-    const float natural = pad + ICON_COLUMN + pad + label_size.x + theme::GAP_L * 2.0f + pad;
+    const float detail_w = item.detail != nullptr ? theme::GAP_M + measure(item.detail).x : 0.0f;
+    const float natural = pad + ICON_COLUMN + pad + label_size.x + detail_w + theme::GAP_L * 2.0f + pad;
 
     // The entry, as tall as any other, opens its submenu under the mouse and
     // stays lit while it is open.
@@ -123,6 +143,7 @@ bool begin_menu(const char* icon, const char* label, bool enabled, std::optional
         in = place(entry, bb);
     }
     context.semantics(entry, core::Role::MenuItem, label, {}, {.expanded = context.popup_open(sub)});
+    if (!enabled && item.disabled_reason != nullptr) item_tooltip(item.disabled_reason);
     const Id menu = current_menu();
     if (enabled && (in.hovered || in.clicked) && !context.popup_open(sub)) {
         // Any other submenu of this menu closes; this one opens beside it.
@@ -138,11 +159,17 @@ bool begin_menu(const char* icon, const char* label, bool enabled, std::optional
     if (!enabled) colour.a *= style.disabled_alpha;
     const float y = rect.min.y + (height - label_size.y) * 0.5f;
     if (icon != nullptr) {
-        Color ink = icon_colour ? *icon_colour : colour;
-        if (!enabled && icon_colour) ink.a *= style.disabled_alpha;
+        Color ink = item.icon_colour ? *item.icon_colour : colour;
+        if (!enabled && item.icon_colour) ink.a *= style.disabled_alpha;
         draw_text({rect.min.x + pad, y}, ink, icon);
     }
-    draw_text({rect.min.x + pad + ICON_COLUMN + pad, y}, colour, label);
+    const float label_x = rect.min.x + pad + ICON_COLUMN + pad;
+    draw_text({label_x, y}, colour, label);
+    if (item.detail != nullptr) {
+        Color dim = theme::text_secondary();
+        if (!enabled) dim.a *= style.disabled_alpha;
+        draw_text({label_x + label_size.x + theme::GAP_M, y}, dim, item.detail);
+    }
     // The arrow saying a submenu opens from it, at its right end.
     const float half = std::floor(line_height() * 0.25f);
     const glm::vec2 tip{rect.max.x - pad, rect.min.y + height * 0.5f};

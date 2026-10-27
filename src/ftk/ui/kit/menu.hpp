@@ -47,6 +47,13 @@ struct MenuItem {
     /// A setting that is on or off ("Show grid"): a check in the icon
     /// column while on, in place of an icon.
     std::optional<bool> checked{};
+    /// The one of several the menu picks between that is the current one (a
+    /// viewport's view): a dot in the icon column, in place of an icon. A
+    /// setting beside them keeps its check.
+    bool picked{false};
+    /// Chosen, it leaves the menu open, so several settings are turned on
+    /// in one go.
+    bool keeps_open{false};
 };
 
 /// One entry. Returns true when chosen; the menu then closes.
@@ -66,6 +73,12 @@ void menu_title(const char* icon, std::string_view name, std::string_view kind);
 /// submenu is open; the caller then draws its entries and calls end_menu().
 bool begin_menu(const char* icon, const char* label, bool enabled = true,
                 std::optional<Color> icon_colour = std::nullopt);
+/// The same, described as an entry: its icon and colour, label, `detail`
+/// after the label in the secondary text colour (what is picked inside it,
+/// "Direct light"), and while it cannot open, `enabled` false with
+/// `disabled_reason` as its tooltip. Its shortcut, check and pick are not
+/// drawn.
+bool begin_menu(const MenuItem& entry);
 
 /// Ends a submenu begin_menu() or a menu begin_bar_menu() opened.
 void end_menu();
@@ -126,6 +139,8 @@ struct MenuEntry {
     std::string disabled_reason{};
     bool destructive{false};
     std::optional<bool> checked{};
+    bool picked{false};
+    bool keeps_open{false};
     std::function<void()> chosen{};
     std::vector<MenuEntry> entries{};
     std::function<void()> draw{};
@@ -160,7 +175,9 @@ inline void menu_entries(std::span<const MenuEntry> entries) {
                            .enabled = entry.enabled,
                            .disabled_reason = entry.disabled_reason.empty() ? nullptr : entry.disabled_reason.c_str(),
                            .destructive = entry.destructive,
-                           .checked = entry.checked}) &&
+                           .checked = entry.checked,
+                           .picked = entry.picked,
+                           .keeps_open = entry.keeps_open}) &&
                 entry.chosen) {
                 entry.chosen();
             }
@@ -169,7 +186,12 @@ inline void menu_entries(std::span<const MenuEntry> entries) {
         case MenuEntry::Kind::Heading: menu_heading(entry.label.c_str()); break;
         case MenuEntry::Kind::Note: text(entry.label, theme::text_disabled()); break;
         case MenuEntry::Kind::Submenu:
-            if (begin_menu(entry.icon, entry.label.c_str(), entry.enabled, entry.icon_colour)) {
+            if (begin_menu({.icon = entry.icon,
+                            .icon_colour = entry.icon_colour,
+                            .label = entry.label.c_str(),
+                            .detail = entry.detail.empty() ? nullptr : entry.detail.c_str(),
+                            .enabled = entry.enabled,
+                            .disabled_reason = entry.disabled_reason.empty() ? nullptr : entry.disabled_reason.c_str()})) {
                 menu_entries(entry.entries);
                 end_menu();
             }
