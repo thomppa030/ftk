@@ -107,6 +107,7 @@ ftk_library(platform
     HEADERS
         ftk/platform/child_process.hpp
         ftk/platform/detail/command_line.hpp
+        ftk/platform/detail/program_search.hpp
         ftk/platform/file_names.hpp
         ftk/platform/tree_watcher.hpp
         ftk/platform/platform.hpp

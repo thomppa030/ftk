@@ -1,6 +1,7 @@
 #include "ftk/platform/platform.hpp"
 
 #include "ftk/base/utf8.hpp"
+#include "ftk/platform/detail/program_search.hpp"
 #include "ftk/platform/windows/launch.hpp"
 #include "ftk/platform/windows/pipes.hpp"
 
@@ -121,31 +122,63 @@ Result<> replace_file(const std::filesystem::path& from, const std::filesystem::
     return {};
 }
 
+namespace {
+
+// The environment variable `name`; empty when it isn't set.
+std::wstring environment(const wchar_t* name) {
+    const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+    if (size == 0) return {};
+    std::wstring value(size, L'\0');
+    const DWORD length = GetEnvironmentVariableW(name, value.data(), size);
+    value.resize(length < size ? length : 0);
+    return value;
+}
+
+// Whether `path` is a file rather than a folder.
+bool is_file(const std::filesystem::path& path) {
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+// Where CreateProcess looks for a program named without a folder, in its
+// order: this program's own folder, the current one, the system's, the old
+// 16-bit system's, Windows' own, then each the PATH lists.
+std::vector<std::filesystem::path> program_folders() {
+    std::vector<std::filesystem::path> folders{executable_path().parent_path()};
+    std::error_code error;
+    if (std::filesystem::path current = std::filesystem::current_path(error); !error) folders.push_back(current);
+    std::array<wchar_t, MAX_PATH> buffer{};
+    const UINT system_length = GetSystemDirectoryW(buffer.data(), static_cast<UINT>(buffer.size()));
+    if (system_length > 0 && system_length < buffer.size()) {
+        folders.emplace_back(std::wstring(buffer.data(), system_length));
+    }
+    const UINT windows_length = GetWindowsDirectoryW(buffer.data(), static_cast<UINT>(buffer.size()));
+    if (windows_length > 0 && windows_length < buffer.size()) {
+        const std::filesystem::path windows_folder(std::wstring(buffer.data(), windows_length));
+        folders.push_back(windows_folder / L"System");
+        folders.push_back(windows_folder);
+    }
+    for (const std::wstring& folder : detail::semicolon_list<wchar_t>(environment(L"PATH"))) folders.emplace_back(folder);
+    return folders;
+}
+
+} // namespace
+
 std::optional<std::filesystem::path> find_program(std::string_view program) {
-    if (program.empty()) return std::nullopt;
-    const std::filesystem::path given(
-        std::u8string_view(reinterpret_cast<const char8_t*>(program.data()), program.size()));
-    // What CreateProcess adds to a name without an extension, and all it adds.
-    const bool bare = !given.has_extension();
-    if (given.has_parent_path()) {
-        std::filesystem::path path = given;
-        if (bare) path += L".exe";
-        std::error_code error;
-        return std::filesystem::is_regular_file(path, error) ? std::optional(path) : std::nullopt;
-    }
-    // Where CreateProcess looks: the program's own folder, the current one,
-    // the system's, then the PATH.
-    std::wstring found(MAX_PATH, L'\0');
-    for (;;) {
-        const DWORD length = SearchPathW(nullptr, given.c_str(), bare ? L".exe" : nullptr,
-                                         static_cast<DWORD>(found.size()), found.data(), nullptr);
-        if (length == 0) return std::nullopt;
-        if (length < found.size()) {
-            found.resize(length);
-            return std::filesystem::path(found);
+    const std::filesystem::path given = utf8::to_path(program);
+    const std::wstring name = given.filename().wstring();
+    if (name.empty()) return std::nullopt;
+    const std::vector<std::wstring> names =
+        detail::program_names<wchar_t>(name, detail::program_extensions<wchar_t>(environment(L"PATHEXT")));
+    // A name with a folder is looked for there alone.
+    const std::vector<std::filesystem::path> folders =
+        given.has_parent_path() ? std::vector<std::filesystem::path>{given.parent_path()} : program_folders();
+    for (const std::filesystem::path& folder : folders) {
+        for (const std::wstring& candidate : names) {
+            if (std::filesystem::path path = folder / candidate; is_file(path)) return path;
         }
-        found.resize(length);
     }
+    return std::nullopt;
 }
 
 int run_command(const std::string& cmd, std::string& output) {

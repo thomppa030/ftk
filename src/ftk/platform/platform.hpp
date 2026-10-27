@@ -84,11 +84,12 @@ inline constexpr const char* EXE_EXT = "";
 [[nodiscard]] Result<> replace_file(const std::filesystem::path& from, const std::filesystem::path& to,
                                     const std::filesystem::path& backup = {});
 
-/// The file the program a command names is, found as starting the command
-/// would find it: the path itself when `program` names a folder, else the
-/// first match along the PATH. On Windows, also where Windows looks before
-/// the PATH, with `.exe` added to a name without an extension. Nothing when
-/// there is none.
+/// The file the program a command names is, found as this platform's
+/// starters (spawn_*, exec_replace, ChildProcess) find it: in the folder
+/// `program` names, else the first along the PATH. On Windows, also where
+/// Windows looks before the PATH, and under each extension PATHEXT lists of
+/// a file a starter starts (.com, .exe, .bat, .cmd) when the name has none
+/// of them, as cmd finds `code` as code.cmd. Nothing when there is none.
 [[nodiscard]] std::optional<std::filesystem::path> find_program(std::string_view program);
 
 /// Runs a shell command and captures what it prints to its standard output;

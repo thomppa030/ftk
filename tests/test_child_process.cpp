@@ -1,5 +1,6 @@
 #include "ftk/platform/child_process.hpp"
 #include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/detail/program_search.hpp"
 #include "ftk/platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -268,6 +269,57 @@ TEST_CASE("A program is found where starting it would find it", "[platform][chil
     REQUIRE(ftk::platform::find_program("sh").has_value());
 #endif
 }
+
+TEST_CASE("Windows finds a program under the extensions PATHEXT lists of a file it starts", "[platform][child]") {
+    using ftk::platform::detail::program_extensions;
+    const std::vector<std::string> windows_own{".com", ".exe", ".bat", ".cmd"};
+    CHECK(program_extensions<char>("") == windows_own);
+    CHECK(program_extensions<char>(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC") == windows_own);
+    // In the list's order, once each, whatever case it writes them in.
+    CHECK(program_extensions<char>(";.Cmd;;.EXE;.cmd;.PY") == std::vector<std::string>{".cmd", ".exe"});
+    CHECK(program_extensions<char>(".VBS;.JS") == windows_own);
+}
+
+TEST_CASE("A program's name with one of those extensions is itself, else each is added", "[platform][child]") {
+    using ftk::platform::detail::program_names;
+    const std::vector<std::string> extensions{".com", ".exe", ".bat", ".cmd"};
+    CHECK(program_names<char>("code", extensions) ==
+          std::vector<std::string>{"code.com", "code.exe", "code.bat", "code.cmd"});
+    CHECK(program_names<char>("Code.CMD", extensions) == std::vector<std::string>{"Code.CMD"});
+    CHECK(program_names<char>("python3.11", extensions) ==
+          std::vector<std::string>{"python3.11.com", "python3.11.exe", "python3.11.bat", "python3.11.cmd"});
+    CHECK(program_names<char>(".exe", extensions) ==
+          std::vector<std::string>{".exe.com", ".exe.exe", ".exe.bat", ".exe.cmd"});
+    CHECK(program_names<char>("", extensions).empty());
+}
+
+TEST_CASE("PATH's folders are read as Windows reads them", "[platform][child]") {
+    CHECK(ftk::platform::detail::semicolon_list<char>("C:\\a;;\"C:\\Program Files\\b\";C:\\c\\;") ==
+          std::vector<std::string>{"C:\\a", "C:\\Program Files\\b", "C:\\c\\"});
+    CHECK(ftk::platform::detail::semicolon_list<char>("").empty());
+}
+
+#ifdef _WIN32
+TEST_CASE("A batch file is found and started by its name alone, as cmd finds it", "[platform][child]") {
+    const std::filesystem::path folder =
+        std::filesystem::temp_directory_path() / ("ftk-batch-name-" + std::to_string(ftk::platform::process_id()));
+    std::filesystem::create_directories(folder);
+    std::ofstream(folder / "relay.cmd", std::ios::binary)
+        << "@\"" << std::filesystem::path(FTK_TEST_CHILD).make_preferred().string() << "\" %*\r\n";
+
+    const std::filesystem::path named = folder / "relay";
+    REQUIRE(ftk::platform::find_program(named.string()) == folder / "relay.cmd");
+    const std::vector<std::string> asked{named.string(), "args", "two words"};
+    {
+        auto child = ChildProcess::start(asked);
+        REQUIRE(child.has_value());
+        CHECK(arguments_written(read_all(**child)) == std::vector<std::string>{"two words"});
+        CHECK((*child)->wait() == 0);
+    }
+    std::error_code ignored;
+    std::filesystem::remove_all(folder, ignored);
+}
+#endif
 
 TEST_CASE("A command starting with its program's path in quotes runs as written", "[platform][command]") {
     // As a path with a space needs it, an argument quoted after it too.
