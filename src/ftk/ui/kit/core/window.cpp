@@ -270,6 +270,13 @@ std::optional<ShownWindow> window_named(const std::string& name) {
     return ShownWindow{found->second.name, found->second.rect.min, found->second.rect.size()};
 }
 
+std::optional<glm::vec2> torn_off_window(const std::string& name) {
+    Kit& k = kit();
+    const auto found = k.windows.find(core::hash_label(name, 0));
+    if (found == k.windows.end()) return std::nullopt;
+    return std::exchange(found->second.torn_off, std::nullopt);
+}
+
 bool window_shown(const std::string& name) {
     Kit& k = kit();
     const Id id = core::hash_label(name, 0);

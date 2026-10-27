@@ -163,6 +163,24 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     return drawn;
 }
 
+void draw_tab_copy(std::string_view label, const char* icon, Color icon_ink, bool own_window) {
+    const Kit& k = kit();
+    core::Context& context = ui();
+    context.begin_drag_preview();
+    const core::Rect shown = context.panel_rect();
+    context.draw_list().rect_filled(shown.min, shown.max, faded(theme::surface_base()), look().rounding);
+    if (icon != nullptr) {
+        text(icon, icon_ink);
+        same_line(k.style.item_inner_spacing.x);
+    }
+    text(label);
+    if (own_window) {
+        same_line();
+        text("opens in its own window", theme::text_secondary());
+    }
+    context.end_drag_preview();
+}
+
 bool land_panel(Id window, glm::vec2 at) {
     Kit& k = kit();
     const core::Context& context = ui();
@@ -491,19 +509,8 @@ DocumentTabResult document_tab(const DocumentTab& tab) {
         const glm::vec2 p = drawn.in.position;
         const glm::vec2 room = context.root_size();
         const bool outside = (p.x < 0.0f || p.y < 0.0f || p.x >= room.x || p.y >= room.y) && !over_a_row;
-        context.begin_drag_preview();
-        const core::Rect shown = context.panel_rect();
-        context.draw_list().rect_filled(shown.min, shown.max, faded(theme::surface_base()), look().rounding);
-        if (tab.icon != nullptr) {
-            text(tab.icon, tab.hue ? theme::hue(*tab.hue) : theme::text_secondary());
-            same_line(k.style.item_inner_spacing.x);
-        }
-        text(label);
-        if (outside && tab.tear_off) {
-            same_line();
-            text("opens in its own window", theme::text_secondary());
-        }
-        context.end_drag_preview();
+        draw_tab_copy(label, tab.icon, tab.hue ? theme::hue(*tab.hue) : theme::text_secondary(),
+                      outside && tab.tear_off);
     }
     // Dragged past the middle of the tab beside it, it takes that one's place.
     if (bar.reorder && drawn.in.held && drawn.in.dragging && !at->off_row) {

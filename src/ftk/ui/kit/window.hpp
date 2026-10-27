@@ -101,6 +101,12 @@ struct ShownWindow {
 /// that shows.
 [[nodiscard]] bool window_shown(const std::string& name);
 
+/// The window `name`, one that lands on rows (WindowOptions), carried and
+/// let go past its OS window's edge since this was last asked: where, in that
+/// window's layout units, for the program to show what it holds in a window
+/// of its own; none when it wasn't. Asking takes it.
+[[nodiscard]] std::optional<glm::vec2> torn_off_window(const std::string& name);
+
 /// While it lives, what is drawn goes into the window `name`, drawn earlier
 /// this frame, over what it already holds: an overlay on a viewport drawn
 /// by someone else. Draw while it is true, which is while the window shows.

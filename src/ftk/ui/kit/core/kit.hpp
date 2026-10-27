@@ -339,6 +339,9 @@ struct Window {
     std::size_t tabs{0};
     /// Given its place by the settings file before it was first drawn.
     bool placed{false};
+    /// One that lands on rows, carried and let go past its OS window's edge:
+    /// where, until the program asks (torn_off_window()).
+    std::optional<glm::vec2> torn_off{};
     /// Begun with a flag that closes it: docked, its tab has a ×.
     bool closable{false};
     /// Its tab's × was pressed: it closes as it is next begun.
@@ -682,5 +685,9 @@ std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share)
 /// that takes panels, a row's height above or below it at most, it lands
 /// there, the row parted where it would. Returns whether it landed.
 bool land_panel(Id window, glm::vec2 at);
+/// The copy of a tab that follows the pointer while it is carried off its
+/// row, or a panel out of its window: its icon in `icon_ink` and `label`,
+/// and "opens in its own window" when letting go there opens one.
+void draw_tab_copy(std::string_view label, const char* icon, Color icon_ink, bool own_window);
 
 } // namespace ftk::ui::corekit

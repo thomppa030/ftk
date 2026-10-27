@@ -114,6 +114,11 @@ glm::vec2 mouse_pos() {
     return m != nullptr ? m->now.position : glm::vec2{-1.0f};
 }
 
+glm::vec2 mouse_release_pos() {
+    const core::Pointer* m = mouse();
+    return m != nullptr ? m->release_position : glm::vec2{-1.0f};
+}
+
 bool mouse_over(glm::vec2 min, glm::vec2 max) {
     const core::Pointer* m = mouse();
     if (m == nullptr || !m->present) return false;

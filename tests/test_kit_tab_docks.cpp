@@ -233,3 +233,44 @@ TEST_CASE("A panel that doesn't land on rows leaves a row that takes panels as i
     CHECK(ui::window_dock("Hierarchy") == 0);
     CHECK(ui::window_dock("Notes") != 0);
 }
+
+TEST_CASE("A panel that lands on rows, carried past its window's edge, shows a tab's copy and says where it went",
+          "[ui][kit][tabs][dock]") {
+    Landing l;
+    // As a program that opens popups past its window's edge has them.
+    l.h.ui().set_popups_leave_window(true);
+    const glm::vec2 notes = l.tab("Notes");
+    l.carry_panel_to("Notes", {notes.x, l.h.size().y + 50.0f});
+    // Past the edge, the copy a carried tab shows there, in a window of its
+    // own that takes no pointers; nothing torn off before it is let go.
+    REQUIRE(l.h.windows().size() == 1);
+    CHECK(l.h.windows()[0].kind == ui::core::RootKind::Tooltip);
+    CHECK_FALSE(ui::torn_off_window("Notes").has_value());
+    // Let go there as the platform tells it: the button comes up past the
+    // edge, then a move follows held to the edge.
+    using Kind = ui::core::PointerEvent::Kind;
+    l.h.send({.kind = Kind::Up, .sample = {.position = {notes.x, l.h.size().y + 50.0f}}});
+    l.h.send({.kind = Kind::Move, .sample = {.position = {notes.x, l.h.size().y - 1.0f}}});
+    l.h.step(2);
+    const std::optional<glm::vec2> torn = ui::torn_off_window("Notes");
+    REQUIRE(torn.has_value());
+    CHECK(torn->y > l.h.size().y);
+    // Asked once, and kept inside its window meanwhile.
+    CHECK_FALSE(ui::torn_off_window("Notes").has_value());
+    CHECK(l.h.windows().empty());
+    const auto shown = ui::window_named("Notes");
+    REQUIRE(shown.has_value());
+    CHECK(shown->pos.y + shown->size.y <= l.h.size().y + 0.5f);
+}
+
+TEST_CASE("A panel that doesn't land on rows, carried past its window's edge, shows no copy and isn't torn off",
+          "[ui][kit][tabs][dock]") {
+    Landing l;
+    l.h.ui().set_popups_leave_window(true);
+    const glm::vec2 hierarchy = l.tab("Hierarchy");
+    l.carry_panel_to("Hierarchy", {hierarchy.x, l.h.size().y + 50.0f});
+    CHECK(l.h.windows().empty());
+    l.h.button_up();
+    l.h.step(2);
+    CHECK_FALSE(ui::torn_off_window("Hierarchy").has_value());
+}

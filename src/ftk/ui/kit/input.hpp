@@ -84,6 +84,11 @@ void set_mouse_cursor(MouseCursor cursor);
 /// Where the mouse is, in screen pixels.
 [[nodiscard]] glm::vec2 mouse_pos();
 
+/// Where the mouse was last let go, in screen pixels: where its button came
+/// up, before any move after it, as past a window's edge the platform holds
+/// it at that edge.
+[[nodiscard]] glm::vec2 mouse_release_pos();
+
 /// How far the mouse moved since the last frame, in screen pixels.
 [[nodiscard]] glm::vec2 mouse_delta();
 

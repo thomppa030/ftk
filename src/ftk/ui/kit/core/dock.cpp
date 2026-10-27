@@ -532,7 +532,10 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     Kit& k = kit();
     if (k.carried.window != id) return false;
     core::Context& context = ui();
-    const glm::vec2 pointer = mouse_pos();
+    // Let go, where it came up: past the window's edge the platform holds
+    // the pointer at that edge after it.
+    const bool held = mouse_down(MouseButton::Left);
+    const glm::vec2 pointer = held ? mouse_pos() : mouse_release_pos();
     const glm::vec2 at = pointer - k.carried.grab;
     const glm::vec2 size = window.rect.size();
     window.rect = {.min = at, .max = at + size};
@@ -540,15 +543,20 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     k.carried.target = over.target;
     k.carried.drop = over.drop;
     k.carried.lands_on_rows = options.lands_on_rows;
-    if (mouse_down(MouseButton::Left)) {
+    const glm::vec2 room = context.root_size();
+    const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
+    if (held) {
         // Over a dockspace, its targets show, and the part it would take.
         draw_drop_targets(k, over, id, size);
+        // Past the edge of its OS window, one that lands on rows shows the
+        // copy a tab carried there shows: let go, it opens in its own.
+        if (options.lands_on_rows && outside) draw_tab_copy(shown(window.name), nullptr, {}, true);
         context.request_frame();
         return false;
     }
-    // Let go: docked at the target it is over; past the edge of its OS
-    // window, floating inside it against that edge; else left floating where
-    // it is.
+    // Let go: docked at the target it is over; on a row of tabs that takes
+    // panels, landed there; past the edge of its OS window, floating inside
+    // it against that edge; else left floating where it is.
     const Id target = k.carried.target;
     const DockDrop drop = k.carried.drop;
     // On a row of tabs that takes panels, it lands there, floating where it
@@ -557,9 +565,12 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
         k.carried = {};
         return false;
     }
-    const glm::vec2 room = context.root_size();
-    const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
-    if (target == 0 && outside) keep_inside(window, room);
+    if (target == 0 && outside) {
+        // One that lands on rows is for the program to show in a window of
+        // its own there; it stays inside meanwhile.
+        if (options.lands_on_rows) window.torn_off = pointer;
+        keep_inside(window, room);
+    }
     k.carried = {};
     if (target == 0) return false;
     if (drop == DockDrop::Tabs) {
