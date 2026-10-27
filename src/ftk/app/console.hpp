@@ -10,10 +10,29 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
 namespace ftk {
+
+/// A place a log line names (sheet 58): the file as the line writes it, its
+/// line and its column from 1 (0 for none), and where in the line it is.
+struct LogPlace {
+    std::string file;
+    int line{0};
+    int column{0};
+    std::size_t at{0};
+    std::size_t size{0};
+
+    bool operator==(const LogPlace&) const = default;
+};
+
+/// The first place `line` names: a path to a file with an extension, then
+/// `:` and its line, maybe `:` and a column, as a compiler, glslc and fjell
+/// write one ("scripts/coin.cpp:26:28: error: ..."). None when it names
+/// none: a time of day is no place.
+[[nodiscard]] std::optional<LogPlace> log_place(std::string_view line);
 
 struct LogEntry {
     std::string message;
@@ -23,6 +42,11 @@ struct LogEntry {
     /// log places a few thousand lines without measuring each one a frame.
     glm::vec2 size{};
     float measured_line{0.0f};
+    /// The place the message names, read the first time it is shown, and
+    /// whether the program can open it, asked then too.
+    bool place_read{false};
+    std::optional<LogPlace> place{};
+    bool place_opens{false};
 };
 
 /// What the Console's Problems side does with a problem: the program's to
@@ -35,6 +59,9 @@ struct ProblemActions {
     std::function<void(const Problem&)> reveal{};
     /// What reveal() is called in the problem's menu.
     std::string reveal_label{"Show in files"};
+    /// Whether a log line's place, as a problem at it, is a file the program
+    /// can open: one that is there. None: every place opens.
+    std::function<bool(const Problem&)> opens{};
 };
 
 /// The editor's console: the log, kept in a ring buffer, and beside it the
@@ -59,12 +86,17 @@ private:
     enum class Side { Log, Problems };
 
     void draw_log_toolbar();
-    void draw_log();
+    /// Draws the log; returns what was asked of a line, to run once the log
+    /// is let go.
+    std::function<void()> draw_log();
     void draw_problems_toolbar(ProblemCounts counts);
     /// Draws the problems; returns what was asked of one, to run once the
     /// log is let go.
     std::function<void()> draw_problems();
     void copy(const ListedProblem& listed);
+    /// The log lines selected, in the order they were logged, onto the
+    /// clipboard a line each.
+    void copy_selected();
 
     static constexpr std::size_t MAX_ENTRIES = 2048;
     std::vector<LogEntry> entries_;

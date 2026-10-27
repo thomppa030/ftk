@@ -17,16 +17,20 @@
 #include "ftk/ui/kit/search.hpp"
 #include "ftk/ui/kit/selectable.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/kit/tooltip.hpp"
 #include "ftk/ui/kit/window.hpp"
 #include "ftk/ui/theme.hpp"
 
 #include <spdlog/pattern_formatter.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
+#include <utility>
 
 namespace ftk {
 
@@ -78,7 +82,65 @@ void activate(const ProblemActions& actions, const Problem& problem) {
     }
 }
 
+// Whether `c` can be in a path a log line writes.
+bool path_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '-' || c == '.' || c == '/' || c == '\\';
+}
+
+// The number written from `at` in `line`, and where it ends; none when no
+// digit is there.
+std::optional<std::pair<int, std::size_t>> number_at(std::string_view line, std::size_t at) {
+    std::size_t end = at;
+    int value = 0;
+    while (end < line.size() && end - at < 9 && line[end] >= '0' && line[end] <= '9') {
+        value = value * 10 + (line[end] - '0');
+        ++end;
+    }
+    if (end == at) return std::nullopt;
+    return std::pair{value, end};
+}
+
+// The problem a log line's place is, for the program's actions.
+Problem problem_at(const LogEntry& entry, const LogPlace& place) {
+    return {.severity = entry.level >= spdlog::level::err ? ProblemSeverity::Error : ProblemSeverity::Warning,
+            .message = entry.message,
+            .file = place.file,
+            .line = place.line,
+            .column = place.column};
+}
+
 } // namespace
+
+std::optional<LogPlace> log_place(std::string_view line) {
+    for (std::size_t colon = line.find(':'); colon != std::string_view::npos; colon = line.find(':', colon + 1)) {
+        const auto row = number_at(line, colon + 1);
+        if (!row || row->first == 0) continue;
+        // The path before the colon, back to where its characters start; a
+        // drive's letter and colon with it.
+        std::size_t start = colon;
+        while (start > 0 && path_char(line[start - 1])) --start;
+        if (start >= 2 && line[start - 1] == ':' && std::isalpha(static_cast<unsigned char>(line[start - 2])) != 0 &&
+            (start == 2 || !path_char(line[start - 3]))) {
+            start -= 2;
+        }
+        const std::string_view path = line.substr(start, colon - start);
+        // A file's name with an extension: a dot with something either side
+        // of it in the path's last part.
+        const std::size_t slash = path.find_last_of("/\\");
+        const std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
+        const std::size_t dot = name.rfind('.');
+        if (dot == std::string_view::npos || dot == 0 || dot + 1 == name.size()) continue;
+        LogPlace place{.file = std::string(path), .line = row->first, .at = start, .size = row->second - start};
+        if (row->second < line.size() && line[row->second] == ':') {
+            if (const auto column = number_at(line, row->second + 1); column && column->first > 0) {
+                place.column = column->first;
+                place.size = column->second - start;
+            }
+        }
+        return place;
+    }
+    return std::nullopt;
+}
 
 ConsoleSink::ConsoleSink(ProblemList& problems) : problems_(problems) {}
 
@@ -145,7 +207,7 @@ void ConsoleSink::draw(const char* title) {
             if (side_ == Side::Log) {
                 draw_log_toolbar();
                 ui::separator();
-                draw_log();
+                asked = draw_log();
             } else {
                 draw_problems_toolbar(counts);
                 ui::separator();
@@ -176,7 +238,8 @@ void ConsoleSink::draw_log_toolbar() {
     ui::search_field("##search", search_text_);
 }
 
-void ConsoleSink::draw_log() {
+std::function<void()> ConsoleSink::draw_log() {
+    std::function<void()> asked;
     const ui::Region log("##log_scroll", {0.0f, 0.0f}, {.scroll_x = true});
 
     spdlog::level::level_enum min_level = spdlog::level::trace;
@@ -214,12 +277,51 @@ void ConsoleSink::draw_log() {
         rows.at(row);
         const int vi = static_cast<int>(row);
         int idx = visible[vi];
-        const auto& entry = entries_[idx];
+        LogEntry& entry = entries_[static_cast<std::size_t>(idx)];
+
+        // The place it names, when the program can open it (sheet 58, L1):
+        // in the mono face, opened by a double-click as a problem is.
+        if (!entry.place_read) {
+            entry.place_read = true;
+            entry.place = log_place(entry.message);
+            entry.place_opens = entry.place && problem_actions_.open &&
+                                (!problem_actions_.opens || problem_actions_.opens(problem_at(entry, *entry.place)));
+        }
+        const LogPlace* place = entry.place_opens ? &*entry.place : nullptr;
 
         const ui::TextColour ink(level_colour(entry.level));
         const ui::IdScope id(idx);
         bool is_sel = selected_.contains(idx);
-        if (ui::selectable("##line", is_sel, {.overlap = true, .text = entry.message})) {
+        const bool picked = ui::selectable("##line", is_sel,
+                                           {.double_click = place != nullptr,
+                                            .overlap = true,
+                                            .text = entry.message,
+                                            .code_at = place != nullptr ? place->at : 0,
+                                            .code_size = place != nullptr ? place->size : 0});
+        const std::string name = place != nullptr ? std::filesystem::path(place->file).filename().string() : std::string();
+        if (place != nullptr && ui::item_hovered()) {
+            ui::item_tooltip(std::format("Double-click opens {} at line {}", name, place->line));
+        }
+        if (picked && place != nullptr && ui::mouse_double_clicked(ui::MouseButton::Left)) {
+            asked = [open = problem_actions_.open, problem = problem_at(entry, *place)] { open(problem); };
+        }
+        // Right-clicked, it is the line picked: Open first where it names a
+        // place, then Copy.
+        if (auto menu = ui::ContextMenu("##line_menu")) {
+            if (!is_sel) {
+                selected_.clear();
+                selected_.insert(idx);
+                last_clicked_ = vi;
+            }
+            if (place != nullptr) {
+                const std::string open_label = std::format("Open {} at line {}", name, place->line);
+                if (ui::menu_item({.icon = ui::icon::open, .label = open_label.c_str()})) {
+                    asked = [open = problem_actions_.open, problem = problem_at(entry, *place)] { open(problem); };
+                }
+            }
+            if (ui::menu_item({.icon = ui::icon::copy, .label = "Copy", .shortcut = "Ctrl C"})) copy_selected();
+        }
+        if (picked) {
             if (ui::modifiers().ctrl) {
                 // Toggle individual
                 if (is_sel) selected_.erase(idx);
@@ -252,22 +354,27 @@ void ConsoleSink::draw_log() {
     // active it owns the keyboard and copies its own text selection instead.
     if (ui::window_or_child_focused() &&
         !ui::any_item_active() &&
-        ui::modifiers().ctrl && ui::key_repeated(ui::Key::C) &&
-        !selected_.empty()) {
-        // Collect in order
-        std::vector<int> sorted_sel(selected_.begin(), selected_.end());
-        std::sort(sorted_sel.begin(), sorted_sel.end());
-        std::string clipboard;
-        for (int i : sorted_sel) {
-            if (!clipboard.empty()) clipboard += '\n';
-            clipboard += entries_[i].message;
-        }
-        ui::set_clipboard(clipboard);
+        ui::modifiers().ctrl && ui::key_repeated(ui::Key::C)) {
+        copy_selected();
     }
 
     if (auto_scroll_ && ui::scroll_y() >= ui::scroll_max_y()) {
         ui::scroll_to_cursor(1.0f);
     }
+    return asked;
+}
+
+void ConsoleSink::copy_selected() {
+    if (selected_.empty()) return;
+    // In the order they were logged.
+    std::vector<int> sorted_sel(selected_.begin(), selected_.end());
+    std::sort(sorted_sel.begin(), sorted_sel.end());
+    std::string clipboard;
+    for (int i : sorted_sel) {
+        if (!clipboard.empty()) clipboard += '\n';
+        clipboard += entries_[i].message;
+    }
+    ui::set_clipboard(clipboard);
 }
 
 void ConsoleSink::draw_problems_toolbar(ProblemCounts counts) {

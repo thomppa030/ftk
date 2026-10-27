@@ -299,3 +299,90 @@ TEST_CASE("Opening a problem may log through the Console it was opened from", "[
     c.h.step();
     CHECK(logged == 1);
 }
+
+TEST_CASE("A log line names the first place written in it, a file's path with its line and maybe column",
+          "[ui][kit][console]") {
+    using ftk::LogPlace;
+    CHECK(ftk::log_place("scripts/coin.cpp:26:28: error: use of undeclared identifier") ==
+          LogPlace{.file = "scripts/coin.cpp", .line = 26, .column = 28, .at = 0, .size = 22});
+    CHECK(ftk::log_place("shaders/toon.fjsl:14: warning: 'rim' is set but never read") ==
+          LogPlace{.file = "shaders/toon.fjsl", .line = 14, .column = 0, .at = 0, .size = 20});
+    CHECK(ftk::log_place("In file included from rotator.hpp:3, scripts/coin.cpp:9") ==
+          LogPlace{.file = "rotator.hpp", .line = 3, .column = 0, .at = 22, .size = 13});
+    CHECK(ftk::log_place("C:\\game\\scripts\\coin.cpp:7: error") ==
+          LogPlace{.file = "C:\\game\\scripts\\coin.cpp", .line = 7, .column = 0, .at = 0, .size = 26});
+    // A time of day, a name without an extension, a line of 0: no place.
+    CHECK_FALSE(ftk::log_place("12:41:02 Saved harbour.fjscene").has_value());
+    CHECK_FALSE(ftk::log_place("Scripts built in 1.8 s").has_value());
+    CHECK_FALSE(ftk::log_place("scripts/Makefile:12: missing separator").has_value());
+    CHECK_FALSE(ftk::log_place(".hidden:3").has_value());
+    CHECK_FALSE(ftk::log_place("coin.cpp:0: nothing").has_value());
+}
+
+namespace {
+
+// A console whose log holds lines naming places, one of them a file that
+// isn't there, the log shown.
+struct PlaceConsole {
+    KitHarness h{{900.0f, 500.0f}};
+    ftk::ProblemList list;
+    std::shared_ptr<ftk::ConsoleSink> console = std::make_shared<ftk::ConsoleSink>(list);
+    std::vector<ftk::Problem> opened;
+
+    PlaceConsole() {
+        console->set_pattern("%v");
+        console->set_problem_actions({.open = [this](const ftk::Problem& p) { opened.push_back(p); },
+                                      .opens = [](const ftk::Problem& p) { return p.file != "gone.cpp"; }});
+        spdlog::logger logger("place test", console);
+        logger.info("Scripts building: 3 files changed");
+        logger.error("scripts/coin.cpp:26:28: error: use of undeclared identifier");
+        logger.error("gone.cpp:4: error: no such file");
+        h.set_ui([this] {
+            ui::next_window_place({0.0f, 0.0f}, {900.0f, 500.0f});
+            console->draw("Console");
+        });
+        h.step(3);
+    }
+};
+
+} // namespace
+
+TEST_CASE("Double-clicking a log line that names a place opens it there, as a problem", "[ui][kit][console]") {
+    PlaceConsole c;
+    c.h.double_click("scripts/coin.cpp:26:28: error: use of undeclared identifier");
+    c.h.step();
+    REQUIRE(c.opened.size() == 1);
+    CHECK(c.opened[0].file == "scripts/coin.cpp");
+    CHECK(c.opened[0].line == 26);
+    CHECK(c.opened[0].column == 28);
+    // A line naming no place, or one the program can't open, opens nothing.
+    c.h.double_click("Scripts building: 3 files changed");
+    c.h.double_click("gone.cpp:4: error: no such file");
+    c.h.step();
+    CHECK(c.opened.size() == 1);
+}
+
+TEST_CASE("A log line's menu opens the place it names first, then copies it", "[ui][kit][console]") {
+    PlaceConsole c;
+    c.h.click("scripts/coin.cpp:26:28: error: use of undeclared identifier", ui::MouseButton::Right);
+    c.h.step();
+    std::vector<core::Rect> entries = menu_entries(c.h);
+    REQUIRE(entries.size() == 2);
+    c.h.click_at((entries[0].min + entries[0].max) * 0.5f);
+    c.h.step();
+    REQUIRE(c.opened.size() == 1);
+    CHECK(c.opened[0].line == 26);
+
+    c.h.click("scripts/coin.cpp:26:28: error: use of undeclared identifier", ui::MouseButton::Right);
+    c.h.step();
+    entries = menu_entries(c.h);
+    REQUIRE(entries.size() == 2);
+    c.h.click_at((entries[1].min + entries[1].max) * 0.5f);
+    c.h.step();
+    CHECK(c.h.ui().clipboard() == "scripts/coin.cpp:26:28: error: use of undeclared identifier");
+
+    // A line naming no place has Copy alone.
+    c.h.click("Scripts building: 3 files changed", ui::MouseButton::Right);
+    c.h.step();
+    CHECK(menu_entries(c.h).size() == 1);
+}

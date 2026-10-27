@@ -13,12 +13,29 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     core::Context& context = ui();
     core::Layout& layout = context.layout();
     const std::string_view text = options.text.empty() ? shown(label) : options.text;
-    // In the mono face for code, the detail a gap after it.
-    glm::vec2 measured{0.0f};
-    {
-        FontScope face(options.code ? Font::Mono : Font::Current, 0.0f);
-        measured = measure(text);
-    }
+    // In the mono face for code, or the part of it asked; the detail a gap
+    // after it.
+    const bool part = !options.code && options.code_size > 0 && options.code_at + options.code_size <= text.size();
+    const std::string_view parts[3] = {
+        part ? text.substr(0, options.code_at) : text,
+        part ? text.substr(options.code_at, options.code_size) : std::string_view(),
+        part ? text.substr(options.code_at + options.code_size) : std::string_view(),
+    };
+    // The parts side by side from `at`, drawn when `draw`: as wide as they
+    // come to, as tall as the tallest.
+    const auto lay_parts = [&](glm::vec2 at, bool draw) {
+        glm::vec2 size{0.0f};
+        // The first even when empty: a line of text tall all the same.
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (i > 0 && parts[i].empty()) continue;
+            FontScope face(options.code || i == 1 ? Font::Mono : Font::Current, 0.0f);
+            const glm::vec2 one = measure(parts[i]);
+            if (draw) draw_text({at.x + size.x, at.y}, corekit::text_colour(), parts[i]);
+            size = {size.x + one.x, std::max(size.y, one.y)};
+        }
+        return size;
+    };
+    glm::vec2 measured = lay_parts({0.0f, 0.0f}, false);
     const float detail_at = measured.x + theme::GAP_M;
     if (!options.detail.empty()) {
         const glm::vec2 detail = measure(options.detail);
@@ -55,10 +72,7 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
         const Color fill = in.held ? theme::accent_dim() : (in.hovered ? theme::surface_hover() : theme::surface_raised());
         context.draw_list().rect_filled(bb.min, bb.max, faded(fill));
     }
-    {
-        FontScope face(options.code ? Font::Mono : Font::Current, 0.0f);
-        draw_text(rect.min, corekit::text_colour(), text);
-    }
+    (void)lay_parts(rect.min, true);
     if (!options.detail.empty()) draw_text({rect.min.x + detail_at, rect.min.y}, theme::text_disabled(), options.detail);
     const bool picked = in.clicked || (options.double_click && in.double_clicked);
     // Picked in a popup, a drop-down's list or a menu, it closes it, unless

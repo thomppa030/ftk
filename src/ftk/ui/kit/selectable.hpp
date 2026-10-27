@@ -37,6 +37,11 @@ struct SelectableOptions {
     bool keeps_popup_open{false};
     /// What it shows is code, a selector or a tag, in the mono face.
     bool code{false};
+    /// A part of what it shows in the mono face, `code_size` bytes from
+    /// `code_at`: the place a log line names (sheet 58). None while its size
+    /// is 0.
+    std::size_t code_at{0};
+    std::size_t code_size{0};
     /// After what it shows, in the disabled text colour: what it is to what
     /// the list is for ("only this element", "2 elements").
     std::string_view detail{};
