@@ -21,7 +21,9 @@ constexpr float SHADOW_DROP = 6.0f;
 constexpr float SHADOW_SOFTNESS = 18.0f;
 } // namespace
 
-Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace where, float width) : width_(width) {
+Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace where, float width,
+             bool over_windows)
+    : width_(width) {
     core::Context& context = ui();
     context.ids().push(id);
     height_id_ = context.id("##height");
@@ -38,6 +40,14 @@ Plate::Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace 
     // first, letting what follows go over it. A press on it, or on a button
     // it holds, leaves the keyboard where it is.
     const core::Rect area{.min = min_, .max = min_ + glm::vec2{width, height}};
+    // Over the windows, a panel just its size, brought in front of them each
+    // frame. A panel's shapes are clipped as the OS window's, so its shadow
+    // still falls past it.
+    if (over_windows) {
+        panel_ = context.id("##panel");
+        context.begin_panel(panel_, area, {.padding = glm::vec2{0.0f}, .scroll = false});
+        context.bring_to_front(panel_);
+    }
     ++kit().keeps_keyboard;
     kit().next.allow_overlap = true;
     (void)place(context.id("##plate"), area, {.left = true, .right = true, .middle = true});
@@ -70,6 +80,7 @@ Plate::~Plate() {
     dl.put_under(mark_, split);
 
     store_float(height_id_, max.y - min_.y);
+    if (panel_ != 0) context.end_panel();
     set_cursor(cursor_);
     context.ids().pop();
 }

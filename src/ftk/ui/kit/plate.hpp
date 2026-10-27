@@ -34,8 +34,12 @@ inline constexpr float PLATE_INSET = 8.0f;
 class Plate {
 public:
     /// A plate `width` wide over the view from `view_min` to `view_max`, at
-    /// `where`, as tall as what is drawn in it.
-    Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace where, float width);
+    /// `where`, as tall as what is drawn in it. With `over_windows` it floats
+    /// in a panel of its own, in front of every window while it shows,
+    /// rather than in the window being drawn: find in files over an
+    /// editor's docked panels.
+    Plate(const char* id, glm::vec2 view_min, glm::vec2 view_max, PlatePlace where, float width,
+          bool over_windows = false);
     ~Plate();
     Plate(const Plate&) = delete;
     Plate& operator=(const Plate&) = delete;
@@ -55,6 +59,8 @@ private:
     // before it, which it goes back to.
     std::size_t mark_{0};
     glm::vec2 cursor_{};
+    // Its panel over the windows; none for a plate in the window drawn.
+    Id panel_{0};
 };
 
 /// Where a card hangs, and how far in from its edge what it holds starts.

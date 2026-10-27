@@ -6,6 +6,8 @@
 #include "ftk/ui/kit/plate.hpp"
 #include "ftk/ui/kit/region.hpp"
 #include "ftk/ui/kit/text_field.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
+#include "ftk/ui/kit/window.hpp"
 
 #include <string>
 
@@ -44,6 +46,33 @@ TEST_CASE("A plate takes the pointer over what it floats on, and its items over 
     CHECK(go.min.x > view_max.x - ui::PLATE_INSET - 200.0f);
     CHECK(go.max.x < view_max.x - ui::PLATE_INSET);
     CHECK(go.min.y > view_min.y + ui::PLATE_INSET);
+}
+
+TEST_CASE("A plate over the windows takes the pointer over a window it was drawn under", "[ui][kit][plate]") {
+    for (const bool over_windows : {false, true}) {
+        KitHarness h;
+        int under = 0;
+        int clicked = 0;
+        h.set_ui([&] {
+            // A window over the harness's own, as an editor's panels are
+            // over its background, drawn before the plate.
+            ui::next_window_place({0.0f, 0.0f}, {800.0f, 600.0f});
+            (void)ui::begin_host_window("##panels", {.scrollbar = false});
+            if (ui::button("Under", ui::ButtonKind::Secondary, {800.0f, 600.0f})) ++under;
+            ui::end_host_window();
+            if (auto plate = ui::Plate("##find", {0.0f, 0.0f}, {800.0f, 600.0f}, ui::PlatePlace::TopCenter, 300.0f,
+                                       over_windows)) {
+                if (ui::button("Go")) ++clicked;
+                h.mark("go");
+            }
+        });
+        h.step(3);
+        h.click("go");
+        // In the harness's window it is under the panels; over the windows,
+        // in front of them.
+        CHECK(clicked == (over_windows ? 1 : 0));
+        CHECK(under == (over_windows ? 0 : 1));
+    }
 }
 
 TEST_CASE("A press on a plate's button leaves the keyboard where it was", "[ui][kit][plate]") {
