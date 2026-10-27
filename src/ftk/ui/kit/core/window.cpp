@@ -75,7 +75,9 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     // dockspace is next laid out.
     if (window.rect.empty()) context.request_frame();
     window.padding = padding;
-    window.bar = frame_height();
+    // Alone in its leaf without a tab, it takes the leaf whole.
+    const bool tabs = options.dock_tab || !docked_alone(window.dock, id);
+    window.bar = tabs ? frame_height() : 0.0f;
     context.begin_panel(id, window.rect, {.padding = padding, .bar = window.bar, .raise = false});
     if (any_button_pressed() && context.area_or_inner_under_pointer()) k.focused_window = id;
     const core::Rect& rect = window.rect;
@@ -83,7 +85,7 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     dock_edges(window.dock, rect);
     core::DrawList& dl = context.draw_list();
     if (options.background) dl.rect_filled(rect.min, rect.max, faded(theme::surface_base()));
-    window.tabs = dock_tabs(window.dock, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}});
+    window.tabs = tabs ? dock_tabs(window.dock, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}}) : 1;
     dl.push_clip(rect.min + glm::vec2{0.0f, window.bar}, rect.max);
     return true;
 }

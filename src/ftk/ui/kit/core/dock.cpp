@@ -491,6 +491,13 @@ std::size_t dock_tabs(Id node, core::Rect strip) {
     return tabs.size();
 }
 
+bool docked_alone(Id node, Id window) {
+    const Kit& k = kit();
+    const DockPart& leaf = k.docks.at(node);
+    return std::ranges::none_of(leaf.windows,
+                                [&](Id other) { return other != window && drawn_lately(k.windows.at(other)); });
+}
+
 void dock_edges(Id node, core::Rect rect) {
     Kit& k = kit();
     for (Id at = k.docks.at(node).parent; at != 0; at = k.docks.at(at).parent) {

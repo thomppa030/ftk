@@ -28,6 +28,11 @@ struct WindowOptions {
     bool background{true};
     /// Can be docked into a dockspace.
     bool docking{true};
+    /// Docked, its tab names it across the top of its part. Without, docked
+    /// alone in its part it has none, and what it holds takes the whole part:
+    /// a code area whose own tabs name its files. With others in the part,
+    /// the tabs show again to choose between them.
+    bool dock_tab{true};
     /// Comes in front of the windows over it when clicked. A host stays
     /// behind them.
     bool to_front{true};

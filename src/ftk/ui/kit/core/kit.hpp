@@ -642,6 +642,9 @@ void draw_bar_line(core::Rect rect, bool focused);
 /// a drag along them moves it among them, and a drag off them tears it out
 /// to be carried. Returns how many there are.
 std::size_t dock_tabs(Id node, core::Rect strip);
+/// No window but `window` docked in the leaf `node` was drawn last frame or
+/// this one.
+[[nodiscard]] bool docked_alone(Id node, Id window);
 /// The splitters along the edges of the leaf `node`, at `rect`, in the
 /// window docked there: they take the pointer over its edges.
 void dock_edges(Id node, core::Rect rect);

@@ -12,6 +12,7 @@
 #include "ftk/ui/kit/settings_file.hpp"
 #include "ftk/ui/kit/text.hpp"
 #include "ftk/ui/kit/tree.hpp"
+#include "ftk/ui/kit/viewport_toolbar.hpp"
 #include "ftk/ui/kit/window.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -449,4 +450,41 @@ TEST_CASE("The keys are a dockspace's while the keyboard is in its windows, or i
     h.step(2);
     CHECK(keys);
     CHECK_FALSE(docked);
+}
+
+TEST_CASE("A window docked alone with no tab takes its whole part; with another there, the tabs come back",
+          "[ui][kit][dock]") {
+    KitHarness h;
+    bool notes = false;
+    bool built = false;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, ui::DockNode::tabs({"Code", "Notes"}));
+            built = true;
+        }
+        // As a code area, whose own tabs name its files, fills its part.
+        if (ui::begin_host_window("Code", {.scrollbar = false, .dock_tab = false})) {
+            ui::text("code");
+            h.mark("code");
+        }
+        ui::end_host_window();
+        if (notes) {
+            if (auto panel = ui::Panel("", "Notes")) ui::text("notes");
+        }
+    });
+    h.step(4);
+    const auto code = ui::window_named("Code");
+    REQUIRE(code.has_value());
+    CHECK(h.find("Code", ftk::ui::core::Role::Tab) == nullptr);
+    CHECK(h.rect("code").min.y == Approx(code->pos.y).margin(1.0f));
+
+    // Another window in its part: both tabs show, to choose between them,
+    // and what it holds starts under them.
+    notes = true;
+    h.step(3);
+    CHECK(h.find("Code", ftk::ui::core::Role::Tab) != nullptr);
+    CHECK(h.find("Notes", ftk::ui::core::Role::Tab) != nullptr);
+    CHECK(h.rect("code").min.y >= code->pos.y + ui::frame_height() - 1.0f);
 }
