@@ -43,11 +43,18 @@ void overlay_tag(DrawList draw_list, glm::vec2 at, std::string_view text, std::s
 /// A piece of a line over a picture: words, or a key drawn as a small cap
 /// (sheet 26's key, sized to the line). Words may lead with a swatch, a
 /// small round mark in a colour the picture shows, which they name: an
-/// overlay's key ("pines" after its footprints' hue).
+/// overlay's key ("pines" after its footprints' hue). A ramp piece is the
+/// theme's heat ramp drawn short, the words either side naming its ends
+/// (sheet 63, K1: "0", the ramp, "12 m/s").
 struct OverlayPiece {
     std::string_view text;
     bool key{false};
     std::optional<Color> swatch{};
+    /// The heat ramp, in place of words.
+    bool ramp{false};
+    /// The piece's own colour, where it isn't the note's: a debug view's key
+    /// in the secondary colour after "Showing …" in warning.
+    std::optional<Color> ink{};
 };
 
 enum class Corner { TopLeft, TopRight, BottomLeft, BottomRight };
@@ -61,10 +68,14 @@ struct CornerNoteSpec {
     Color ink;
     /// The icon's colour when it isn't the words' (a hue).
     std::optional<Color> icon_ink{};
+    /// The widest the plate may be: the line wraps between pieces to stay
+    /// within it, the lines after the first under the first piece. 0 never
+    /// wraps.
+    float max_width{0.0f};
 };
 
-/// A one-line note on a plate, its `corner` at `at`. Returns the plate's
-/// size, for what is placed beside it.
+/// A note on a plate, its `corner` at `at`: one line, or as many as it wraps
+/// to. Returns the plate's size, for what is placed beside it.
 glm::vec2 corner_note(DrawList draw_list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec);
 
 /// The size corner_note() gives `spec`'s plate, for placing it clear of

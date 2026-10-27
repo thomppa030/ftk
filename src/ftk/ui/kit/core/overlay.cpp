@@ -2,8 +2,13 @@
 
 #include "ftk/ui/kit/core/kit.hpp"
 #include "ftk/ui/kit/text.hpp"
+#include "ftk/ui/theme.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 namespace ftk::ui {
 
@@ -20,8 +25,12 @@ constexpr float KEY_PAD_Y = 1.0f;
 constexpr float KEY_LIP = 2.0f;
 constexpr float SWATCH = 8.0f;     // a swatch's width, and the gap after it is SWATCH_GAP
 constexpr float SWATCH_GAP = 4.0f;
+constexpr float RAMP_W = 64.0f;    // a ramp piece's width, and its height
+constexpr float RAMP_H = 8.0f;
+constexpr float LINE_GAP = 2.0f;   // between the lines of a wrapped note
 
 float piece_width(const OverlayPiece& piece) {
+    if (piece.ramp) return RAMP_W;
     if (!piece.key) return measure(piece.text).x + (piece.swatch ? SWATCH + SWATCH_GAP : 0.0f);
     FontScope bold(Font::Bold, 0.0f);
     return measure(piece.text).x + KEY_PAD_X * 2.0f;
@@ -38,6 +47,60 @@ void draw_key(DrawList& list, glm::vec2 pos, float width, std::string_view name)
     list.rect_filled({min.x, max.y - KEY_LIP}, max, theme::border(), rounding, RoundCorners::Bottom);
     FontScope bold(Font::Bold, 0.0f);
     list.text({pos.x + KEY_PAD_X, pos.y}, theme::text(), name);
+}
+
+// The theme's heat ramp, `RAMP_W` wide, its middle on the line's; edged
+// faintly, as its cold end is as dark as the plate.
+void draw_ramp(DrawList& list, glm::vec2 pos) {
+    const std::array<Color, 5> heat{theme::heat_none(), theme::heat_low(), theme::heat_mid(), theme::heat_high(),
+                                    theme::heat_peak()};
+    const float mid = pos.y + font_size() * 0.5f;
+    const glm::vec2 min{pos.x, std::floor(mid - RAMP_H * 0.5f)};
+    const glm::vec2 max{pos.x + RAMP_W, min.y + RAMP_H};
+    for (std::size_t i = 0; i + 1 < heat.size(); ++i) {
+        list.rect_gradient({min.x + theme::HEAT_STOPS[i] * RAMP_W, min.y},
+                           {min.x + theme::HEAT_STOPS[i + 1] * RAMP_W, max.y}, heat[i], heat[i + 1]);
+    }
+    Color edge = theme::text();
+    edge.a = 0.15f;
+    list.rect(min, max, edge);
+}
+
+// Where each of a note's pieces goes, its line wrapped between pieces where
+// it would pass the plate's widest: each piece's line and its x from the
+// plate's left, inside its padding.
+struct NoteLayout {
+    std::vector<glm::vec2> at; // x, line
+    float text_x{0.0f};        // where the words start, after the icon
+    float width{0.0f};         // the widest line
+    int lines{1};
+    bool has_key{false};
+};
+
+NoteLayout layout_note(const CornerNoteSpec& spec) {
+    NoteLayout out;
+    if (spec.icon != nullptr) out.text_x = measure(spec.icon).x + GAP;
+    const float limit = spec.max_width > 0.0f ? spec.max_width - PAD_X * 2.0f : std::numeric_limits<float>::infinity();
+    float x = out.text_x;
+    int line = 0;
+    for (std::size_t i = 0; i < spec.line.size(); ++i) {
+        const float w = piece_width(spec.line[i]);
+        if (i > 0) {
+            if (x + GAP + w > limit && x > out.text_x) {
+                out.width = std::max(out.width, x);
+                ++line;
+                x = out.text_x;
+            } else {
+                x += GAP;
+            }
+        }
+        out.at.push_back({x, static_cast<float>(line)});
+        x += w;
+        out.has_key |= spec.line[i].key;
+    }
+    out.width = std::max(out.width, x);
+    out.lines = line + 1;
+    return out;
 }
 } // namespace
 
@@ -71,48 +134,49 @@ Color overlay_plate_hovered_colour() {
     return plate;
 }
 
+namespace {
+
+// A note's size from its layout. Keys stand a little taller than the words,
+// so a note holding one gets their height.
+glm::vec2 note_size(const NoteLayout& layout) {
+    const float pad_y = layout.has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
+    const float lines = static_cast<float>(layout.lines);
+    return {std::floor(layout.width + PAD_X * 2.0f), font_size() * lines + LINE_GAP * (lines - 1.0f) + pad_y * 2.0f};
+}
+
+} // namespace
+
 glm::vec2 corner_note_size(const CornerNoteSpec& spec) {
-    // Keys stand a little taller than the words, so a line holding one gets
-    // their height.
-    bool has_key = false;
-    float line_w = 0.0f;
-    if (spec.icon != nullptr) line_w += measure(spec.icon).x + GAP;
-    for (std::size_t i = 0; i < spec.line.size(); ++i) {
-        line_w += piece_width(spec.line[i]) + (i > 0 ? GAP : 0.0f);
-        has_key |= spec.line[i].key;
-    }
-    const float pad_y = has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
-    return {std::floor(line_w + PAD_X * 2.0f), font_size() + pad_y * 2.0f};
+    return note_size(layout_note(spec));
 }
 
 glm::vec2 corner_note(DrawList list, glm::vec2 at, Corner corner, const CornerNoteSpec& spec) {
-    const glm::vec2 size = corner_note_size(spec);
-    bool has_key = false;
-    for (const OverlayPiece& piece : spec.line) has_key |= piece.key;
-    const float pad_y = has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
+    const NoteLayout layout = layout_note(spec);
+    const glm::vec2 size = note_size(layout);
+    const float pad_y = layout.has_key ? PAD_Y + KEY_PAD_Y : PAD_Y;
 
     const bool right = corner == Corner::TopRight || corner == Corner::BottomRight;
     const bool bottom = corner == Corner::BottomLeft || corner == Corner::BottomRight;
     const glm::vec2 min{std::floor(right ? at.x - size.x : at.x), std::floor(bottom ? at.y - size.y : at.y)};
     overlay_plate(list, min, min + size);
 
-    float x = min.x + PAD_X;
-    const float y = min.y + pad_y;
-    if (spec.icon != nullptr) {
-        list.text({x, y}, spec.icon_ink ? *spec.icon_ink : spec.ink, spec.icon);
-        x += measure(spec.icon).x + GAP;
-    }
-    for (const OverlayPiece& piece : spec.line) {
-        const float w = piece_width(piece);
-        if (piece.key) {
-            draw_key(list, {x, y}, w, piece.text);
+    const glm::vec2 origin{min.x + PAD_X, min.y + pad_y};
+    if (spec.icon != nullptr) list.text(origin, spec.icon_ink ? *spec.icon_ink : spec.ink, spec.icon);
+    for (std::size_t i = 0; i < spec.line.size(); ++i) {
+        const OverlayPiece& piece = spec.line[i];
+        const float x = origin.x + layout.at[i].x;
+        const float y = origin.y + layout.at[i].y * (font_size() + LINE_GAP);
+        const Color ink = piece.ink ? *piece.ink : spec.ink;
+        if (piece.ramp) {
+            draw_ramp(list, {x, y});
+        } else if (piece.key) {
+            draw_key(list, {x, y}, piece_width(piece), piece.text);
         } else if (piece.swatch) {
             list.circle_filled({x + SWATCH * 0.5f, y + font_size() * 0.5f}, SWATCH * 0.5f, *piece.swatch);
-            list.text({x + SWATCH + SWATCH_GAP, y}, spec.ink, piece.text);
+            list.text({x + SWATCH + SWATCH_GAP, y}, ink, piece.text);
         } else {
-            list.text({x, y}, spec.ink, piece.text);
+            list.text({x, y}, ink, piece.text);
         }
-        x += w + GAP;
     }
     return size;
 }

@@ -851,3 +851,64 @@ TEST_CASE("A status line that goes somewhere names where after its words, on the
     REQUIRE(tops[1] - tops[0] == Approx(one_line));
     CHECK(tops[2] - tops[1] > one_line);
 }
+
+TEST_CASE("A corner note draws the heat ramp as a piece, and a piece's own ink", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 note{};
+    h.set_ui([&] {
+        const ftk::ui::OverlayPiece line[] = {{"Showing Wind"},
+                                              {"0", false, {}, false, ftk::theme::text_secondary()},
+                                              {"", false, {}, true},
+                                              {"12 m/s", false, {}, false, ftk::theme::text_secondary()}};
+        note = ui::corner_note(ui::DrawList::window(), {0.0f, 0.0f}, ui::Corner::TopLeft,
+                               {.line = line, .ink = ftk::theme::warning()});
+    });
+    h.step(2);
+    const ftk::ui::core::Rect plate{.min = {0.0f, 0.0f}, .max = note};
+    // The ramp's colours, shading from one to the next, inside the plate.
+    const auto shades = [&](ftk::ui::Color from, ftk::ui::Color to) {
+        const uint32_t a = ftk::ui::core::pack_colour(from);
+        const uint32_t b = ftk::ui::core::pack_colour(to);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == a && p.colour2 == b && plate.contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(shades(ftk::theme::heat_none(), ftk::theme::heat_low()));
+    CHECK(shades(ftk::theme::heat_mid(), ftk::theme::heat_high()));
+    CHECK(shades(ftk::theme::heat_high(), ftk::theme::heat_peak()));
+    // "Showing Wind" in the note's ink, the ends in their own.
+    const auto drew = [&](ftk::ui::Color colour) {
+        const uint32_t packed = ftk::ui::core::pack_colour(colour);
+        for (const auto& root : h.output().roots) {
+            for (const auto& p : root.draw->primitives) {
+                if (p.colour == packed && plate.contains((p.min + p.max) * 0.5f)) return true;
+            }
+        }
+        return false;
+    };
+    CHECK(drew(ftk::theme::warning()));
+    CHECK(drew(ftk::theme::text_secondary()));
+}
+
+TEST_CASE("A corner note wraps between its pieces to stay within its widest", "[ui][kit]") {
+    KitHarness h;
+    glm::vec2 one_line{};
+    glm::vec2 wrapped{};
+    glm::vec2 told{};
+    h.set_ui([&] {
+        const ftk::ui::OverlayPiece line[] = {{"Showing Marks"}, {"Wet", false, ftk::theme::warning()},
+                                              {"Outline", false, ftk::theme::error()},
+                                              {"Glow", false, ftk::theme::success()}};
+        one_line = ui::corner_note_size({.line = line, .ink = ftk::theme::warning()});
+        const ui::CornerNoteSpec narrow{.line = line, .ink = ftk::theme::warning(), .max_width = one_line.x * 0.6f};
+        told = ui::corner_note_size(narrow);
+        wrapped = ui::corner_note(ui::DrawList::window(), {0.0f, 0.0f}, ui::Corner::TopLeft, narrow);
+    });
+    h.step(2);
+    CHECK(wrapped == told);
+    CHECK(wrapped.x <= one_line.x * 0.6f);
+    CHECK(wrapped.y > one_line.y);
+}
