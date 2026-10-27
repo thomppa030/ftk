@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <utility>
 
 namespace ftk::ui {
 
@@ -62,7 +63,7 @@ void scrollbar(const Window& window, Id id) {
 // top where a title bar would be, while it is the one in front; not shown
 // while another is or while its dockspace isn't shown. It stays behind the
 // windows that float, as ImGui's docked windows do.
-bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2 padding) {
+bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2 padding, bool* open) {
     core::Context& context = ui();
     Kit& k = kit();
     k.window_stack.push_back(id);
@@ -86,6 +87,7 @@ bool begin_docked(Window& window, Id id, const WindowOptions& options, glm::vec2
     core::DrawList& dl = context.draw_list();
     if (options.background) dl.rect_filled(rect.min, rect.max, faded(theme::surface_base()));
     window.tabs = tabs ? dock_tabs(window.dock, {.min = rect.min, .max = {rect.max.x, rect.min.y + window.bar}}) : 1;
+    if (open != nullptr && std::exchange(window.close_asked, false)) *open = false;
     dl.push_clip(rect.min + glm::vec2{0.0f, window.bar}, rect.max);
     return true;
 }
@@ -98,6 +100,9 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     keep_item();
     const Id id = window_id(name);
     Window& window = k.windows[id];
+    window.closable = open != nullptr;
+    // Its tab's × pressed while it was behind another's: closed now.
+    if (open != nullptr && std::exchange(window.close_asked, false)) *open = false;
     // A window carried but no longer drawn is let go of.
     if (k.carried.window != 0 && k.carried.window != id && !mouse_down(MouseButton::Left)) {
         const auto carried = k.windows.find(k.carried.window);
@@ -127,7 +132,7 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     if (options.docking && window.dock != 0 && k.docks.contains(window.dock)) {
         window.frame = context.frame();
         window.options = options;
-        return begin_docked(window, id, options, padding);
+        return begin_docked(window, id, options, padding, open);
     }
     window.shown = true;
     window.tabs = 0;
@@ -149,7 +154,7 @@ bool begin_window(const char* name, const WindowOptions& options, glm::vec2 padd
     window.padding = padding;
     window.bar = options.title_bar ? frame_height() : 0.0f;
     // Carried, it follows the pointer; let go over a leaf's tabs, it docks.
-    if (carry(window, id, options)) return begin_docked(window, id, options, padding);
+    if (carry(window, id, options)) return begin_docked(window, id, options, padding, open);
 
     context.begin_panel(id, window.rect,
                         {.padding = padding, .bar = window.bar, .fit = !window.sized, .raise = options.to_front});

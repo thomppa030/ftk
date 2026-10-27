@@ -326,6 +326,10 @@ struct Window {
     std::size_t tabs{0};
     /// Given its place by the settings file before it was first drawn.
     bool placed{false};
+    /// Begun with a flag that closes it: docked, its tab has a ×.
+    bool closable{false};
+    /// Its tab's × was pressed: it closes as it is next begun.
+    bool close_asked{false};
 };
 
 /// A node of a dockspace's tree as the kit keeps it: a split into two, or
@@ -639,8 +643,9 @@ void draw_bar_line(core::Rect rect, bool focused);
 [[nodiscard]] bool take_front(DockPart& leaf, Id id);
 /// The tabs of the leaf `node` across `strip`, one for each window docked
 /// there drawn last frame or this one: a press brings its window forward,
-/// a drag along them moves it among them, and a drag off them tears it out
-/// to be carried. Returns how many there are.
+/// a drag along them moves it among them, a drag off them tears it out to
+/// be carried, and the × of a window begun with a flag that closes it
+/// closes it. Returns how many there are.
 std::size_t dock_tabs(Id node, core::Rect strip);
 /// No window but `window` docked in the leaf `node` was drawn last frame or
 /// this one.

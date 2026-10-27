@@ -274,6 +274,42 @@ TEST_CASE("Windows docked together are tabs, the one brought forward shown", "[u
     CHECK(ui::window_dock("Console") == ui::window_dock("History"));
 }
 
+TEST_CASE("A docked window with a flag that closes it has a close button on its tab", "[ui][kit][dock]") {
+    KitHarness h;
+    bool built = false;
+    bool closable = false;
+    bool notes_open = true;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, ui::DockNode::tabs({"Console", "Notes"}));
+            built = true;
+        }
+        if (auto panel = ui::Panel("", "Console")) ui::text("Console");
+        if (notes_open) {
+            if (auto panel = ui::Panel("", "Notes", closable ? &notes_open : nullptr)) ui::text("Notes");
+        }
+    });
+    h.step(4);
+    const auto* without = h.find("Notes", ui::core::Role::Tab);
+    REQUIRE(without != nullptr);
+    const float plain = without->rect.width();
+    closable = true;
+    h.step(2);
+    const auto* notes = h.find("Notes", ui::core::Role::Tab);
+    REQUIRE(notes != nullptr);
+    // Room for its ×.
+    CHECK(notes->rect.width() > plain);
+
+    // Behind the Console or in front, a middle click on it is its ×.
+    h.click_at(notes->rect.centre(), ui::MouseButton::Middle);
+    h.step(3);
+    CHECK_FALSE(notes_open);
+    CHECK(h.find("Notes", ui::core::Role::Tab) == nullptr);
+    CHECK(ui::window_shown("Console"));
+}
+
 TEST_CASE("Any key and any mouse button are told, and keys can be ignored", "[ui][kit]") {
     KitHarness h;
     bool any_key = false;

@@ -440,7 +440,7 @@ std::size_t dock_tabs(Id node, core::Rect strip) {
     for (const Id id : leaf.windows) {
         const Window& window = k.windows.at(id);
         if (!drawn_lately(window)) continue;
-        const float width = tab_width(shown(window.name), false);
+        const float width = tab_width(shown(window.name), window.closable);
         tabs.push_back({.id = id, .x = x, .width = width});
         x += width + k.style.item_inner_spacing.x;
     }
@@ -457,7 +457,13 @@ std::size_t dock_tabs(Id node, core::Rect strip) {
                                         {.label = shown(k.windows.at(tab.id).name),
                                          .ink = text_colour(),
                                          .front = front,
+                                         .closable = k.windows.at(tab.id).closable,
                                          .focused = focused});
+        // Its × closes its window as that is begun, which holds the flag.
+        if (drawn.closed) {
+            k.windows.at(tab.id).close_asked = true;
+            context.request_frame();
+        }
         // A press brings its window forward, with the keyboard.
         if (drawn.in.pressed && !front) {
             leaf.front = tab.id;
