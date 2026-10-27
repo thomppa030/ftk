@@ -127,4 +127,29 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     return changed;
 }
 
+bool search_button(const char* id, const char* label, std::string_view shortcut) {
+    core::Context& context = ui();
+    const Style& style = kit().style;
+    const float height = frame_height();
+    const core::Rect rect = context.layout().next({item_width(), height});
+    const Id button_id = context.id(id);
+    const core::Interaction in = place(button_id, rect);
+    context.semantics(button_id, core::Role::Button, label);
+
+    // The field's frame, icon and hint, where the field has them.
+    draw_frame(rect, in, false);
+    const float text_y = rect.min.y + style.frame_padding.y;
+    const float icon_w = measure(icon::search).x;
+    draw_text({rect.min.x + style.frame_padding.x, text_y}, theme::text_secondary(), icon::search);
+    draw_text({rect.min.x + style.frame_padding.x + icon_w + theme::GAP_S + theme::GAP_XS, text_y},
+              in.hovered ? theme::text() : theme::text_secondary(), label);
+    if (!shortcut.empty()) {
+        FontScope mono(Font::Mono, theme::SMALL_TEXT);
+        const glm::vec2 key = measure(shortcut);
+        draw_text({rect.max.x - style.frame_padding.x - key.x, rect.min.y + (height - key.y) * 0.5f},
+                  theme::text_disabled(), shortcut);
+    }
+    return in.clicked;
+}
+
 } // namespace ftk::ui

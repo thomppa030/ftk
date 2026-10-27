@@ -33,6 +33,12 @@ namespace ftk::ui {
 /// unlike a value field. Returns true when the query changed.
 bool search_field(const char* id, std::string& query, const char* hint = "Search");
 
+/// A button drawn as the search field is, for a search that opens somewhere
+/// else (find in files): the search icon, `label` where the field's hint
+/// goes, and `shortcut`, the key that opens it too, on the right. Returns
+/// true when it was clicked.
+bool search_button(const char* id, const char* label, std::string_view shortcut = {});
+
 /// Whether `text` contains `query`, ignoring case. An empty query matches
 /// everything.
 [[nodiscard]] bool matches(std::string_view text, std::string_view query);

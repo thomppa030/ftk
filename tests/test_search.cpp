@@ -119,6 +119,21 @@ TEST_CASE("Ctrl F puts the cursor in the focused window's search field", "[ui][k
     CHECK(query == "x");
 }
 
+TEST_CASE("A search button drawn as the field opens its search when clicked", "[ui][kit]") {
+    KitHarness h;
+    int opened = 0;
+    h.set_ui([&] {
+        ui::next_width(240.0f);
+        if (ui::search_button("##find_in_files", "Find in files", "Ctrl Shift F")) ++opened;
+    });
+    h.step(2);
+    const auto* button = h.find("Find in files", ui::core::Role::Button);
+    REQUIRE(button != nullptr);
+    CHECK(button->rect.width() == 240.0f);
+    h.click_at(button->rect.centre());
+    CHECK(opened == 1);
+}
+
 TEST_CASE("Ctrl Shift F leaves the search field alone, for a shortcut of its own", "[ui][kit]") {
     KitHarness h;
     std::string query;
