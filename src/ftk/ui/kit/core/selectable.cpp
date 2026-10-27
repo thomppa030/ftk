@@ -76,9 +76,18 @@ bool selectable(const char* label, bool selected, const SelectableOptions& optio
     if (!options.detail.empty()) draw_text({rect.min.x + detail_at, rect.min.y}, theme::text_disabled(), options.detail);
     const bool picked = in.clicked || (options.double_click && in.double_clicked);
     // Picked in a popup, a drop-down's list or a menu, it closes it, unless
-    // the list is one several are chosen from.
-    if (picked && !options.keeps_popup_open && !kit().popup_stack.empty()) {
-        context.close_popup(kit().popup_stack.back());
+    // the list is one several are chosen from; picked in a submenu, it closes
+    // the menus it was opened from too, so the whole menu ends.
+    Kit& k = kit();
+    if (picked && !options.keeps_popup_open && !k.popup_stack.empty()) {
+        std::size_t first = k.popup_stack.size() - 1;
+        while (first > 0) {
+            const auto parent = k.submenus.find(k.popup_stack[first - 1]);
+            if (parent == k.submenus.end() || parent->second != k.popup_stack[first]) break;
+            k.submenus.erase(parent);
+            --first;
+        }
+        context.close_popup(k.popup_stack[first]);
     }
     return picked;
 }

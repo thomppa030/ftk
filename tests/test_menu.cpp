@@ -319,3 +319,33 @@ TEST_CASE("A submenu entry's icon takes its kind's colour as an entry's does", "
     CHECK(drew_in(h, with_label, ftk::theme::text()));
     CHECK_FALSE(drew_in(h, with_label, hue));
 }
+
+TEST_CASE("An entry chosen in a submenu closes the menu it was opened from", "[ui][kit]") {
+    KitHarness h;
+    int added = 0;
+    bool open = false;
+    h.set_ui([&] {
+        if (ui::button("Menu")) ui::open_popup("##menu");
+        h.mark("menu");
+        if (auto menu = ui::Popup("##menu")) {
+            const bool sub = ui::begin_menu(nullptr, "Add");
+            h.mark("add");
+            if (sub) {
+                if (ui::menu_item({.label = "Cube"})) ++added;
+                h.mark("cube");
+                ui::end_menu();
+            }
+        }
+        open = ui::popup_open("##menu");
+    });
+    h.step(2);
+    h.click("menu");
+    h.step();
+    h.click("add");
+    h.step(2);
+    REQUIRE(open);
+    h.click("cube");
+    h.step(2);
+    CHECK(added == 1);
+    CHECK_FALSE(open);
+}
