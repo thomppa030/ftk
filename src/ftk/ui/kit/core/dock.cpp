@@ -543,14 +543,21 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     k.carried.target = over.target;
     k.carried.drop = over.drop;
     k.carried.lands_on_rows = options.lands_on_rows;
+    k.carried.root = context.root();
+    k.carried.at = pointer;
+    k.carried.frame = context.frame();
     const glm::vec2 room = context.root_size();
     const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
     if (held) {
         // Over a dockspace, its targets show, and the part it would take.
         draw_drop_targets(k, over, id, size);
         // Past the edge of its OS window, one that lands on rows shows the
-        // copy a tab carried there shows: let go, it opens in its own.
-        if (options.lands_on_rows && outside) draw_tab_copy(shown(window.name), nullptr, {}, true);
+        // copy a tab carried there shows: let go, it opens in its own, unless
+        // a row of another window parted for it.
+        if (options.lands_on_rows && outside) {
+            const bool over_a_row = k.carried.over_row_frame + 1 >= context.frame();
+            draw_tab_copy(shown(window.name), nullptr, {}, !over_a_row);
+        }
         context.request_frame();
         return false;
     }

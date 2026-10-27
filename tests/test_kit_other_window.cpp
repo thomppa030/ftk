@@ -402,3 +402,75 @@ TEST_CASE("A tab dragged onto another window's row of its group parts it, and la
     REQUIRE(torn.has_value());
     CHECK(torn->x < 0.0f);
 }
+
+TEST_CASE("A panel that lands on rows, carried over another window's row that takes panels, lands there",
+          "[ui][kit][tabs][dock][other_window]") {
+    KitHarness h;
+    h.ui().set_popups_leave_window(true);
+    bool built = false;
+    std::optional<ui::LandedPanel> landed;
+    h.set_ui([&] {
+        const ui::Id dock = ui::id("##dock");
+        ui::dockspace(dock);
+        if (!built) {
+            using N = ui::DockNode;
+            ui::build_dock_tree(dock, {800.0f, 600.0f}, N::left_right(0.5f, N::tabs({"Viewport"}), N::tabs({"Notes"})));
+            built = true;
+        }
+        if (auto panel = ui::Panel("", "Viewport")) ui::text("Viewport");
+        // As a program does: the panel that landed is a tab there now.
+        if (!landed) {
+            if (auto panel = ui::Panel("", "Notes", {.lands_on_rows = true})) ui::text("Notes");
+        }
+        const ui::OtherWindow other(OTHER, {.title = "other", .size = {500.0f, 300.0f}});
+        if (other) {
+            if (auto docs = ui::DocumentTabs("##docs 7", {.group = "editor", .owner = 7, .takes_panels = true})) {
+                if (docs.landed()) landed = docs.landed();
+                (void)ui::document_tab({.label = "grass.fjmat"});
+                (void)ui::document_tab({.label = "stone.fjmesh"});
+            }
+        }
+    });
+    h.step(3);
+    const ui::core::RootId other = ui::other_window_root(OTHER);
+    const auto tab_rect = [&](const char* name) {
+        const ui::core::SemanticNode* tab = h.find(name, ui::core::Role::Tab);
+        REQUIRE(tab != nullptr);
+        return tab->rect;
+    };
+    // The other window stands to the right of this one, its units twice its
+    // points.
+    h.ui().set_root_place(KitHarness::WINDOW, ui::core::RootPlace{.at = {100.0f, 50.0f}, .units_per_point = 1.0f});
+    h.ui().set_root_place(other, ui::core::RootPlace{.at = {100.0f + h.size().x + 40.0f, 50.0f}, .units_per_point = 2.0f});
+    const auto from_other = [&](glm::vec2 at) { return glm::vec2{h.size().x + 40.0f, 0.0f} + at / 2.0f; };
+
+    // Torn out of its part by its tab and carried over the other window's
+    // row, a little into its second tab: the row parts there.
+    const ui::core::Rect notes = tab_rect("Notes");
+    const ui::core::Rect grass = tab_rect("grass.fjmat");
+    const ui::core::Rect stone = tab_rect("stone.fjmesh");
+    h.move_to(notes.centre());
+    h.button_down();
+    h.move_to({notes.centre().x, notes.centre().y + 120.0f});
+    h.move_to(from_other({stone.min.x + 4.0f, stone.centre().y}));
+    h.step(2);
+    CHECK(tab_rect("grass.fjmat").min.x == Approx(grass.min.x));
+    CHECK(tab_rect("stone.fjmesh").min.x > stone.min.x + 20.0f);
+    // Its copy goes on past this window's edge, saying nothing of opening a
+    // window of its own.
+    const auto copy = std::ranges::find(h.windows(), ui::core::RootKind::Tooltip, &ui::core::RootRequest::kind);
+    REQUIRE(copy != h.windows().end());
+    CHECK(copy->size.x < notes.width() + 60.0f);
+
+    // Let go there, as the platform tells it.
+    using Kind = ui::core::PointerEvent::Kind;
+    const glm::vec2 let_go = from_other({stone.min.x + 4.0f, stone.centre().y});
+    h.send({.kind = Kind::Up, .sample = {.position = let_go}});
+    h.send({.kind = Kind::Move, .sample = {.position = {h.size().x - 1.0f, let_go.y}}});
+    h.send({.kind = Kind::Leave});
+    h.send({.kind = Kind::Move, .root = other, .sample = {.position = {stone.min.x + 4.0f, stone.centre().y}}});
+    h.step(3);
+    REQUIRE(landed.has_value());
+    CHECK(*landed == ui::LandedPanel{.window = "Notes", .place = 1});
+    CHECK_FALSE(ui::torn_off_window("Notes").has_value());
+}

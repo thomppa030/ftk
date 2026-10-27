@@ -390,6 +390,13 @@ struct Carried {
     DockDrop drop{DockDrop::None};
     /// It lands on rows of tabs that take panels (WindowOptions).
     bool lands_on_rows{false};
+    /// The OS window it is carried in and where the pointer is there, in the
+    /// frame given, for rows in other windows to look for it; and the frame
+    /// a row last parted for it.
+    core::RootId root{0};
+    glm::vec2 at{0.0f};
+    uint64_t frame{0};
+    uint64_t over_row_frame{0};
 };
 
 class Kit : public core::Context::Extension {

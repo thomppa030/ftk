@@ -56,6 +56,14 @@ TabLook look() {
     return k.tab_looks.empty() ? theme_look() : k.tab_looks.back();
 }
 
+// `at` in the OS window `from` as the window `to` has it: the same point in
+// the same window, wherever it is; in another, where the platform says
+// where both are, and none where it doesn't.
+std::optional<glm::vec2> point_in_root(core::RootId from, glm::vec2 at, core::RootId to) {
+    if (from == to) return at;
+    return ui().point_in(from, at, to);
+}
+
 // Where in `bar` a tab let go at `at` lands, between the tabs whose middles
 // it is between; none unless `at` is over the row, a row's height above or
 // below it at most.
@@ -184,9 +192,11 @@ void draw_tab_copy(std::string_view label, const char* icon, Color icon_ink, boo
 bool land_panel(Id window, glm::vec2 at) {
     Kit& k = kit();
     const core::Context& context = ui();
+    // Rows of every window the platform says where it is, this one's too.
     for (auto& [id, bar] : k.tab_bars) {
-        if (!bar.takes_panels || bar.root != context.root() || bar.frame + 1 < context.frame()) continue;
-        const std::optional<std::size_t> place = place_in_row(bar, at);
+        if (!bar.takes_panels || bar.frame + 1 < context.frame()) continue;
+        const std::optional<glm::vec2> here = point_in_root(context.root(), at, bar.root);
+        const std::optional<std::size_t> place = here ? place_in_row(bar, *here) : std::nullopt;
         if (!place) continue;
         bar.panel_landed = std::pair{window, *place};
         bar.landing = *place;
@@ -348,14 +358,18 @@ DocumentTabs::DocumentTabs(const char* id, const DocumentTabsOptions& options) {
             carried.over = 0;
         }
     }
-    // A panel that lands on rows, carried by its tab over it, parts it too.
+    // A panel that lands on rows, carried by its tab over it, parts it too,
+    // from this window or another where the platform says where they are.
+    // Last frame's carry counts, for a row drawn before the panel.
     if (!bar.gap && bar.takes_panels && k.carried.window != 0 && k.carried.lands_on_rows &&
-        mouse_down(MouseButton::Left)) {
+        k.carried.frame + 1 >= context.frame() && mouse_down(MouseButton::Left)) {
         const auto window = k.windows.find(k.carried.window);
-        if (const std::optional<std::size_t> place = place_in_row(bar, mouse_pos());
+        const std::optional<glm::vec2> here = point_in_root(k.carried.root, k.carried.at, bar.root);
+        if (const std::optional<std::size_t> place = here ? place_in_row(bar, *here) : std::nullopt;
             place && window != k.windows.end()) {
             bar.gap = *place;
             bar.gap_width = tab_width(shown(window->second.name), false);
+            k.carried.over_row_frame = context.frame();
         }
     }
     // Its own tab that docks, carried off it and back over it: the tab held
