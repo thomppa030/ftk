@@ -74,6 +74,20 @@ struct DocumentTabsOptions {
     const char* group{nullptr};
     /// What the program knows the row by, told to a tab that lands on it.
     int owner{0};
+    /// A panel that lands on rows (WindowOptions::lands_on_rows), carried by
+    /// its tab over it, parts it where it would land; let go there, the row
+    /// says it landed (DocumentTabs::landed()), and the tab the program
+    /// opens for it goes where it was let go.
+    bool takes_panels{false};
+};
+
+/// A panel let go on a row that takes panels: its window's name, and its
+/// place in the row from 0.
+struct LandedPanel {
+    std::string window;
+    std::size_t place{0};
+
+    bool operator==(const LandedPanel&) const = default;
 };
 
 /// A row of tabs, one for each document open, which can be put in another
@@ -90,8 +104,13 @@ public:
 
     explicit operator bool() const { return open_; }
 
+    /// A panel let go on it since it was last drawn, for the program to show
+    /// as a tab: none when none was.
+    [[nodiscard]] const std::optional<LandedPanel>& landed() const { return landed_; }
+
 private:
     bool open_{false};
+    std::optional<LandedPanel> landed_;
 };
 
 struct DocumentTab {

@@ -539,6 +539,7 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     const Over over = options.docking ? over_dock(k, pointer) : Over{};
     k.carried.target = over.target;
     k.carried.drop = over.drop;
+    k.carried.lands_on_rows = options.lands_on_rows;
     if (mouse_down(MouseButton::Left)) {
         // Over a dockspace, its targets show, and the part it would take.
         draw_drop_targets(k, over, id, size);
@@ -550,6 +551,12 @@ bool carry(Window& window, Id id, const WindowOptions& options) {
     // it is.
     const Id target = k.carried.target;
     const DockDrop drop = k.carried.drop;
+    // On a row of tabs that takes panels, it lands there, floating where it
+    // is until the program shows it as a tab.
+    if (target == 0 && options.lands_on_rows && land_panel(id, pointer)) {
+        k.carried = {};
+        return false;
+    }
     const glm::vec2 room = context.root_size();
     const bool outside = pointer.x < 0.0f || pointer.y < 0.0f || pointer.x >= room.x || pointer.y >= room.y;
     if (target == 0 && outside) keep_inside(window, room);

@@ -56,6 +56,26 @@ TabLook look() {
     return k.tab_looks.empty() ? theme_look() : k.tab_looks.back();
 }
 
+// Where in `bar` a tab let go at `at` lands, between the tabs whose middles
+// it is between; none unless `at` is over the row, a row's height above or
+// below it at most.
+std::optional<std::size_t> place_in_row(const TabBar& bar, glm::vec2 at) {
+    const float slack = bar.rect.height();
+    if (at.x < bar.rect.min.x || at.x >= bar.rect.max.x || at.y < bar.rect.min.y - slack ||
+        at.y >= bar.rect.max.y + slack) {
+        return std::nullopt;
+    }
+    const float spacing = kit().style.item_inner_spacing.x;
+    std::size_t index = 0;
+    float x = bar.rect.min.x;
+    for (const TabBar::Tab& tab : bar.tabs) {
+        if (at.x < x + tab.width * 0.5f) break;
+        x += tab.width + spacing;
+        ++index;
+    }
+    return index;
+}
+
 } // namespace
 
 namespace corekit {
@@ -141,6 +161,21 @@ DrawnTab draw_tab(Id id, core::Rect rect, const TabFace& face) {
     // At its own rectangle: a tab is placed by hand, not by the layout.
     context.semantics(id, core::Role::Tab, face.label, {}, {.selected = face.front}, rect);
     return drawn;
+}
+
+bool land_panel(Id window, glm::vec2 at) {
+    Kit& k = kit();
+    const core::Context& context = ui();
+    for (auto& [id, bar] : k.tab_bars) {
+        if (!bar.takes_panels || bar.root != context.root() || bar.frame + 1 < context.frame()) continue;
+        const std::optional<std::size_t> place = place_in_row(bar, at);
+        if (!place) continue;
+        bar.panel_landed = std::pair{window, *place};
+        bar.landing = *place;
+        bar.landing_until = context.frame() + LANDING_FRAMES;
+        return true;
+    }
+    return false;
 }
 
 } // namespace corekit
@@ -262,6 +297,16 @@ DocumentTabs::DocumentTabs(const char* id, const DocumentTabsOptions& options) {
     bar.reorder = true;
     bar.group = options.group != nullptr ? core::hash_label(options.group, 0) : 0;
     bar.owner = options.owner;
+    bar.takes_panels = options.takes_panels;
+    bar.frame = context.frame();
+    // A panel let go on it since it was drawn, for the program to show as a
+    // tab.
+    if (bar.panel_landed) {
+        if (const auto window = k.windows.find(bar.panel_landed->first); window != k.windows.end()) {
+            landed_ = LandedPanel{.window = window->second.name, .place = bar.panel_landed->second};
+        }
+        bar.panel_landed.reset();
+    }
     bar.root = context.root();
     bar.rect = context.layout().next({std::max(space_left().x, 1.0f), frame_height()});
     for (TabBar::Tab& tab : bar.tabs) tab.seen = false;
@@ -274,26 +319,25 @@ DocumentTabs::DocumentTabs(const char* id, const DocumentTabsOptions& options) {
     CarriedTab& carried = k.carried_tab;
     if (bar.group != 0 && carried.group == bar.group && carried.bar != bar_id && carried.frame + 1 >= context.frame()) {
         const std::optional<glm::vec2> here = context.point_in(carried.root, carried.at, bar.root);
-        const float slack = bar.rect.height();
-        const bool over = here && here->x >= bar.rect.min.x && here->x < bar.rect.max.x &&
-                          here->y >= bar.rect.min.y - slack && here->y < bar.rect.max.y + slack;
-        if (over) {
-            const float spacing = k.style.item_inner_spacing.x;
-            std::size_t index = 0;
-            float x = bar.rect.min.x;
-            for (const TabBar::Tab& tab : bar.tabs) {
-                if (here->x < x + tab.width * 0.5f) break;
-                x += tab.width + spacing;
-                ++index;
-            }
-            bar.gap = index;
+        if (const std::optional<std::size_t> place = here ? place_in_row(bar, *here) : std::nullopt) {
+            bar.gap = *place;
             bar.gap_width = carried.width;
             carried.over = bar_id;
             carried.over_owner = bar.owner;
-            carried.over_index = index;
+            carried.over_index = *place;
             carried.over_frame = context.frame();
         } else if (carried.over == bar_id) {
             carried.over = 0;
+        }
+    }
+    // A panel that lands on rows, carried by its tab over it, parts it too.
+    if (!bar.gap && bar.takes_panels && k.carried.window != 0 && k.carried.lands_on_rows &&
+        mouse_down(MouseButton::Left)) {
+        const auto window = k.windows.find(k.carried.window);
+        if (const std::optional<std::size_t> place = place_in_row(bar, mouse_pos());
+            place && window != k.windows.end()) {
+            bar.gap = *place;
+            bar.gap_width = tab_width(shown(window->second.name), false);
         }
     }
     // Its own tab that docks, carried off it and back over it: the tab held

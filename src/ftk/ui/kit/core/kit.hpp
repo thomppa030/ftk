@@ -290,6 +290,12 @@ struct TabBar {
     /// held under it, and since when, which comes forward held long enough.
     Id hold{0};
     double hold_since{0.0};
+    /// Panels that land on rows are let go on it; and the one let go on it,
+    /// with its place, until the row is next drawn.
+    bool takes_panels{false};
+    std::optional<std::pair<Id, std::size_t>> panel_landed{};
+    /// The frame it was last drawn in.
+    uint64_t frame{0};
 };
 
 /// A tab carried off a row of a group: the row and the tab, the window it
@@ -379,6 +385,8 @@ struct Carried {
     /// The node it docks into or beside when let go, and how.
     Id target{0};
     DockDrop drop{DockDrop::None};
+    /// It lands on rows of tabs that take panels (WindowOptions).
+    bool lands_on_rows{false};
 };
 
 class Kit : public core::Context::Extension {
@@ -670,5 +678,9 @@ bool carry(Window& window, Id id, const WindowOptions& options);
 /// window carried there, and where it would dock let go now; none over no
 /// target.
 std::optional<DockPlace> carry_tab_over_docks(Id tab, glm::vec2 at, float share);
+/// A panel `window` that lands on rows, let go at `at`: on a row of tabs
+/// that takes panels, a row's height above or below it at most, it lands
+/// there, the row parted where it would. Returns whether it landed.
+bool land_panel(Id window, glm::vec2 at);
 
 } // namespace ftk::ui::corekit

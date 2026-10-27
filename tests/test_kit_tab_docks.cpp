@@ -14,7 +14,8 @@
 
 // A document tab that docks: carried off its row over a dockspace, the
 // dock's targets show and letting go says where it docks; carried back over
-// its row, the tab held under it comes forward.
+// its row, the tab held under it comes forward. And the other way, a panel
+// that lands on rows, carried by its tab over a row that takes panels.
 
 using Catch::Approx;
 using ftk::test::KitHarness;
@@ -76,6 +77,62 @@ struct Row {
         h.move_to({from.x, from.y + 200.0f});
         h.move_to(to);
         h.button_up();
+        h.step(2);
+    }
+};
+
+// A row that takes panels over a dockspace: the Hierarchy, then the
+// Viewport beside Notes, a panel that lands on rows. As a program does, a
+// tab opens for a panel that landed, and the panel is no longer drawn.
+struct Landing {
+    KitHarness h;
+    std::optional<ui::LandedPanel> landed;
+    bool notes_tab{false};
+
+    Landing() {
+        bool built = false;
+        h.set_ui([this, built]() mutable {
+            if (auto tabs = ui::DocumentTabs("##docs", {.takes_panels = true})) {
+                if (tabs.landed()) {
+                    landed = tabs.landed();
+                    notes_tab = landed->window == "Notes";
+                }
+                (void)ui::document_tab({.label = "Scene", .closable = false});
+                (void)ui::document_tab({.label = "Material", .closable = false});
+                if (notes_tab) (void)ui::document_tab({.label = "Notes", .closable = false});
+            }
+            const ui::Id dock = ui::id("##dock");
+            ui::dockspace(dock);
+            if (!built) {
+                using N = ui::DockNode;
+                ui::build_dock_tree(dock, {800.0f, 560.0f},
+                                    N::left_right(0.3f, N::tabs({"Hierarchy"}),
+                                                  N::left_right(0.6f, N::tabs({"Viewport"}), N::tabs({"Notes"}))));
+                built = true;
+            }
+            if (auto panel = ui::Panel("", "Hierarchy")) ui::text("Hierarchy");
+            if (auto panel = ui::Panel("", "Viewport")) ui::text("Viewport");
+            if (!notes_tab) {
+                if (auto panel = ui::Panel("", "Notes", {.lands_on_rows = true})) ui::text("Notes");
+            }
+        });
+        h.step(4);
+    }
+
+    [[nodiscard]] glm::vec2 tab(const char* name) const {
+        const ui::core::SemanticNode* found = h.find(name, ui::core::Role::Tab);
+        REQUIRE(found != nullptr);
+        return found->rect.centre();
+    }
+
+    // Carries the panel `name` by its tab off its part, then to `to` with
+    // the button still down.
+    void carry_panel_to(const char* name, glm::vec2 to) {
+        const glm::vec2 from = tab(name);
+        h.move_to(from);
+        h.button_down();
+        h.move_to({from.x, from.y + 120.0f});
+        h.move_to(to);
         h.step(2);
     }
 };
@@ -143,4 +200,36 @@ TEST_CASE("A tab that docks, carried back over its row and held on another tab, 
     CHECK_FALSE(r.docked.has_value());
     CHECK(r.tab("Scene").x < r.tab("Code").x);
     CHECK(r.scene.front);
+}
+
+TEST_CASE("A panel that lands on rows, carried over a row that takes panels, parts it and lands where it parted",
+          "[ui][kit][tabs][dock]") {
+    Landing l;
+    const glm::vec2 scene = l.tab("Scene");
+    const glm::vec2 material = l.tab("Material");
+    l.carry_panel_to("Notes", {(scene.x + material.x) * 0.5f, scene.y});
+    // Parted between the two.
+    CHECK(l.tab("Material").x > material.x + 10.0f);
+    CHECK(l.tab("Scene").x == Approx(scene.x));
+    l.h.button_up();
+    l.h.step(4);
+    REQUIRE(l.landed.has_value());
+    CHECK(*l.landed == ui::LandedPanel{.window = "Notes", .place = 1});
+    // The tab opened for it is where it was let go.
+    CHECK(l.tab("Scene").x < l.tab("Notes").x);
+    CHECK(l.tab("Notes").x < l.tab("Material").x);
+}
+
+TEST_CASE("A panel that doesn't land on rows leaves a row that takes panels as it is, and floats",
+          "[ui][kit][tabs][dock]") {
+    Landing l;
+    const glm::vec2 scene = l.tab("Scene");
+    const glm::vec2 material = l.tab("Material");
+    l.carry_panel_to("Hierarchy", {(scene.x + material.x) * 0.5f, scene.y});
+    CHECK(l.tab("Material").x == Approx(material.x));
+    l.h.button_up();
+    l.h.step(4);
+    CHECK_FALSE(l.landed.has_value());
+    CHECK(ui::window_dock("Hierarchy") == 0);
+    CHECK(ui::window_dock("Notes") != 0);
 }

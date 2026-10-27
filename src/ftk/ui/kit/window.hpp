@@ -41,6 +41,11 @@ struct WindowOptions {
     /// Where it was left and its size are saved with the layout and come
     /// back next run.
     bool remembered{true};
+    /// Carried by its tab, it can be let go on a row of tabs that takes
+    /// panels (DocumentTabsOptions::takes_panels), which parts where it
+    /// would land and says it landed, for the program to show it as a tab
+    /// there.
+    bool lands_on_rows{false};
 };
 
 /// The next window opens at `pos`, `size` big, and stays there however it is
