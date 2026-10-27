@@ -80,9 +80,10 @@ bool search_field(const char* id, std::string& query, const char* hint) {
     const Id query_id = context.id(id);
 
     // Ctrl F reaches the field of the focused window; nothing else there
-    // is using it.
+    // is using it. Ctrl Shift F is another shortcut (find in files).
     const Modifiers mods = context.modifiers();
-    if ((mods.ctrl || mods.super) && context.key_pressed(Key::F) && window_focused()) context.set_focus(query_id);
+    const bool command = (mods.ctrl || mods.super) && !mods.shift && !mods.alt;
+    if (command && context.key_pressed(Key::F) && window_focused()) context.set_focus(query_id);
 
     // The text starts after the icon; the clear button sits over the end.
     kit().next.allow_overlap = true;

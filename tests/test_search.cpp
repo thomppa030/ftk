@@ -118,3 +118,17 @@ TEST_CASE("Ctrl F puts the cursor in the focused window's search field", "[ui][k
     h.type("x");
     CHECK(query == "x");
 }
+
+TEST_CASE("Ctrl Shift F leaves the search field alone, for a shortcut of its own", "[ui][kit]") {
+    KitHarness h;
+    std::string query;
+    h.set_ui([&] {
+        ui::next_width(200.0f);
+        (void)ui::search_field("##search", query);
+    });
+    h.step(2);
+    h.press(ui::Key::F, {.ctrl = true, .shift = true});
+    h.step(1);
+    h.type("x");
+    CHECK(query.empty());
+}

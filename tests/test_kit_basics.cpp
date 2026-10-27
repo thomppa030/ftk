@@ -288,6 +288,25 @@ TEST_CASE("A key is pressed once and repeated while it is held", "[ui][kit]") {
     CHECK_FALSE(ctrl);
 }
 
+TEST_CASE("A key alone is the key with no modifier held", "[ui][kit]") {
+    KitHarness h;
+    int pressed = 0;
+    int repeated = 0;
+    h.set_ui([&] {
+        if (ui::key_pressed_alone(ui::Key::F)) ++pressed;
+        if (ui::key_repeated_alone(ui::Key::F)) ++repeated;
+    });
+    h.step();
+    h.press(ui::Key::F, {.ctrl = true});
+    h.press(ui::Key::F, {.ctrl = true, .shift = true});
+    h.press(ui::Key::F, {.alt = true});
+    CHECK(pressed == 0);
+    CHECK(repeated == 0);
+    h.press(ui::Key::F);
+    CHECK(pressed == 1);
+    CHECK(repeated == 1);
+}
+
 TEST_CASE("What is put on the clipboard is what it holds", "[ui][kit]") {
     KitHarness h;
     std::string held;

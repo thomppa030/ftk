@@ -24,6 +24,14 @@ namespace ftk::ui {
 /// what steps, such as moving through a list.
 [[nodiscard]] bool key_repeated(Key key);
 
+/// `key` went down this frame with no modifier held: a shortcut of one key,
+/// which the same key with Ctrl, Shift, Alt or Super is not (F frames the
+/// selection, Ctrl F finds).
+[[nodiscard]] bool key_pressed_alone(Key key);
+
+/// The same, and again while it is held.
+[[nodiscard]] bool key_repeated_alone(Key key);
+
 /// Keeps `key` for the shortcut `owner` names, so keyboard navigation
 /// leaves it alone (End would otherwise jump to the window's last item).
 /// The claim lapses on a frame the key is not held, so it is made every

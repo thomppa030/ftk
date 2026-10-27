@@ -29,6 +29,14 @@ bool key_repeated(Key key) {
     return ui().key_repeated(key);
 }
 
+bool key_pressed_alone(Key key) {
+    return ui().key_pressed(key) && ui().modifiers() == Modifiers{};
+}
+
+bool key_repeated_alone(Key key) {
+    return ui().key_repeated(key) && ui().modifiers() == Modifiers{};
+}
+
 void claim_key(Key key, const char* owner) {
     ui().claim_key(key, ui().id(owner));
 }
