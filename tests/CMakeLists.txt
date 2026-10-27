@@ -82,6 +82,7 @@ add_executable(ftk-tests
     test_utf8.cpp
     test_vulkan_access.cpp
     test_vulkan_frame_descriptor_cache.cpp
+    test_window_loop.cpp
 )
 target_link_libraries(ftk-tests PRIVATE
     ftk::app

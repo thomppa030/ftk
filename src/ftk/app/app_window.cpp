@@ -1,6 +1,7 @@
 #include "ftk/app/app_window.hpp"
 
 #include "ftk/app/ui_input.hpp"
+#include "ftk/app/window_loop.hpp"
 #include "ftk/gpu/command_list.hpp"
 #include "ftk/gpu/frame.hpp"
 #include "ftk/gpu/owned.hpp"
@@ -44,34 +45,38 @@ AppWindow::~AppWindow() {
 }
 
 Result<> AppWindow::run(const AppFrame& frame) {
-    while (!window_->should_close()) {
-        const glm::uvec2 size = window_->framebuffer_size();
-        if (size.x == 0 || size.y == 0) {
+    bool drawn = false;
+    Result<> ran = run_window_loop({
+        .take_events = [this] { window_->poll_events(); },
+        .update = frame.update,
+        .closing = [this] { return window_->should_close(); },
+        .draw = [&]() -> Result<> {
             // Minimised: nothing can be drawn until the window comes back.
-            window_->wait_events();
-            continue;
-        }
-        window_->poll_events();
-        if (frame.update) frame.update();
-        if (auto shown = draw_frame(frame); !shown) {
-            device_->wait_idle();
-            return shown;
-        }
-        if (auto kept = layer_->keep_windows(); !kept) {
-            device_->wait_idle();
-            return kept;
-        }
-        // Asleep until there is input, or until what the frame waits on.
-        const ui::core::NextFrame& next = layer_->last()->next;
-        if (next.now) continue;
-        if (next.at) {
-            window_->wait_events_for(*next.at - UiInput::now());
-        } else {
-            window_->wait_events();
-        }
-    }
+            const glm::uvec2 size = window_->framebuffer_size();
+            drawn = size.x != 0 && size.y != 0;
+            if (!drawn) return {};
+            if (auto shown = draw_frame(frame); !shown) return shown;
+            return layer_->keep_windows();
+        },
+        .wait =
+            [&] {
+                // Asleep until there is input, or until what the frame waits
+                // on; minimised, until the platform brings it back.
+                if (!drawn) {
+                    window_->wait_events();
+                    return;
+                }
+                const ui::core::NextFrame& next = layer_->last()->next;
+                if (next.now) return;
+                if (next.at) {
+                    window_->wait_events_for(*next.at - UiInput::now());
+                } else {
+                    window_->wait_events();
+                }
+            },
+    });
     device_->wait_idle();
-    return {};
+    return ran;
 }
 
 Result<> AppWindow::draw_frame(const AppFrame& frame) {

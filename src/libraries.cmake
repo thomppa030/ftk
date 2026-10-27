@@ -717,6 +717,7 @@ ftk_library(app
         ftk/app/picture.cpp
         ftk/app/ui_input.cpp
         ftk/app/ui_layer.cpp
+        ftk/app/window_loop.cpp
     HEADERS
         ftk/app/app_identity.hpp
         ftk/app/app_window.hpp
@@ -728,6 +729,7 @@ ftk_library(app
         ftk/app/picture.hpp
         ftk/app/ui_input.hpp
         ftk/app/ui_layer.hpp
+        ftk/app/window_loop.hpp
     LINKS
         PUBLIC ftk::base ftk::gpu ftk::gpu-ui ftk::image ftk::text ftk::ui-core
         PRIVATE SDL3::SDL3

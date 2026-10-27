@@ -57,7 +57,9 @@ using UiDraw = std::function<void(ui::core::Context& ui, glm::vec2 size)>;
 struct AppFrame {
     UiDraw ui{};
     /// After the platform's events, before the frame records: work that must
-    /// not run inside one.
+    /// not run inside one. It runs before the loop looks at whether the
+    /// window was asked to close, so it may cancel the close
+    /// (Window::cancel_close()) to ask about unsaved work first.
     std::function<void()> update{};
     /// The program's own GPU work, recorded into the frame after the UI is
     /// built and before it is drawn: passes into textures the UI shows, as a
@@ -92,9 +94,10 @@ public:
     AppWindow(AppWindow&&) = delete;
     AppWindow& operator=(AppWindow&&) = delete;
 
-    /// Runs frames until the window is asked to close, then waits for the GPU
-    /// to finish with them. A frame is drawn only when there is a reason, at
-    /// the display's scale.
+    /// Runs frames until the window is asked to close and the frame's update
+    /// lets it (run_window_loop()), then waits for the GPU to finish with
+    /// them. A frame is drawn only when there is a reason, at the display's
+    /// scale.
     /// @return nothing, or why a frame could not be shown
     [[nodiscard]] Result<> run(const AppFrame& frame);
 
