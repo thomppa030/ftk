@@ -45,6 +45,9 @@ std::vector<std::string> missing_caps(const Caps& caps, const Caps& required) {
     if (required.unbound_targets && !caps.unbound_targets) {
         missing.emplace_back("colour targets left unbound while pipelines draw to them");
     }
+    if (required.fragment_barycentrics && !caps.fragment_barycentrics) {
+        missing.emplace_back("fragment shader barycentrics");
+    }
     if (required.shading_rates.per_draw && !caps.shading_rates.per_draw) {
         missing.emplace_back("a shading rate set per draw");
     }

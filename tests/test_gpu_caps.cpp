@@ -36,6 +36,12 @@ TEST_CASE("A GPU that cannot leave a colour target unbound is named short of it"
           std::vector<std::string>{"colour targets left unbound while pipelines draw to them"});
 }
 
+TEST_CASE("A GPU without fragment shader barycentrics is named short of them", "[gpu][caps]") {
+    CHECK(missing_caps(Caps{.fragment_barycentrics = true}, Caps{.fragment_barycentrics = true}).empty());
+    CHECK(missing_caps(Caps{}, Caps{.fragment_barycentrics = true}) ==
+          std::vector<std::string>{"fragment shader barycentrics"});
+}
+
 TEST_CASE("A limit is met by any GPU that reaches it", "[gpu][caps]") {
     const Caps gpu{.mesh_shaders = true, .mesh_max_output_vertices = 256, .mesh_max_output_primitives = 256};
     CHECK(missing_caps(gpu, Caps{.mesh_shaders = true, .mesh_max_output_vertices = 256}).empty());

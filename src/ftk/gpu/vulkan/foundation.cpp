@@ -337,6 +337,28 @@ void Foundation::pick_physical_device(VkSurfaceKHR shown) {
         FTK_GFX_INFO("No unbound colour targets on this GPU");
     }
 
+    // VK_KHR_fragment_shader_barycentric: a fragment shader reads where in its
+    // triangle it lies, which a wireframe drawn by the surfaces themselves
+    // needs. Optional.
+    const bool barycentric_ext_present = std::ranges::any_of(available_exts, [](const VkExtensionProperties& ext) {
+        return std::strcmp(ext.extensionName, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) == 0;
+    });
+    if (barycentric_ext_present) {
+        VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features{};
+        barycentric_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &barycentric_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+        fragment_barycentrics_supported_ = barycentric_features.fragmentShaderBarycentric == VK_TRUE;
+    }
+    if (fragment_barycentrics_supported_) {
+        device_extensions_.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+        FTK_GFX_INFO("Fragment shader barycentrics supported");
+    } else {
+        FTK_GFX_INFO("No fragment shader barycentrics on this GPU");
+    }
+
     // VK_KHR_fragment_shading_rate: a draw's own rate and a rate image, for
     // shading flat parts of the picture once per block of pixels. Optional.
     // The rate a primitive could give itself is left off.
@@ -557,6 +579,14 @@ void Foundation::create_logical_device() {
         unused_features.dynamicRenderingUnusedAttachments = VK_TRUE;
         unused_features.pNext = chain_tail;
         chain_tail = &unused_features;
+    }
+
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features{};
+    if (fragment_barycentrics_supported_) {
+        barycentric_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
+        barycentric_features.fragmentShaderBarycentric = VK_TRUE;
+        barycentric_features.pNext = chain_tail;
+        chain_tail = &barycentric_features;
     }
 
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features{};

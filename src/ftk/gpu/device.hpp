@@ -68,6 +68,10 @@ struct Caps {
     /// Without it a pipeline drawing into an unbound target names no format
     /// for it.
     bool unbound_targets{false};
+    /// Whether a fragment shader reads where in its triangle it lies
+    /// (gl_BaryCoordEXT). Without it no shader may ask, and a picture that
+    /// needs it, as a wireframe drawn by the surfaces does, cannot be drawn.
+    bool fragment_barycentrics{false};
     /// Shading in blocks of pixels: a rate per draw, a rate image, its tile
     /// size and the rates offered at each sample count.
     ShadingRates shading_rates{};

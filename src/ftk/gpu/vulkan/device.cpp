@@ -258,6 +258,7 @@ Device::Impl::Impl(Window& window, const DeviceDesc& desc)
 #endif
     caps.block_compression = vk.block_compression_supported();
     caps.unbound_targets = vk.unbound_targets_supported();
+    caps.fragment_barycentrics = vk.fragment_barycentrics_supported();
     caps.shading_rates = vk.shading_rates();
     if (caps.shading_rates.per_draw || caps.shading_rates.image) {
         set_shading_rate = reinterpret_cast<PFN_vkCmdSetFragmentShadingRateKHR>(

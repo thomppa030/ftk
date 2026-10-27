@@ -155,6 +155,9 @@ public:
     /// Whether a pipeline that names a format for a colour target may draw
     /// while that target is unbound (VK_EXT_dynamic_rendering_unused_attachments).
     [[nodiscard]] bool unbound_targets_supported() const { return unbound_targets_supported_; }
+    /// Whether a fragment shader reads where in its triangle it lies
+    /// (VK_KHR_fragment_shader_barycentric).
+    [[nodiscard]] bool fragment_barycentrics_supported() const { return fragment_barycentrics_supported_; }
     /// What the GPU offers for shading in blocks of pixels
     /// (VK_KHR_fragment_shading_rate); empty where it offers none.
     [[nodiscard]] const ShadingRates& shading_rates() const { return shading_rates_; }
@@ -252,6 +255,7 @@ private:
 
     bool ray_tracing_supported_{false};
     bool unbound_targets_supported_{false};
+    bool fragment_barycentrics_supported_{false};
     ShadingRates shading_rates_{};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
     PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
