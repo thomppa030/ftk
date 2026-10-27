@@ -133,7 +133,6 @@ add_executable(ftk-kit-tests
     test_bit_strip.cpp
     test_canvas.cpp
     test_choices.cpp
-    test_code_view.cpp
     test_component_block.cpp
     test_console.cpp
     test_curve_editor.cpp

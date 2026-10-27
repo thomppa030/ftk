@@ -288,11 +288,6 @@ inline constexpr float AXIS_TEXT = 12.0f;
 /// the bold face.
 inline constexpr float FIGURE_TEXT = 18.0f;
 
-/// Text size and line height of code shown in a panel (ui::code_view), in
-/// the mono face.
-inline constexpr float CODE_TEXT = 12.5f;
-inline constexpr float CODE_LINE = 18.0f;
-
 /// Width at which tooltips wrap.
 inline constexpr float TOOLTIP_WRAP = 320.0f;
 
