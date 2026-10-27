@@ -22,8 +22,12 @@ struct Launch {
     std::wstring line;
 };
 
-/// `args`, the program first, ready for CreateProcessW, in UTF-16 so that
-/// every letter of an argument reaches the program as written.
+/// `args`, the program first, ready for CreateProcessW: a batch file run by
+/// the system's cmd.exe with its arguments written for cmd, and all in
+/// UTF-16, so that every letter of an argument reaches the program as
+/// written.
+/// @return what to start, or why it can't be: an argument no quoting
+///         carries past cmd
 [[nodiscard]] Result<Launch> launch(std::span<const std::string> args);
 
 /// The UTF-8 `text` in Windows' UTF-16.

@@ -7,8 +7,11 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <optional>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -154,6 +157,87 @@ TEST_CASE("A command line reads back on Windows as the arguments it was made fro
     REQUIRE(ftk::platform::detail::command_line<char>(args) ==
             "prog \"a b\" \"\" \"x\\\"y\" c:\\dir\\ \"ends in\\\\\" \"a\\\\\\\\\\\"b\"");
 }
+
+TEST_CASE("A batch file is told by its name, as Windows reads the name", "[platform][child]") {
+    using ftk::platform::detail::is_batch_file;
+    for (const std::string_view name : {"run.cmd", "RUN.BAT", "C:\\tools\\code.Cmd", "run.cmd.", "run.bat  "}) {
+        INFO(name);
+        CHECK(is_batch_file<char>(name));
+    }
+    for (const std::string_view name : {"run.exe", "cmd", "runcmd", "run.cmdx", "run.cm"}) {
+        INFO(name);
+        CHECK_FALSE(is_batch_file<char>(name));
+    }
+}
+
+TEST_CASE("A batch file's arguments are written so cmd.exe acts on nothing in them", "[platform][child]") {
+    const auto written = [](std::string_view argument) -> std::optional<std::string> {
+        std::string out;
+        if (!ftk::platform::detail::append_batch_argument<char>(out, argument)) return std::nullopt;
+        return out;
+    };
+    // A plain word as it is; an empty one, a space or anything cmd acts on
+    // in quotes.
+    CHECK(written("C:\\dir\\file.txt") == "C:\\dir\\file.txt");
+    CHECK(written("") == "\"\"");
+    CHECK(written("two words") == "\"two words\"");
+    CHECK(written("a&b|c<d>e^f(g)!h") == "\"a&b|c<d>e^f(g)!h\"");
+    // A quote doubled, and the backslashes before it or the closing quote.
+    CHECK(written("a\"b") == "\"a\"\"b\"");
+    CHECK(written("x\\\"y") == "\"x\\\\\"\"y\"");
+    CHECK(written("ends\\") == "\"ends\\\\\"");
+    // Each % one that starts no name.
+    CHECK(written("%PATH%") == "\"%%cd:~,%PATH%%cd:~,%\"");
+    // Letters past ASCII in quotes, as they are.
+    CHECK(written("fj\xc3\xa4rd") == "\"fj\xc3\xa4rd\"");
+    // Nothing carries a line break or a NUL past cmd.
+    CHECK_FALSE(written("two\nlines").has_value());
+    CHECK_FALSE(written("cr\r").has_value());
+    CHECK_FALSE(written(std::string_view("nul\0", 4)).has_value());
+}
+
+TEST_CASE("A batch file is run by cmd.exe, the batch file and its arguments in quotes of their own",
+          "[platform][child]") {
+    using ftk::platform::detail::batch_command_line;
+    const std::vector<std::string> args{"--goto", "C:\\game\\my scripts\\coin.cpp:26:3"};
+    CHECK(batch_command_line<char>("C:\\tools\\code.cmd", args) ==
+          "cmd.exe /e:ON /v:OFF /d /c \"\"C:\\tools\\code.cmd\" --goto \"C:\\game\\my scripts\\coin.cpp:26:3\"\"");
+    // What no quoting carries past cmd.
+    const std::vector<std::string> none;
+    CHECK_FALSE(batch_command_line<char>("C:\\a\"b.cmd", none).has_value());
+    CHECK_FALSE(batch_command_line<char>("C:\\tools\\", none).has_value());
+    const std::vector<std::string> broken{"two\nlines"};
+    CHECK_FALSE(batch_command_line<char>("C:\\tools\\code.cmd", broken).has_value());
+}
+
+#ifdef _WIN32
+TEST_CASE("A batch file runs with its arguments as they were given, cmd acting on none of them", "[platform][child]") {
+    const std::filesystem::path folder =
+        std::filesystem::temp_directory_path() / ("ftk-batch-" + std::to_string(ftk::platform::process_id()));
+    std::filesystem::create_directories(folder);
+    // Hands all it is given on to the helper.
+    const std::filesystem::path relay = folder / "relay.cmd";
+    std::ofstream(relay, std::ios::binary)
+        << "@\"" << std::filesystem::path(FTK_TEST_CHILD).make_preferred().string() << "\" %*\r\n";
+
+    const std::vector<std::string> args{"plain", "two words", "", "\"quoted\"", "ends in\\", "a&b|c<d>e^f",
+                                        "(paren)", "!bang!", "%PATH%", "100% sure", "%%cd:~,%", "fj\xc3\xa4rd"};
+    std::vector<std::string> asked{relay.string(), "args"};
+    asked.insert(asked.end(), args.begin(), args.end());
+    {
+        auto child = ChildProcess::start(asked);
+        REQUIRE(child.has_value());
+        CHECK(arguments_written(read_all(**child)) == args);
+        CHECK((*child)->wait() == 0);
+    }
+    // A line break no quoting carries past cmd: refused, never run.
+    const std::vector<std::string> broken{relay.string(), "args", "two\nlines"};
+    CHECK_FALSE(ChildProcess::start(broken).has_value());
+
+    std::error_code ignored;
+    std::filesystem::remove_all(folder, ignored);
+}
+#endif
 
 TEST_CASE("A program's log can keep to standard error, leaving its output to the program", "[platform][child][log]") {
     auto child = start_helper({"log"}, {.errors = ChildErrors::Kept});

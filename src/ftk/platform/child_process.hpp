@@ -47,7 +47,8 @@ class ChildProcess {
 public:
     /// Starts the program `args[0]`, a path or a name looked for along the
     /// PATH, with the rest of `args` as its arguments, each reaching it as
-    /// it is given.
+    /// it is given. On Windows a batch file is run by cmd.exe, which hands
+    /// its arguments on as given; it can't be given a line break.
     /// @return the child, or why it couldn't be run (no such program, no
     ///         such folder, no pipes left)
     [[nodiscard]] static Result<std::unique_ptr<ChildProcess>> start(std::span<const std::string> args,

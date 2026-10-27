@@ -97,11 +97,13 @@ inline constexpr const char* EXE_EXT = "";
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);
 
 /// Spawn a detached child process. The child runs independently and is
-/// not waited on. args[0] is the executable path.
+/// not waited on. args[0] is the executable path; on Windows a batch file
+/// is run by cmd.exe, its arguments still reaching what it runs as given.
 Result<> spawn_detached(const std::vector<std::string>& args);
 
 /// Replace the current process with a new executable.
-/// args[0] is the executable path. Does not return on success.
+/// args[0] is the executable path, a batch file too on Windows. Does not
+/// return on success.
 Result<> exec_replace(const std::vector<std::string>& args);
 
 /// Waits for what comes on this program's standard input and reads it into
@@ -137,7 +139,8 @@ struct SubprocessHandle {
 };
 
 /// Spawn a child process with its stdout connected to a readable pipe.
-/// args[0] is the executable path. The pipe fd is set to non-blocking.
+/// args[0] is the executable path, a batch file too on Windows. The pipe fd
+/// is set to non-blocking.
 [[nodiscard]] Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args);
 
 /// Read available complete lines from the subprocess stdout (non-blocking).
