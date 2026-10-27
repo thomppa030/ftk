@@ -6,6 +6,8 @@
 #include "ftk/base/result.hpp"
 #include "ftk/ui/types.hpp"
 
+#include <glm/vec2.hpp>
+
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -69,6 +71,14 @@ public:
     // Build default dockspace layout for this context (called within a
     // ui::DockBuild): the preset's, unless the context lays out its own.
     virtual void setup_dockspace(ui::Id main_area);
+
+    /// Lays its dockspace out, `size` large, as `source`'s is as the user
+    /// left it: `source` an open context of its kind, whose windows have the
+    /// same names but for its own suffix. Each of its windows goes where the
+    /// source has the window of the same name; one the source does not dock
+    /// floats. False, with nothing laid out, when the source's dockspace
+    /// holds no tree to copy.
+    bool lay_out_like(const EditorContext& source, glm::vec2 size);
 
     /// The editor's own actions in the header (open the shader, play in the
     /// scene), each drawn after ui::same_line(). None by default.

@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,7 @@ public:
 // An editor with a panel over its tree, as the widget editor's Palette.
 class Laid : public Notes {
 public:
+    [[nodiscard]] const char* context_type() const override { return "laid"; }
     [[nodiscard]] DockPreset dock_preset() const override {
         return {.above_tree = {"Palette"}, .tree = {"Elements"}, .preview = {"Preview"}};
     }
@@ -70,13 +72,14 @@ public:
 // An editor with a tree and an inspector, laid out unlike Laid.
 class Sheet : public Notes {
 public:
+    [[nodiscard]] const char* context_type() const override { return "sheet"; }
     [[nodiscard]] DockPreset dock_preset() const override { return {.tree = {"Rows"}, .inspector = {"Cells"}}; }
 };
 
 // The row of context tabs, as the engine keeps it: each context given an
 // id as it opens, its dockspace given every frame and shown while its tab
-// is in front, laid out from its preset the first frame it is seen; the
-// front one's panels drawn.
+// is in front, laid out the first frame it is seen as an open one of its
+// kind is, or from its preset; the front one's panels drawn.
 class Row {
 public:
     std::vector<std::unique_ptr<ftk::EditorContext>> contexts;
@@ -89,9 +92,11 @@ public:
         front = contexts.size() - 1;
     }
 
+    // As the engine closes a tab: the one before it comes forward when it
+    // was in front.
     void close(std::size_t at) {
         contexts.erase(contexts.begin() + static_cast<std::ptrdiff_t>(at));
-        if (at < front) --front;
+        if (at < front || front == contexts.size()) --front;
     }
 
     void draw() {
@@ -100,6 +105,7 @@ public:
         for (const auto& context : contexts) {
             if (context->dockspace_built()) continue;
             context->mark_dockspace_built();
+            if (lay_out_like_open(*context)) continue;
             ui::DockBuild build(context->dockspace_id(), {800.0f, 600.0f});
             context->setup_dockspace(context->dockspace_id());
         }
@@ -107,7 +113,35 @@ public:
             if (auto panel = ui::Panel("", name.c_str())) ui::text(name);
         }
     }
+
+private:
+    bool lay_out_like_open(ftk::EditorContext& context) {
+        for (const auto& open : contexts) {
+            if (open.get() == &context || !open->dockspace_built()
+                || std::string_view(open->context_type()) != context.context_type()) {
+                continue;
+            }
+            if (context.lay_out_like(*open, {800.0f, 600.0f})) return true;
+        }
+        return false;
+    }
 };
+
+// Whether every window `context` docks is docked.
+bool all_docked(const ftk::EditorContext& context) {
+    for (const std::string& name : context.docked_window_names()) {
+        if (ui::window_dock(name) == 0) return false;
+    }
+    return true;
+}
+
+// `tree` with every window's context suffix taken off, so two contexts'
+// trees compare by where their windows of the same name are.
+ui::DockNode bare(ui::DockNode tree) {
+    for (std::string& window : tree.windows) window = window.substr(0, window.find("##ctx"));
+    for (ui::DockNode& child : tree.children) child = bare(child);
+    return tree;
+}
 
 } // namespace
 
@@ -172,6 +206,70 @@ TEST_CASE("An editor's panels stay docked when a tab before it closes", "[ui][ki
         CHECK(ui::window_dock(name) != 0);
     }
     CHECK(ui::dock_tree(sheet.dockspace_id(), sheet.docked_window_names()) == before);
+}
+
+TEST_CASE("An editor opened after one of its kind closed is laid out whole", "[ui][kit][dock]") {
+    KitHarness h;
+    Row row;
+    h.set_ui([&] { row.draw(); });
+    row.open(std::make_unique<Notes>());
+    h.step(2);
+    row.open(std::make_unique<Laid>());
+    h.step(2);
+    row.close(1);
+    h.step(2);
+
+    row.open(std::make_unique<Laid>());
+    h.step(4);
+    const ftk::EditorContext& again = *row.contexts[1];
+    CHECK(all_docked(again));
+    const std::optional<ui::DockNode> tree = ui::dock_tree(again.dockspace_id(), again.docked_window_names());
+    REQUIRE(tree.has_value());
+    CHECK(tree->split == ui::DockAxis::LeftRight);
+}
+
+TEST_CASE("An editor opened beside one of its kind is laid out as that one is", "[ui][kit][dock]") {
+    KitHarness h;
+    Row row;
+    h.set_ui([&] { row.draw(); });
+    row.open(std::make_unique<Laid>());
+    h.step(2);
+    // Rearranged from its preset: the preview on the left, the palette and
+    // the elements stacked on the right.
+    ftk::EditorContext& first = *row.contexts[0];
+    const ui::DockNode rearranged = ui::DockNode::left_right(
+        0.6f, ui::DockNode::tabs({first.ctx_title("Preview")}),
+        ui::DockNode::top_bottom(0.5f, ui::DockNode::tabs({first.ctx_title("Palette")}),
+                                 ui::DockNode::tabs({first.ctx_title("Elements")})));
+    ui::build_dock_tree(first.dockspace_id(), {800.0f, 600.0f}, rearranged);
+    h.step(2);
+    const std::optional<ui::DockNode> first_tree = ui::dock_tree(first.dockspace_id(), first.docked_window_names());
+    REQUIRE(first_tree.has_value());
+
+    row.open(std::make_unique<Laid>());
+    h.step(4);
+    const ftk::EditorContext& second = *row.contexts[1];
+    const std::optional<ui::DockNode> second_tree = ui::dock_tree(second.dockspace_id(), second.docked_window_names());
+    REQUIRE(second_tree.has_value());
+    CHECK(bare(*second_tree) == bare(*first_tree));
+}
+
+TEST_CASE("An editor is laid out like another only when that one holds a tree", "[ui][kit][dock]") {
+    KitHarness h;
+    Laid never_drawn;
+    Laid laid;
+    laid.set_context_id(1);
+    bool tried = false;
+    bool laid_out = true;
+    h.set_ui([&] {
+        laid.draw_dockspace(true);
+        if (!tried) {
+            laid_out = laid.lay_out_like(never_drawn, {800.0f, 600.0f});
+            tried = true;
+        }
+    });
+    h.step();
+    CHECK_FALSE(laid_out);
 }
 
 TEST_CASE("An editor's dockspace is the same one wherever it is drawn", "[ui][kit][dock]") {

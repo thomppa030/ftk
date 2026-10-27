@@ -10,6 +10,9 @@
 #include "ftk/base/log.hpp"
 
 #include <filesystem>
+#include <functional>
+#include <optional>
+#include <unordered_map>
 
 namespace ftk {
 
@@ -176,6 +179,29 @@ std::vector<std::string> EditorContext::docked_window_names() const {
     }
     for (const auto& name : bottom_tabs()) names.push_back(ctx_title(name.c_str()));
     return names;
+}
+
+bool EditorContext::lay_out_like(const EditorContext& source, glm::vec2 size) {
+    const std::vector<std::string> source_names = source.docked_window_names();
+    std::optional<ui::DockNode> tree = ui::dock_tree(source.dockspace_id(), source_names);
+    if (!tree) return false;
+
+    // Each of the source's windows as this context names it: the same name
+    // but for the context's suffix.
+    const auto base = [](const std::string& title) { return title.substr(0, title.find("##ctx")); };
+    std::unordered_map<std::string, std::string> renamed;
+    for (const std::string& name : docked_window_names()) renamed.emplace(base(name), name);
+    std::function<void(ui::DockNode&)> rename = [&](ui::DockNode& node) {
+        std::vector<std::string> windows;
+        for (const std::string& window : node.windows) {
+            if (const auto found = renamed.find(base(window)); found != renamed.end()) windows.push_back(found->second);
+        }
+        node.windows = std::move(windows);
+        for (ui::DockNode& child : node.children) rename(child);
+    };
+    rename(*tree);
+    ui::build_dock_tree(dockspace_id_, size, *tree);
+    return true;
 }
 
 void EditorContext::setup_dockspace(ui::Id main_area) {
