@@ -84,6 +84,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(FTK_PLATFORM_SOURCES
         ftk/platform/windows/child_process_windows.cpp
+        ftk/platform/windows/launch.cpp
+        ftk/platform/windows/launch.hpp
         ftk/platform/windows/pipes.cpp
         ftk/platform/windows/pipes.hpp
         ftk/platform/windows/platform_windows.cpp

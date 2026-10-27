@@ -1,7 +1,7 @@
 #include "ftk/platform/platform.hpp"
 
 #include "ftk/base/utf8.hpp"
-#include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/windows/launch.hpp"
 #include "ftk/platform/windows/pipes.hpp"
 
 #ifndef _WIN32
@@ -29,15 +29,6 @@
 #include <system_error>
 
 namespace ftk::platform {
-namespace {
-
-/// CreateProcess takes one mutable command line rather than an argv array:
-/// the arguments joined so the child reads each back as it was given.
-std::string join_args(const std::vector<std::string>& args) {
-    return detail::command_line<char>(args);
-}
-
-} // namespace
 
 std::filesystem::path executable_path() {
     std::array<wchar_t, MAX_PATH> buf{};
@@ -177,24 +168,24 @@ int run_command(const std::string& cmd, std::string& output) {
 
 Result<> spawn_detached(const std::vector<std::string>& args) {
     if (args.empty()) return make_error("spawn_detached: empty args");
+    Result<detail::Launch> to_run = detail::launch(args);
+    if (!to_run) return make_error("spawn_detached: " + to_run.error());
 
-    auto cmd_line = join_args(args);
-
-    STARTUPINFOA si{};
+    STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
 
     // CREATE_NEW_PROCESS_GROUP detaches the child from our console
-    BOOL ok = CreateProcessA(
-        nullptr,
-        cmd_line.data(), // must be mutable for CreateProcessA
+    BOOL ok = CreateProcessW(
+        to_run->program.empty() ? nullptr : to_run->program.c_str(),
+        to_run->line.data(), // must be mutable for CreateProcessW
         nullptr, nullptr,
         FALSE,
         CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
         nullptr, nullptr,
         &si, &pi);
 
-    if (!ok) return make_error("spawn_detached: CreateProcessA failed");
+    if (!ok) return make_error("spawn_detached: can't run " + args[0] + ": " + detail::reason(GetLastError()));
 
     // Close handles — we don't wait on the child
     CloseHandle(pi.hProcess);
@@ -204,23 +195,23 @@ Result<> spawn_detached(const std::vector<std::string>& args) {
 
 Result<> exec_replace(const std::vector<std::string>& args) {
     if (args.empty()) return make_error("exec_replace: empty args");
+    Result<detail::Launch> to_run = detail::launch(args);
+    if (!to_run) return make_error("exec_replace: " + to_run.error());
 
-    auto cmd_line = join_args(args);
-
-    STARTUPINFOA si{};
+    STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
 
-    BOOL ok = CreateProcessA(
-        nullptr,
-        cmd_line.data(),
+    BOOL ok = CreateProcessW(
+        to_run->program.empty() ? nullptr : to_run->program.c_str(),
+        to_run->line.data(),
         nullptr, nullptr,
         FALSE,
         0,
         nullptr, nullptr,
         &si, &pi);
 
-    if (!ok) return make_error("exec_replace: CreateProcessA failed");
+    if (!ok) return make_error("exec_replace: can't run " + args[0] + ": " + detail::reason(GetLastError()));
 
     // Wait for the child, then exit this process with its exit code
     WaitForSingleObject(pi.hProcess, INFINITE);
@@ -252,6 +243,8 @@ Result<> open_path(const std::filesystem::path& path) {
 
 Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args) {
     if (args.empty()) return make_error("spawn_with_pipe: empty args");
+    Result<detail::Launch> to_run = detail::launch(args);
+    if (!to_run) return make_error("spawn_with_pipe: " + to_run.error());
 
     // The child inherits the write end; the read end must not be inherited or
     // the pipe never reports EOF once the child exits.
@@ -270,18 +263,17 @@ Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args) {
         return make_error("spawn_with_pipe: SetHandleInformation failed");
     }
 
-    STARTUPINFOA si{};
+    STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = write_end;
     si.hStdError = write_end;
     si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
-    auto command_line = join_args(args);
-
     PROCESS_INFORMATION pi{};
-    BOOL ok = CreateProcessA(nullptr, command_line.data(), nullptr, nullptr,
-                             /*bInheritHandles=*/TRUE, 0, nullptr, nullptr, &si, &pi);
+    BOOL ok = CreateProcessW(to_run->program.empty() ? nullptr : to_run->program.c_str(), to_run->line.data(),
+                             nullptr, nullptr, /*bInheritHandles=*/TRUE, 0, nullptr, nullptr, &si, &pi);
+    const DWORD failure = ok ? 0 : GetLastError();
 
     // The parent has no use for the write end; releasing it is what lets the
     // read end see EOF after the child is gone.
@@ -289,7 +281,7 @@ Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args) {
 
     if (!ok) {
         CloseHandle(read_end);
-        return make_error("spawn_with_pipe: CreateProcessA failed");
+        return make_error("spawn_with_pipe: can't run " + args[0] + ": " + detail::reason(failure));
     }
     CloseHandle(pi.hThread);
 

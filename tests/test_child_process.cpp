@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <random>
 #include <string>
@@ -37,6 +38,17 @@ std::string read_all(ChildProcess& child, bool errors = false) {
     }
 }
 
+// The arguments the helper's "args" wrote, each ended by a zero byte.
+std::vector<std::string> arguments_written(const std::string& out) {
+    std::vector<std::string> written;
+    for (std::size_t from = 0; from < out.size();) {
+        const std::size_t zero = out.find('\0', from);
+        written.push_back(out.substr(from, zero - from));
+        from = zero + 1;
+    }
+    return written;
+}
+
 } // namespace
 
 TEST_CASE("A child reads what it is given and writes back, and its output ends when it does", "[platform][child]") {
@@ -58,14 +70,7 @@ TEST_CASE("A child gets its arguments as they were given", "[platform][child]") 
     std::vector<std::string> asked{"args"};
     asked.insert(asked.end(), args.begin(), args.end());
     auto child = start_helper(asked);
-    const std::string out = read_all(*child);
-    std::vector<std::string> got;
-    for (std::size_t from = 0; from < out.size();) {
-        const std::size_t zero = out.find('\0', from);
-        got.push_back(out.substr(from, zero - from));
-        from = zero + 1;
-    }
-    REQUIRE(got == args);
+    REQUIRE(arguments_written(read_all(*child)) == args);
 }
 
 TEST_CASE("A child starts in the folder it is given", "[platform][child]") {
@@ -107,6 +112,35 @@ TEST_CASE("Killing a child ends it, and a read waiting on it finds the end", "[p
     reader.join();
     REQUIRE(got == 0);
     REQUIRE(child->wait() == -1);
+}
+
+TEST_CASE("A child gets every letter of its arguments", "[platform][child]") {
+    const std::vector<std::string> args{"fj\xc3\xa4rd", "\xe6\x97\xa5\xe6\x9c\xac", "\xce\xa9 and \xc3\xa9"};
+    std::vector<std::string> asked{"args"};
+    asked.insert(asked.end(), args.begin(), args.end());
+    auto child = start_helper(asked);
+    REQUIRE(arguments_written(read_all(*child)) == args);
+}
+
+TEST_CASE("A program started with a pipe to its output gets its arguments as they were given, every letter",
+          "[platform][child]") {
+    const std::vector<std::string> args{"plain", "two words", "", "\"quoted\"", "ends in\\", "fj\xc3\xa4rd",
+                                        "\xe6\x97\xa5\xe6\x9c\xac"};
+    std::vector<std::string> asked{FTK_TEST_CHILD, "lines"};
+    asked.insert(asked.end(), args.begin(), args.end());
+    auto handle = ftk::platform::spawn_with_pipe(asked);
+    REQUIRE(handle.has_value());
+    std::vector<std::string> got;
+    std::string pending;
+    // Read once more after it ends, for what it wrote last.
+    for (bool ended = false; !ended;) {
+        ended = ftk::platform::poll_exit(*handle);
+        for (std::string& line : ftk::platform::read_lines(*handle, pending)) got.push_back(std::move(line));
+        if (!ended) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(handle->exit_code == 0);
+    ftk::platform::close_subprocess(*handle);
+    REQUIRE(got == args);
 }
 
 TEST_CASE("Writing to a child that has ended is an error, never the end of this program", "[platform][child]") {

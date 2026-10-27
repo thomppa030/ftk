@@ -1,6 +1,6 @@
 #include "ftk/platform/child_process.hpp"
 
-#include "ftk/platform/detail/command_line.hpp"
+#include "ftk/platform/windows/launch.hpp"
 #include "ftk/platform/windows/pipes.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -35,14 +35,6 @@ void close_handle(HANDLE& handle) {
     handle = nullptr;
 }
 
-std::wstring wide(std::string_view utf8) {
-    if (utf8.empty()) return {};
-    const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    std::wstring out(static_cast<std::size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), out.data(), size);
-    return out;
-}
-
 // A pipe whose end `kept` stays with this program, never handed to a
 // child.
 bool make_pipe(HANDLE& read_end, HANDLE& write_end, HANDLE& kept) {
@@ -59,6 +51,8 @@ ChildProcess::ChildProcess(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) 
 Result<std::unique_ptr<ChildProcess>> ChildProcess::start(std::span<const std::string> args,
                                                            const ChildOptions& options) {
     if (args.empty()) return make_error("a child needs a program to run");
+    Result<detail::Launch> to_run = detail::launch(args);
+    if (!to_run) return make_error(std::format("can't run {}: {}", args[0], to_run.error()));
 
     HANDLE input_read = nullptr;
     HANDLE input_write = nullptr;
@@ -120,14 +114,11 @@ Result<std::unique_ptr<ChildProcess>> ChildProcess::start(std::span<const std::s
     info.StartupInfo.hStdError = errors_write;
     info.lpAttributeList = attributes;
 
-    std::vector<std::wstring> wide_args;
-    wide_args.reserve(args.size());
-    for (const std::string& arg : args) wide_args.push_back(wide(arg));
-    std::wstring command = detail::command_line<wchar_t>(wide_args);
     const std::wstring folder = options.folder.wstring();
 
     PROCESS_INFORMATION started{};
-    const BOOL ran = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+    const BOOL ran = CreateProcessW(to_run->program.empty() ? nullptr : to_run->program.c_str(), to_run->line.data(),
+                                    nullptr, nullptr, TRUE,
                                     CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr,
                                     folder.empty() ? nullptr : folder.c_str(), &info.StartupInfo, &started);
     const DWORD failure = ran ? 0 : GetLastError();
