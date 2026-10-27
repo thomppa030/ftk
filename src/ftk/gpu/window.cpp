@@ -13,6 +13,10 @@ namespace ftk {
 
 namespace {
 
+// The video drivers SDL tries, in order, for a program that prefers X11:
+// XWayland where Wayland runs, Wayland where no X server does.
+constexpr const char* X11_FIRST = "x11,wayland";
+
 /// Every open window, so an event reaches the one it belongs to.
 // The program's icon, its sizes as one surface with alternates, for every
 // window to come; none until set_icon().
@@ -152,6 +156,23 @@ void Window::set_app_id(std::string_view id, std::string_view name) {
     if (!SDL_SetAppMetadata(std::string{name}.c_str(), nullptr, std::string{id}.c_str())) {
         FTK_CORE_WARN("The program's id couldn't be told to the platform: {}", SDL_GetError());
     }
+}
+
+void Window::prefer_x11(bool prefer) {
+#if defined(__linux__)
+    if (prefer) {
+        (void)SDL_SetHint(SDL_HINT_VIDEO_DRIVER, X11_FIRST);
+    } else {
+        (void)SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
+    }
+#else
+    (void)prefer;
+#endif
+}
+
+bool Window::prefers_x11() {
+    const char* drivers = SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+    return drivers != nullptr && std::strcmp(drivers, X11_FIRST) == 0;
 }
 
 void Window::set_icon(std::span<const WindowIcon> sizes) {

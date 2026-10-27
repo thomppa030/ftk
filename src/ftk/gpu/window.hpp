@@ -76,6 +76,15 @@ public:
     /// opens: `id` is what the window manager and a desktop entry know it by
     /// (on Wayland the window's app id), `name` what people read.
     static void set_app_id(std::string_view id, std::string_view name);
+    /// On Linux, whether the windows go through X11 (XWayland on a Wayland
+    /// desktop) before Wayland, asked before the first window opens:
+    /// through X11 a program places its windows and a tab is dragged from
+    /// one into another. With no X server there it is Wayland. Nothing on
+    /// other systems. Asked once a window is open, it holds from the next
+    /// start.
+    static void prefer_x11(bool prefer);
+    /// Whether X11 is asked for, as prefer_x11() left it.
+    [[nodiscard]] static bool prefers_x11();
     /// The program's icon, `sizes` largest first: every window opened from now
     /// on, and every one open but popups and tooltips, carries it (the title
     /// bar, the taskbar, a window switcher). Kept as a copy.
