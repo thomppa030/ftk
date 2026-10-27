@@ -15,11 +15,12 @@
 
 namespace ftk::ui {
 
-/// The bar, pinned to the bottom of the main viewport for as long as it
+/// The bar, pinned to the bottom of the window being drawn for as long as it
 /// lives. Items after right() sit against the right edge.
 class StatusBar {
 public:
-    StatusBar();
+    /// The bar `id`: a bar in each of the program's windows has its own.
+    explicit StatusBar(const char* id = "##StatusBar");
     ~StatusBar();
 
     StatusBar(const StatusBar&) = delete;

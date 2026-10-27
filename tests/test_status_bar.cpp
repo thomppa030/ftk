@@ -1,5 +1,6 @@
 #include "kit_harness.hpp"
 
+#include "ftk/ui/kit/other_window.hpp"
 #include "ftk/ui/kit/status_bar.hpp"
 #include "ftk/ui/theme.hpp"
 
@@ -44,6 +45,35 @@ TEST_CASE("Items after right() end against the status bar's right edge", "[ui][k
     h.step(3);
     CHECK(h.rect("left").min.x < 20.0f);
     CHECK_THAT(h.rect("right").max.x, Catch::Matchers::WithinAbs(h.size().x - ftk::theme::GAP_S, 1.0));
+}
+
+TEST_CASE("A window of the program's own has a bar of its own along its bottom", "[ui][kit]") {
+    KitHarness h;
+    h.set_ui([&] {
+        if (auto bar = ui::StatusBar()) {
+            ui::status_item(nullptr, "harbour");
+            h.mark("main");
+            bar.right();
+            ui::status_item(nullptr, "6.94 ms");
+            h.mark("main right");
+        }
+        const ui::OtherWindow other("##other", {.title = "bark.fjmat", .size = {400.0f, 300.0f}});
+        if (!other) return;
+        if (auto bar = ui::StatusBar("##StatusBar other")) {
+            ui::status_item(nullptr, "bark");
+            h.mark("other");
+            bar.right();
+            ui::status_item(nullptr, "12.50 ms");
+            h.mark("other right");
+        }
+    });
+    // Opened a frame after it is asked for; then each bar's right-hand group
+    // is placed by the width it measured.
+    h.step(5);
+    CHECK_THAT(h.rect("main").min.y, Catch::Matchers::WithinAbs(h.size().y - ftk::theme::STATUS_BAR, 0.5));
+    CHECK_THAT(h.rect("other").min.y, Catch::Matchers::WithinAbs(300.0f - ftk::theme::STATUS_BAR, 0.5));
+    CHECK_THAT(h.rect("main right").max.x, Catch::Matchers::WithinAbs(h.size().x - ftk::theme::GAP_S, 1.0));
+    CHECK_THAT(h.rect("other right").max.x, Catch::Matchers::WithinAbs(400.0f - ftk::theme::GAP_S, 1.0));
 }
 
 TEST_CASE("A state shows as a dot in its tone's colour, and a note says where it is from", "[ui][kit]") {

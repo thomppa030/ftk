@@ -59,14 +59,14 @@ const char* const RIGHT_WIDTH = "##right_width";
 
 } // namespace
 
-StatusBar::StatusBar() {
+StatusBar::StatusBar(const char* id) {
     // Along the bottom of the work area, as wide as it.
     const WorkArea work = work_area();
     next_window_place({work.pos.x, work.pos.y + work.size.y - theme::STATUS_BAR}, {work.size.x, theme::STATUS_BAR});
     Style style = kit().style;
     style.item_spacing = {0.0f, 0.0f};
     push_style(style);
-    open_ = begin_window("##StatusBar",
+    open_ = begin_window(id,
                          {.title_bar = false,
                           .resize = false,
                           .move = false,
